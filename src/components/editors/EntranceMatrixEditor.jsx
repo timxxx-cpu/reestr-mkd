@@ -1,12 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  ArrowLeft, Save, Wand2, ArrowDown, ArrowUp, 
-  DoorOpen, ChevronLeft, ChevronsRight
+  ArrowLeft, Save, Wand2, ArrowDown, 
+  ChevronLeft, ChevronsRight
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
 
-// Утилита для получения списка блоков
+// --- Хелперы (без изменений) ---
 function getBlocksList(building) {
     if (!building) return [];
     const list = [];
@@ -36,7 +36,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
     const basements = buildingDetails[`${building.id}_features`]?.basements || [];
 
-    // --- ГЕНЕРАЦИЯ СПИСКА ЭТАЖЕЙ ---
     const floorList = useMemo(() => {
         const list = [];
         const commFloors = blockDetails.commercialFloors || []; 
@@ -45,10 +44,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         const currentBlockBasements = basements.filter(b => b.blocks?.includes(currentBlock.id));
         currentBlockBasements.forEach((b, bIdx) => { 
             for(let d = b.depth; d >= 1; d--) {
-                list.push({ 
-                    id: `base_${b.id}_L${d}`, label: `Подвал -${d}`, type: 'basement', 
-                    isComm: isBasementMixed, sortOrder: -1000 - d + (bIdx * 0.1) 
-                }); 
+                list.push({ id: `base_${b.id}_L${d}`, label: `Подвал -${d}`, type: 'basement', isComm: isBasementMixed, sortOrder: -1000 - d + (bIdx * 0.1) }); 
             }
         });
         
@@ -62,17 +58,11 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         
         for(let i=start; i<=end; i++) { 
             const isMixed = commFloors.includes(i); 
-            list.push({ 
-                id: `floor_${i}`, label: `${i} этаж`, index: i, type: isMixed ? 'mixed' : 'residential', 
-                isComm: isMixed, sortOrder: i * 10 
-            }); 
+            list.push({ id: `floor_${i}`, label: `${i} этаж`, index: i, type: isMixed ? 'mixed' : 'residential', isComm: isMixed, sortOrder: i * 10 }); 
 
             if (blockDetails.technicalFloors?.includes(i)) {
                 const isTechMixed = commFloors.includes(`${i}-Т`);
-                list.push({ 
-                    id: `floor_${i}_tech`, label: `${i}-Т (Тех)`, type: 'technical', 
-                    isComm: isTechMixed, sortOrder: (i * 10) + 5 
-                });
+                list.push({ id: `floor_${i}_tech`, label: `${i}-Т (Тех)`, type: 'technical', isComm: isTechMixed, sortOrder: (i * 10) + 5 });
             }
         }
         
@@ -81,9 +71,18 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
              list.push({ id: `floor_${f}_tech_extra`, label: `${f} (Тех)`, type: 'technical', isComm: false, sortOrder: (f * 10) });
         });
 
-        if(blockDetails.hasAttic) list.push({ id: 'attic', label: 'Мансарда', type: 'attic', isComm: commFloors.includes('attic'), sortOrder: 50000 }); 
-        if(blockDetails.hasLoft) list.push({ id: 'loft', label: 'Чердак', type: 'loft', isComm: commFloors.includes('loft'), sortOrder: 55000 }); 
-        if(blockDetails.hasExploitableRoof) list.push({ id: 'roof', label: 'Кровля', type: 'roof', isComm: commFloors.includes('roof'), sortOrder: 60000 }); 
+        if(blockDetails.hasAttic) {
+            const isAtticMixed = commFloors.includes('attic');
+            list.push({ id: 'attic', label: 'Мансарда', type: 'attic', isComm: isAtticMixed, sortOrder: 50000 }); 
+        }
+        if(blockDetails.hasLoft) {
+            const isLoftMixed = commFloors.includes('loft');
+            list.push({ id: 'loft', label: 'Чердак', type: 'loft', isComm: isLoftMixed, sortOrder: 55000 }); 
+        }
+        if(blockDetails.hasExploitableRoof) {
+            const isRoofMixed = commFloors.includes('roof');
+            list.push({ id: 'roof', label: 'Кровля', type: 'roof', isComm: isRoofMixed, sortOrder: 60000 }); 
+        }
 
         return list.sort((a,b) => a.sortOrder - b.sortOrder); 
     }, [currentBlock, blockDetails, basements, building]);
@@ -104,6 +103,20 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         setFloorData(p => ({...p, [key]: {...(p[key]||{}), isDuplex: !current}})); 
     };
 
+    const getDuplexState = (f, idx) => {
+        if (!['residential', 'mixed'].includes(f.type)) return { disabled: true, title: 'Только на жилых/смешанных этажах' };
+        let hasApts = false;
+        for (const e of entrancesList) {
+            const val = getEntData(e, f.id, 'apts');
+            if (val && parseInt(val) > 0) { hasApts = true; break; }
+        }
+        if (!hasApts) return { disabled: true, title: 'Введите количество квартир' };
+        const floorAbove = floorList[idx + 1];
+        if (!floorAbove) return { disabled: true, title: 'Нет этажа сверху для второго уровня' };
+        if (floorAbove.type === 'technical') return { disabled: true, title: 'Нельзя объединить с техническим этажом' };
+        return { disabled: false, title: 'Объединить с этажом выше' };
+    };
+
     const autoFill = () => { 
         const updates = {}; 
         entrancesList.forEach(ent => floorList.forEach(f => { 
@@ -113,6 +126,20 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             updates[`${currentBlock.fullId}_ent${ent}_${f.id}`] = { apts, mopQty: 1, units: (f.isComm) ? 1 : 0 }; 
         })); 
         setEntrancesData(p => ({...p, ...updates})); 
+    };
+
+    const copyFloorToNext = (idx) => { 
+        if (idx >= floorList.length - 1) return; 
+        const currentFloor = floorList[idx]; 
+        const nextFloor = floorList[idx + 1]; 
+        const updates = {}; 
+        entrancesList.forEach(ent => { 
+            const srcKey = `${currentBlock.fullId}_ent${ent}_${currentFloor.id}`; 
+            const tgtKey = `${currentBlock.fullId}_ent${ent}_${nextFloor.id}`; 
+            const srcData = entrancesData[srcKey]; 
+            if(srcData) updates[tgtKey] = {...srcData}; 
+        }); 
+        setEntrancesData(prev => ({ ...prev, ...updates })); 
     };
 
     const fillFloorsAfter = (idx) => { 
@@ -128,20 +155,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 if(sourceValues[ent]) { updates[`${currentBlock.fullId}_ent${ent}_${targetFloor.id}`] = {...sourceValues[ent]}; } 
             }); 
         } 
-        setEntrancesData(prev => ({ ...prev, ...updates })); 
-    };
-
-    const copyFloorToNext = (idx) => { 
-        if (idx >= floorList.length - 1) return; 
-        const currentFloor = floorList[idx]; 
-        const nextFloor = floorList[idx + 1]; 
-        const updates = {}; 
-        entrancesList.forEach(ent => { 
-            const srcKey = `${currentBlock.fullId}_ent${ent}_${currentFloor.id}`; 
-            const tgtKey = `${currentBlock.fullId}_ent${ent}_${nextFloor.id}`; 
-            const srcData = entrancesData[srcKey]; 
-            if(srcData) updates[tgtKey] = {...srcData}; 
-        }); 
         setEntrancesData(prev => ({ ...prev, ...updates })); 
     };
 
@@ -183,7 +196,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-4">
                 <div className="flex gap-4 items-center">
                     <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><ArrowLeft size={24}/></button>
-                    <div><h2 className="text-2xl font-bold text-slate-800">{building.label}</h2><p className="text-slate-400 text-xs font-bold uppercase">Матрица подъездов (Квартирография)</p></div>
+                    <div><h2 className="text-2xl font-bold text-slate-800">{building.label}</h2><p className="text-slate-400 text-xs font-bold uppercase">Матрица подъездов</p></div>
                 </div>
                 <div className="flex gap-2">
                     <button onClick={autoFill} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors"><Wand2 size={14}/> Заполнить типовыми</button>
@@ -191,27 +204,33 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 </div>
             </div>
 
+            {/* Tabs */}
             <div className="flex gap-2 p-1 bg-slate-200/50 rounded-xl w-max mb-4">
                 {blocksList.map((b,i) => (<TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>Блок {i+1} ({b.type})</TabButton>))}
             </div>
 
-            {/* КОНТЕЙНЕР ТАБЛИЦЫ */}
-            {/* 1. Карточка имеет фиксированную/максимальную ширину */}
+            {/* ОСНОВНОЙ КОНТЕЙНЕР (Card) */}
             <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden flex flex-col w-full">
                 
-                {/* 2. Этот div включает скролл */}
-                <div className="flex-1 overflow-auto relative w-full" style={{ maxHeight: 'calc(100vh - 250px)' }}>
+                {/* ВАЖНОЕ ИЗМЕНЕНИЕ: 
+                    1. max-w-[calc(100vw-64px)] -> ограничивает ширину шириной экрана (минус отступы), заставляя скролл появиться.
+                    2. overflow-auto -> включает скролл.
+                */}
+                <div className="flex-1 overflow-auto relative w-full max-w-[calc(100vw-64px)]" style={{ maxHeight: 'calc(100vh - 250px)' }}>
                     
-                    {/* 3. w-max ЗАСТАВЛЯЕТ таблицу быть широкой и не сжиматься */}
-                    <table className="w-max border-collapse">
+                    {/* ТАБЛИЦА:
+                        1. table-fixed -> колонки жестко соблюдают ширину.
+                        2. w-max -> таблица растягивается на всю сумму колонок.
+                    */}
+                    <table className="border-collapse table-fixed w-max">
                         <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-30 shadow-sm">
                             <tr>
-                                {/* Колонка ЭТАЖ: Sticky Left, ширина 120px */}
-                                <th className="p-3 text-left w-32 sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
+                                {/* Sticky Left Column */}
+                                <th className="p-3 text-left w-[120px] sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
                                 
                                 {entrancesList.map(e => (
-                                    /* Колонка ПОДЪЕЗД: ширина 256px (w-64) */
-                                    <th key={e} className="p-2 w-64 border-r border-slate-200 bg-slate-50/95 backdrop-blur">
+                                    /* Fixed width column */
+                                    <th key={e} className="p-2 w-[220px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">
                                         <div className="flex flex-col items-center">
                                             <span className="text-blue-600 mb-1 font-bold text-xs">Подъезд {e}</span>
                                             <div className="grid grid-cols-3 gap-1 w-full text-center opacity-60 text-[9px]">
@@ -226,67 +245,70 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                             {floorList.map((f, idx) => {
                                 const isDuplex = floorData[`${currentBlock.fullId}_${f.id}`]?.isDuplex; 
                                 const canHaveApts = ['residential', 'mixed', 'basement', 'tsokol', 'attic'].includes(f.type);
-                                
+                                const duplexState = getDuplexState(f, idx);
+
                                 return (
                                     <tr key={f.id} className="hover:bg-blue-50/30 focus-within:bg-blue-50 transition-colors duration-200 group">
-                                        
-                                        {/* Левая колонка (Этаж) - Sticky */}
-                                        <td className="p-3 w-32 sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 z-20 border-r border-slate-200 relative group/cell shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                        {/* Sticky Left Cell */}
+                                        <td className="p-3 w-[120px] sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 z-20 border-r border-slate-200 relative group/cell shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                             <div className="flex flex-col gap-1">
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-sm font-bold text-slate-700">{f.label}</span>
                                                     {renderBadge(f.type)}
                                                 </div>
-                                                {canHaveApts && (
-                                                    <label className="flex items-center gap-1.5 text-[10px] text-slate-400 cursor-pointer hover:text-purple-600 transition-colors w-fit">
-                                                        <input type="checkbox" checked={isDuplex||false} onChange={()=>toggleDuplex(f.id)} className="rounded w-3 h-3 text-purple-600"/>
+                                                <div className="flex items-center gap-1.5 mt-1" title={duplexState.title}>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={isDuplex || false} 
+                                                        onChange={() => !duplexState.disabled && toggleDuplex(f.id)} 
+                                                        disabled={duplexState.disabled}
+                                                        className={`rounded w-3 h-3 transition-all ${duplexState.disabled ? 'cursor-not-allowed opacity-30 bg-slate-100' : 'cursor-pointer text-purple-600'}`}
+                                                    />
+                                                    <span className={`text-[10px] ${duplexState.disabled ? 'text-slate-300' : 'text-slate-500'}`}>
                                                         Двухуровневые
-                                                    </label>
-                                                )}
+                                                    </span>
+                                                </div>
                                             </div>
-                                            
                                             <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/cell:opacity-100 flex flex-col gap-1 z-30">
                                                 <button onClick={() => fillFloorsAfter(idx)} title="Заполнить вниз" className="p-1 bg-white border border-slate-200 rounded shadow hover:text-blue-600"><ArrowDown size={12}/></button>
                                                 <button onClick={() => copyFloorToNext(idx)} title="Копировать на следующий" className="p-1 bg-white border border-slate-200 rounded shadow hover:text-blue-600"><ArrowDown size={12} className="opacity-50"/></button>
                                             </div>
                                         </td>
 
-                                        {/* Ячейки подъездов - ширина 256px */}
-                                        {entrancesList.map(e => {
-                                            return (
-                                                <td key={e} className={`p-0 w-64 border-r border-slate-100 h-12 relative group/cell ${isDuplex ? 'bg-purple-50/10' : ''}`}>
-                                                    <div className="grid grid-cols-3 h-full divide-x divide-slate-100">
-                                                        <DebouncedInput 
-                                                            type="number" 
-                                                            disabled={!canHaveApts}
-                                                            className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${!canHaveApts ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : 'text-emerald-700 bg-emerald-50/30'}`} 
-                                                            value={getEntData(e, f.id, 'apts')} 
-                                                            onChange={val => setEntData(e, f.id, 'apts', val)} 
-                                                            placeholder={canHaveApts ? "-" : ""}
-                                                        />
-                                                        <DebouncedInput 
-                                                            type="number" 
-                                                            disabled={!f.isComm} 
-                                                            className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${f.isComm ? 'bg-blue-50/30 text-blue-700' : 'bg-slate-50 text-slate-200 cursor-not-allowed'}`} 
-                                                            value={getEntData(e, f.id, 'units')} 
-                                                            onChange={val => setEntData(e, f.id, 'units', val)} 
-                                                        />
-                                                        <DebouncedInput 
-                                                            type="number" 
-                                                            className="text-center text-xs font-bold outline-none h-full w-full bg-white text-slate-500 focus:text-slate-800 focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all" 
-                                                            value={getEntData(e, f.id, 'mopQty')} 
-                                                            onChange={val => setEntData(e, f.id, 'mopQty', val)} 
-                                                        />
+                                        {/* Content Cells */}
+                                        {entrancesList.map(e => (
+                                            <td key={e} className={`p-0 w-[220px] border-r border-slate-100 h-12 relative group/cell ${isDuplex ? 'bg-purple-50/10' : ''}`}>
+                                                <div className="grid grid-cols-3 h-full divide-x divide-slate-100">
+                                                    <DebouncedInput 
+                                                        type="number" 
+                                                        disabled={!canHaveApts}
+                                                        className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${!canHaveApts ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : 'text-emerald-700 bg-emerald-50/30'}`} 
+                                                        value={getEntData(e, f.id, 'apts')} 
+                                                        onChange={val => setEntData(e, f.id, 'apts', val)} 
+                                                        placeholder={canHaveApts ? "-" : ""}
+                                                    />
+                                                    <DebouncedInput 
+                                                        type="number" 
+                                                        disabled={!f.isComm} 
+                                                        className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${f.isComm ? 'bg-blue-50/30 text-blue-700' : 'bg-slate-50 text-slate-200 cursor-not-allowed'}`} 
+                                                        value={getEntData(e, f.id, 'units')} 
+                                                        onChange={val => setEntData(e, f.id, 'units', val)} 
+                                                    />
+                                                    <DebouncedInput 
+                                                        type="number" 
+                                                        className="text-center text-xs font-bold outline-none h-full w-full bg-white text-slate-500 focus:text-slate-800 focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all" 
+                                                        value={getEntData(e, f.id, 'mopQty')} 
+                                                        onChange={val => setEntData(e, f.id, 'mopQty', val)} 
+                                                    />
+                                                </div>
+                                                <div className="absolute top-0 right-0 h-full flex items-center pr-0.5 opacity-0 group-hover/cell:opacity-100 transition-opacity z-10 pointer-events-none">
+                                                    <div className="flex flex-col gap-0.5 pointer-events-auto bg-white/90 backdrop-blur-sm shadow-sm border border-slate-200 rounded p-0.5">
+                                                        {e > 1 && <button onClick={()=>copyEntranceFromLeft(f.id, e)} title="Скопировать слева" className="p-0.5 hover:text-blue-600"><ChevronLeft size={10}/></button>}
+                                                        <button onClick={()=>fillEntrancesRow(f.id, e)} title="Заполнить ряд вправо" className="p-0.5 hover:text-blue-600"><ChevronsRight size={10}/></button>
                                                     </div>
-                                                    <div className="absolute top-0 right-0 h-full flex items-center pr-0.5 opacity-0 group-hover/cell:opacity-100 transition-opacity z-10 pointer-events-none">
-                                                        <div className="flex flex-col gap-0.5 pointer-events-auto bg-white/90 backdrop-blur-sm shadow-sm border border-slate-200 rounded p-0.5">
-                                                            {e > 1 && <button onClick={()=>copyEntranceFromLeft(f.id, e)} title="Скопировать слева" className="p-0.5 hover:text-blue-600"><ChevronLeft size={10}/></button>}
-                                                            <button onClick={()=>fillEntrancesRow(f.id, e)} title="Заполнить ряд вправо" className="p-0.5 hover:text-blue-600"><ChevronsRight size={10}/></button>
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                            )
-                                        })}
+                                                </div>
+                                            </td>
+                                        ))}
                                     </tr>
                                 )
                             })}
