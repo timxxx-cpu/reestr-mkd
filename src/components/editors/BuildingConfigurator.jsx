@@ -88,6 +88,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         updateFeatures({ basements: updatedBasements });
     };
 
+    // Фильтруем подвалы только для текущего блока
     const blockBasements = (features.basements || []).filter(b => b.blocks?.includes(currentBlock?.id));
     const canAddBasement = blockBasements.length < 3;
 
@@ -155,8 +156,10 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         { id: 'firefighting', label: 'Пож.', icon: ShieldCheck, color: 'text-red-600 bg-red-50 border-red-200 hover:bg-red-100' },
     ];
 
+    // --- СПЕЦИАЛЬНЫЕ УРОВНИ ДЛЯ КНОПОК ---
     const specialCommercialLevels = [
-        { id: 'basement', label: 'Цоколь / Подвал', condition: details.hasBasementFloor },
+        { id: 'tsokol', label: 'Цоколь', condition: details.hasBasementFloor },
+        { id: 'basement', label: 'Подвал', condition: blockBasements.length > 0 }, // Показываем, если есть хоть один подвал
         { id: 'attic', label: 'Мансарда', condition: details.hasAttic },
         { id: 'loft', label: 'Чердак', condition: details.hasLoft },
         { id: 'tech', label: 'Технический этаж', condition: details.hasTechnicalFloor },
@@ -228,7 +231,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                 {[
                                     {k: 'hasBasementFloor', l: 'Цокольный этаж'}, 
                                     {k: 'hasAttic', l: 'Мансарда'}, 
-                                    {k: 'hasLoft', l: 'Чердак'}, // ДОБАВЛЕНО
+                                    {k: 'hasLoft', l: 'Чердак'}, 
                                     {k: 'hasTechnicalFloor', l: 'Технический этаж'}, 
                                     {k: 'hasExploitableRoof', l: 'Эксплуатируемая крыша'}, 
                                 ].map(({k, l}) => (
