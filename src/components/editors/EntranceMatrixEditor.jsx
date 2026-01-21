@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { 
   ArrowLeft, Save, Wand2, ArrowDown, ArrowUp, 
-  DoorOpen, ChevronLeft, ChevronsRight, Info
+  DoorOpen, ChevronLeft, ChevronsRight
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
@@ -138,10 +138,8 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
     // --- ЛОГИКА ДОСТУПНОСТИ ДУПЛЕКСА ---
     const getDuplexState = (f, idx) => {
-        // 1. Только жилые или смешанные
         if (!['residential', 'mixed'].includes(f.type)) return { disabled: true, title: 'Только на жилых/смешанных этажах' };
 
-        // 2. Проверка заполненности квартир
         let hasApts = false;
         for (const e of entrancesList) {
             const val = getEntData(e, f.id, 'apts');
@@ -152,17 +150,10 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         }
         if (!hasApts) return { disabled: true, title: 'Введите количество квартир' };
 
-        // 3. Проверка этажа сверху
-        // Так как сортировка Ascending (-1, 0, 1...), этаж сверху имеет индекс idx + 1
         const floorAbove = floorList[idx + 1];
-
-        // Если сверху ничего нет (последний этаж)
         if (!floorAbove) return { disabled: true, title: 'Нет этажа сверху для второго уровня' };
-
-        // Если сверху Технический этаж
         if (floorAbove.type === 'technical') return { disabled: true, title: 'Нельзя объединить с техническим этажом' };
 
-        // Разрешено (сверху жилой, мансарда или кровля)
         return { disabled: false, title: 'Объединить с этажом выше' };
     };
 
@@ -267,10 +258,14 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 {blocksList.map((b,i) => (<TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>Блок {i+1} ({b.type})</TabButton>))}
             </div>
 
-            {/* Таблица */}
-            <Card className="overflow-x-auto shadow-lg border-0 ring-1 ring-slate-200 rounded-xl">
-                <div className="max-h-[calc(100vh-300px)] overflow-y-auto">
-                    <table className="w-full border-collapse">
+            {/* ТАБЛИЦА (Исправленный контейнер) */}
+            <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden">
+                {/* overflow-auto: включает скролл и по X и по Y
+                    max-h-...: задает высоту окна просмотра
+                    w-full: растягивает контейнер
+                */}
+                <div className="max-h-[calc(100vh-300px)] overflow-auto relative w-full">
+                    <table className="w-full border-collapse min-w-max">
                         <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-20 shadow-sm">
                             <tr>
                                 <th className="p-3 text-left w-40 sticky left-0 bg-slate-50 z-30 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
@@ -291,7 +286,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                 const isDuplex = floorData[`${currentBlock.fullId}_${f.id}`]?.isDuplex; 
                                 const canHaveApts = ['residential', 'mixed', 'basement', 'tsokol', 'attic'].includes(f.type);
                                 
-                                // Проверка доступности чекбокса
                                 const duplexState = getDuplexState(f, idx);
 
                                 return (
@@ -304,7 +298,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                     {renderBadge(f.type)}
                                                 </div>
                                                 
-                                                {/* Чекбокс Двухуровневые */}
                                                 <div className="flex items-center gap-1.5 mt-1" title={duplexState.title}>
                                                     <input 
                                                         type="checkbox" 
@@ -316,7 +309,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                     <span className={`text-[10px] ${duplexState.disabled ? 'text-slate-300' : 'text-slate-500'}`}>
                                                         Двухуровневые
                                                     </span>
-                                                    {duplexState.disabled && <Info size={10} className="text-slate-300"/>}
                                                 </div>
                                             </div>
                                             
