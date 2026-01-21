@@ -219,7 +219,7 @@ export default function App() {
           <ProjectsDashboard 
               projects={projectsList} 
               onCreate={createProject} 
-              onOpen={setCurrentProjectId} 
+              onSelect={setCurrentProjectId} 
               onDelete={deleteProject}
               onImport={() => alert("Импорт в БД в разработке")}
           />
