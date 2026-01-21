@@ -231,6 +231,9 @@ export default function App() {
     <ToastProvider>
       <ProjectProvider key={currentProjectId} projectId={currentProjectId} user={user}>
           <ProjectEditorLayout onBack={() => setCurrentProjectId(null)} />
+      <div className="fixed bottom-1 left-1 z-[9999] px-2 py-1 bg-white/80 backdrop-blur text-[10px] text-slate-400 border border-slate-200 rounded-md pointer-events-none select-none font-mono opacity-60 hover:opacity-100 transition-opacity">
+      v{__APP_VERSION__} ({__COMMIT_HASH__}) • {__BUILD_DATE__}
+      </div>
       </ProjectProvider>
       </ToastProvider>
   );
