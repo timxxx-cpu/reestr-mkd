@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { 
-  ArrowLeft, Save, Wand2, ArrowUp, ChevronsDown 
+  ArrowLeft, Save, Wand2, ArrowUp, ChevronsDown, 
+  Layers, Ruler, Maximize2, FileText, ArrowUpFromLine, AlertCircle
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
@@ -23,7 +24,6 @@ function getBlocksList(building) {
              list.push({ id: `non_${i}`, type: 'Н', index: i, fullId: `${building.id}_non_${i}` });
          }
     }
-    // Если блоков нет (fallback), создаем основной
     if (list.length === 0) {
         list.push({ id: 'main', type: 'Основной', index: 0, fullId: `${building.id}_main` });
     }
@@ -34,68 +34,98 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     const { composition, buildingDetails, floorData, setFloorData, saveData } = useProject();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
 
-    // 1. Ищем здание
     const building = composition.find(c => c.id === buildingId);
-    
-    // --- ЗАЩИТА ОТ КРАША (ЕСЛИ ЗДАНИЕ НЕ НАЙДЕНО) ---
-    if (!building) {
-        return (
-            <div className="p-12 text-center text-slate-500">
-                <p>Здание не найдено или удалено.</p>
-                <button onClick={onBack} className="text-blue-600 font-bold mt-2 hover:underline">Вернуться назад</button>
-            </div>
-        );
-    }
 
-    // 2. Получаем список блоков
+    // Списки блоков
     const blocksList = useMemo(() => getBlocksList(building), [building]);
     const currentBlock = blocksList[activeBlockIndex];
 
-    // --- ЗАЩИТА ОТ КРАША (ЕСЛИ БЛОКИ НЕ СГЕНЕРИРОВАЛИСЬ) ---
-    if (!currentBlock) {
-        return (
-            <div className="p-12 text-center text-slate-500">
-                <p>Нет блоков для настройки.</p>
-                <button onClick={onBack} className="text-blue-600 font-bold mt-2 hover:underline">Вернуться назад</button>
-            </div>
-        );
-    }
+    if (!building || !currentBlock) return <div className="p-8">Данные не найдены</div>;
     
-    // 3. Теперь безопасно получаем детали
+    // Детали текущего блока
     const blockDetails = buildingDetails[`${building.id}_${currentBlock.id}`] || {};
-    const basements = buildingDetails[`${building.id}_features`]?.basements || [];
+    const features = buildingDetails[`${building.id}_features`] || {};
+    const basements = features.basements || [];
     
-    // Генерируем список этажей для таблицы
+    // --- ГЕНЕРАЦИЯ СПИСКА ЭТАЖЕЙ ---
     const floorList = useMemo(() => { 
         const list = []; 
         
-        // Подвалы
+        // 1. ПОДВАЛЫ
         basements.filter(b => b.blocks?.includes(currentBlock.id)).forEach(b => { 
-            for(let d=b.depth; d>=1; d--) list.push({ id: `base_${b.id}_L${d}`, label: `Подвал -${d}`, type: 'basement', sortOrder: -100-d }); 
+            for(let d = b.depth; d >= 1; d--) {
+                list.push({ 
+                    id: `base_${b.id}_L${d}`, 
+                    label: `Подвал -${d}`, 
+                    type: 'basement', 
+                    isSeparator: d === 1,
+                    sortOrder: -1000 - d 
+                }); 
+            }
         }); 
         
-        // Цоколь
-        if(blockDetails.hasBasementFloor) list.push({ id: 'floor_0', label: 'Цоколь', type: 'basement_floor', sortOrder: 0 }); 
+        // 2. ЦОКОЛЬ
+        if(blockDetails.hasBasementFloor) {
+            list.push({ id: 'tsokol', label: 'Цокольный этаж', type: 'tsokol', isSeparator: true, sortOrder: -100 }); 
+        }
         
-        // Наземные этажи
-        const isResidential = currentBlock.type === 'Ж' || (currentBlock.type === 'Основной' && building.category.includes('residential'));
+        // 3. НАЗЕМНЫЕ ЭТАЖИ
         const startFloor = blockDetails.floorsFrom || 1;
         const endFloor = blockDetails.floorsTo || 1;
         
-        for(let i=startFloor; i<=endFloor; i++) { 
-            const isTech = blockDetails.technicalFloors?.includes(i); 
-            const isComm = blockDetails.commercialFloors?.includes(i); 
-            const floorType = (!isResidential || isComm) ? 'comm' : 'res';
+        for(let i = startFloor; i <= endFloor; i++) { 
+            let type = 'residential'; 
+            if (currentBlock.type !== 'Ж' && !building.category?.includes('residential')) type = 'office'; 
             
-            list.push({ id: `floor_${i}`, label: `${i} этаж`, index: i, type: floorType, sortOrder: i }); 
+            // Если этаж отмечен в списке "Нежилые объекты", он становится СМЕШАННЫМ
+            if (blockDetails.commercialFloors?.includes(i)) type = 'mixed';
+
+            list.push({ 
+                id: `floor_${i}`, 
+                label: `${i} этаж`, 
+                index: i, 
+                type: type, 
+                sortOrder: i * 10 
+            }); 
+            
+            // Вставной тех.этаж
+            if (blockDetails.technicalFloors?.includes(i)) {
+                list.push({ 
+                    id: `floor_${i}_tech`, 
+                    label: `${i}-Т (Технический)`, 
+                    index: i, 
+                    type: 'technical', 
+                    isInserted: true, 
+                    sortOrder: (i * 10) + 5 
+                });
+            }
         } 
         
-        if(blockDetails.hasAttic) list.push({id:'attic', label:'Мансарда', type:'attic', sortOrder: 1000}); 
-        if(blockDetails.hasTechnicalFloor && blockDetails.technicalFloors?.includes(endFloor + 1)) {
-             list.push({id:`floor_${endFloor+1}_tech`, label:`${endFloor+1} (Тех)`, type:'tech', sortOrder: 1001});
+        // 4. ТЕХНИЧЕСКИЙ ЭТАЖ (НАД ПОСЛЕДНИМ)
+        const extraTechs = (blockDetails.technicalFloors || []).filter(f => f > endFloor);
+        extraTechs.forEach(f => {
+             list.push({ id: `floor_${f}_tech_extra`, label: `${f} (Технический)`, type: 'technical', sortOrder: (f * 10) });
+        });
+
+        // 5. МАНСАРДА
+        if(blockDetails.hasAttic) {
+            if(list.length > 0) list[list.length-1].isSeparator = true;
+            list.push({ id: 'attic', label: 'Мансарда', type: 'attic', sortOrder: 50000 }); 
         }
 
-        return list.sort((a,b)=>a.sortOrder-b.sortOrder); 
+        // 6. ЧЕРДАК (НОВОЕ)
+        if(blockDetails.hasLoft) {
+            if(list.length > 0) list[list.length-1].isSeparator = true;
+            list.push({ id: 'loft', label: 'Чердак', type: 'loft', sortOrder: 55000 }); 
+        }
+
+        // 7. КРЫША
+        if(blockDetails.hasExploitableRoof) {
+            if(list.length > 0) list[list.length-1].isSeparator = true;
+            list.push({ id: 'roof', label: 'Эксплуатируемая кровля', type: 'roof', sortOrder: 60000 }); 
+        }
+
+        return list.sort((a,b) => a.sortOrder - b.sortOrder); 
     }, [currentBlock, blockDetails, basements, building]);
     
     const handleInput = useCallback((floorId, field, value) => { 
@@ -103,6 +133,51 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         setFloorData(p => ({...p, [key]: { ...(p[key]||{}), [field]: value } })); 
     }, [currentBlock.fullId, setFloorData]);
 
+    // --- ФУНКЦИЯ ВАЛИДАЦИИ ---
+    const getValidationError = (floorType, field, value, allValues) => {
+        const numVal = parseFloat(value);
+        if (isNaN(numVal) && value !== '') return null; // Пустое пока не ошибка
+        if (value === '') return null; 
+
+        if (field === 'height') {
+            if (numVal <= 0) return "Высота должна быть > 0";
+            if (numVal > 4.5) return "Высота не может быть > 4.5 м";
+            // Для жилых и смешанных минимум 1.5м
+            if ((floorType === 'residential' || floorType === 'mixed') && numVal < 1.5) {
+                return "Мин. 1.5 м";
+            }
+        }
+
+        if (field === 'areaProj' || field === 'areaFact') {
+            if (numVal <= 0) return "Площадь > 0";
+        }
+
+        // Проверка расхождения площадей
+        if (field === 'areaFact' || field === 'areaProj') {
+            const proj = field === 'areaProj' ? numVal : parseFloat(allValues?.areaProj);
+            const fact = field === 'areaFact' ? numVal : parseFloat(allValues?.areaFact);
+            
+            if (proj > 0 && fact > 0) {
+                const diffPercent = Math.abs(proj - fact) / proj * 100;
+                if (diffPercent > 15) return "warning_diff";
+            }
+        }
+
+        return null;
+    };
+
+    const hasCriticalErrors = useMemo(() => {
+        for (const f of floorList) {
+            const key = `${currentBlock.fullId}_${f.id}`;
+            const val = floorData[key] || {};
+            if (getValidationError(f.type, 'height', val.height, val) && getValidationError(f.type, 'height', val.height, val) !== 'warning_diff') return true;
+            if (getValidationError(f.type, 'areaProj', val.areaProj, val) && getValidationError(f.type, 'areaProj', val.areaProj, val) !== 'warning_diff') return true;
+            if (getValidationError(f.type, 'areaFact', val.areaFact, val) && getValidationError(f.type, 'areaFact', val.areaFact, val) !== 'warning_diff') return true;
+        }
+        return false;
+    }, [floorList, floorData, currentBlock.fullId]);
+
+    // UI хелперы
     const copyFromPrev = (idx) => { 
         if (idx <= 0) return; 
         const currentFloor = floorList[idx]; 
@@ -110,7 +185,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         const currentKey = `${currentBlock.fullId}_${currentFloor.id}`; 
         const prevKey = `${currentBlock.fullId}_${prevFloor.id}`; 
         const dataToCopy = floorData[prevKey] || {}; 
-        setFloorData(prev => ({...prev, [currentKey]: { ...dataToCopy }})); 
+        setFloorData(prev => ({...prev, [currentKey]: { ...prev[currentKey], ...dataToCopy }})); 
     };
 
     const fillRest = (idx) => { 
@@ -129,13 +204,39 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         const updates = {}; 
         floorList.forEach(f => { 
             const key = `${currentBlock.fullId}_${f.id}`; 
-            updates[key] = { 
-                height: f.type === 'res' ? '3.0' : '3.6', 
-                areaProj: (Math.random()*50+400).toFixed(2), 
-                areaFact: (Math.random()*50+400).toFixed(2) 
-            }; 
+            let h = '3.00'; let s_proj = '500.00';
+            
+            if (f.type === 'basement') { h = '2.50'; s_proj = '450.00'; }
+            if (f.type === 'technical') { h = '1.80'; s_proj = '480.00'; }
+            if (f.type === 'loft') { h = '1.80'; s_proj = '480.00'; } // Чердак
+            if (f.type === 'attic') { h = '2.70'; s_proj = '350.00'; }
+            if (f.type === 'roof') { h = '0.00'; s_proj = '400.00'; }
+            if (f.type === 'mixed') { h = '3.30'; s_proj = '550.00'; } 
+            if (f.type === 'office') { h = '3.30'; s_proj = '600.00'; }
+
+            updates[key] = { height: h, areaProj: s_proj, areaFact: s_proj }; 
         }); 
         setFloorData(p => ({...p, ...updates})); 
+    };
+
+    const renderTypeBadge = (type) => {
+        const styles = {
+            residential: "bg-blue-50 text-blue-600 border-blue-100",
+            mixed: "bg-violet-50 text-violet-600 border-violet-100", 
+            technical: "bg-amber-50 text-amber-600 border-amber-100",
+            basement: "bg-slate-100 text-slate-600 border-slate-200",
+            tsokol: "bg-purple-50 text-purple-600 border-purple-100",
+            attic: "bg-teal-50 text-teal-600 border-teal-100",
+            loft: "bg-gray-100 text-gray-600 border-gray-200", // Стиль чердака
+            roof: "bg-sky-50 text-sky-600 border-sky-100",
+            office: "bg-emerald-50 text-emerald-600 border-emerald-100",
+        };
+        const labels = {
+            residential: "Жилой", mixed: "Смешанный", technical: "Технический",
+            basement: "Подвал", tsokol: "Цоколь", attic: "Мансарда",
+            loft: "Чердак", roof: "Кровля", office: "Офисы"
+        };
+        return <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${styles[type] || styles.residential}`}>{labels[type] || type}</span>;
     };
     
     return (
@@ -143,87 +244,89 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
              <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-4">
                  <div className="flex gap-4 items-center">
                      <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><ArrowLeft size={24}/></button>
-                     <div>
-                         <h2 className="text-2xl font-bold text-slate-800">{building.label}</h2>
-                         <p className="text-slate-400 text-xs font-bold uppercase">Внешняя инвентаризация блоков</p>
-                     </div>
+                     <div><h2 className="text-2xl font-bold text-slate-800">{building.label}</h2><p className="text-slate-400 text-xs font-bold uppercase">Внешняя инвентаризация (Обмеры)</p></div>
                  </div>
                  <div className="flex gap-2">
-                     <button onClick={autoFill} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors">
-                         <Wand2 size={14}/> Автозаполнение
-                     </button>
-                     <Button onClick={() => { saveData(); onBack(); }}>
-                         <Save size={14}/> Готово
+                     <button onClick={autoFill} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors shadow-sm"><Wand2 size={14}/> Автозаполнение</button>
+                     <Button onClick={() => { saveData(); onBack(); }} disabled={hasCriticalErrors} className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}>
+                         <Save size={14}/> {hasCriticalErrors ? 'Исправьте ошибки' : 'Готово'}
                      </Button>
                  </div>
              </div>
 
              <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                    <div className="flex gap-2 p-1 bg-slate-100/80 backdrop-blur rounded-xl w-max overflow-x-auto">
-                        {blocksList.map((b,i) => (
-                            <TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>
-                                Блок {i+1} ({b.type})
-                            </TabButton>
-                        ))}
-                    </div>
+                <div className="flex gap-2 p-1 bg-slate-100/80 backdrop-blur rounded-xl w-max overflow-x-auto">
+                    {blocksList.map((b,i) => (<TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>Блок {i+1} ({b.type})</TabButton>))}
                 </div>
 
-                <Card className="overflow-hidden shadow-lg border-0 ring-1 ring-slate-200">
-                    <div className="overflow-x-auto max-h-[calc(100vh-300px)]"> 
+                <Card className="overflow-hidden shadow-xl border-0 ring-1 ring-slate-200 rounded-2xl">
+                    <div className="overflow-x-auto"> 
                         <table className="w-full relative border-collapse">
-                            <thead className="sticky top-0 z-20 bg-white shadow-sm ring-1 ring-slate-100">
-                                <tr className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                                    <th className="p-4 text-left w-48 bg-slate-50/95 backdrop-blur">Этаж</th>
-                                    <th className="p-4 w-40 bg-slate-50/95 backdrop-blur text-center">Высота (м)</th>
-                                    <th className="p-4 w-40 bg-slate-50/95 backdrop-blur text-center">S Проект (м²)</th>
-                                    <th className="p-4 w-40 bg-slate-50/95 backdrop-blur text-center">S Факт (м²)</th>
+                            <thead>
+                                <tr className="text-[10px] text-slate-500 font-bold uppercase tracking-wider bg-slate-50 border-b border-slate-200">
+                                    <th className="p-4 text-left w-64">Уровень / Этаж</th>
+                                    <th className="p-4 w-48 text-center"><div className="flex items-center justify-center gap-1"><Ruler size={14}/> Высота (м)</div></th>
+                                    <th className="p-4 w-48 text-center"><div className="flex items-center justify-center gap-1"><FileText size={14}/> S Проект (м²)</div></th>
+                                    <th className="p-4 w-48 text-center"><div className="flex items-center justify-center gap-1"><Maximize2 size={14}/> S Факт (м²)</div></th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100 bg-white">
+                            <tbody className="bg-white">
                                 {floorList.map((f, idx) => {
                                     const key = `${currentBlock.fullId}_${f.id}`; 
-                                    let badgeColor = "text-slate-400 bg-slate-100";
-                                    let labelText = f.type;
-                                    if(f.type === 'res') { badgeColor = "text-blue-500 bg-blue-50"; labelText = "Жилой"; }
-                                    if(f.type === 'comm') { badgeColor = "text-amber-600 bg-amber-50"; labelText = "Коммерция"; }
-                                    if(f.type === 'tech') { badgeColor = "text-slate-500 bg-slate-200"; labelText = "Технический"; }
-                                    if(f.type === 'basement') { badgeColor = "text-indigo-500 bg-indigo-50"; labelText = "Подвал"; }
+                                    const val = floorData[key] || {};
+                                    const borderClass = f.isSeparator ? "border-b-[4px] border-slate-100" : "border-b border-slate-50";
+                                    const rowBg = f.isInserted ? "bg-amber-50/30" : "hover:bg-slate-50";
 
                                     return (
-                                        <tr key={f.id} className="hover:bg-slate-50 transition-colors group">
-                                            <td className="p-4 font-bold text-sm text-slate-700 border-r relative group/cell">
-                                                <div className="flex flex-col">
-                                                    <span>{f.label}</span>
-                                                    <span className={`text-[9px] font-bold uppercase tracking-wide w-fit px-1.5 py-0.5 rounded mt-1 ${badgeColor}`}>
-                                                        {labelText}
-                                                    </span>
+                                        <tr key={f.id} className={`${rowBg} transition-colors group ${borderClass}`}>
+                                            <td className="p-4 border-r border-slate-100 relative group/cell">
+                                                <div className="flex flex-col gap-1.5 items-start">
+                                                    <div className="flex items-center gap-2">
+                                                        {f.isInserted && <ArrowUpFromLine size={12} className="text-amber-500"/>}
+                                                        <span className={`font-bold text-sm ${f.isInserted ? 'text-amber-700' : 'text-slate-700'}`}>{f.label}</span>
+                                                    </div>
+                                                    {renderTypeBadge(f.type)}
                                                 </div>
-                                                <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/cell:opacity-100 flex gap-1 bg-white shadow-sm border border-slate-200 rounded-lg p-0.5 transition-all z-10">
-                                                    {idx > 0 && (
-                                                        <button onClick={() => copyFromPrev(idx)} title="Копировать с предыдущего" className="p-1.5 hover:bg-slate-100 rounded text-slate-500 hover:text-blue-600 transition-colors">
-                                                            <ArrowUp size={14}/>
-                                                        </button>
-                                                    )}
-                                                    <button onClick={() => fillRest(idx)} title="Применить ко всем ниже" className="p-1.5 hover:bg-slate-100 rounded text-slate-500 hover:text-blue-600 transition-colors">
-                                                        <ChevronsDown size={14}/>
-                                                    </button>
+                                                <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/cell:opacity-100 flex flex-col gap-1 z-10">
+                                                    {idx > 0 && <button onClick={() => copyFromPrev(idx)} title="Скопировать выше" className="p-1 bg-white border border-slate-200 rounded shadow-sm text-slate-400 hover:text-blue-600"><ArrowUp size={12}/></button>}
+                                                    <button onClick={() => fillRest(idx)} title="Применить ниже" className="p-1 bg-white border border-slate-200 rounded shadow-sm text-slate-400 hover:text-blue-600"><ChevronsDown size={12}/></button>
                                                 </div>
                                             </td>
-                                            {['height', 'areaProj', 'areaFact'].map(field => (
-                                                <td key={field} className="p-0 border-r relative h-14">
-                                                    <div className="absolute inset-1">
+
+                                            {[
+                                                { id: 'height', ph: '0.00' }, 
+                                                { id: 'areaProj', ph: '0.00' }, 
+                                                { id: 'areaFact', ph: '0.00' }
+                                            ].map(field => {
+                                                const error = getValidationError(f.type, field.id, val[field.id], val);
+                                                const isWarning = error === "warning_diff";
+                                                const isCritical = error && !isWarning;
+                                                
+                                                let inputClass = "bg-transparent border-transparent text-slate-400 focus:bg-white focus:border-blue-500";
+                                                if (val[field.id]) inputClass = "bg-white border-slate-200 text-slate-800 focus:border-blue-500";
+                                                if (isWarning) inputClass = "bg-yellow-50 border-yellow-300 text-yellow-800 focus:border-yellow-500";
+                                                if (isCritical) inputClass = "bg-red-50 border-red-300 text-red-800 focus:border-red-500";
+
+                                                return (
+                                                    <td key={field.id} className="p-2 border-r border-slate-100 relative h-16 group/input">
                                                         <DebouncedInput 
-                                                            type="number" 
-                                                            step="0.01" 
-                                                            className="w-full h-full text-center bg-slate-50 hover:bg-white focus:bg-white border-transparent focus:border-blue-500 rounded-lg text-sm font-semibold transition-all outline-none border-2 placeholder:text-slate-300" 
-                                                            placeholder="0.00" 
-                                                            value={floorData[key]?.[field]} 
-                                                            onChange={val=>handleInput(f.id, field, val)}
+                                                            type="number" step="0.01" 
+                                                            className={`w-full h-12 text-center rounded-xl font-bold text-sm outline-none transition-all border-2 ${inputClass}`}
+                                                            placeholder={field.ph} value={val[field.id]} onChange={v => handleInput(f.id, field.id, v)}
                                                         />
-                                                    </div>
-                                                </td>
-                                            ))}
+                                                        {error && error !== "warning_diff" && (
+                                                            <div className="absolute bottom-1 left-0 right-0 text-[9px] text-center text-red-500 font-bold pointer-events-none animate-in fade-in slide-in-from-top-1">
+                                                                {error}
+                                                            </div>
+                                                        )}
+                                                        {isWarning && (
+                                                            <div className="absolute top-1 right-1 text-yellow-500" title="Расхождение > 15%">
+                                                                <AlertCircle size={12}/>
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                );
+                                            })}
                                         </tr>
                                     )
                                 })}
