@@ -1,3 +1,6 @@
+import { ToastProvider } from './context/ToastContext';
+import { useProject } from './context/ProjectContext'; 
+import Breadcrumbs from './components/ui/Breadcrumbs'; 
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -35,81 +38,104 @@ const PlaceholderEditor = ({ title }) => (
 );
 
 // --- Внутренний лейаут редактора ---
+// --- Внутренний лейаут редактора ---
 function ProjectEditorLayout({ onBack }) {
-  const [currentStep, setCurrentStep] = useState(0);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [editingBuildingId, setEditingBuildingId] = useState(null);
-
-  const handleNext = () => {
-      setEditingBuildingId(null);
-      setCurrentStep(prev => Math.min(prev + 1, STEPS_CONFIG.length - 1));
-  };
-  const handlePrev = () => {
-      setEditingBuildingId(null);
-      setCurrentStep(prev => Math.max(prev - 1, 0));
-  };
-  const onStepChange = (idx) => {
-      setEditingBuildingId(null);
-      setCurrentStep(idx);
-  };
-
-  const renderStepContent = () => {
-    const stepId = STEPS_CONFIG[currentStep].id;
-
-    if (editingBuildingId) {
-        if (stepId === 'registry_res') return <BuildingConfigurator buildingId={editingBuildingId} mode="res" onBack={() => setEditingBuildingId(null)} />;
-        if (stepId === 'registry_nonres') return <BuildingConfigurator buildingId={editingBuildingId} mode="nonres" onBack={() => setEditingBuildingId(null)} />;
-        if (stepId === 'floors') return <FloorMatrixEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
-        if (stepId === 'entrances') return <EntranceMatrixEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
-        if (stepId === 'mop') return <MopEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
-        if (stepId === 'apartments') return <FlatMatrixEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
-        if (stepId === 'parking') return <ParkingMatrixEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
-    }
-
-    switch (stepId) {
-      case 'passport': return <PassportEditor />;
-      case 'composition': return <CompositionEditor />;
-      case 'parking_config': return <ParkingConfigurator onSave={handleNext} />;
-      case 'summary': return <SummaryDashboard />;
-      
-      case 'registry_res': 
-      case 'registry_nonres':
-      case 'floors':
-      case 'entrances':
-      case 'mop':
-      case 'apartments':
-      case 'parking':
-          return <BuildingSelector stepId={stepId} onSelect={setEditingBuildingId} />;
-          
-      default: return <PlaceholderEditor title={STEPS_CONFIG[currentStep].title} />;
-    }
-  };
-
-  return (
-    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
-      <Sidebar 
-          currentStep={currentStep} 
-          onStepChange={onStepChange} 
-          isOpen={sidebarOpen} 
-          onToggle={() => setSidebarOpen(!sidebarOpen)} 
-          onBackToDashboard={onBack} 
-      />
-      <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
-          <div className="flex-1 overflow-y-auto px-8 py-6 scroll-smooth">
-              {!editingBuildingId && <StepIndicator currentStep={currentStep} />}
-              {renderStepContent()}
-          </div>
-          {!editingBuildingId && (
-              <footer className="bg-white border-t border-slate-200 px-8 py-5 flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
-                  <button onClick={handlePrev} disabled={currentStep === 0} className={`px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 ${currentStep === 0 ? 'text-slate-300' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><ArrowLeft size={16} /> Назад</button>
-                  <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.3em]">Шаг {currentStep + 1} / {STEPS_CONFIG.length}</div>
-                  <button onClick={handleNext} disabled={currentStep === STEPS_CONFIG.length - 1} className="px-8 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-slate-300 hover:bg-black active:scale-95 transition-all flex items-center gap-2">Далее <ArrowRight size={16} /></button>
-              </footer>
-          )}
-      </main>
-    </div>
-  );
-}
+    const [currentStep, setCurrentStep] = useState(0);
+    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [editingBuildingId, setEditingBuildingId] = useState(null);
+  
+    // Достаем данные из контекста для хлебных крошек
+    const { complexInfo, composition } = useProject();
+  
+    const handleNext = () => {
+        setEditingBuildingId(null);
+        setCurrentStep(prev => Math.min(prev + 1, STEPS_CONFIG.length - 1));
+    };
+    const handlePrev = () => {
+        setEditingBuildingId(null);
+        setCurrentStep(prev => Math.max(prev - 1, 0));
+    };
+    const onStepChange = (idx) => {
+        setEditingBuildingId(null);
+        setCurrentStep(idx);
+    };
+  
+    // Находим имя текущего здания, если оно выбрано
+    const editingBuildingName = editingBuildingId 
+      ? composition.find(b => b.id === editingBuildingId)?.label 
+      : null;
+  
+    const renderStepContent = () => {
+      const stepId = STEPS_CONFIG[currentStep].id;
+  
+      if (editingBuildingId) {
+          if (stepId === 'registry_res') return <BuildingConfigurator buildingId={editingBuildingId} mode="res" onBack={() => setEditingBuildingId(null)} />;
+          if (stepId === 'registry_nonres') return <BuildingConfigurator buildingId={editingBuildingId} mode="nonres" onBack={() => setEditingBuildingId(null)} />;
+          if (stepId === 'floors') return <FloorMatrixEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
+          if (stepId === 'entrances') return <EntranceMatrixEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
+          if (stepId === 'mop') return <MopEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
+          if (stepId === 'apartments') return <FlatMatrixEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
+          if (stepId === 'parking') return <ParkingMatrixEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
+      }
+  
+      switch (stepId) {
+        case 'passport': return <PassportEditor />;
+        case 'composition': return <CompositionEditor />;
+        case 'parking_config': return <ParkingConfigurator onSave={handleNext} />;
+        case 'summary': return <SummaryDashboard />;
+        case 'history': return <VersionsManager />; 
+        
+        case 'registry_res': 
+        case 'registry_nonres':
+        case 'floors':
+        case 'entrances':
+        case 'mop':
+        case 'apartments':
+        case 'parking':
+            return <BuildingSelector stepId={stepId} onSelect={setEditingBuildingId} />;
+            
+        default: return <PlaceholderEditor title={STEPS_CONFIG[currentStep].title} />;
+      }
+    };
+  
+    return (
+      <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+        <Sidebar 
+            currentStep={currentStep} 
+            onStepChange={onStepChange} 
+            isOpen={sidebarOpen} 
+            onToggle={() => setSidebarOpen(!sidebarOpen)} 
+            onBackToDashboard={onBack} 
+        />
+        <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
+            {/* Хедер с хлебными крошками */}
+            <div className="px-8 pt-6 pb-2">
+                 <Breadcrumbs 
+                     projectName={complexInfo.name} 
+                     stepTitle={STEPS_CONFIG[currentStep].title}
+                     buildingName={editingBuildingName}
+                     onBackToStep={() => setEditingBuildingId(null)}
+                 />
+            </div>
+  
+            <div className="flex-1 overflow-y-auto px-8 pb-6 scroll-smooth">
+                {/* Если мы НЕ внутри здания, показываем индикатор шагов, иначе скрываем для экономии места */}
+                {!editingBuildingId && <StepIndicator currentStep={currentStep} />}
+                
+                {renderStepContent()}
+            </div>
+            
+            {!editingBuildingId && (
+                <footer className="bg-white border-t border-slate-200 px-8 py-5 flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+                    <button onClick={handlePrev} disabled={currentStep === 0} className={`px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 ${currentStep === 0 ? 'text-slate-300' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><ArrowLeft size={16} /> Назад</button>
+                    <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.3em]">Шаг {currentStep + 1} / {STEPS_CONFIG.length}</div>
+                    <button onClick={handleNext} disabled={currentStep === STEPS_CONFIG.length - 1} className="px-8 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-slate-300 hover:bg-black active:scale-95 transition-all flex items-center gap-2">Далее <ArrowRight size={16} /></button>
+                </footer>
+            )}
+        </main>
+      </div>
+    );
+  }
 
 // --- ГЛАВНЫЙ КОМПОНЕНТ APP ---
 export default function App() {
@@ -202,8 +228,10 @@ export default function App() {
 
   // Передаем user и projectId в провайдер, чтобы там настроить подключение
   return (
+    <ToastProvider>
       <ProjectProvider key={currentProjectId} projectId={currentProjectId} user={user}>
           <ProjectEditorLayout onBack={() => setCurrentProjectId(null)} />
       </ProjectProvider>
+      </ToastProvider>
   );
 }

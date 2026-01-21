@@ -1,3 +1,4 @@
+import { useToast } from './ToastContext';
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore'; 
 import { db, APP_ID } from '../lib/firebase'; // Импорт нашей БД
@@ -8,6 +9,7 @@ export const useProject = () => useContext(ProjectContext);
 
 export const ProjectProvider = ({ children, projectId, user }) => {
   // Состояния данных
+  const toast = useToast();
   const [complexInfo, setComplexInfo] = useState({});
   const [participants, setParticipants] = useState({});
   const [cadastre, setCadastre] = useState({});
@@ -54,46 +56,46 @@ export const ProjectProvider = ({ children, projectId, user }) => {
     return () => unsubscribe();
   }, [projectId, user]);
 
-  // 2. СОХРАНЕНИЕ (Debounced save)
-  const saveData = useCallback((updates = {}) => {
-    if (!user || !projectId) return;
-    
-    // Игнорируем события клика, если они случайно попали в updates
-    if (updates && (updates.nativeEvent || updates.type === 'click')) updates = {};
+  // 2. СОХРАНЕНИЕ
+const saveData = useCallback((updates = {}, showNotification = false) => {
+  if (!user || !projectId) return;
 
-    setIsSyncing(true);
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+  // Фильтр событий клика
+  if (updates && (updates.nativeEvent || updates.type === 'click')) {
+      updates = {};
+      showNotification = true; // Если нажали кнопку - всегда показываем уведомление
+  }
 
-    saveTimeoutRef.current = setTimeout(async () => {
-        const docRef = doc(db, 'artifacts', APP_ID, 'users', 'shared_demo_user', 'registry_data', `project_${projectId}`);
-        
-        // Собираем полный объект
-        const dataToSave = {
-            complexInfo, participants, cadastre, documents, composition,
-            buildingDetails, floorData, entrancesData, 
-            commonAreasData: mopData, // Мапим наши названия на названия в БД
-            apartmentsData: flatMatrix,
-            parkingData: parkingPlaces,
-            lastModified: new Date().toISOString(),
-            ...updates
-        };
+  setIsSyncing(true);
+  if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
-        try {
-            await setDoc(docRef, dataToSave, { merge: true });
-            
-            // Также обновляем мету в списке проектов (название и статус)
-            const metaRef = doc(db, 'artifacts', APP_ID, 'users', 'shared_demo_user', 'registry_data', 'projects_meta');
-            // Примечание: обновление списка проектов лучше делать через транзакцию или чтение-запись, 
-            // но для простоты оставим обновление внутри компонента App или здесь, если нужно.
-            
-        } catch (e) {
-            console.error("Ошибка сохранения:", e);
-        }
-        
-        setIsSyncing(false);
-    }, 1000); // Задержка 1 сек, чтобы не спамить БД
-  }, [user, projectId, complexInfo, participants, cadastre, documents, composition, buildingDetails, floorData, entrancesData, mopData, flatMatrix, parkingPlaces]);
+  saveTimeoutRef.current = setTimeout(async () => {
+      const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'registry_data', `project_${projectId}`);
 
+      const dataToSave = {
+          complexInfo, participants, cadastre, documents, composition,
+          buildingDetails, floorData, entrancesData, 
+          commonAreasData: mopData,
+          apartmentsData: flatMatrix,
+          parkingData: parkingPlaces,
+          lastModified: new Date().toISOString(),
+          ...updates
+      };
+
+      try {
+          await setDoc(docRef, dataToSave, { merge: true });
+
+          if (showNotification) {
+              toast.success("Данные успешно сохранены");
+          }
+      } catch (e) {
+          console.error("Ошибка сохранения:", e);
+          toast.error("Ошибка сохранения: " + e.message);
+      }
+
+      setIsSyncing(false);
+  }, 1000); 
+}, [user, projectId, complexInfo, participants, cadastre, documents, composition, buildingDetails, floorData, entrancesData, mopData, flatMatrix, parkingPlaces, toast]); // <-- Добавить toast в зависимости
   const value = {
     complexInfo, setComplexInfo,
     participants, setParticipants,
