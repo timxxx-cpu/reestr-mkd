@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import { execSync } from 'child_process'
 import packageJson from './package.json'
 
-// Безопасная функция получения версии
+// Безопасная функция получения 
 const getVersionInfo = () => {
   try {
     // Пытаемся получить хеш из Git
