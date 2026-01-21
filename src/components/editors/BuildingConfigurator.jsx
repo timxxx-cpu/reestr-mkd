@@ -3,7 +3,7 @@ import {
   ArrowLeft, Wand2, Save, ImageIcon, Hammer, Maximize, 
   ArrowDownToLine, X, Zap, Settings2, Trash2, Droplets, 
   Thermometer, Flame, Wind, ShieldCheck, Wifi, Store, Layers,
-  Fan, Plug
+  Fan, Plug, ArrowUpFromLine, Plus
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Select, Button, TabButton } from '../ui/UIKit';
@@ -88,7 +88,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         updateFeatures({ basements: updatedBasements });
     };
 
-    // Фильтруем подвалы только для текущего блока
     const blockBasements = (features.basements || []).filter(b => b.blocks?.includes(currentBlock?.id));
     const canAddBasement = blockBasements.length < 3;
 
@@ -109,21 +108,16 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         return Array.from({length: safeTo - from + 1}, (_, i) => from + i);
     }, [details.floorsFrom, details.floorsTo]);
 
-    const toggleFloorAttribute = (targetList, floor) => {
-        const otherList = targetList === 'commercialFloors' ? 'technicalFloors' : 'commercialFloors';
+    // Универсальный переключатель (разрешает пересечения)
+    const toggleFloorAttribute = (targetList, value) => {
         const currentTarget = details[targetList] || [];
-        const currentOther = details[otherList] || [];
-        
-        let newOther = currentOther;
-        if (!currentTarget.includes(floor) && currentOther.includes(floor)) {
-            newOther = currentOther.filter(f => f !== floor);
-        }
-        
-        const newTarget = currentTarget.includes(floor) ? currentTarget.filter(f => f !== floor) : [...currentTarget, floor];
+        const newTarget = currentTarget.includes(value) 
+            ? currentTarget.filter(f => f !== value) 
+            : [...currentTarget, value];
         
         setBuildingDetails(prev => ({
             ...prev,
-            [detailsKey]: { ...details, [targetList]: newTarget, [otherList]: newOther }
+            [detailsKey]: { ...details, [targetList]: newTarget }
         }));
     };
 
@@ -156,13 +150,12 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         { id: 'firefighting', label: 'Пож.', icon: ShieldCheck, color: 'text-red-600 bg-red-50 border-red-200 hover:bg-red-100' },
     ];
 
-    // --- СПЕЦИАЛЬНЫЕ УРОВНИ ДЛЯ КНОПОК ---
     const specialCommercialLevels = [
         { id: 'tsokol', label: 'Цоколь', condition: details.hasBasementFloor },
-        { id: 'basement', label: 'Подвал', condition: blockBasements.length > 0 }, // Показываем, если есть хоть один подвал
+        { id: 'basement', label: 'Подвал', condition: blockBasements.length > 0 },
         { id: 'attic', label: 'Мансарда', condition: details.hasAttic },
         { id: 'loft', label: 'Чердак', condition: details.hasLoft },
-        { id: 'tech', label: 'Технический этаж', condition: details.hasTechnicalFloor },
+        { id: 'tech', label: 'Технический этаж', condition: details.hasTechnicalFloor }, // Для отображения в "Нежилых"
         { id: 'roof', label: 'Крыша', condition: details.hasExploitableRoof },
     ];
 
@@ -232,7 +225,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                     {k: 'hasBasementFloor', l: 'Цокольный этаж'}, 
                                     {k: 'hasAttic', l: 'Мансарда'}, 
                                     {k: 'hasLoft', l: 'Чердак'}, 
-                                    {k: 'hasTechnicalFloor', l: 'Технический этаж'}, 
+                                    // 'hasTechnicalFloor' удален отсюда
                                     {k: 'hasExploitableRoof', l: 'Эксплуатируемая крыша'}, 
                                 ].map(({k, l}) => (
                                     <label key={k} className="flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 hover:border-blue-300 transition-colors">
@@ -242,21 +235,66 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                 ))}
                             </div>
 
+                            {/* --- ТЕХНИЧЕСКИЕ ЭТАЖИ (ВСТАВКИ) - ТЕПЕРЬ ВСЕГДА ВИДНО --- */}
+                            <div className="mt-4 p-4 bg-amber-50/50 border border-amber-100 rounded-xl animate-in fade-in slide-in-from-top-2">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="p-1.5 bg-amber-100 text-amber-600 rounded-lg"><Settings2 size={16}/></div>
+                                    <div>
+                                        <Label className="text-amber-900">Вставка тех. этажей</Label>
+                                        <p className="text-[10px] text-amber-600/80 leading-tight">Выберите этаж, <b>НАД</b> которым нужно добавить тех.этаж (например, 6 → появится 6-Т).</p>
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {floorRange.map((f, idx) => {
+                                        const isTech = details.technicalFloors?.includes(f);
+                                        const isGap = (idx > 0) && (idx % 10 === 0);
+                                        return (
+                                            <React.Fragment key={f}>
+                                                {isGap && <div className="w-3"></div>}
+                                                <button 
+                                                    onClick={() => toggleFloorAttribute('technicalFloors', f)} 
+                                                    className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border flex items-center justify-center gap-1 ${isTech ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-amber-200 text-amber-600 hover:bg-amber-50'}`}
+                                                >
+                                                    {f}
+                                                    {isTech ? <ArrowUpFromLine size={10}/> : <Plus size={10} className="opacity-50"/>}
+                                                </button>
+                                            </React.Fragment>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* --- НЕЖИЛЫЕ ОБЪЕКТЫ --- */}
                             {building.hasNonResPart && (
                                 <div className="mt-6 p-4 bg-blue-50/50 border border-blue-100 rounded-xl animate-in fade-in slide-in-from-top-2">
                                     <div className="flex items-center gap-2 mb-4">
                                         <div className="p-1.5 bg-blue-100 text-blue-600 rounded-lg"><Store size={16}/></div>
-                                        <div><Label className="text-blue-900">Нежилые объекты</Label><p className="text-[10px] text-blue-500/80 leading-tight">Выберите уровни размещения встроенных помещений.</p></div>
+                                        <div><Label className="text-blue-900">Нежилые объекты</Label><p className="text-[10px] text-blue-500/80 leading-tight">Отметьте этажи, где расположены нежилые помещения.</p></div>
                                     </div>
 
                                     <div className="flex flex-wrap gap-1.5 mb-4">
                                         {floorRange.map((f, idx) => {
                                             const isComm = details.commercialFloors?.includes(f);
+                                            const hasTechAbove = details.technicalFloors?.includes(f);
+                                            const isCommTech = details.commercialFloors?.includes(`${f}-Т`);
                                             const isGap = (idx > 0) && (idx % 10 === 0);
+                                            
                                             return (
                                                 <React.Fragment key={f}>
                                                     {isGap && <div className="w-3"></div>}
+                                                    {/* Обычный этаж */}
                                                     <button onClick={() => toggleFloorAttribute('commercialFloors', f)} className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border ${isComm ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'}`}>{f}</button>
+                                                    
+                                                    {/* Если выбран тех. этаж (f), показываем кнопку f-Т */}
+                                                    {hasTechAbove && (
+                                                        <button 
+                                                            onClick={() => toggleFloorAttribute('commercialFloors', `${f}-Т`)} 
+                                                            className={`px-1.5 h-8 rounded-md text-[10px] font-bold shadow-sm transition-all border flex items-center justify-center relative ${isCommTech ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-indigo-50 border-indigo-200 text-indigo-500 hover:bg-indigo-100'}`}
+                                                            title={`Отметить тех.этаж ${f}-Т как нежилой`}
+                                                        >
+                                                            {f}-Т
+                                                        </button>
+                                                    )}
                                                 </React.Fragment>
                                             )
                                         })}
@@ -278,28 +316,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                             </div>
                                         </div>
                                     )}
-                                </div>
-                            )}
-
-                            {details.hasTechnicalFloor && (
-                                <div className="mt-4 p-4 bg-amber-50/50 border border-amber-100 rounded-xl animate-in fade-in slide-in-from-top-2">
-                                    <div className="flex items-center gap-2 mb-3">
-                                        <div className="p-1.5 bg-amber-100 text-amber-600 rounded-lg"><Settings2 size={16}/></div>
-                                        <Label className="text-amber-900">Технические этажи</Label>
-                                    </div>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {floorRange.map((f, idx) => {
-                                            const isTech = details.technicalFloors?.includes(f);
-                                            const isGap = (idx > 0) && (idx % 10 === 0);
-                                            return (
-                                                <React.Fragment key={f}>
-                                                    {isGap && <div className="w-3"></div>}
-                                                    <button onClick={() => toggleFloorAttribute('technicalFloors', f)} className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border ${isTech ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-amber-200 text-amber-400 hover:bg-amber-100'}`}>{f}</button>
-                                                </React.Fragment>
-                                            )
-                                        })}
-                                    </div>
-                                    <p className="text-[10px] text-amber-500/80 mt-2">Технические этажи исключаются из жилого фонда.</p>
                                 </div>
                             )}
                         </Card>
