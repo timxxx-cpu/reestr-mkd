@@ -5,7 +5,6 @@ import {
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
 
-// Справочник типов МОП
 const MOP_TYPES = [
     'Лестничная клетка', 'Межквартирный коридор', 'Лифтовой холл', 'Тамбур', 'Вестибюль', 
     'Колясочная', 'Комната охраны', 'Санузел', 'ПУИ (Уборочная)', 'Электрощитовая', 
@@ -48,48 +47,29 @@ export default function MopEditor({ buildingId, onBack }) {
     const entrances = isParking ? [0] : Array.from({length: blockDetails.entrances||1}, (_, i) => i+1);
     const basements = buildingDetails[`${building.id}_features`]?.basements || [];
 
-    // --- ГЕНЕРАЦИЯ СПИСКА ЭТАЖЕЙ ---
     const floorList = useMemo(() => { 
         const list = []; 
         const currentBlockBasements = basements.filter(b => b.blocks?.includes(currentBlock.id));
         
-        // Подвалы
         currentBlockBasements.forEach((b, bIdx) => { 
             for(let d = b.depth; d >= 1; d--) {
-                list.push({ 
-                    id: `base_${b.id}_L${d}`, 
-                    label: `Подвал -${d}`, 
-                    type: 'basement', 
-                    sortOrder: -1000 - d + (bIdx * 0.1) 
-                }); 
+                list.push({ id: `base_${b.id}_L${d}`, label: `Подвал -${d}`, type: 'basement', sortOrder: -1000 - d + (bIdx * 0.1) }); 
             }
         });
         
-        // Цоколь
         if(blockDetails.hasBasementFloor) { 
             list.push({ id: 'floor_0', label: 'Цоколь', type: 'tsokol', sortOrder: 0 }); 
         }
         
-        // Наземные
         const start = blockDetails.floorsFrom || 1;
         const end = blockDetails.floorsTo || 1;
         
         for(let i=start; i<=end; i++) { 
             const isMixed = blockDetails.commercialFloors?.includes(i);
-            list.push({ 
-                id: `floor_${i}`, 
-                label: `${i} этаж`, 
-                type: isMixed ? 'mixed' : 'residential', 
-                sortOrder: i * 10 
-            }); 
+            list.push({ id: `floor_${i}`, label: `${i} этаж`, type: isMixed ? 'mixed' : 'residential', sortOrder: i * 10 }); 
 
             if (blockDetails.technicalFloors?.includes(i)) {
-                list.push({ 
-                    id: `floor_${i}_tech`, 
-                    label: `${i}-Т (Тех)`, 
-                    type: 'technical', 
-                    sortOrder: (i * 10) + 5 
-                });
+                list.push({ id: `floor_${i}_tech`, label: `${i}-Т (Тех)`, type: 'technical', sortOrder: (i * 10) + 5 });
             }
         }
         
@@ -105,7 +85,6 @@ export default function MopEditor({ buildingId, onBack }) {
         return list.sort((a,b) => a.sortOrder - b.sortOrder); 
     }, [currentBlock, blockDetails, basements, building]);
 
-    // --- Логика данных ---
     const getMops = (ent, floorId) => {
         const key = `${currentBlock.fullId}_e${ent}_f${floorId}_mops`;
         return mopData[key] || [];
@@ -140,7 +119,6 @@ export default function MopEditor({ buildingId, onBack }) {
         setMops(ent, floorId, updated);
     };
 
-    // --- Функции копирования ---
     const copyDown = (ent, startIdx) => { 
         const srcFloorId = floorList[startIdx].id; 
         const src = getMops(ent, srcFloorId); 
@@ -204,7 +182,7 @@ export default function MopEditor({ buildingId, onBack }) {
     }
 
     return (
-        <div className="space-y-6 pb-20 max-w-full mx-auto animate-in fade-in duration-500">
+        <div className="space-y-6 pb-20 w-full animate-in fade-in duration-500">
             <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-4">
                 <div className="flex gap-4 items-center">
                     <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><ArrowLeft size={24}/></button>
@@ -231,15 +209,17 @@ export default function MopEditor({ buildingId, onBack }) {
                  ))}
             </div>
 
-            {/* КОНТЕЙНЕР ТАБЛИЦЫ С ПРОКРУТКОЙ */}
-            <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden">
-                <div className="max-h-[calc(100vh-300px)] overflow-auto relative w-full">
-                    <table className="w-full text-left border-collapse min-w-max">
-                        <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-20 shadow-sm">
+            <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden flex flex-col">
+                <div className="flex-1 overflow-auto relative w-full" style={{ maxHeight: 'calc(100vh - 250px)' }}>
+                    <table className="border-collapse w-full">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-30 shadow-sm">
                             <tr>
-                                <th className="p-4 w-32 sticky left-0 bg-slate-50 z-30 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
+                                {/* Минимальная ширина 120px */}
+                                <th className="p-4 min-w-[120px] sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
+                                
                                 {entrances.map(e => (
-                                    <th key={e} className="p-4 min-w-[320px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">
+                                    /* Минимальная ширина 320px */
+                                    <th key={e} className="p-4 min-w-[320px] border-r">
                                         {isParking ? 'Зона паркинга' : `Подъезд ${e}`}
                                     </th>
                                 ))}
@@ -248,24 +228,21 @@ export default function MopEditor({ buildingId, onBack }) {
                         <tbody className="divide-y divide-slate-100 bg-white">
                             {floorList.map((f, floorIdx) => (
                                 <tr key={f.id} className="group hover:bg-blue-50/20 focus-within:bg-blue-50 transition-colors duration-200">
-                                    {/* Колонка этажа (Sticky) */}
-                                    <td className="p-3 sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 border-r border-slate-200 align-top relative z-10 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
+                                    <td className="p-3 min-w-[120px] sticky left-0 bg-white group-focus-within:bg-blue-50/20 transition-colors duration-200 border-r align-top relative z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
                                         <div className="flex flex-col gap-1.5">
                                             <span className="font-bold text-sm text-slate-700">{f.label}</span>
                                             {renderBadge(f.type)}
                                         </div>
                                     </td>
 
-                                    {/* Колонки подъездов */}
                                     {entrances.map(e => {
                                         const mops = getMops(e, f.id);
                                         
                                         return (
-                                            <td key={e} className="p-3 align-top border-r border-slate-100 relative group/cell">
+                                            <td key={e} className="p-3 min-w-[320px] align-top border-r relative group/cell">
                                                 <div className="flex flex-col gap-2 mb-2">
                                                     {mops.map((m) => (
                                                         <div key={m.id} className="flex gap-1 items-center bg-white border border-slate-200 rounded-lg p-1 shadow-sm animate-in fade-in zoom-in-95 duration-200 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300">
-                                                            {/* Выбор типа */}
                                                             <select 
                                                                 className="bg-transparent text-[10px] font-bold w-40 outline-none truncate cursor-pointer hover:text-blue-600 focus:text-blue-700" 
                                                                 value={m.type} 
@@ -274,8 +251,6 @@ export default function MopEditor({ buildingId, onBack }) {
                                                             >
                                                                 {MOP_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
                                                             </select>
-                                                            
-                                                            {/* Ввод площади */}
                                                             <DebouncedInput 
                                                                 type="number" 
                                                                 className="w-14 bg-slate-50 border border-slate-100 rounded px-1 py-0.5 text-[10px] font-medium text-center focus:bg-white focus:border-blue-300 outline-none transition-all" 
@@ -283,8 +258,6 @@ export default function MopEditor({ buildingId, onBack }) {
                                                                 value={m.area} 
                                                                 onChange={val=>updateMop(e, f.id, m.id, 'area', val)} 
                                                             />
-                                                            
-                                                            {/* Удалить */}
                                                             <button 
                                                                 onClick={()=>removeMop(e, f.id, m.id)} 
                                                                 className="p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
@@ -293,8 +266,6 @@ export default function MopEditor({ buildingId, onBack }) {
                                                             </button>
                                                         </div>
                                                     ))}
-                                                    
-                                                    {/* Кнопка Добавить */}
                                                     <button 
                                                         onClick={() => addMop(e, f.id)} 
                                                         className="self-start px-2 py-1.5 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-bold border border-transparent hover:border-blue-200 hover:text-blue-600 hover:bg-white transition-all flex items-center gap-1"
@@ -303,7 +274,6 @@ export default function MopEditor({ buildingId, onBack }) {
                                                     </button>
                                                 </div>
 
-                                                {/* Кнопки копирования (появляются при наведении) */}
                                                 <div className="flex gap-1 opacity-0 group-hover/cell:opacity-100 transition-opacity absolute top-2 right-2 z-10">
                                                     <button 
                                                         onClick={()=>copyDown(e, floorIdx)} 
