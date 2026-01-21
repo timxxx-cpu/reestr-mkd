@@ -183,7 +183,6 @@ export default function MopEditor({ buildingId, onBack }) {
 
     return (
         <div className="space-y-6 pb-20 w-full animate-in fade-in duration-500">
-            {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-4">
                 <div className="flex gap-4 items-center">
                     <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><ArrowLeft size={24}/></button>
@@ -209,21 +208,21 @@ export default function MopEditor({ buildingId, onBack }) {
                  ))}
             </div>
 
-            {/* КОНТЕЙНЕР С ОГРАНИЧЕННОЙ ШИРИНОЙ */}
+            {/* КОНТЕЙНЕР ТАБЛИЦЫ */}
             <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden flex flex-col">
                 <div 
                     className="flex-1 overflow-auto relative w-full max-w-[calc(100vw-64px)]" 
                     style={{ maxHeight: 'calc(100vh - 250px)' }}
                 >
-                    <table className="w-max border-collapse table-fixed">
+                    <table className="w-max min-w-full border-collapse table-fixed">
                         <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-30 shadow-sm">
                             <tr>
-                                {/* ЭТАЖ: Sticky Left, 140px */}
-                                <th className="p-4 w-[140px] sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
+                                {/* Колонка ЭТАЖ: Sticky Left */}
+                                <th className="p-4 w-36 min-w-[140px] sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
                                 
                                 {entrances.map(e => (
-                                    /* ПОДЪЕЗДЫ: 320px */
-                                    <th key={e} className="p-4 w-[320px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">
+                                    /* Колонка МОП: ширина 320px */
+                                    <th key={e} className="p-4 w-80 min-w-[320px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">
                                         {isParking ? 'Зона паркинга' : `Подъезд ${e}`}
                                     </th>
                                 ))}
@@ -232,19 +231,19 @@ export default function MopEditor({ buildingId, onBack }) {
                         <tbody className="divide-y divide-slate-100 bg-white">
                             {floorList.map((f, floorIdx) => (
                                 <tr key={f.id} className="group hover:bg-slate-50/50 focus-within:bg-blue-50/50 transition-colors duration-200">
-                                    {/* ЭТАЖ */}
-                                    <td className="p-3 w-[140px] sticky left-0 bg-white group-focus-within:bg-blue-50/50 transition-colors duration-200 border-r align-top relative z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
+                                    {/* ЭТАЖ: Sticky Left */}
+                                    <td className="p-3 w-36 min-w-[140px] sticky left-0 bg-white group-focus-within:bg-blue-50/50 transition-colors duration-200 border-r align-top relative z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
                                         <div className="flex flex-col gap-1.5">
                                             <span className="font-bold text-sm text-slate-700">{f.label}</span>
                                             {renderBadge(f.type)}
                                         </div>
                                     </td>
 
-                                    {/* ПОДЪЕЗДЫ */}
+                                    {/* МОПы */}
                                     {entrances.map(e => {
                                         const mops = getMops(e, f.id);
                                         return (
-                                            <td key={e} className="p-3 w-[320px] align-top border-r relative group/cell">
+                                            <td key={e} className="p-3 w-80 min-w-[320px] align-top border-r relative group/cell">
                                                 <div className="flex flex-col gap-2 mb-2">
                                                     {mops.map((m) => (
                                                         <div key={m.id} className="flex gap-1 items-center bg-white border border-slate-200 rounded-lg p-1 shadow-sm animate-in fade-in zoom-in-95 duration-200 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300">
@@ -280,22 +279,8 @@ export default function MopEditor({ buildingId, onBack }) {
                                                 </div>
 
                                                 <div className="flex gap-1 opacity-0 group-hover/cell:opacity-100 transition-opacity absolute top-2 right-2 z-10">
-                                                    <button 
-                                                        onClick={()=>copyDown(e, floorIdx)} 
-                                                        title="Скопировать этот набор на все этажи ниже" 
-                                                        className="p-1.5 bg-white border shadow-sm rounded hover:text-blue-600 hover:border-blue-200"
-                                                    >
-                                                        <ArrowDown size={14}/>
-                                                    </button>
-                                                    {!isParking && (
-                                                        <button 
-                                                            onClick={()=>copyRight(f.id, e)} 
-                                                            title="Скопировать в другие подъезды этого этажа" 
-                                                            className="p-1.5 bg-white border shadow-sm rounded hover:text-blue-600 hover:border-blue-200"
-                                                        >
-                                                            <ArrowRightIcon size={14}/>
-                                                        </button>
-                                                    )}
+                                                    <button onClick={()=>copyDown(e, floorIdx)} className="p-1.5 bg-white border shadow-sm rounded hover:text-blue-600 hover:border-blue-200"><ArrowDown size={14}/></button>
+                                                    {!isParking && (<button onClick={()=>copyRight(f.id, e)} className="p-1.5 bg-white border shadow-sm rounded hover:text-blue-600 hover:border-blue-200"><ArrowRightIcon size={14}/></button>)}
                                                 </div>
                                             </td>
                                         );

@@ -1,12 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  ArrowLeft, Save, Wand2, ArrowDown, 
-  ChevronLeft, ChevronsRight
+  ArrowLeft, Save, Wand2, ArrowDown, ArrowUp, 
+  DoorOpen, ChevronLeft, ChevronsRight
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
 
-// --- Хелперы (без изменений) ---
+// --- КОНСТАНТЫ РАЗМЕРОВ ---
+// Сделаем колонку этажа чуть уже, а подъезды оставим 180px
+const WIDTH_FLOOR = 110; 
+const WIDTH_ENT = 180; 
+
+// Утилита для получения списка блоков
 function getBlocksList(building) {
     if (!building) return [];
     const list = [];
@@ -36,6 +41,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
     const basements = buildingDetails[`${building.id}_features`]?.basements || [];
 
+    // --- ГЕНЕРАЦИЯ СПИСКА ЭТАЖЕЙ ---
     const floorList = useMemo(() => {
         const list = [];
         const commFloors = blockDetails.commercialFloors || []; 
@@ -44,7 +50,10 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         const currentBlockBasements = basements.filter(b => b.blocks?.includes(currentBlock.id));
         currentBlockBasements.forEach((b, bIdx) => { 
             for(let d = b.depth; d >= 1; d--) {
-                list.push({ id: `base_${b.id}_L${d}`, label: `Подвал -${d}`, type: 'basement', isComm: isBasementMixed, sortOrder: -1000 - d + (bIdx * 0.1) }); 
+                list.push({ 
+                    id: `base_${b.id}_L${d}`, label: `Подвал -${d}`, type: 'basement', 
+                    isComm: isBasementMixed, sortOrder: -1000 - d + (bIdx * 0.1) 
+                }); 
             }
         });
         
@@ -58,11 +67,17 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         
         for(let i=start; i<=end; i++) { 
             const isMixed = commFloors.includes(i); 
-            list.push({ id: `floor_${i}`, label: `${i} этаж`, index: i, type: isMixed ? 'mixed' : 'residential', isComm: isMixed, sortOrder: i * 10 }); 
+            list.push({ 
+                id: `floor_${i}`, label: `${i} этаж`, index: i, type: isMixed ? 'mixed' : 'residential', 
+                isComm: isMixed, sortOrder: i * 10 
+            }); 
 
             if (blockDetails.technicalFloors?.includes(i)) {
                 const isTechMixed = commFloors.includes(`${i}-Т`);
-                list.push({ id: `floor_${i}_tech`, label: `${i}-Т (Тех)`, type: 'technical', isComm: isTechMixed, sortOrder: (i * 10) + 5 });
+                list.push({ 
+                    id: `floor_${i}_tech`, label: `${i}-Т (Тех)`, type: 'technical', 
+                    isComm: isTechMixed, sortOrder: (i * 10) + 5 
+                });
             }
         }
         
@@ -152,7 +167,9 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             const targetFloor = floorList[i]; 
             if (targetFloor.type === 'technical' && sourceFloor.type !== 'technical') continue;
             entrancesList.forEach(ent => { 
-                if(sourceValues[ent]) { updates[`${currentBlock.fullId}_ent${ent}_${targetFloor.id}`] = {...sourceValues[ent]}; } 
+                if(sourceValues[ent]) { 
+                    updates[`${currentBlock.fullId}_ent${ent}_${targetFloor.id}`] = {...sourceValues[ent]}; 
+                } 
             }); 
         } 
         setEntrancesData(prev => ({ ...prev, ...updates })); 
@@ -204,33 +221,22 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 </div>
             </div>
 
-            {/* Tabs */}
             <div className="flex gap-2 p-1 bg-slate-200/50 rounded-xl w-max mb-4">
                 {blocksList.map((b,i) => (<TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>Блок {i+1} ({b.type})</TabButton>))}
             </div>
 
-            {/* ОСНОВНОЙ КОНТЕЙНЕР (Card) */}
-            <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden flex flex-col w-full">
-                
-                {/* ВАЖНОЕ ИЗМЕНЕНИЕ: 
-                    1. max-w-[calc(100vw-64px)] -> ограничивает ширину шириной экрана (минус отступы), заставляя скролл появиться.
-                    2. overflow-auto -> включает скролл.
-                */}
+            {/* КОНТЕЙНЕР ТАБЛИЦЫ */}
+            <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden flex flex-col">
                 <div className="flex-1 overflow-auto relative w-full max-w-[calc(100vw-64px)]" style={{ maxHeight: 'calc(100vh - 250px)' }}>
-                    
-                    {/* ТАБЛИЦА:
-                        1. table-fixed -> колонки жестко соблюдают ширину.
-                        2. w-max -> таблица растягивается на всю сумму колонок.
-                    */}
-                    <table className="border-collapse table-fixed w-max">
+                    <table className="w-max border-collapse table-fixed">
                         <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-30 shadow-sm">
                             <tr>
-                                {/* Sticky Left Column */}
-                                <th className="p-3 text-left w-[120px] sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
+                                {/* ЭТАЖ: Sticky Left, 110px */}
+                                <th className="p-2 text-left w-[110px] min-w-[110px] sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
                                 
                                 {entrancesList.map(e => (
-                                    /* Fixed width column */
-                                    <th key={e} className="p-2 w-[220px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">
+                                    /* ПОДЪЕЗДЫ: 180px */
+                                    <th key={e} className="p-1 w-[180px] min-w-[180px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">
                                         <div className="flex flex-col items-center">
                                             <span className="text-blue-600 mb-1 font-bold text-xs">Подъезд {e}</span>
                                             <div className="grid grid-cols-3 gap-1 w-full text-center opacity-60 text-[9px]">
@@ -248,36 +254,39 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                 const duplexState = getDuplexState(f, idx);
 
                                 return (
-                                    <tr key={f.id} className="hover:bg-blue-50/30 focus-within:bg-blue-50 transition-colors duration-200 group">
-                                        {/* Sticky Left Cell */}
-                                        <td className="p-3 w-[120px] sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 z-20 border-r border-slate-200 relative group/cell shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
-                                            <div className="flex flex-col gap-1">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-sm font-bold text-slate-700">{f.label}</span>
-                                                    {renderBadge(f.type)}
+                                    <tr key={f.id} className="hover:bg-blue-50/30 focus-within:bg-blue-50 transition-colors duration-200 group h-10"> {/* h-10 фиксирует высоту строки */}
+                                        
+                                        {/* ЯЧЕЙКА ЭТАЖА (Компактная) */}
+                                        <td className="p-1 w-[110px] min-w-[110px] sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 z-20 border-r border-slate-200 relative group/cell shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                            <div className="flex items-center justify-between h-full px-1">
+                                                <div className="flex items-center gap-1.5">
+                                                    {/* Чекбокс слева, без текста */}
+                                                    {canHaveApts && (
+                                                        <input 
+                                                            type="checkbox" 
+                                                            title={duplexState.title + (duplexState.disabled ? " (недоступно)" : "")}
+                                                            checked={isDuplex || false} 
+                                                            onChange={() => !duplexState.disabled && toggleDuplex(f.id)} 
+                                                            disabled={duplexState.disabled}
+                                                            className={`rounded w-3 h-3 transition-all flex-shrink-0 ${duplexState.disabled ? 'cursor-not-allowed opacity-30 bg-slate-100' : 'cursor-pointer text-purple-600'}`}
+                                                        />
+                                                    )}
+                                                    <span className="text-xs font-bold text-slate-700">{f.label}</span>
                                                 </div>
-                                                <div className="flex items-center gap-1.5 mt-1" title={duplexState.title}>
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={isDuplex || false} 
-                                                        onChange={() => !duplexState.disabled && toggleDuplex(f.id)} 
-                                                        disabled={duplexState.disabled}
-                                                        className={`rounded w-3 h-3 transition-all ${duplexState.disabled ? 'cursor-not-allowed opacity-30 bg-slate-100' : 'cursor-pointer text-purple-600'}`}
-                                                    />
-                                                    <span className={`text-[10px] ${duplexState.disabled ? 'text-slate-300' : 'text-slate-500'}`}>
-                                                        Двухуровневые
-                                                    </span>
-                                                </div>
+                                                {/* Бейдж справа */}
+                                                {renderBadge(f.type)}
                                             </div>
-                                            <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/cell:opacity-100 flex flex-col gap-1 z-30">
-                                                <button onClick={() => fillFloorsAfter(idx)} title="Заполнить вниз" className="p-1 bg-white border border-slate-200 rounded shadow hover:text-blue-600"><ArrowDown size={12}/></button>
-                                                <button onClick={() => copyFloorToNext(idx)} title="Копировать на следующий" className="p-1 bg-white border border-slate-200 rounded shadow hover:text-blue-600"><ArrowDown size={12} className="opacity-50"/></button>
+                                            
+                                            {/* Hover buttons */}
+                                            <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/cell:opacity-100 flex gap-1 z-30 bg-white/90 p-0.5 rounded shadow-sm border border-slate-200">
+                                                <button onClick={() => fillFloorsAfter(idx)} title="Заполнить вниз" className="p-0.5 hover:text-blue-600"><ArrowDown size={10}/></button>
+                                                <button onClick={() => copyFloorToNext(idx)} title="Копировать на следующий" className="p-0.5 hover:text-blue-600"><ArrowDown size={10} className="opacity-50"/></button>
                                             </div>
                                         </td>
 
-                                        {/* Content Cells */}
+                                        {/* ЯЧЕЙКИ ПОДЪЕЗДОВ - 180px */}
                                         {entrancesList.map(e => (
-                                            <td key={e} className={`p-0 w-[220px] border-r border-slate-100 h-12 relative group/cell ${isDuplex ? 'bg-purple-50/10' : ''}`}>
+                                            <td key={e} className={`p-0 w-[180px] min-w-[180px] border-r border-slate-100 h-10 relative group/cell ${isDuplex ? 'bg-purple-50/10' : ''}`}>
                                                 <div className="grid grid-cols-3 h-full divide-x divide-slate-100">
                                                     <DebouncedInput 
                                                         type="number" 
