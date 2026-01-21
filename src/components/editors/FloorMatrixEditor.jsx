@@ -52,14 +52,27 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         const list = []; 
         
         // 1. ПОДВАЛЫ
-        basements.filter(b => b.blocks?.includes(currentBlock.id)).forEach(b => { 
+        // Фильтруем подвалы текущего блока
+        const currentBlockBasements = basements.filter(b => b.blocks?.includes(currentBlock.id));
+        const hasMultipleBasements = currentBlockBasements.length > 1;
+
+        currentBlockBasements.forEach((b, bIdx) => { 
+            // bIdx + 1 соответствует номеру P-1, P-2 в конфигураторе
             for(let d = b.depth; d >= 1; d--) {
+                // Формируем понятное название
+                let label = `Подвал (этаж -${d})`;
+                if (hasMultipleBasements) {
+                    label = `Подвал ${bIdx + 1} (этаж -${d})`;
+                }
+
                 list.push({ 
                     id: `base_${b.id}_L${d}`, 
-                    label: `Подвал -${d}`, 
+                    label: label, 
                     type: 'basement', 
                     isSeparator: d === 1,
-                    sortOrder: -1000 - d 
+                    // Сортировка: Сначала по глубине (-2 ниже -1), 
+                    // затем по номеру подвала (Подвал 1, потом Подвал 2)
+                    sortOrder: -1000 - d + (bIdx * 0.1) 
                 }); 
             }
         }); 
@@ -77,7 +90,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
             let type = 'residential'; 
             if (currentBlock.type !== 'Ж' && !building.category?.includes('residential')) type = 'office'; 
             
-            // Если этаж отмечен в списке "Нежилые объекты", он становится СМЕШАННЫМ
             if (blockDetails.commercialFloors?.includes(i)) type = 'mixed';
 
             list.push({ 
@@ -113,7 +125,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
             list.push({ id: 'attic', label: 'Мансарда', type: 'attic', sortOrder: 50000 }); 
         }
 
-        // 6. ЧЕРДАК (НОВОЕ)
+        // 6. ЧЕРДАК
         if(blockDetails.hasLoft) {
             if(list.length > 0) list[list.length-1].isSeparator = true;
             list.push({ id: 'loft', label: 'Чердак', type: 'loft', sortOrder: 55000 }); 
@@ -140,12 +152,12 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         if (value === '') return null; 
 
         if (field === 'height') {
-            if (numVal <= 0) return "Высота должна быть > 0";
-            if (numVal > 4.5) return "Высота не может быть > 4.5 м";
-            // Для жилых и смешанных минимум 1.5м
-            if ((floorType === 'residential' || floorType === 'mixed') && numVal < 1.5) {
-                return "Мин. 1.5 м";
+            if (floorType === 'roof') {
+                if (numVal < 0) return "Не меньше 0";
+            } else {
+                if (numVal < 1.8) return "Мин. 1.8 м";
             }
+            if (numVal > 4.5) return "Макс. 4.5 м";
         }
 
         if (field === 'areaProj' || field === 'areaFact') {
@@ -208,7 +220,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
             
             if (f.type === 'basement') { h = '2.50'; s_proj = '450.00'; }
             if (f.type === 'technical') { h = '1.80'; s_proj = '480.00'; }
-            if (f.type === 'loft') { h = '1.80'; s_proj = '480.00'; } // Чердак
+            if (f.type === 'loft') { h = '1.80'; s_proj = '480.00'; } 
             if (f.type === 'attic') { h = '2.70'; s_proj = '350.00'; }
             if (f.type === 'roof') { h = '0.00'; s_proj = '400.00'; }
             if (f.type === 'mixed') { h = '3.30'; s_proj = '550.00'; } 

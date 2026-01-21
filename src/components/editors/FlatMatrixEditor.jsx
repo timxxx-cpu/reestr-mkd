@@ -1,12 +1,28 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
-  ArrowLeft, Save, Wand2, ArrowUp, ChevronsDown, 
-  Layers, Ruler, Maximize2, FileText, ArrowUpFromLine, AlertCircle
+  ArrowLeft, Save, Wand2, Table as TableIcon, Grid3X3, Info 
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
 
-// Утилита для получения списка блоков
+// --- НАСТРОЙКИ ЦВЕТОВ ---
+const ROOM_COLORS = {
+    0: 'bg-slate-50 border-slate-200 text-slate-500',   // Студия / Не указано
+    1: 'bg-yellow-50 border-yellow-200 text-yellow-700', // 1-комн
+    2: 'bg-emerald-50 border-emerald-200 text-emerald-700', // 2-комн
+    3: 'bg-sky-50 border-sky-200 text-sky-700',       // 3-комн
+    4: 'bg-purple-50 border-purple-200 text-purple-700' // 4+ комн
+};
+
+const getRoomColor = (rooms) => {
+    const r = parseInt(rooms);
+    if (!r || r < 1) return ROOM_COLORS[0];
+    if (r === 1) return ROOM_COLORS[1];
+    if (r === 2) return ROOM_COLORS[2];
+    if (r === 3) return ROOM_COLORS[3];
+    return ROOM_COLORS[4];
+};
+
 function getBlocksList(building) {
     if (!building) return [];
     const list = [];
@@ -15,326 +31,236 @@ function getBlocksList(building) {
             list.push({ id: `res_${i}`, type: 'Ж', index: i, fullId: `${building.id}_res_${i}` });
         }
     }
-    if (building.category === 'parking_separate') {
-         list.push({ id: 'main', type: 'Паркинг', index: 0, fullId: `${building.id}_main` });
-    } else if (building.category === 'infrastructure') {
-         list.push({ id: 'main', type: 'Инфра', index: 0, fullId: `${building.id}_main` });
-    } else {
-         for(let i=0; i<(building.nonResBlocks || 0); i++) {
-             list.push({ id: `non_${i}`, type: 'Н', index: i, fullId: `${building.id}_non_${i}` });
-         }
-    }
-    if (list.length === 0) {
+    if (list.length === 0 && building.category.includes('residential')) {
         list.push({ id: 'main', type: 'Основной', index: 0, fullId: `${building.id}_main` });
     }
     return list;
 }
 
-export default function FloorMatrixEditor({ buildingId, onBack }) {
-    const { composition, buildingDetails, floorData, setFloorData, saveData } = useProject();
+export default function FlatMatrixEditor({ buildingId, onBack }) {
+    const { 
+        composition, buildingDetails, entrancesData, 
+        flatMatrix, setFlatMatrix, floorData, saveData 
+    } = useProject();
+    
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
+    const [viewMode, setViewMode] = useState('grid'); // По умолчанию Сетка, так нагляднее
+    const [startNum, setStartNum] = useState(1);
 
     const building = composition.find(c => c.id === buildingId);
+    if (!building) return <div className="p-8 text-center text-slate-500">Здание не найдено</div>;
 
-    // Списки блоков
     const blocksList = useMemo(() => getBlocksList(building), [building]);
     const currentBlock = blocksList[activeBlockIndex];
 
-    if (!building || !currentBlock) return <div className="p-8">Данные не найдены</div>;
-    
-    // Детали текущего блока
+    if (!currentBlock) return <div className="p-8 text-center text-slate-500">Нет жилых блоков</div>;
+
     const blockDetails = buildingDetails[`${building.id}_${currentBlock.id}`] || {};
-    const features = buildingDetails[`${building.id}_features`] || {};
-    const basements = features.basements || [];
-    
-    // --- ГЕНЕРАЦИЯ СПИСКА ЭТАЖЕЙ ---
-    const floorList = useMemo(() => { 
-        const list = []; 
-        
-        // 1. ПОДВАЛЫ
+    const basements = buildingDetails[`${building.id}_features`]?.basements || [];
+    const entrancesCount = blockDetails.entrances || 1;
+    const entrances = Array.from({ length: entrancesCount }, (_, i) => i + 1);
+
+    const floorList = useMemo(() => {
+        const list = [];
         basements.filter(b => b.blocks?.includes(currentBlock.id)).forEach(b => { 
-            for(let d = b.depth; d >= 1; d--) {
-                list.push({ 
-                    id: `base_${b.id}_L${d}`, 
-                    label: `Подвал -${d}`, 
-                    type: 'basement', 
-                    isSeparator: d === 1,
-                    sortOrder: -1000 - d 
-                }); 
+            for(let d=b.depth; d>=1; d--) {
+                list.push({ id: `base_${b.id}_L${d}`, label: `-${d}`, type: 'basement', sortOrder: -100-d }); 
             }
-        }); 
-        
-        // 2. ЦОКОЛЬ
-        if(blockDetails.hasBasementFloor) {
-            list.push({ id: 'tsokol', label: 'Цокольный этаж', type: 'tsokol', isSeparator: true, sortOrder: -100 }); 
-        }
-        
-        // 3. НАЗЕМНЫЕ ЭТАЖИ
-        const startFloor = blockDetails.floorsFrom || 1;
-        const endFloor = blockDetails.floorsTo || 1;
-        
-        for(let i = startFloor; i <= endFloor; i++) { 
-            let type = 'residential'; 
-            if (currentBlock.type !== 'Ж' && !building.category?.includes('residential')) type = 'office'; 
-            
-            // Если этаж отмечен в списке "Нежилые объекты", он становится СМЕШАННЫМ
-            if (blockDetails.commercialFloors?.includes(i)) type = 'mixed';
-
-            list.push({ 
-                id: `floor_${i}`, 
-                label: `${i} этаж`, 
-                index: i, 
-                type: type, 
-                sortOrder: i * 10 
-            }); 
-            
-            // Вставной тех.этаж
-            if (blockDetails.technicalFloors?.includes(i)) {
-                list.push({ 
-                    id: `floor_${i}_tech`, 
-                    label: `${i}-Т (Технический)`, 
-                    index: i, 
-                    type: 'technical', 
-                    isInserted: true, 
-                    sortOrder: (i * 10) + 5 
-                });
-            }
-        } 
-        
-        // 4. ТЕХНИЧЕСКИЙ ЭТАЖ (НАД ПОСЛЕДНИМ)
-        const extraTechs = (blockDetails.technicalFloors || []).filter(f => f > endFloor);
-        extraTechs.forEach(f => {
-             list.push({ id: `floor_${f}_tech_extra`, label: `${f} (Технический)`, type: 'technical', sortOrder: (f * 10) });
         });
-
-        // 5. МАНСАРДА
-        if(blockDetails.hasAttic) {
-            if(list.length > 0) list[list.length-1].isSeparator = true;
-            list.push({ id: 'attic', label: 'Мансарда', type: 'attic', sortOrder: 50000 }); 
+        if(blockDetails.hasBasementFloor) {
+            list.push({ id: 'floor_0', label: '0', index: 0, type: 'basement_floor', sortOrder: 0 });
         }
-
-        // 6. ЧЕРДАК
-        if(blockDetails.hasLoft) {
-            if(list.length > 0) list[list.length-1].isSeparator = true;
-            list.push({ id: 'loft', label: 'Чердак', type: 'loft', sortOrder: 55000 }); 
+        const start = blockDetails.floorsFrom || 1;
+        const end = blockDetails.floorsTo || 1;
+        for(let i=start; i<=end; i++) {
+             list.push({ id: `floor_${i}`, label: `${i}`, index: i, type: 'res', sortOrder: i });
         }
-
-        // 7. КРЫША
-        if(blockDetails.hasExploitableRoof) {
-            if(list.length > 0) list[list.length-1].isSeparator = true;
-            list.push({ id: 'roof', label: 'Эксплуатируемая кровля', type: 'roof', sortOrder: 60000 }); 
-        }
-
-        return list.sort((a,b) => a.sortOrder - b.sortOrder); 
+        return list.sort((a,b)=>a.sortOrder-b.sortOrder);
     }, [currentBlock, blockDetails, basements, building]);
-    
-    const handleInput = useCallback((floorId, field, value) => { 
-        const key = `${currentBlock.fullId}_${floorId}`; 
-        setFloorData(p => ({...p, [key]: { ...(p[key]||{}), [field]: value } })); 
-    }, [currentBlock.fullId, setFloorData]);
 
-    // --- ФУНКЦИЯ ВАЛИДАЦИИ ---
-    const getValidationError = (floorType, field, value, allValues) => {
-        const numVal = parseFloat(value);
-        if (isNaN(numVal) && value !== '') return null; // Пустое пока не ошибка
-        if (value === '') return null; 
-
-        if (field === 'height') {
-            if (floorType === 'roof') {
-                if (numVal < 0) return "Не меньше 0";
-            } else {
-                if (numVal < 1.8) return "Мин. 1.8 м";
-            }
-            if (numVal > 4.5) return "Макс. 4.5 м";
-        }
-
-        if (field === 'areaProj' || field === 'areaFact') {
-            if (numVal <= 0) return "Площадь > 0";
-        }
-
-        // Проверка расхождения площадей
-        if (field === 'areaFact' || field === 'areaProj') {
-            const proj = field === 'areaProj' ? numVal : parseFloat(allValues?.areaProj);
-            const fact = field === 'areaFact' ? numVal : parseFloat(allValues?.areaFact);
-            
-            if (proj > 0 && fact > 0) {
-                const diffPercent = Math.abs(proj - fact) / proj * 100;
-                if (diffPercent > 15) return "warning_diff";
-            }
-        }
-
-        return null;
+    // Хелперы
+    const getApt = (ent, floorId, idx) => {
+        const key = `${currentBlock.fullId}_e${ent}_f${floorId}_i${idx}`;
+        return flatMatrix[key] || { num: '', type: 'flat', rooms: '', area: '' };
     };
 
-    const hasCriticalErrors = useMemo(() => {
-        for (const f of floorList) {
-            const key = `${currentBlock.fullId}_${f.id}`;
-            const val = floorData[key] || {};
-            if (getValidationError(f.type, 'height', val.height, val) && getValidationError(f.type, 'height', val.height, val) !== 'warning_diff') return true;
-            if (getValidationError(f.type, 'areaProj', val.areaProj, val) && getValidationError(f.type, 'areaProj', val.areaProj, val) !== 'warning_diff') return true;
-            if (getValidationError(f.type, 'areaFact', val.areaFact, val) && getValidationError(f.type, 'areaFact', val.areaFact, val) !== 'warning_diff') return true;
-        }
-        return false;
-    }, [floorList, floorData, currentBlock.fullId]);
-
-    // UI хелперы
-    const copyFromPrev = (idx) => { 
-        if (idx <= 0) return; 
-        const currentFloor = floorList[idx]; 
-        const prevFloor = floorList[idx - 1]; 
-        const currentKey = `${currentBlock.fullId}_${currentFloor.id}`; 
-        const prevKey = `${currentBlock.fullId}_${prevFloor.id}`; 
-        const dataToCopy = floorData[prevKey] || {}; 
-        setFloorData(prev => ({...prev, [currentKey]: { ...prev[currentKey], ...dataToCopy }})); 
+    const updateApt = (ent, floorId, idx, field, val) => {
+        const key = `${currentBlock.fullId}_e${ent}_f${floorId}_i${idx}`;
+        setFlatMatrix(prev => ({
+            ...prev,
+            [key]: { ...(prev[key] || { type: 'flat' }), [field]: val }
+        }));
     };
 
-    const fillRest = (idx) => { 
-        const sourceFloor = floorList[idx]; 
-        const sourceKey = `${currentBlock.fullId}_${sourceFloor.id}`; 
-        const sourceData = floorData[sourceKey] || {}; 
-        const updates = {}; 
-        for(let i = idx + 1; i < floorList.length; i++) { 
-            const targetFloor = floorList[i]; 
-            updates[`${currentBlock.fullId}_${targetFloor.id}`] = { ...sourceData }; 
-        } 
-        setFloorData(prev => ({ ...prev, ...updates })); 
+    const autoNumber = () => {
+        let n = startNum;
+        const updates = {};
+        entrances.forEach(e => {
+            floorList.forEach(f => {
+                const entKey = `${currentBlock.fullId}_ent${e}_${f.id}`;
+                const count = parseInt(entrancesData[entKey]?.apts || 0);
+                for(let i=0; i<count; i++) {
+                    const aptKey = `${currentBlock.fullId}_e${e}_f${f.id}_i${i}`;
+                    updates[aptKey] = { 
+                        ...(flatMatrix[aptKey] || {}), 
+                        num: n++, 
+                        type: flatMatrix[aptKey]?.type || 'flat' 
+                    };
+                }
+            });
+        });
+        setFlatMatrix(p => ({...p, ...updates}));
     };
 
-    const autoFill = () => { 
-        const updates = {}; 
-        floorList.forEach(f => { 
-            const key = `${currentBlock.fullId}_${f.id}`; 
-            let h = '3.00'; let s_proj = '500.00';
-            
-            if (f.type === 'basement') { h = '2.50'; s_proj = '450.00'; }
-            if (f.type === 'technical') { h = '1.80'; s_proj = '480.00'; }
-            if (f.type === 'loft') { h = '1.80'; s_proj = '480.00'; } // Чердак
-            if (f.type === 'attic') { h = '2.70'; s_proj = '350.00'; }
-            if (f.type === 'roof') { h = '0.00'; s_proj = '400.00'; }
-            if (f.type === 'mixed') { h = '3.30'; s_proj = '550.00'; } 
-            if (f.type === 'office') { h = '3.30'; s_proj = '600.00'; }
-
-            updates[key] = { height: h, areaProj: s_proj, areaFact: s_proj }; 
-        }); 
-        setFloorData(p => ({...p, ...updates})); 
-    };
-
-    const renderTypeBadge = (type) => {
-        const styles = {
-            residential: "bg-blue-50 text-blue-600 border-blue-100",
-            mixed: "bg-violet-50 text-violet-600 border-violet-100", 
-            technical: "bg-amber-50 text-amber-600 border-amber-100",
-            basement: "bg-slate-100 text-slate-600 border-slate-200",
-            tsokol: "bg-purple-50 text-purple-600 border-purple-100",
-            attic: "bg-teal-50 text-teal-600 border-teal-100",
-            loft: "bg-gray-100 text-gray-600 border-gray-200", // Стиль чердака
-            roof: "bg-sky-50 text-sky-600 border-sky-100",
-            office: "bg-emerald-50 text-emerald-600 border-emerald-100",
-        };
-        const labels = {
-            residential: "Жилой", mixed: "Смешанный", technical: "Технический",
-            basement: "Подвал", tsokol: "Цоколь", attic: "Мансарда",
-            loft: "Чердак", roof: "Кровля", office: "Офисы"
-        };
-        return <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${styles[type] || styles.residential}`}>{labels[type] || type}</span>;
-    };
-    
     return (
-        <div className="space-y-6 pb-20 max-w-7xl mx-auto animate-in fade-in duration-500">
-             <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-4">
-                 <div className="flex gap-4 items-center">
-                     <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><ArrowLeft size={24}/></button>
-                     <div><h2 className="text-2xl font-bold text-slate-800">{building.label}</h2><p className="text-slate-400 text-xs font-bold uppercase">Внешняя инвентаризация (Обмеры)</p></div>
-                 </div>
-                 <div className="flex gap-2">
-                     <button onClick={autoFill} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors shadow-sm"><Wand2 size={14}/> Автозаполнение</button>
-                     <Button onClick={() => { saveData(); onBack(); }} disabled={hasCriticalErrors} className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}>
-                         <Save size={14}/> {hasCriticalErrors ? 'Исправьте ошибки' : 'Готово'}
-                     </Button>
-                 </div>
-             </div>
-
-             <div className="space-y-6">
-                <div className="flex gap-2 p-1 bg-slate-100/80 backdrop-blur rounded-xl w-max overflow-x-auto">
-                    {blocksList.map((b,i) => (<TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>Блок {i+1} ({b.type})</TabButton>))}
-                </div>
-
-                <Card className="overflow-hidden shadow-xl border-0 ring-1 ring-slate-200 rounded-2xl">
-                    <div className="overflow-x-auto"> 
-                        <table className="w-full relative border-collapse">
-                            <thead>
-                                <tr className="text-[10px] text-slate-500 font-bold uppercase tracking-wider bg-slate-50 border-b border-slate-200">
-                                    <th className="p-4 text-left w-64">Уровень / Этаж</th>
-                                    <th className="p-4 w-48 text-center"><div className="flex items-center justify-center gap-1"><Ruler size={14}/> Высота (м)</div></th>
-                                    <th className="p-4 w-48 text-center"><div className="flex items-center justify-center gap-1"><FileText size={14}/> S Проект (м²)</div></th>
-                                    <th className="p-4 w-48 text-center"><div className="flex items-center justify-center gap-1"><Maximize2 size={14}/> S Факт (м²)</div></th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white">
-                                {floorList.map((f, idx) => {
-                                    const key = `${currentBlock.fullId}_${f.id}`; 
-                                    const val = floorData[key] || {};
-                                    const borderClass = f.isSeparator ? "border-b-[4px] border-slate-100" : "border-b border-slate-50";
-                                    const rowBg = f.isInserted ? "bg-amber-50/30" : "hover:bg-slate-50";
-
-                                    return (
-                                        <tr key={f.id} className={`${rowBg} transition-colors group ${borderClass}`}>
-                                            <td className="p-4 border-r border-slate-100 relative group/cell">
-                                                <div className="flex flex-col gap-1.5 items-start">
-                                                    <div className="flex items-center gap-2">
-                                                        {f.isInserted && <ArrowUpFromLine size={12} className="text-amber-500"/>}
-                                                        <span className={`font-bold text-sm ${f.isInserted ? 'text-amber-700' : 'text-slate-700'}`}>{f.label}</span>
-                                                    </div>
-                                                    {renderTypeBadge(f.type)}
-                                                </div>
-                                                <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/cell:opacity-100 flex flex-col gap-1 z-10">
-                                                    {idx > 0 && <button onClick={() => copyFromPrev(idx)} title="Скопировать выше" className="p-1 bg-white border border-slate-200 rounded shadow-sm text-slate-400 hover:text-blue-600"><ArrowUp size={12}/></button>}
-                                                    <button onClick={() => fillRest(idx)} title="Применить ниже" className="p-1 bg-white border border-slate-200 rounded shadow-sm text-slate-400 hover:text-blue-600"><ChevronsDown size={12}/></button>
-                                                </div>
-                                            </td>
-
-                                            {[
-                                                { id: 'height', ph: '0.00' }, 
-                                                { id: 'areaProj', ph: '0.00' }, 
-                                                { id: 'areaFact', ph: '0.00' }
-                                            ].map(field => {
-                                                const error = getValidationError(f.type, field.id, val[field.id], val);
-                                                const isWarning = error === "warning_diff";
-                                                const isCritical = error && !isWarning;
-                                                
-                                                let inputClass = "bg-transparent border-transparent text-slate-400 focus:bg-white focus:border-blue-500";
-                                                if (val[field.id]) inputClass = "bg-white border-slate-200 text-slate-800 focus:border-blue-500";
-                                                if (isWarning) inputClass = "bg-yellow-50 border-yellow-300 text-yellow-800 focus:border-yellow-500";
-                                                if (isCritical) inputClass = "bg-red-50 border-red-300 text-red-800 focus:border-red-500";
-
-                                                return (
-                                                    <td key={field.id} className="p-2 border-r border-slate-100 relative h-16 group/input">
-                                                        <DebouncedInput 
-                                                            type="number" step="0.01" 
-                                                            className={`w-full h-12 text-center rounded-xl font-bold text-sm outline-none transition-all border-2 ${inputClass}`}
-                                                            placeholder={field.ph} value={val[field.id]} onChange={v => handleInput(f.id, field.id, v)}
-                                                        />
-                                                        {error && error !== "warning_diff" && (
-                                                            <div className="absolute bottom-1 left-0 right-0 text-[9px] text-center text-red-500 font-bold pointer-events-none animate-in fade-in slide-in-from-top-1">
-                                                                {error}
-                                                            </div>
-                                                        )}
-                                                        {isWarning && (
-                                                            <div className="absolute top-1 right-1 text-yellow-500" title="Расхождение > 15%">
-                                                                <AlertCircle size={12}/>
-                                                            </div>
-                                                        )}
-                                                    </td>
-                                                );
-                                            })}
-                                        </tr>
-                                    )
-                                })}
-                            </tbody>
-                        </table>
+        <div className="space-y-6 pb-20 max-w-full mx-auto animate-in fade-in duration-500">
+            {/* Хедер */}
+            <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-4">
+                <div className="flex gap-4 items-center">
+                    <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><ArrowLeft size={24}/></button>
+                    <div>
+                        <h2 className="text-2xl font-bold text-slate-800">{building.label}</h2>
+                        <p className="text-slate-400 text-xs font-bold uppercase">Квартирография</p>
                     </div>
-                </Card>
+                </div>
+                <div className="flex gap-2">
+                    <div className="flex bg-slate-100 p-1 rounded-xl">
+                        <button onClick={()=>setViewMode('table')} className={`p-2 rounded-lg transition-all ${viewMode==='table'?'bg-white shadow text-blue-600':'text-slate-400'}`} title="Таблица"><TableIcon size={16}/></button>
+                        <button onClick={()=>setViewMode('grid')} className={`p-2 rounded-lg transition-all ${viewMode==='grid'?'bg-white shadow text-blue-600':'text-slate-400'}`} title="Сетка"><Grid3X3 size={16}/></button>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 bg-slate-100 px-3 rounded-xl border border-slate-200">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">Старт №:</span>
+                        <input className="w-12 bg-transparent font-bold text-xs text-slate-700 outline-none text-center" value={startNum} onChange={e=>setStartNum(parseInt(e.target.value)||1)} />
+                    </div>
+
+                    <button onClick={autoNumber} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors">
+                        <Wand2 size={14}/> Авто-нум.
+                    </button>
+                    <Button onClick={() => { saveData(); onBack(); }}><Save size={14}/> Готово</Button>
+                </div>
             </div>
+
+            <div className="flex gap-2 mb-4">
+                 {blocksList.map((b,i) => (<TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>Блок {i+1}</TabButton>))}
+            </div>
+
+            {/* Легенда цветов (Видна только в режиме сетки) */}
+            {viewMode === 'grid' && (
+                <div className="flex gap-4 mb-6 px-4 py-3 bg-white border border-slate-200 rounded-xl shadow-sm text-xs">
+                    <div className="font-bold text-slate-400 flex items-center gap-2"><Info size={14}/> Комнатность:</div>
+                    {[
+                        {l:'Студия / ?', c: ROOM_COLORS[0]}, 
+                        {l:'1-комн', c: ROOM_COLORS[1]}, 
+                        {l:'2-комн', c: ROOM_COLORS[2]}, 
+                        {l:'3-комн', c: ROOM_COLORS[3]}, 
+                        {l:'4+ комн', c: ROOM_COLORS[4]}
+                    ].map((item, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                            <div className={`w-3 h-3 rounded-full border ${item.c.split(' ')[0]} ${item.c.split(' ')[1]}`}></div>
+                            <span className="text-slate-600 font-medium">{item.l}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {viewMode === 'table' ? (
+                // --- РЕЖИМ ТАБЛИЦЫ (Детальный ввод) ---
+                <Card className="overflow-x-auto shadow-lg border-0 ring-1 ring-slate-200">
+                    <table className="w-full border-collapse">
+                        <thead className="bg-slate-50 border-b text-[10px] uppercase font-bold text-slate-500">
+                            <tr>
+                                <th className="p-4 sticky left-0 bg-slate-50 border-r w-16">Этаж</th>
+                                {entrances.map(e => <th key={e} className="p-4 border-r min-w-[240px]">Подъезд {e}</th>)}
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {[...floorList].reverse().map(f => {
+                                const isDuplex = floorData[`${currentBlock.fullId}_${f.id}`]?.isDuplex;
+                                return (
+                                    <tr key={f.id} className={isDuplex ? 'bg-purple-50/30' : 'hover:bg-slate-50'}>
+                                        <td className="p-4 font-bold text-xs sticky left-0 bg-white border-r text-center">{f.label}</td>
+                                        {entrances.map(e => {
+                                            const entKey = `${currentBlock.fullId}_ent${e}_${f.id}`;
+                                            const count = parseInt(entrancesData[entKey]?.apts || 0);
+                                            return (
+                                                <td key={e} className="p-2 border-r align-top">
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {Array.from({length: count}).map((_, i) => {
+                                                            const a = getApt(e, f.id, i);
+                                                            const isDuplexType = a.type?.includes('duplex');
+                                                            return (
+                                                                <div key={i} className={`p-2 border rounded-lg w-28 text-center transition-all ${isDuplexType ? 'bg-purple-50 border-purple-200' : 'bg-white hover:border-blue-300'}`}>
+                                                                    <div className="flex justify-between items-center mb-1 pb-1 border-b border-slate-100">
+                                                                        <div className="text-[9px] text-slate-400 font-bold">#{i+1}</div>
+                                                                        {isDuplex && <select className="text-[9px] bg-transparent outline-none text-purple-600 font-bold" value={a.type} onChange={ev=>updateApt(e,f.id,i,'type',ev.target.value)}><option value="flat">Ст</option><option value="duplex_up">Вв</option><option value="duplex_down">Нз</option></select>}
+                                                                    </div>
+                                                                    <div className="flex gap-1 mb-1">
+                                                                        <DebouncedInput className="w-full text-center font-bold text-xs outline-none bg-slate-50 rounded px-1" value={a.num} onChange={val=>updateApt(e,f.id,i,'num',val)} placeholder="№" />
+                                                                        <DebouncedInput className="w-8 text-center font-bold text-xs outline-none bg-slate-100 rounded px-1 text-slate-500" value={a.rooms} onChange={val=>updateApt(e,f.id,i,'rooms',val)} placeholder="К" title="Комнатность" />
+                                                                    </div>
+                                                                    <DebouncedInput className="w-full text-center text-[10px] font-bold outline-none text-blue-600 bg-transparent placeholder:text-slate-300" value={a.area} onChange={val=>updateApt(e,f.id,i,'area',val)} placeholder="S м²" />
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </Card>
+            ) : (
+                // --- РЕЖИМ СЕТКИ (Smart Grid) ---
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {entrances.map(e => (
+                        <div key={e} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                            <div className="font-bold text-center mb-4 text-slate-600 uppercase text-xs tracking-wider bg-slate-50 py-2 rounded-lg border border-slate-100">Подъезд {e}</div>
+                            <div className="flex flex-col gap-1.5">
+                                {[...floorList].reverse().map(f => {
+                                    const entKey = `${currentBlock.fullId}_ent${e}_${f.id}`;
+                                    const count = parseInt(entrancesData[entKey]?.apts || 0);
+                                    if (count === 0) return null;
+                                    
+                                    return (
+                                        <div key={f.id} className="flex items-center gap-2">
+                                            <div className="w-6 text-[10px] font-bold text-slate-400 text-right">{f.label}</div>
+                                            <div className="flex gap-1 flex-1">
+                                                {Array.from({length: count}).map((_, i) => {
+                                                    const a = getApt(e, f.id, i);
+                                                    const colorClass = getRoomColor(a.rooms);
+                                                    
+                                                    return (
+                                                        <div 
+                                                            key={i} 
+                                                            className={`
+                                                                h-8 flex-1 flex flex-col items-center justify-center rounded border transition-all cursor-default relative group
+                                                                ${colorClass}
+                                                            `}
+                                                        >
+                                                            <span className="text-[10px] font-bold leading-none">{a.num || '-'}</span>
+                                                            
+                                                            {/* Всплывашка при наведении */}
+                                                            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-max bg-slate-800 text-white text-[10px] py-1 px-2 rounded opacity-0 group-hover:opacity-100 pointer-events-none z-10 shadow-xl transition-opacity">
+                                                                <div className="font-bold">Кв. {a.num}</div>
+                                                                <div>{a.rooms ? `${a.rooms}-комн.` : 'Комнаты не указаны'}</div>
+                                                                <div>{a.area ? `${a.area} м²` : 'S не указана'}</div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }

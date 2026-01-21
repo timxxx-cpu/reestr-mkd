@@ -1,12 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  ArrowLeft, Save, Wand2, ArrowUp, ChevronsDown, 
-  DoorOpen, ChevronLeft, ChevronsRight 
+  ArrowLeft, Save, Wand2, ArrowDown, ArrowUp, 
+  DoorOpen, ChevronLeft, ChevronsRight, Info
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
 
-// Получение списка блоков
+// Утилита для получения списка блоков
 function getBlocksList(building) {
     if (!building) return [];
     const list = [];
@@ -28,22 +28,12 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
     // 1. Безопасное получение здания
     const building = composition.find(c => c.id === buildingId);
-    if (!building) return <div className="p-12 text-center text-slate-500">Здание не найдено</div>;
-
+    
     // 2. Безопасное получение блоков
     const blocksList = useMemo(() => getBlocksList(building), [building]);
     const currentBlock = blocksList[activeBlockIndex];
-    
-    // Если нет блоков (например, выбран Паркинг, у которого нет подъездов в привычном смысле)
-    if (!currentBlock) {
-         return (
-            <div className="p-12 text-center text-slate-400 flex flex-col items-center">
-                <DoorOpen size={48} className="mb-4 opacity-20"/>
-                <p>В этом объекте нет жилых подъездов для настройки.</p>
-                <Button onClick={onBack} variant="secondary" className="mt-4">Назад</Button>
-            </div>
-         );
-    }
+
+    if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Данные не найдены</div>;
 
     // Детали блока
     const blockDetails = buildingDetails[`${building.id}_${currentBlock.id}`] || {};
@@ -51,33 +41,85 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
     const basements = buildingDetails[`${building.id}_features`]?.basements || [];
 
-    // Генерируем список этажей
+    // --- ГЕНЕРАЦИЯ СПИСКА ЭТАЖЕЙ ---
     const floorList = useMemo(() => {
         const list = [];
-        
-        // Подвалы
-        basements.filter(b => b.blocks?.includes(currentBlock.id)).forEach(b => { 
-            for(let d=b.depth; d>=1; d--) {
-                list.push({ id: `base_${b.id}_L${d}`, label: `Подвал -${d}`, type: 'basement', isComm: false, sortOrder: -100-d }); 
+        const commFloors = blockDetails.commercialFloors || []; 
+
+        // 1. ПОДВАЛЫ
+        const isBasementMixed = commFloors.includes('basement');
+        const currentBlockBasements = basements.filter(b => b.blocks?.includes(currentBlock.id));
+        currentBlockBasements.forEach((b, bIdx) => { 
+            for(let d = b.depth; d >= 1; d--) {
+                list.push({ 
+                    id: `base_${b.id}_L${d}`, 
+                    label: `Подвал -${d}`, 
+                    type: 'basement', 
+                    isComm: isBasementMixed, 
+                    sortOrder: -1000 - d + (bIdx * 0.1) 
+                }); 
             }
         });
         
-        // Цоколь
+        // 2. ЦОКОЛЬ
         if(blockDetails.hasBasementFloor) { 
-            list.push({ id: 'floor_0', label: 'Цоколь', type: 'basement_floor', isComm: false, sortOrder: 0 }); 
+            const isTsokolMixed = commFloors.includes('tsokol');
+            list.push({ id: 'floor_0', label: 'Цоколь', type: 'tsokol', isComm: isTsokolMixed, sortOrder: 0 }); 
         }
         
-        // Наземные
+        // 3. НАЗЕМНЫЕ + ВСТАВКИ
         const start = blockDetails.floorsFrom || 1;
         const end = blockDetails.floorsTo || 1;
+        
         for(let i=start; i<=end; i++) { 
-            const isComm = blockDetails.commercialFloors?.includes(i); 
-            list.push({ id: `floor_${i}`, label: `${i} этаж`, index: i, type: isComm ? 'comm' : 'res', isComm: isComm, sortOrder: i }); 
+            const isMixed = commFloors.includes(i); 
+            list.push({ 
+                id: `floor_${i}`, 
+                label: `${i} этаж`, 
+                index: i, 
+                type: isMixed ? 'mixed' : 'residential', 
+                isComm: isMixed, 
+                sortOrder: i * 10 
+            }); 
+
+            if (blockDetails.technicalFloors?.includes(i)) {
+                const isTechMixed = commFloors.includes(`${i}-Т`);
+                list.push({ 
+                    id: `floor_${i}_tech`, 
+                    label: `${i}-Т (Тех)`, 
+                    type: 'technical', 
+                    isComm: isTechMixed, 
+                    sortOrder: (i * 10) + 5 
+                });
+            }
         }
-        return list.sort((a,b)=>a.sortOrder-b.sortOrder); 
+        
+        // 4. ДОП. ТЕХ. ЭТАЖИ
+        const extraTechs = (blockDetails.technicalFloors || []).filter(f => f > end);
+        extraTechs.forEach(f => {
+             list.push({ id: `floor_${f}_tech_extra`, label: `${f} (Тех)`, type: 'technical', isComm: false, sortOrder: (f * 10) });
+        });
+
+        // 5. СПЕЦ. УРОВНИ
+        if(blockDetails.hasAttic) {
+            const isAtticMixed = commFloors.includes('attic');
+            list.push({ id: 'attic', label: 'Мансарда', type: 'attic', isComm: isAtticMixed, sortOrder: 50000 }); 
+        }
+        if(blockDetails.hasLoft) {
+            const isLoftMixed = commFloors.includes('loft');
+            list.push({ id: 'loft', label: 'Чердак', type: 'loft', isComm: isLoftMixed, sortOrder: 55000 }); 
+        }
+        if(blockDetails.hasExploitableRoof) {
+            const isRoofMixed = commFloors.includes('roof');
+            list.push({ id: 'roof', label: 'Кровля', type: 'roof', isComm: isRoofMixed, sortOrder: 60000 }); 
+        }
+
+        // Сортировка: НИЖНИЕ ВВЕРХУ (Ascending)
+        return list.sort((a,b) => a.sortOrder - b.sortOrder); 
     }, [currentBlock, blockDetails, basements, building]);
 
-    // Хелперы для чтения/записи
+
+    // --- ХЕЛПЕРЫ ДАННЫХ ---
     const setEntData = (entIdx, floorId, field, val) => {
         const key = `${currentBlock.fullId}_ent${entIdx}_${floorId}`;
         setEntrancesData(prev => ({ ...prev, [key]: { ...(prev[key]||{}), [field]: val } }));
@@ -94,40 +136,69 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         setFloorData(p => ({...p, [key]: {...(p[key]||{}), isDuplex: !current}})); 
     };
 
+    // --- ЛОГИКА ДОСТУПНОСТИ ДУПЛЕКСА ---
+    const getDuplexState = (f, idx) => {
+        // 1. Только жилые или смешанные
+        if (!['residential', 'mixed'].includes(f.type)) return { disabled: true, title: 'Только на жилых/смешанных этажах' };
+
+        // 2. Проверка заполненности квартир
+        let hasApts = false;
+        for (const e of entrancesList) {
+            const val = getEntData(e, f.id, 'apts');
+            if (val && parseInt(val) > 0) {
+                hasApts = true;
+                break;
+            }
+        }
+        if (!hasApts) return { disabled: true, title: 'Введите количество квартир' };
+
+        // 3. Проверка этажа сверху
+        // Так как сортировка Ascending (-1, 0, 1...), этаж сверху имеет индекс idx + 1
+        const floorAbove = floorList[idx + 1];
+
+        // Если сверху ничего нет (последний этаж)
+        if (!floorAbove) return { disabled: true, title: 'Нет этажа сверху для второго уровня' };
+
+        // Если сверху Технический этаж
+        if (floorAbove.type === 'technical') return { disabled: true, title: 'Нельзя объединить с техническим этажом' };
+
+        // Разрешено (сверху жилой, мансарда или кровля)
+        return { disabled: false, title: 'Объединить с этажом выше' };
+    };
+
     // Автозаполнение
     const autoFill = () => { 
         const updates = {}; 
         entrancesList.forEach(ent => floorList.forEach(f => { 
-            const isDuplex = floorData[`${currentBlock.fullId}_${f.id}`]?.isDuplex; 
-            // Если жилой этаж - ставим 4 квартиры, если коммерция - 2 офиса
-            const apts = (!f.isComm && f.type !== 'basement') ? (isDuplex ? 2 : 4) : 0;
-            const units = (f.isComm || f.type === 'basement_floor') ? 2 : 0;
+            let apts = 0;
+            if (f.type === 'residential' || f.type === 'attic') apts = 4;
+            if (f.type === 'mixed') apts = 3;
             
-            updates[`${currentBlock.fullId}_ent${ent}_${f.id}`] = { apts, mopQty: 1, units }; 
+            updates[`${currentBlock.fullId}_ent${ent}_${f.id}`] = { 
+                apts, 
+                mopQty: 1, 
+                units: (f.isComm) ? 1 : 0 
+            }; 
         })); 
         setEntrancesData(p => ({...p, ...updates})); 
     };
 
-    // Копирование (логика кнопок)
-    const copyFloorFromPrev = (idx) => { 
-        if (idx <= 0) return; 
+    // --- ЛОГИКА КОПИРОВАНИЯ ---
+    const copyFloorToNext = (idx) => { 
+        if (idx >= floorList.length - 1) return; 
         const currentFloor = floorList[idx]; 
-        const prevFloor = floorList[idx - 1]; 
+        const nextFloor = floorList[idx + 1]; 
         const updates = {}; 
         entrancesList.forEach(ent => { 
-            const srcKey = `${currentBlock.fullId}_ent${ent}_${prevFloor.id}`; 
-            const tgtKey = `${currentBlock.fullId}_ent${ent}_${currentFloor.id}`; 
+            const srcKey = `${currentBlock.fullId}_ent${ent}_${currentFloor.id}`; 
+            const tgtKey = `${currentBlock.fullId}_ent${ent}_${nextFloor.id}`; 
             const srcData = entrancesData[srcKey]; 
-            if(srcData) { 
-                let newData = {...srcData}; 
-                if (!currentFloor.isComm) newData.units = 0; 
-                updates[tgtKey] = newData; 
-            } 
+            if(srcData) updates[tgtKey] = {...srcData}; 
         }); 
         setEntrancesData(prev => ({ ...prev, ...updates })); 
     };
 
-    const fillFloorsBelow = (idx) => { 
+    const fillFloorsAfter = (idx) => { 
         const sourceFloor = floorList[idx]; 
         const updates = {}; 
         const sourceValues = {}; 
@@ -135,11 +206,10 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         
         for(let i = idx + 1; i < floorList.length; i++) { 
             const targetFloor = floorList[i]; 
+            if (targetFloor.type === 'technical' && sourceFloor.type !== 'technical') continue;
             entrancesList.forEach(ent => { 
                 if(sourceValues[ent]) { 
-                    let newData = {...sourceValues[ent]}; 
-                    if (!targetFloor.isComm) newData.units = 0; 
-                    updates[`${currentBlock.fullId}_ent${ent}_${targetFloor.id}`] = newData; 
+                    updates[`${currentBlock.fullId}_ent${ent}_${targetFloor.id}`] = {...sourceValues[ent]}; 
                 } 
             }); 
         } 
@@ -163,16 +233,31 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         setEntrancesData(p => ({...p, ...updates})); 
     };
 
+    const renderBadge = (type) => {
+        const map = {
+            residential: { color: 'bg-blue-100 text-blue-700', label: 'Жилой' },
+            mixed: { color: 'bg-violet-100 text-violet-700', label: 'Смеш.' },
+            technical: { color: 'bg-amber-100 text-amber-700', label: 'Тех.' },
+            basement: { color: 'bg-slate-200 text-slate-600', label: 'Подвал' },
+            tsokol: { color: 'bg-purple-100 text-purple-700', label: 'Цоколь' },
+            attic: { color: 'bg-teal-100 text-teal-700', label: 'Манс.' },
+            loft: { color: 'bg-gray-200 text-gray-600', label: 'Чердак' },
+            roof: { color: 'bg-sky-100 text-sky-700', label: 'Кровля' }
+        };
+        const style = map[type] || map.residential;
+        return <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${style.color}`}>{style.label}</span>
+    }
+
     return (
         <div className="space-y-6 pb-20 max-w-full mx-auto animate-in fade-in duration-500">
             {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-4">
                 <div className="flex gap-4 items-center">
                     <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><ArrowLeft size={24}/></button>
-                    <div><h2 className="text-2xl font-bold text-slate-800">{building.label}</h2><p className="text-slate-400 text-xs font-bold uppercase">Матрица подъездов</p></div>
+                    <div><h2 className="text-2xl font-bold text-slate-800">{building.label}</h2><p className="text-slate-400 text-xs font-bold uppercase">Матрица подъездов (Квартирография)</p></div>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={autoFill} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors"><Wand2 size={14}/> Заполнить по умолчанию</button>
+                    <button onClick={autoFill} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors"><Wand2 size={14}/> Заполнить типовыми</button>
                     <Button onClick={() => { saveData(); onBack(); }}><Save size={14}/> Готово</Button>
                 </div>
             </div>
@@ -183,56 +268,106 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             </div>
 
             {/* Таблица */}
-            <Card className="overflow-x-auto shadow-lg border-0 ring-1 ring-slate-200">
-                <table className="w-full border-collapse">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase">
-                        <tr>
-                            <th className="p-4 text-left w-32 sticky left-0 bg-slate-50 z-10 border-r shadow-[4px_0_12px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
-                            {entrancesList.map(e => (
-                                <th key={e} className="p-3 min-w-[200px] border-r border-slate-200 bg-slate-50/50">
-                                    <div className="bg-white rounded-xl border p-2 text-center text-blue-600 shadow-sm">
-                                        Подъезд {e}
-                                        <div className="grid grid-cols-3 gap-1 mt-1 text-[9px] text-slate-400"><span>КВ</span><span>ОФ</span><span>МОП</span></div>
-                                    </div>
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {floorList.map((f, idx) => {
-                            const isDuplex = floorData[`${currentBlock.fullId}_${f.id}`]?.isDuplex; 
-                            return (
-                                <tr key={f.id} className="hover:bg-blue-50/10 group">
-                                    <td className="p-3 sticky left-0 bg-white z-10 border-r font-bold text-xs text-slate-700 relative shadow-[4px_0_12px_-4px_rgba(0,0,0,0.05)]">
-                                        <div className="flex items-center gap-2">
-                                            <input type="checkbox" checked={isDuplex||false} onChange={()=>toggleDuplex(f.id)} className="rounded text-purple-600" title="Дуплекс"/>
-                                            {f.label} {f.isComm && <span className="text-[9px] bg-blue-100 text-blue-600 px-1 rounded ml-1">K</span>}
-                                        </div>
-                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex gap-1 bg-white shadow-sm border rounded-lg p-0.5 transition-all z-20">
-                                            {idx > 0 && <button onClick={() => copyFloorFromPrev(idx)} className="p-1.5 hover:bg-slate-100 rounded text-slate-500"><ArrowUp size={12}/></button>}
-                                            <button onClick={() => fillFloorsBelow(idx)} className="p-1.5 hover:bg-slate-100 rounded text-slate-500"><ChevronsDown size={12}/></button>
-                                        </div>
-                                    </td>
-                                    {entrancesList.map(e => (
-                                        <td key={e} className={`p-0 border-r border-slate-100 h-10 relative group/cell ${isDuplex ? 'bg-purple-50/20' : ''}`}>
-                                            <div className="grid grid-cols-3 h-full divide-x divide-slate-100">
-                                                <DebouncedInput type="number" className={`text-center text-xs font-bold outline-none h-full focus:bg-white ${isDuplex?'text-purple-700 bg-purple-50':'text-blue-700 bg-blue-50/30'}`} value={getEntData(e, f.id, 'apts')} onChange={val => setEntData(e, f.id, 'apts', val)} />
-                                                <DebouncedInput type="number" disabled={!f.isComm && f.type !== 'basement'} className={`text-center text-xs font-bold outline-none h-full ${f.isComm || f.type === 'basement' ? 'bg-amber-50/30 text-amber-700' : 'bg-slate-50 text-slate-300'}`} value={getEntData(e, f.id, 'units')} onChange={val => setEntData(e, f.id, 'units', val)} />
-                                                <DebouncedInput type="number" className="text-center text-xs font-bold outline-none h-full bg-white text-slate-600" value={getEntData(e, f.id, 'mopQty')} onChange={val => setEntData(e, f.id, 'mopQty', val)} />
+            <Card className="overflow-x-auto shadow-lg border-0 ring-1 ring-slate-200 rounded-xl">
+                <div className="max-h-[calc(100vh-300px)] overflow-y-auto">
+                    <table className="w-full border-collapse">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-20 shadow-sm">
+                            <tr>
+                                <th className="p-3 text-left w-40 sticky left-0 bg-slate-50 z-30 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
+                                {entrancesList.map(e => (
+                                    <th key={e} className="p-2 min-w-[200px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-blue-600 mb-1 font-bold text-xs">Подъезд {e}</span>
+                                            <div className="grid grid-cols-3 gap-1 w-full text-center opacity-60 text-[9px]">
+                                                <span>Квартир</span><span>Нежилых</span><span>МОП</span>
                                             </div>
-                                            <div className="absolute top-0 right-0 h-full flex items-center pr-1 opacity-0 group-hover/cell:opacity-100 pointer-events-none transition-opacity">
-                                                <div className="flex flex-col gap-0.5 pointer-events-auto bg-white/80 backdrop-blur-sm rounded shadow-sm border p-0.5">
-                                                    {e > 1 && <button onClick={()=>copyEntranceFromLeft(f.id, e)} className="p-0.5 hover:text-blue-600"><ChevronLeft size={10}/></button>}
-                                                    <button onClick={()=>fillEntrancesRow(f.id, e)} className="p-0.5 hover:text-blue-600"><ChevronsRight size={10}/></button>
+                                        </div>
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                            {floorList.map((f, idx) => {
+                                const isDuplex = floorData[`${currentBlock.fullId}_${f.id}`]?.isDuplex; 
+                                const canHaveApts = ['residential', 'mixed', 'basement', 'tsokol', 'attic'].includes(f.type);
+                                
+                                // Проверка доступности чекбокса
+                                const duplexState = getDuplexState(f, idx);
+
+                                return (
+                                    <tr key={f.id} className="hover:bg-blue-50/30 focus-within:bg-blue-50 transition-colors duration-200 group">
+                                        {/* Левая колонка (Этаж) */}
+                                        <td className="p-3 sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 z-10 border-r border-slate-200 relative group/cell shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                            <div className="flex flex-col gap-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-sm font-bold text-slate-700">{f.label}</span>
+                                                    {renderBadge(f.type)}
+                                                </div>
+                                                
+                                                {/* Чекбокс Двухуровневые */}
+                                                <div className="flex items-center gap-1.5 mt-1" title={duplexState.title}>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={isDuplex || false} 
+                                                        onChange={() => !duplexState.disabled && toggleDuplex(f.id)} 
+                                                        disabled={duplexState.disabled}
+                                                        className={`rounded w-3 h-3 transition-all ${duplexState.disabled ? 'cursor-not-allowed opacity-30 bg-slate-100' : 'cursor-pointer text-purple-600'}`}
+                                                    />
+                                                    <span className={`text-[10px] ${duplexState.disabled ? 'text-slate-300' : 'text-slate-500'}`}>
+                                                        Двухуровневые
+                                                    </span>
+                                                    {duplexState.disabled && <Info size={10} className="text-slate-300"/>}
                                                 </div>
                                             </div>
+                                            
+                                            <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/cell:opacity-100 flex flex-col gap-1 z-20">
+                                                <button onClick={() => fillFloorsAfter(idx)} title="Заполнить вниз" className="p-1 bg-white border border-slate-200 rounded shadow hover:text-blue-600"><ArrowDown size={12}/></button>
+                                                <button onClick={() => copyFloorToNext(idx)} title="Копировать на следующий" className="p-1 bg-white border border-slate-200 rounded shadow hover:text-blue-600"><ArrowDown size={12} className="opacity-50"/></button>
+                                            </div>
                                         </td>
-                                    ))}
-                                </tr>
-                            )
-                        })}
-                    </tbody>
-                </table>
+
+                                        {/* Ячейки подъездов */}
+                                        {entrancesList.map(e => {
+                                            return (
+                                                <td key={e} className={`p-0 border-r border-slate-100 h-12 relative group/cell ${isDuplex ? 'bg-purple-50/10' : ''}`}>
+                                                    <div className="grid grid-cols-3 h-full divide-x divide-slate-100">
+                                                        <DebouncedInput 
+                                                            type="number" 
+                                                            disabled={!canHaveApts}
+                                                            className={`text-center text-xs font-bold outline-none h-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${!canHaveApts ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : 'text-emerald-700 bg-emerald-50/30'}`} 
+                                                            value={getEntData(e, f.id, 'apts')} 
+                                                            onChange={val => setEntData(e, f.id, 'apts', val)} 
+                                                            placeholder={canHaveApts ? "-" : ""}
+                                                        />
+                                                        <DebouncedInput 
+                                                            type="number" 
+                                                            disabled={!f.isComm} 
+                                                            className={`text-center text-xs font-bold outline-none h-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${f.isComm ? 'bg-blue-50/30 text-blue-700' : 'bg-slate-50 text-slate-200 cursor-not-allowed'}`} 
+                                                            value={getEntData(e, f.id, 'units')} 
+                                                            onChange={val => setEntData(e, f.id, 'units', val)} 
+                                                        />
+                                                        <DebouncedInput 
+                                                            type="number" 
+                                                            className="text-center text-xs font-bold outline-none h-full bg-white text-slate-500 focus:text-slate-800 focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all" 
+                                                            value={getEntData(e, f.id, 'mopQty')} 
+                                                            onChange={val => setEntData(e, f.id, 'mopQty', val)} 
+                                                        />
+                                                    </div>
+                                                    <div className="absolute top-0 right-0 h-full flex items-center pr-0.5 opacity-0 group-hover/cell:opacity-100 transition-opacity z-10 pointer-events-none">
+                                                        <div className="flex flex-col gap-0.5 pointer-events-auto bg-white/90 backdrop-blur-sm shadow-sm border border-slate-200 rounded p-0.5">
+                                                            {e > 1 && <button onClick={()=>copyEntranceFromLeft(f.id, e)} title="Скопировать слева" className="p-0.5 hover:text-blue-600"><ChevronLeft size={10}/></button>}
+                                                            <button onClick={()=>fillEntrancesRow(f.id, e)} title="Заполнить ряд вправо" className="p-0.5 hover:text-blue-600"><ChevronsRight size={10}/></button>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            )
+                                        })}
+                                    </tr>
+                                )
+                            })}
+                        </tbody>
+                    </table>
+                </div>
             </Card>
         </div>
     );
