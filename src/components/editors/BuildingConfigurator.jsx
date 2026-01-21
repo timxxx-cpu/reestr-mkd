@@ -3,7 +3,7 @@ import {
   ArrowLeft, Wand2, Save, ImageIcon, Hammer, Maximize, 
   ArrowDownToLine, X, Zap, Settings2, Trash2, Droplets, 
   Thermometer, Flame, Wind, ShieldCheck, Wifi, Store, Layers,
-  Fan, Plug, ArrowUpFromLine, Plus
+  Fan, Plug, ArrowUpFromLine, Plus, AlertCircle
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Select, Button, TabButton } from '../ui/UIKit';
@@ -159,6 +159,10 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         { id: 'roof', label: 'Крыша', condition: details.hasExploitableRoof },
     ];
 
+    // --- ВАЛИДАЦИЯ ---
+    const elevatorError = (details.floorsTo > 5) && ((details.elevators || 0) < 1);
+    const hasCriticalErrors = elevatorError;
+
     return (
         <div className="animate-in slide-in-from-bottom duration-500 space-y-6 pb-20 max-w-7xl mx-auto">
             {/* --- HEADER --- */}
@@ -169,7 +173,13 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                 </div>
                 <div className="flex gap-2">
                     <button onClick={autoFillConfig} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors"><Wand2 size={14}/> Авто-конфиг</button>
-                    <Button onClick={() => { saveData(); onBack(); }} className="shadow-lg shadow-blue-200"><Save size={16}/> Готово</Button>
+                    <Button 
+                        onClick={() => { saveData(); onBack(); }} 
+                        disabled={hasCriticalErrors}
+                        className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}
+                    >
+                        <Save size={16}/> Готово
+                    </Button>
                 </div>
             </div>
 
@@ -380,13 +390,37 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                         <Card className="p-6 shadow-sm">
                             <SectionTitle icon={Settings2}>Общие</SectionTitle>
                             <div className="space-y-4">
-                                <div className="space-y-1"><Label>Подъездов / Входов (макс. 30)</Label><Input type="number" min="1" max="30" value={details.entrances || 1} onChange={(e) => {
-                                            let val = parseInt(e.target.value) || 1;
+                                <div className="space-y-1">
+                                    <Label>Подъездов / Входов (макс. 30)</Label>
+                                    <Input 
+                                        type="number" min="1" max="30" value={details.entrances || 1} 
+                                        onChange={(e) => {
+                                            let val = parseInt(e.target.value);
+                                            if (isNaN(val)) val = 1;
                                             if (val > 30) val = 30; 
                                             if (val < 1) val = 1;
                                             updateDetail('entrances', val);
-                                        }}/></div>
-                                <div className="space-y-1"><Label>Лифтов (на блок)</Label><Input type="number" value={details.elevators || 0} onChange={(e)=>updateDetail('elevators', parseInt(e.target.value)||0)}/></div>
+                                        }}
+                                    />
+                                </div>
+                                <div className="space-y-1 relative">
+                                    <Label>Лифтов (на блок)</Label>
+                                    <Input 
+                                        type="number" min="0" value={details.elevators || 0} 
+                                        onChange={(e)=> {
+                                            let val = parseInt(e.target.value);
+                                            if (val < 0) val = 0;
+                                            updateDetail('elevators', val)
+                                        }}
+                                        className={elevatorError ? "border-red-500 focus:border-red-500 bg-red-50" : ""}
+                                    />
+                                    {elevatorError && (
+                                        <div className="flex items-center gap-1 mt-1 text-[10px] text-red-500 font-bold animate-in fade-in">
+                                            <AlertCircle size={10} />
+                                            <span>Более 5 этажей — лифт обязателен</span>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </Card>
 
