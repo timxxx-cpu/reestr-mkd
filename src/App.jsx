@@ -25,7 +25,6 @@ import FloorMatrixEditor from './components/editors/FloorMatrixEditor';
 import EntranceMatrixEditor from './components/editors/EntranceMatrixEditor';
 import MopEditor from './components/editors/MopEditor';
 import FlatMatrixEditor from './components/editors/FlatMatrixEditor';
-import ParkingMatrixEditor from './components/editors/ParkingMatrixEditor';
 import SummaryDashboard from './components/editors/SummaryDashboard';
 
 // Заглушка для пока не созданных разделов
@@ -74,7 +73,6 @@ function ProjectEditorLayout({ onBack }) {
           if (stepId === 'entrances') return <EntranceMatrixEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
           if (stepId === 'mop') return <MopEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
           if (stepId === 'apartments') return <FlatMatrixEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
-          if (stepId === 'parking') return <ParkingMatrixEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
       }
   
       // Иначе показываем общий редактор шага
@@ -91,7 +89,6 @@ function ProjectEditorLayout({ onBack }) {
         case 'entrances':
         case 'mop':
         case 'apartments':
-        case 'parking':
             return <BuildingSelector stepId={stepId} onSelect={setEditingBuildingId} />;
             
         default: return <PlaceholderEditor title={stepConfig?.title || "Неизвестный этап"} />;

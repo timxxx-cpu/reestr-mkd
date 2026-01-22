@@ -1,158 +1,400 @@
 import React, { useMemo } from 'react';
-import { Save, Car, Building2, CheckCircle2 } from 'lucide-react';
+import { Save, Car, Building2, Store, Box, Lock, CheckCircle2 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, Button } from '../ui/UIKit';
+import { Card, Button, DebouncedInput } from '../ui/UIKit';
 
-export default function ParkingConfigurator({ onSave }) {
-    const { composition, buildingDetails, setBuildingDetails, saveData } = useProject();
+// --- Хелпер списка блоков ---
+function getBlocksList(building) {
+    if (!building) return [];
+    const list = [];
+    
+    // 1. ЖИЛЫЕ БЛОКИ
+    if (building.category && building.category.includes('residential')) {
+        const count = building.resBlocks || (building.category === 'residential' ? 1 : 0);
+        for(let i=0; i < count; i++) {
+            list.push({ 
+                id: `res_${i}`, 
+                type: 'Ж', 
+                index: i, 
+                fullId: `${building.id}_res_${i}`,
+                tabLabel: count > 1 ? `Жилой Блок - ${i+1}` : `Жилой дом`,
+                icon: Building2
+            });
+        }
+    }
 
-    // Фильтруем здания: оставляем только Отдельные паркинги ИЛИ дома с подвалами
-    const items = useMemo(() => {
-        return composition.filter(b => {
-            const isSepParking = b.category === 'parking_separate';
-            const features = buildingDetails[`${b.id}_features`] || {};
-            const hasBasements = (features.basements || []).length > 0;
-            return isSepParking || hasBasements;
+    // 2. НЕЖИЛЫЕ БЛОКИ
+    if (building.nonResBlocks > 0) {
+         for(let i=0; i < building.nonResBlocks; i++) {
+             list.push({ 
+                 id: `non_${i}`, 
+                 type: 'Н', 
+                 index: i, 
+                 fullId: `${building.id}_non_${i}`,
+                 tabLabel: `Нежилой Блок - ${i+1}`,
+                 icon: Store
+             });
+         }
+    }
+
+    // 3. СПЕЦИАЛЬНЫЕ ТИПЫ
+    if (building.category === 'parking_separate') {
+         list.push({ 
+             id: 'main', 
+             type: 'Паркинг', 
+             index: 0, 
+             fullId: `${building.id}_main`,
+             tabLabel: 'Паркинг',
+             icon: Car 
         });
-    }, [composition, buildingDetails]);
+    } else if (building.category === 'infrastructure') {
+         list.push({ 
+             id: 'main', 
+             type: 'Инфра', 
+             index: 0, 
+             fullId: `${building.id}_main`,
+             tabLabel: building.infraType || 'Объект',
+             icon: Box
+        });
+    }
 
-    const toggleLevelParking = (buildingId, basementId, levelIndex) => {
-        const featuresKey = `${buildingId}_features`;
-        const features = buildingDetails[featuresKey] || {};
-        const basements = features.basements || [];
-        
-        const updatedBasements = basements.map(b => {
-            if (b.id !== basementId) return b;
-            
-            // Если массив уровней еще не создан, инициализируем его текущим значением hasParking
-            const currentLevels = b.parkingLevels || {};
-            if (!b.parkingLevels) {
-                for (let d = 1; d <= b.depth; d++) {
-                    currentLevels[d] = b.hasParking; 
+    // Фолбек
+    if (list.length === 0) {
+        list.push({ 
+            id: 'main', 
+            type: 'Основной', 
+            index: 0, 
+            fullId: `${building.id}_main`,
+            tabLabel: 'Основной корпус',
+            icon: Building2
+        });
+    }
+    
+    return list;
+}
+
+export default function ParkingConfigurator({ onSave, buildingId }) {
+    const { composition, buildingDetails, setBuildingDetails, parkingPlaces, setParkingPlaces, saveData } = useProject();
+
+    // Находим здание по ID
+    const building = useMemo(() => 
+        buildingId ? composition.find(c => c.id === buildingId) : composition[0]
+    , [composition, buildingId]);
+
+    // --- СОБИРАЕМ ЕДИНЫЙ СПИСОК ВСЕХ ПАРКОВОЧНЫХ ЗОН ---
+    const allRows = useMemo(() => {
+        if (!building) return [];
+        const rows = [];
+        const targetBuildings = buildingId ? [building] : composition; 
+
+        targetBuildings.forEach(b => {
+            if (b.category === 'infrastructure') return;
+
+            const blocks = getBlocksList(b);
+
+            blocks.forEach(block => {
+                const detailsKey = `${b.id}_${block.id}`;
+                const blockDetails = buildingDetails[detailsKey] || {};
+                const featuresKey = `${b.id}_features`;
+                const features = buildingDetails[featuresKey] || {};
+                const basements = features.basements || [];
+
+                const isParkingBuilding = b.category === 'parking_separate';
+
+                const commonData = {
+                    buildingId: b.id,
+                    buildingLabel: b.label,
+                    houseNumber: b.houseNumber, 
+                    blockLabel: block.tabLabel,
+                    fullId: block.fullId
+                };
+
+                // А. ЗДАНИЕ-ПАРКИНГ
+                if (isParkingBuilding) {
+                    const isUnderground = b.parkingType === 'underground';
+                    
+                    if (isUnderground) {
+                        const depth = blockDetails.levelsDepth || 1;
+                        for(let i=1; i<=depth; i++) {
+                            rows.push({
+                                ...commonData,
+                                id: `level_minus_${i}`,
+                                label: `Уровень -${i}`,
+                                type: 'Подземный',
+                                isMandatory: true
+                            });
+                        }
+                    } else {
+                        let groundTypeLabel = 'Наземный (Кап.)';
+                        if (b.constructionType === 'light') groundTypeLabel = 'Легкие констр.';
+                        if (b.constructionType === 'open') groundTypeLabel = 'Открытый';
+
+                        const floors = blockDetails.floorsCount || 1; 
+                        for(let i=1; i<=floors; i++) {
+                            rows.push({
+                                ...commonData,
+                                id: `floor_${i}`,
+                                label: b.constructionType === 'open' ? 'Площадка' : `${i} этаж`,
+                                type: groundTypeLabel,
+                                isMandatory: true
+                            });
+                        }
+                        
+                        const parkingBasements = basements.filter(base => base.blocks?.includes(block.id));
+                        parkingBasements.forEach((base) => {
+                            for (let d = 1; d <= base.depth; d++) {
+                                rows.push({
+                                    ...commonData,
+                                    id: `base_${base.id}_L${d}`,
+                                    label: `Подвал -${d}`,
+                                    type: 'Подвал',
+                                    basementId: base.id,
+                                    depthLevel: d,
+                                    isMandatory: true
+                                });
+                            }
+                        });
+                    }
                 }
+                // Б. ОБЫЧНОЕ ЗДАНИЕ
+                else {
+                    const blockBasements = basements.filter(base => base.blocks?.includes(block.id));
+                    blockBasements.forEach((base, bIdx) => {
+                        for (let d = 1; d <= base.depth; d++) {
+                            let label = `Подвал -${d}`;
+                            if (blockBasements.length > 1) label += ` (Секция ${bIdx+1})`;
+                            
+                            rows.push({
+                                ...commonData,
+                                id: `base_${base.id}_L${d}`,
+                                label: label,
+                                type: 'Подвал',
+                                basementId: base.id,
+                                depthLevel: d,
+                                isMandatory: false
+                            });
+                        }
+                    });
+                }
+            });
+        });
+
+        return rows;
+    }, [composition, buildingDetails, building, buildingId]);
+
+    // --- ЛОГИКА ---
+
+    const isParkingEnabled = (lvl) => {
+        if (lvl.isMandatory) return true;
+        if (lvl.basementId) {
+            const features = buildingDetails[`${lvl.buildingId}_features`] || {};
+            const basements = features.basements || [];
+            const base = basements.find(b => b.id === lvl.basementId);
+            if (!base) return false;
+            if (base.parkingLevels && base.parkingLevels[lvl.depthLevel] !== undefined) {
+                return base.parkingLevels[lvl.depthLevel];
             }
-            
-            // Переключаем значение для конкретного уровня
-            const newValue = currentLevels[levelIndex] !== undefined ? !currentLevels[levelIndex] : !b.hasParking;
-            
-            return {
-                ...b,
-                parkingLevels: {
-                    ...currentLevels,
-                    [levelIndex]: newValue
-                }
-            };
-        });
+            return base.hasParking || false; 
+        }
+        const key = `${lvl.fullId}_${lvl.id}_enabled`;
+        const val = parkingPlaces[key];
+        return val !== undefined ? val : true;
+    };
 
-        setBuildingDetails(prev => ({
+    const getPlacesCount = (lvl) => {
+        const key = `${lvl.fullId}_${lvl.id}_meta`;
+        return parkingPlaces[key]?.count || '';
+    };
+
+    const toggleParking = (lvl) => {
+        if (lvl.isMandatory) return;
+        const currentlyEnabled = isParkingEnabled(lvl);
+        const newValue = !currentlyEnabled;
+
+        if (lvl.basementId) {
+            const featuresKey = `${lvl.buildingId}_features`;
+            const features = buildingDetails[featuresKey] || {};
+            const basements = features.basements || [];
+            const updatedBasements = basements.map(b => {
+                if (b.id !== lvl.basementId) return b;
+                const currentLevels = b.parkingLevels || {};
+                if (!b.parkingLevels) {
+                    for(let d=1; d<=b.depth; d++) currentLevels[d] = b.hasParking || false;
+                }
+                return {
+                    ...b,
+                    hasParking: true, 
+                    parkingLevels: { ...currentLevels, [lvl.depthLevel]: newValue }
+                };
+            });
+            setBuildingDetails(prev => ({ ...prev, [featuresKey]: { ...features, basements: updatedBasements } }));
+        } else {
+            const key = `${lvl.fullId}_${lvl.id}_enabled`;
+            setParkingPlaces(prev => ({ ...prev, [key]: newValue }));
+        }
+    };
+
+    const updateCount = (lvl, value) => {
+        const key = `${lvl.fullId}_${lvl.id}_meta`;
+        setParkingPlaces(prev => ({
             ...prev,
-            [featuresKey]: { ...features, basements: updatedBasements }
+            [key]: { ...prev[key], count: value }
         }));
     };
 
+    // --- АВТОГЕНЕРАЦИЯ МЕСТ ПРИ СОХРАНЕНИИ ---
     const handleSave = () => {
-        if (onSave) onSave(); // Вызываем колбэк сохранения (переход дальше)
-        saveData(); // Сохраняем в контекст/БД
+        // Мы обновляем стейт parkingPlaces, добавляя туда сгенерированные места
+        const newPlaces = { ...parkingPlaces };
+
+        allRows.forEach(lvl => {
+            const enabled = isParkingEnabled(lvl);
+            const countStr = getPlacesCount(lvl);
+            const count = parseInt(countStr || '0');
+
+            if (enabled && count > 0) {
+                // Генерируем места (например, P-1-1, P-1-2...)
+                for (let i = 0; i < count; i++) {
+                    const placeKey = `${lvl.fullId}_${lvl.id}_place${i}`;
+                    // Если места еще нет, создаем дефолтное
+                    if (!newPlaces[placeKey]) {
+                        newPlaces[placeKey] = {
+                            number: `${i + 1}`, // Просто номер по порядку
+                            area: '13.25'       // Стандартная площадь
+                        };
+                    }
+                }
+            }
+        });
+
+        setParkingPlaces(newPlaces);
+        saveData(); // Сохраняем в контекст/LS
+        if (onSave) onSave();
+    };
+
+    const getBadgeStyle = (type) => {
+        if (type === 'Подземный') return 'bg-slate-800 text-white border-slate-800';
+        if (type === 'Подвал') return 'bg-slate-100 text-slate-500 border-slate-200';
+        if (type === 'Открытый') return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+        return 'bg-blue-100 text-blue-700 border-blue-200';
     };
 
     return (
-        <div className="max-w-6xl mx-auto pb-20 animate-in fade-in duration-500">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-8">
+        <div className="max-w-7xl mx-auto pb-20 animate-in fade-in duration-500">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-6">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-800">Конфигурация паркингов</h1>
-                    <p className="text-slate-500 text-sm mt-1">Определение зон, в которых предусмотрены машиноместа</p>
+                    <h2 className="text-2xl font-bold text-slate-800 leading-tight">Конфигурация паркингов</h2>
+                    <p className="text-slate-500 text-sm mt-1">Отметьте уровни, где размещаются машиноместа, и укажите их количество</p>
                 </div>
                 <div className="flex gap-2">
-                    <Button onClick={handleSave}><Save size={14}/> Сохранить</Button>
+                    <Button onClick={handleSave}><Save size={14}/> Сохранить и продолжить</Button>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {items.length === 0 && (
-                    <div className="col-span-full p-12 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">
-                        <Car size={48} className="mx-auto mb-4 text-slate-300 opacity-50"/>
-                        <p className="font-medium">Нет зданий с подвалами или отдельных паркингов.</p>
-                        <p className="text-xs mt-2">Добавьте уровни в разделе "Конфигурация" (Шаг 3 или 4).</p>
-                    </div>
-                )}
+            {/* ТАБЛИЦА */}
+            {allRows.length > 0 ? (
+                <Card className="overflow-hidden shadow-lg border-0 ring-1 ring-slate-200 rounded-xl">
+                    <table className="w-full border-collapse">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase">
+                            <tr>
+                                <th className="p-4 text-left w-[8%]">Дом</th>
+                                <th className="p-4 text-left w-[18%]">Здание</th>
+                                <th className="p-4 text-left w-[15%]">Блок</th>
+                                <th className="p-4 text-left w-[15%]">Тип</th>
+                                <th className="p-4 text-left w-[14%]">Уровень</th>
+                                <th className="p-4 text-center w-[10%]">Статус</th>
+                                <th className="p-4 text-left w-[20%]">Количество мест</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                            {allRows.map((lvl, idx) => {
+                                const isEnabled = isParkingEnabled(lvl);
+                                const count = getPlacesCount(lvl);
+                                const uniqueKey = `${lvl.fullId}_${lvl.id}`;
 
-                {items.map(b => {
-                    const features = buildingDetails[`${b.id}_features`] || {};
-                    const basements = features.basements || [];
-                    const isSepParking = b.category === 'parking_separate';
-                    
-                    return (
-                        <Card key={b.id} className="p-6 h-full flex flex-col hover:shadow-md transition-all">
-                            <div className="flex items-start justify-between mb-4">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <div className={`p-2 rounded-lg ${isSepParking ? 'bg-slate-800 text-white' : 'bg-blue-100 text-blue-600'}`}>
-                                            {isSepParking ? <Car size={16}/> : <Building2 size={16}/>}
-                                        </div>
-                                        <h3 className="font-bold text-slate-800 text-sm">{b.label}</h3>
-                                    </div>
-                                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide ml-1">{b.type}</span>
-                                </div>
-                            </div>
+                                return (
+                                    <tr key={uniqueKey} className={`transition-colors ${isEnabled ? 'bg-white' : 'bg-slate-50/50'}`}>
+                                        <td className="p-4">
+                                            <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                                                {lvl.houseNumber}
+                                            </span>
+                                        </td>
+                                        <td className="p-4 text-sm font-bold text-slate-700">
+                                            {lvl.buildingLabel}
+                                        </td>
+                                        <td className="p-4">
+                                            <span className="text-xs font-medium text-slate-500">
+                                                {lvl.blockLabel}
+                                            </span>
+                                        </td>
+                                        <td className="p-4">
+                                            <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded border ${getBadgeStyle(lvl.type)}`}>
+                                                {lvl.type}
+                                            </span>
+                                        </td>
+                                        <td className="p-4">
+                                            <div className="flex flex-col">
+                                                <span className={`font-bold text-sm ${isEnabled ? 'text-slate-800' : 'text-slate-400'}`}>
+                                                    {lvl.label}
+                                                </span>
+                                            </div>
+                                        </td>
+                                        
+                                        <td className="p-4 text-center">
+                                            {/* relative для фикса прыжка экрана */}
+                                            <label className={`flex items-center justify-center group relative ${lvl.isMandatory ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="peer sr-only"
+                                                    checked={isEnabled}
+                                                    disabled={lvl.isMandatory}
+                                                    onChange={() => toggleParking(lvl)}
+                                                />
+                                                {lvl.isMandatory ? (
+                                                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100">
+                                                        <CheckCircle2 size={12}/>
+                                                        <span>АКТИВЕН</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="w-10 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 relative"></div>
+                                                )}
+                                            </label>
+                                        </td>
 
-                            <div className="space-y-3 flex-1">
-                                {isSepParking && (
-                                    <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center gap-3">
-                                        <CheckCircle2 size={16} className="text-emerald-500"/>
-                                        <span className="text-xs font-bold text-slate-600">Это здание — Паркинг</span>
-                                    </div>
-                                )}
-                                
-                                {basements.length > 0 && (
-                                    <div className="space-y-2">
-                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Подземные уровни</div>
-                                        {basements.map((base) => {
-                                            const levels = Array.from({length: base.depth}, (_, i) => i + 1);
-                                            return (
-                                                <div key={base.id} className="p-3 rounded-xl border border-slate-100 bg-white shadow-sm">
-                                                    <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-50">
-                                                        <div className="text-[10px] font-bold text-slate-400">Глубина: {base.depth} ур.</div>
-                                                        <div className="text-[9px] text-slate-400">{(base.blocks||[]).length} блоков</div>
+                                        <td className="p-4">
+                                            <div className={`flex items-center gap-3 transition-opacity duration-200 ${isEnabled ? 'opacity-100' : 'opacity-20 pointer-events-none'}`}>
+                                                <div className="relative max-w-xs w-32">
+                                                    <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
+                                                        <Car size={14} className="text-slate-400" />
                                                     </div>
-                                                    <div className="space-y-1">
-                                                        {levels.map(level => {
-                                                            // Проверяем статус для конкретного уровня. Если нет - берем общий hasParking
-                                                            const isChecked = base.parkingLevels ? (base.parkingLevels[level] ?? base.hasParking) : base.hasParking;
-                                                            
-                                                            return (
-                                                                <label key={level} className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all ${isChecked ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}>
-                                                                    <span className="text-xs font-bold text-slate-700">Уровень -{level}</span>
-                                                                    <div className="flex items-center gap-2">
-                                                                        <span className={`text-[9px] font-bold uppercase transition-colors ${isChecked ? 'text-blue-600' : 'text-slate-300'}`}>
-                                                                            {isChecked ? 'Паркинг' : 'Нет'}
-                                                                        </span>
-                                                                        <input 
-                                                                            type="checkbox" 
-                                                                            checked={isChecked || false} 
-                                                                            onChange={() => toggleLevelParking(b.id, base.id, level)}
-                                                                            className="rounded text-blue-600 focus:ring-0 w-4 h-4 cursor-pointer"
-                                                                        />
-                                                                    </div>
-                                                                </label>
-                                                            );
-                                                        })}
-                                                    </div>
+                                                    <DebouncedInput
+                                                        type="number"
+                                                        min="0"
+                                                        className="pl-8 pr-3 py-2 w-full border border-slate-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all"
+                                                        placeholder="0"
+                                                        value={count}
+                                                        onChange={(val) => updateCount(lvl, val)}
+                                                    />
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                                
-                                {!isSepParking && basements.length === 0 && (
-                                    <div className="text-xs text-slate-400 italic text-center py-4">
-                                        Нет настроенных подземных уровней
-                                    </div>
-                                )}
-                            </div>
-                        </Card>
-                    );
-                })}
-            </div>
+                                                <span className="text-xs text-slate-500 font-medium">мест</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </Card>
+            ) : (
+                <div className="p-12 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
+                    <Car size={48} className="mx-auto mb-4 text-slate-300 opacity-50"/>
+                    <p className="font-medium">Нет уровней для конфигурации паркинга.</p>
+                    <p className="text-xs mt-2 max-w-sm mx-auto">
+                        В проекте нет зданий типа "Паркинг" и жилых домов с подвалами.
+                    </p>
+                </div>
+            )}
         </div>
     );
 }
