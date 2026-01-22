@@ -114,7 +114,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     const isParking = building?.category === 'parking_separate';
     const isInfrastructure = building?.category === 'infrastructure';
     
-    // Для Паркинга
     const isUnderground = isParking && building?.parkingType === 'underground';
     const constructionType = building?.constructionType || 'capital';
     const isGroundCapital = isParking && !isUnderground && constructionType === 'capital';
@@ -175,7 +174,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     const updateFeatures = (updates) => setBuildingDetails(prev => ({ ...prev, [featuresKey]: { ...features, ...updates } }));
     const progress = calculateProgress(building.dateStart, building.dateEnd);
 
-    // --- РАСЧЕТЫ ДЛЯ СТИЛОБАТА ---
+    // --- РАСЧЕТЫ ДЛЯ СТИЛОБАТА (Нежилой блок снизу) ---
     const stylobateHeightUnderCurrentBlock = useMemo(() => {
         if (currentBlock?.type !== 'Ж') return 0;
         let maxH = 0;
@@ -191,6 +190,33 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         });
         return maxH;
     }, [buildingDetails, blocksList, currentBlock, building.id]);
+
+    // Проверка: Занят ли цоколь нежилым блоком снизу?
+    const isResBasementLocked = useMemo(() => {
+        if (currentBlock?.type !== 'Ж') return false;
+        
+        // Ищем нежилой блок, который находится под текущим жилым
+        const stylobateBlock = blocksList.find(b => {
+            if (b.type !== 'Н') return false;
+            const key = `${building.id}_${b.id}`;
+            const bDetails = buildingDetails[key];
+            return bDetails?.parentBlocks?.includes(currentBlock.id);
+        });
+
+        if (!stylobateBlock) return false;
+
+        // Проверяем, есть ли у этого нежилого блока цоколь
+        const stylobateDetails = buildingDetails[`${building.id}_${stylobateBlock.id}`];
+        return !!stylobateDetails?.hasBasementFloor;
+    }, [blocksList, buildingDetails, currentBlock, building.id]);
+
+    // ЭФФЕКТ: Сброс галочки "Цокольный этаж" у жилого блока, если она заблокирована стилобатом
+    useEffect(() => {
+        if (isResBasementLocked && details.hasBasementFloor) {
+            updateDetail('hasBasementFloor', false);
+        }
+    }, [isResBasementLocked, details.hasBasementFloor]);
+
 
     const occupiedResBlocks = useMemo(() => {
         const map = {};
@@ -237,14 +263,12 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         updateDetail(targetList, newTarget);
     };
 
-    // ОБНОВЛЕННАЯ ФУНКЦИЯ ПЕРЕКЛЮЧЕНИЯ РОДИТЕЛЬСКОГО БЛОКА
     const toggleParentBlock = (blockId) => {
         const currentParents = details.parentBlocks || [];
         const newParents = currentParents.includes(blockId) 
             ? currentParents.filter(id => id !== blockId) 
             : [...currentParents, blockId];
         
-        // Подготавливаем обновления
         const updates = { parentBlocks: newParents };
 
         // Если нежилой блок становится "под" кем-то (стилобатом), сбрасываем крышные параметры
@@ -254,7 +278,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
             updates.hasExploitableRoof = false;
         }
 
-        // Применяем обновления через setBuildingDetails (чтобы обновить сразу несколько полей)
         setBuildingDetails(prev => ({
             ...prev,
             [detailsKey]: { ...prev[detailsKey], ...updates }
@@ -298,7 +321,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     // 1. Поле "С этажа" заблокировано для 'Ж' и 'Н' (всегда 1)
     const isFloorFromDisabled = currentBlock?.type === 'Ж' || currentBlock?.type === 'Н';
     
-    // 2. Чекбоксы крыши заблокированы, если блок является стилобатом (находится под кем-то)
+    // 2. Чекбоксы крыши заблокированы, если блок является стилобатом
     const isStylobate = currentBlock?.type === 'Н' && (details.parentBlocks || []).length > 0;
 
     return (
@@ -445,7 +468,27 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                  <div className="space-y-4">
                                     <div className="space-y-2">
                                         <Label className="flex items-center gap-2"><ArrowUp size={16} className="text-amber-600"/> Количество этажей</Label>
-                                        <Input type="number" min="1" max="3" value={details.floorsCount} onChange={(e) => { const val = e.target.value; if (val === '') { updateDetail('floorsCount', ''); return; } let num = parseInt(val); if (num > 3) num = 3; updateDetail('floorsCount', num); updateDetail('floorsFrom', 1); }} className="font-bold text-lg"/>
+                                        <Input 
+                                            type="number" 
+                                            min="1" max="3" 
+                                            value={details.floorsCount} 
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (val === '') { updateDetail('floorsCount', ''); return; }
+                                                let num = parseInt(val);
+                                                if (num > 3) num = 3;
+                                                // ПРАВИЛЬНОЕ ОБНОВЛЕНИЕ: ОДИН ВЫЗОВ setBuildingDetails
+                                                setBuildingDetails(prev => ({
+                                                    ...prev,
+                                                    [detailsKey]: {
+                                                        ...prev[detailsKey],
+                                                        floorsCount: num,
+                                                        floorsFrom: 1
+                                                    }
+                                                }));
+                                            }} 
+                                            className="font-bold text-lg"
+                                        />
                                         <p className="text-[10px] text-slate-400 mt-1">Максимум 3 этажа для объекта инфраструктуры.</p>
                                     </div>
                                  </div>
@@ -577,7 +620,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                     </div>
                                     <div className="flex flex-wrap gap-4 mt-4 mb-6">
                                         {[ 
-                                            {k: 'hasBasementFloor', l: 'Цокольный этаж'}, 
+                                            {k: 'hasBasementFloor', l: 'Цокольный этаж', disabled: isResBasementLocked}, 
                                             {k: 'hasAttic', l: 'Мансарда', disabled: isStylobate}, 
                                             {k: 'hasLoft', l: 'Чердак', disabled: isStylobate}, 
                                             {k: 'hasExploitableRoof', l: 'Эксплуатируемая крыша', disabled: isStylobate} 
@@ -591,6 +634,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                                     className="rounded text-blue-600 w-4 h-4"
                                                 />
                                                 <span className="text-xs font-bold text-slate-600">{l}</span>
+                                                {disabled && k === 'hasBasementFloor' && <span className="text-[8px] text-red-400 ml-auto">Занят стилобатом</span>}
                                             </label>
                                         ))}
                                     </div>
@@ -601,7 +645,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                                 const isTech = details.technicalFloors?.includes(f);
                                                 const isGap = (idx > 0) && (idx % 10 === 0);
                                                 
-                                                // NEW LOGIC HERE: Lock Technical Floors too
+                                                // Блокируем технические этажи, если они попадают в диапазон стилобата
                                                 const isLockedByStylobate = currentBlock.type === 'Ж' && f <= stylobateHeightUnderCurrentBlock;
 
                                                 return (
