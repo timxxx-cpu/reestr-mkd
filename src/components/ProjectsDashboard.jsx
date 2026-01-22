@@ -1,28 +1,28 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  Plus, Building2, Search, Calendar, ChevronRight, 
+  Plus, Building2, Search, ChevronRight, 
   LayoutGrid, List as ListIcon, MapPin, HardHat, FileText, 
-  Archive, Trash2, Lock
+  Archive, Trash2, Lock, User // <-- Добавил иконку User
 } from 'lucide-react';
-import { Button } from './ui/UIKit';
+import { Button } from './ui/UIKit'; // Убедитесь, что этот путь правильный, или удалите, если используете html button
 
 export default function ProjectsDashboard({ projects = [], onSelect, onCreate, onDelete }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
     const [statusFilter, setStatusFilter] = useState('all');
 
-    // --- ДЕМО ДАННЫЕ (10 ШТ) ---
+    // --- ДЕМО ДАННЫЕ (10 ШТ) + АВТОР ---
     const demoProjects = useMemo(() => [
-        { id: 'demo_1', isDemo: true, name: 'ЖК "Солнечная Долина"', status: 'Строящийся', address: 'ул. Ленина, 45', lastModified: '2023-10-15' },
-        { id: 'demo_2', isDemo: true, name: 'Квартал "Новая Эра"', status: 'Проектный', address: 'пр. Мира, уч. 12', lastModified: '2023-11-02' },
-        { id: 'demo_3', isDemo: true, name: 'ЖК "Акварель"', status: 'Введенный', address: 'Набережная реки, 8', lastModified: '2023-09-20' },
-        { id: 'demo_4', isDemo: true, name: 'Резиденция "Монарх"', status: 'Строящийся', address: 'Исторический центр, 1', lastModified: '2023-10-28' },
-        { id: 'demo_5', isDemo: true, name: 'МФК "Технопарк"', status: 'Проектный', address: 'Индустриальная зона, 5', lastModified: '2023-11-05' },
-        { id: 'demo_6', isDemo: true, name: 'ЖК "Зеленый квартал"', status: 'Архив', address: 'Пригородное шоссе, 10 км', lastModified: '2022-12-10' },
-        { id: 'demo_7', isDemo: true, name: 'ЖК "Олимпия"', status: 'Строящийся', address: 'ул. Спортивная, 88', lastModified: '2023-10-01' },
-        { id: 'demo_8', isDemo: true, name: 'Дом на Набережной', status: 'Введенный', address: 'ул. Береговая, 3', lastModified: '2023-08-15' },
-        { id: 'demo_9', isDemo: true, name: 'ЖК "Панорама Сити"', status: 'Проектный', address: 'Высотный проезд, 21', lastModified: '2023-11-07' },
-        { id: 'demo_10', isDemo: true, name: 'ЖК "Центральный"', status: 'Строящийся', address: 'Площадь Победы, 1', lastModified: '2023-10-30' },
+        { id: 'demo_1', isDemo: true, name: 'ЖК "Солнечная Долина"', status: 'Строящийся', address: 'ул. Ленина, 45', lastModified: '2023-10-15', author: 'Система' },
+        { id: 'demo_2', isDemo: true, name: 'Квартал "Новая Эра"', status: 'Проектный', address: 'пр. Мира, уч. 12', lastModified: '2023-11-02', author: 'Менеджер' },
+        { id: 'demo_3', isDemo: true, name: 'ЖК "Акварель"', status: 'Введенный', address: 'Набережная реки, 8', lastModified: '2023-09-20', author: 'Админ' },
+        { id: 'demo_4', isDemo: true, name: 'Резиденция "Монарх"', status: 'Строящийся', address: 'Исторический центр, 1', lastModified: '2023-10-28', author: 'Архитектор' },
+        { id: 'demo_5', isDemo: true, name: 'МФК "Технопарк"', status: 'Проектный', address: 'Индустриальная зона, 5', lastModified: '2023-11-05', author: 'Система' },
+        { id: 'demo_6', isDemo: true, name: 'ЖК "Зеленый квартал"', status: 'Архив', address: 'Пригородное шоссе, 10 км', lastModified: '2022-12-10', author: 'Архив' },
+        { id: 'demo_7', isDemo: true, name: 'ЖК "Олимпия"', status: 'Строящийся', address: 'ул. Спортивная, 88', lastModified: '2023-10-01', author: 'Менеджер' },
+        { id: 'demo_8', isDemo: true, name: 'Дом на Набережной', status: 'Введенный', address: 'ул. Береговая, 3', lastModified: '2023-08-15', author: 'Система' },
+        { id: 'demo_9', isDemo: true, name: 'ЖК "Панорама Сити"', status: 'Проектный', address: 'Высотный проезд, 21', lastModified: '2023-11-07', author: 'Архитектор' },
+        { id: 'demo_10', isDemo: true, name: 'ЖК "Центральный"', status: 'Строящийся', address: 'Площадь Победы, 1', lastModified: '2023-10-30', author: 'Система' },
     ], []);
 
     // Объединяем реальные проекты (из пропсов) с демо
@@ -69,33 +69,13 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
     return (
         <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
             {/* --- ШАПКА --- */}
-            <header className="bg-white border-b border-slate-200 px-8 py-5 sticky top-0 z-20 shadow-sm/50">
-                <div className="max-w-7xl mx-auto flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-white shadow-lg shadow-slate-900/20">
-                            <Building2 size={20} />
-                        </div>
-                        <div>
-                            <h1 className="text-lg font-bold text-slate-800 leading-tight tracking-tight">
-                                Реестр МКД
-                            </h1>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                Система технической инвентаризации
-                            </p>
-                        </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-3">
-                        <div className="h-8 w-px bg-slate-200 mx-2 hidden md:block"></div>
-                        <Button onClick={onCreate} className="shadow-lg shadow-blue-200/50">
-                            <Plus size={16} />
-                            Новый объект
-                        </Button>
-                    </div>
-                </div>
-            </header>
+            {/* Если вы используете этот компонент внутри App.jsx, где уже есть шапка, 
+                то этот header можно скрыть или адаптировать */}
+            {/* <header className="bg-white border-b border-slate-200 px-8 py-5 sticky top-0 z-20 shadow-sm/50">
+               ... код шапки ...
+            </header> */}
 
-            <main className="max-w-7xl mx-auto px-8 py-8 space-y-8">
+            <main className="max-w-7xl mx-auto px-4 md:px-8 py-8 space-y-8">
                 
                 {/* --- СВОДКА (METRICS) --- */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -157,7 +137,7 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                                         key={project.id}
                                         onClick={() => handleProjectClick(project)}
                                         className={`group bg-white rounded-2xl p-6 border border-slate-200 shadow-sm transition-all relative overflow-hidden
-                                            ${project.isDemo ? 'cursor-default opacity-90' : 'hover:shadow-xl hover:shadow-blue-900/5 hover:border-blue-300 cursor-pointer'}
+                                            ${project.isDemo ? 'cursor-default opacity-90' : 'hover:shadow-xl hover:shadow-blue-900/5 hover:border-blue-300 cursor-pointer hover:-translate-y-1'}
                                         `}
                                     >
                                         <div className="flex justify-between items-start mb-4">
@@ -176,13 +156,24 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                                             )}
                                         </div>
 
-                                        <div className="mb-6">
+                                        <div className="mb-4">
                                             <h3 className={`text-lg font-bold text-slate-800 mb-1 transition-colors line-clamp-1 ${!project.isDemo && 'group-hover:text-blue-600'}`}>
                                                 {project.name}
                                             </h3>
                                             <div className="flex items-center gap-1 text-xs text-slate-400 mt-2">
                                                 <MapPin size={12} />
                                                 <span className="truncate">{project.address || 'Адрес не указан'}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* --- ДОБАВЛЕНО: АВТОР --- */}
+                                        <div className="flex items-center gap-2 mb-4 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                            <div className="w-6 h-6 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400">
+                                                <User size={12} />
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-[9px] text-slate-400 uppercase font-bold leading-none">Автор</span>
+                                                <span className="text-xs font-semibold text-slate-700 leading-none mt-0.5">{project.author || 'Неизвестен'}</span>
                                             </div>
                                         </div>
 
@@ -206,6 +197,7 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                                     <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase font-bold text-slate-500">
                                         <tr>
                                             <th className="px-6 py-4">Название объекта</th>
+                                            <th className="px-6 py-4">Автор</th> {/* Добавлена колонка */}
                                             <th className="px-6 py-4">Статус</th>
                                             <th className="px-6 py-4">Адрес</th>
                                             <th className="px-6 py-4 text-right">Обновлено</th>
@@ -222,6 +214,13 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                                                 <td className={`px-6 py-4 font-bold text-slate-800 ${!project.isDemo && 'group-hover:text-blue-600'}`}>
                                                     {project.name}
                                                     {project.isDemo && <span className="ml-2 text-[9px] text-slate-400 font-normal uppercase border px-1 rounded">Демо</span>}
+                                                </td>
+                                                {/* Добавлена ячейка автора */}
+                                                <td className="px-6 py-4 text-slate-600">
+                                                    <div className="flex items-center gap-2">
+                                                        <User size={12} className="text-slate-400"/>
+                                                        {project.author || '—'}
+                                                    </div>
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wide border ${getStatusStyle(project.status)}`}>

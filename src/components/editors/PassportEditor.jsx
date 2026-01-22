@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { 
   LayoutDashboard, MapPin, Briefcase, FileText, Clock, 
   Search, Plus, Trash2, Loader2, Save, Wand2, Building, 
-  Calendar, CheckCircle2, AlertCircle, Image as ImageIcon,
-  MoreHorizontal, FileBadge
+  CheckCircle2, AlertCircle, FileBadge, Calendar, ArrowRight,
+  Activity
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, SectionTitle, Label, Input, Select, Button } from '../ui/UIKit';
+import { Card, SectionTitle, Label, Input, Button } from '../ui/UIKit';
 
 // --- Хелперы ---
 function calculateProgress(start, end) {
@@ -14,6 +14,15 @@ function calculateProgress(start, end) {
     const total = new Date(end).getTime() - new Date(start).getTime();
     const current = new Date().getTime() - new Date(start).getTime();
     return total <= 0 ? 0 : Math.min(100, Math.max(0, (current / total) * 100));
+}
+
+// Расчет длительности в месяцах
+function getDuration(start, end) {
+    if (!start || !end) return null;
+    const d1 = new Date(start);
+    const d2 = new Date(end);
+    const months = (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth());
+    return months > 0 ? `${months} мес.` : null;
 }
 
 const STATUS_CONFIG = {
@@ -65,7 +74,8 @@ export default function PassportEditor() {
         setComplexInfo({
             name: 'ЖК "Grand Capital"', status: 'Строящийся', 
             region: 'Ташкент', district: 'Мирзо-Улугбекский', street: 'пр. Мустакиллик, 88', landmark: 'Напротив парка',
-            dateStartProject: '2023-03-01', dateEndProject: '2025-12-30', dateStartFact: '2023-04-10', dateEndFact: ''
+            dateStartProject: '2023-03-01', dateEndProject: '2025-12-30', 
+            dateStartFact: '2023-04-10', dateEndFact: ''
         });
         setParticipants({
             developer: { inn: '202020202', name: 'ООО "Golden House Develop"' },
@@ -75,15 +85,22 @@ export default function PassportEditor() {
         setCadastre({ number: '11:05:04:02:0077', address: 'г. Ташкент, Мирзо-Улугбекский р-н, пр. Мустакиллик, 88', area: '1.85 га' });
     };
 
+    const handleSaveClick = () => {
+        saveData({}, true);
+    };
+
     const progress = calculateProgress(complexInfo.dateStartProject, complexInfo.dateEndProject);
     const StatusIcon = STATUS_CONFIG[complexInfo.status]?.icon || LayoutDashboard;
+
+    // Расчеты длительности
+    const durProject = getDuration(complexInfo.dateStartProject, complexInfo.dateEndProject);
+    const durFact = getDuration(complexInfo.dateStartFact, complexInfo.dateEndFact);
 
     return (
         <div className="max-w-7xl mx-auto pb-20 animate-in fade-in duration-500 space-y-6">
             
             {/* --- HERO HEADER --- */}
             <div className="relative rounded-3xl overflow-hidden bg-slate-900 text-white shadow-2xl">
-                {/* Фоновый паттерн/градиент */}
                 <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900/50 z-0"></div>
                 
                 <div className="relative z-10 p-8 md:p-10">
@@ -97,7 +114,7 @@ export default function PassportEditor() {
                                     {complexInfo.name || "Новый Жилой Комплекс"}
                                 </h1>
                                 <div className="flex items-center gap-3 text-slate-300 text-sm font-medium">
-                                    <span className="flex items-center gap-1"><MapPin size={14}/> {complexInfo.region ? `${complexInfo.region}, ${complexInfo.street}` : "Адрес не указан"}</span>
+                                    <span className="flex items-center gap-1"><MapPin size={14}/> {complexInfo.street || "Адрес не указан"}</span>
                                     {cadastre.area && <span className="bg-white/10 px-2 py-0.5 rounded text-white text-xs">{cadastre.area}</span>}
                                 </div>
                             </div>
@@ -108,14 +125,14 @@ export default function PassportEditor() {
                                 <Button variant="secondary" onClick={autoFill} className="bg-white/10 border-white/10 text-white hover:bg-white/20 text-xs h-9">
                                     <Wand2 size={14}/> Демо
                                 </Button>
-                                <Button onClick={() => saveData()} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50 h-9">
+                                <Button onClick={handleSaveClick} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50 h-9">
                                     <Save size={14}/> Сохранить
                                 </Button>
                             </div>
                         </div>
                     </div>
 
-                    {/* Progress Bar в хедере */}
+                    {/* Progress Bar */}
                     <div className="bg-black/20 rounded-xl p-4 backdrop-blur-sm border border-white/5 flex items-center gap-6">
                         <div className="flex-1">
                             <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
@@ -151,14 +168,23 @@ export default function PassportEditor() {
                 {/* --- ЛЕВАЯ КОЛОНКА (2/3) --- */}
                 <div className="lg:col-span-2 space-y-6">
                     
-                    {/* ЛОКАЦИЯ И КАДАСТР */}
+                    {/* ОСНОВНЫЕ ДАННЫЕ */}
                     <Card className="p-0 overflow-hidden shadow-sm">
                         <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                            <SectionTitle icon={MapPin} className="mb-0">Локация и Кадастр</SectionTitle>
+                            <SectionTitle icon={MapPin} className="mb-0">Основные данные</SectionTitle>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2">
                             {/* Форма */}
                             <div className="p-6 space-y-5">
+                                <div className="space-y-1.5">
+                                    <Label>Наименование ЖК / Проекта</Label>
+                                    <Input 
+                                        value={complexInfo.name || ''} 
+                                        onChange={e => setComplexInfo({...complexInfo, name: e.target.value})} 
+                                        placeholder="Например: ЖК 'Grand Capital'" 
+                                        className="font-bold text-base"
+                                    />
+                                </div>
                                 <div className="space-y-1.5">
                                     <Label>Кадастровый номер</Label>
                                     <div className="flex gap-2">
@@ -174,7 +200,7 @@ export default function PassportEditor() {
                                     </div>
                                 </div>
                                 <div className="space-y-1.5">
-                                    <Label>Район / Ориентир</Label>
+                                    <Label>Район</Label>
                                     <Input 
                                         value={complexInfo.district || ''} 
                                         onChange={e => setComplexInfo({...complexInfo, district: e.target.value})} 
@@ -192,14 +218,13 @@ export default function PassportEditor() {
                                 </div>
                             </div>
                             
-                            {/* Заглушка Карты */}
+                            {/* Карта */}
                             <div className="bg-slate-100 relative min-h-[250px] border-l border-slate-100">
                                 <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 pointer-events-none">
                                     <MapPin size={48} className="mb-2 opacity-20"/>
                                     <span className="text-xs font-bold uppercase opacity-50">Карта местности</span>
                                     {cadastre.address && <div className="mt-4 px-4 py-2 bg-white/80 backdrop-blur rounded-lg text-[10px] font-bold shadow-sm max-w-[200px] text-center">{cadastre.address}</div>}
                                 </div>
-                                {/* Паттерн сетки для карты */}
                                 <div className="absolute inset-0 opacity-5" style={{backgroundImage: 'radial-gradient(#475569 1px, transparent 1px)', backgroundSize: '20px 20px'}}></div>
                             </div>
                         </div>
@@ -250,37 +275,71 @@ export default function PassportEditor() {
                 {/* --- ПРАВАЯ КОЛОНКА (1/3) --- */}
                 <div className="space-y-6">
                     
-                    {/* ТАЙМЛАЙН */}
-                    <Card className="p-6 shadow-sm border-t-4 border-t-blue-500">
-                        <SectionTitle icon={Clock}>Сроки реализации</SectionTitle>
+                    {/* НОВЫЙ БЛОК: СРОКИ РЕАЛИЗАЦИИ */}
+                    <Card className="p-5 shadow-sm h-auto flex flex-col">
+                        <SectionTitle icon={Clock}>График реализации</SectionTitle>
                         
-                        <div className="relative pl-4 space-y-8 mt-6">
-                            {/* Линия */}
-                            <div className="absolute left-[19px] top-2 bottom-2 w-0.5 bg-slate-100"></div>
-
-                            {/* Старт */}
-                            <div className="relative flex items-start gap-4">
-                                <div className="w-2.5 h-2.5 rounded-full bg-blue-500 ring-4 ring-white shadow-sm z-10 mt-1.5 translate-x-[9px]"></div>
+                        {/* 1. Блок: План (Проект) */}
+                        <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 mb-4 relative overflow-hidden">
+                            {durProject && <div className="absolute top-0 right-0 bg-slate-200 text-slate-600 text-[9px] font-bold px-2 py-1 rounded-bl-lg">{durProject}</div>}
+                            
+                            <div className="flex items-center gap-2 mb-3 text-slate-500">
+                                <Calendar size={14} />
+                                <span className="text-xs font-bold uppercase tracking-wider">Проектный план</span>
+                            </div>
+                            
+                            <div className="space-y-3">
                                 <div>
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Начало работ</label>
-                                    <Input type="date" className="py-1 px-2 text-xs font-bold" value={complexInfo.dateStartProject || ''} onChange={e => setComplexInfo({...complexInfo, dateStartProject: e.target.value})} />
-                                    <div className="mt-1 flex gap-2">
-                                        <span className="text-[9px] text-slate-400">Факт:</span>
-                                        <input type="date" className="bg-transparent text-[9px] outline-none text-slate-600" value={complexInfo.dateStartFact || ''} onChange={e => setComplexInfo({...complexInfo, dateStartFact: e.target.value})} />
-                                    </div>
+                                    <label className="text-[10px] text-slate-400 font-semibold mb-1 block">Начало строительства</label>
+                                    <Input 
+                                        type="date" 
+                                        className="bg-white"
+                                        value={complexInfo.dateStartProject || ''} 
+                                        onChange={e => setComplexInfo({...complexInfo, dateStartProject: e.target.value})} 
+                                    />
+                                </div>
+                                <div className="flex justify-center text-slate-300">
+                                    <ArrowRight size={14} className="rotate-90"/>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-slate-400 font-semibold mb-1 block">Ввод в эксплуатацию</label>
+                                    <Input 
+                                        type="date" 
+                                        className="bg-white"
+                                        value={complexInfo.dateEndProject || ''} 
+                                        onChange={e => setComplexInfo({...complexInfo, dateEndProject: e.target.value})} 
+                                    />
                                 </div>
                             </div>
+                        </div>
 
-                            {/* Финиш */}
-                            <div className="relative flex items-start gap-4">
-                                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-white shadow-sm z-10 mt-1.5 translate-x-[9px]"></div>
+                        {/* 2. Блок: Факт */}
+                        <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100 relative overflow-hidden">
+                             {durFact && <div className="absolute top-0 right-0 bg-blue-200 text-blue-700 text-[9px] font-bold px-2 py-1 rounded-bl-lg">{durFact}</div>}
+                             
+                             <div className="flex items-center gap-2 mb-3 text-blue-600">
+                                <Activity size={14} />
+                                <span className="text-xs font-bold uppercase tracking-wider">Фактическое выполнение</span>
+                            </div>
+
+                            <div className="space-y-3">
                                 <div>
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Ввод в эксплуатацию</label>
-                                    <Input type="date" className="py-1 px-2 text-xs font-bold" value={complexInfo.dateEndProject || ''} onChange={e => setComplexInfo({...complexInfo, dateEndProject: e.target.value})} />
-                                    <div className="mt-1 flex gap-2">
-                                        <span className="text-[9px] text-slate-400">Факт:</span>
-                                        <input type="date" className="bg-transparent text-[9px] outline-none text-slate-600" value={complexInfo.dateEndFact || ''} onChange={e => setComplexInfo({...complexInfo, dateEndFact: e.target.value})} />
-                                    </div>
+                                    <label className="text-[10px] text-blue-400 font-semibold mb-1 block">Фактическое начало</label>
+                                    <Input 
+                                        type="date" 
+                                        className="bg-white border-blue-200 focus:border-blue-400"
+                                        value={complexInfo.dateStartFact || ''} 
+                                        onChange={e => setComplexInfo({...complexInfo, dateStartFact: e.target.value})} 
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-blue-400 font-semibold mb-1 block">Фактическая сдача</label>
+                                    <Input 
+                                        type="date" 
+                                        className="bg-white border-blue-200 focus:border-blue-400"
+                                        value={complexInfo.dateEndFact || ''} 
+                                        onChange={e => setComplexInfo({...complexInfo, dateEndFact: e.target.value})} 
+                                    />
                                 </div>
                             </div>
                         </div>

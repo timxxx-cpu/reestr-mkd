@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, User, Users, FolderOpen, Plus, Trash2, AlertTriangle, RefreshCw } from 'lucide-react'; // Убрал Wrench
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { doc, setDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot, deleteDoc, getDoc, arrayUnion, deleteField } from 'firebase/firestore';
 import { auth, db, APP_ID } from './lib/firebase';
 
 // Контексты
@@ -12,7 +12,6 @@ import { STEPS_CONFIG } from './lib/constants';
 // UI
 import Sidebar from './components/Sidebar';
 import StepIndicator from './components/StepIndicator';
-import ProjectsDashboard from './components/ProjectsDashboard';
 import Breadcrumbs from './components/ui/Breadcrumbs';
 
 // Редакторы
@@ -27,7 +26,40 @@ import MopEditor from './components/editors/MopEditor';
 import FlatMatrixEditor from './components/editors/FlatMatrixEditor';
 import SummaryDashboard from './components/editors/SummaryDashboard';
 
-// Заглушка для пока не созданных разделов
+import ProjectsDashboard from './components/ProjectsDashboard';
+
+// --- НАСТРОЙКИ ---
+const DB_SCOPE = 'shared_dev_env'; 
+const TEST_USERS = [
+    { id: 'u1', name: 'Тимур', role: 'admin' },
+    { id: 'u2', name: 'Абдурашид', role: 'manager' },
+    { id: 'u3', name: 'Вахит', role: 'architect' },
+    { id: 'u4', name: 'Аббос', role: 'editor' },
+];
+
+// --- ERROR BOUNDARY ---
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, errorInfo) { console.error("UI ERROR:", error, errorInfo); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full p-8 text-center text-red-600 bg-red-50 rounded-xl m-4">
+          <AlertTriangle size={48} className="mb-4"/>
+          <h2 className="text-xl font-bold">Что-то пошло не так</h2>
+          <p className="text-sm opacity-80 mb-4">{this.state.error?.toString()}</p>
+          <button onClick={this.props.onReset} className="px-4 py-2 bg-white border border-red-200 rounded-lg shadow-sm hover:bg-red-50">Вернуться назад</button>
+        </div>
+      );
+    }
+    return this.props.children; 
+  }
+}
+
 const PlaceholderEditor = ({ title }) => (
   <div className="flex flex-col items-center justify-center p-12 text-center border-2 border-dashed border-slate-200 rounded-2xl m-8 min-h-[400px]">
     <h3 className="text-xl font-bold text-slate-400 mb-2">Раздел "{title}"</h3>
@@ -45,7 +77,7 @@ function ProjectEditorLayout({ onBack }) {
   
     const handleNext = () => {
         setEditingBuildingId(null);
-        setCurrentStep(prev => Math.min(prev + 1, STEPS_CONFIG.length - 1));
+        setCurrentStep(prev => Math.min(prev + 1, (STEPS_CONFIG?.length || 1) - 1));
     };
     const handlePrev = () => {
         setEditingBuildingId(null);
@@ -56,16 +88,10 @@ function ProjectEditorLayout({ onBack }) {
         setCurrentStep(idx);
     };
   
-    const editingBuildingName = editingBuildingId 
-      ? composition.find(b => b.id === editingBuildingId)?.label 
-      : null;
-  
-    // Безопасное получение ID шага
-    const stepConfig = STEPS_CONFIG[currentStep];
-    const stepId = stepConfig ? stepConfig.id : 'unknown';
+    const stepConfig = STEPS_CONFIG?.[currentStep] || {};
+    const stepId = stepConfig.id || 'unknown';
   
     const renderStepContent = () => {
-      // Если выбрано здание - показываем его редактор
       if (editingBuildingId) {
           if (stepId === 'registry_res') return <BuildingConfigurator buildingId={editingBuildingId} mode="res" onBack={() => setEditingBuildingId(null)} />;
           if (stepId === 'registry_nonres') return <BuildingConfigurator buildingId={editingBuildingId} mode="nonres" onBack={() => setEditingBuildingId(null)} />;
@@ -75,14 +101,11 @@ function ProjectEditorLayout({ onBack }) {
           if (stepId === 'apartments') return <FlatMatrixEditor buildingId={editingBuildingId} onBack={() => setEditingBuildingId(null)} />;
       }
   
-      // Иначе показываем общий редактор шага
       switch (stepId) {
         case 'passport': return <PassportEditor />;
         case 'composition': return <CompositionEditor />;
         case 'parking_config': return <ParkingConfigurator onSave={handleNext} />;
         case 'summary': return <SummaryDashboard />;
-        
-        // Шаги выбора здания
         case 'registry_res': 
         case 'registry_nonres':
         case 'floors':
@@ -90,7 +113,6 @@ function ProjectEditorLayout({ onBack }) {
         case 'mop':
         case 'apartments':
             return <BuildingSelector stepId={stepId} onSelect={setEditingBuildingId} />;
-            
         default: return <PlaceholderEditor title={stepConfig?.title || "Неизвестный этап"} />;
       }
     };
@@ -107,25 +129,25 @@ function ProjectEditorLayout({ onBack }) {
         <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
             <div className="px-8 pt-6 pb-2">
                  <Breadcrumbs 
-                     projectName={complexInfo.name} 
+                     projectName={complexInfo?.name || "Новый проект"} 
                      stepTitle={stepConfig?.title}
-                     buildingName={editingBuildingName}
+                     buildingName={editingBuildingId ? composition?.find(b => b.id === editingBuildingId)?.label : null}
                      onBackToStep={() => setEditingBuildingId(null)}
                  />
             </div>
-  
             <div className="flex-1 overflow-y-auto px-8 pb-6 scroll-smooth">
-                {/* Индикатор показываем только на общих экранах */}
                 {!editingBuildingId && <StepIndicator currentStep={currentStep} />}
                 
-                {renderStepContent()}
+                <React.Suspense fallback={<div className="p-10 flex justify-center"><Loader2 className="animate-spin text-slate-300"/></div>}>
+                    {renderStepContent()}
+                </React.Suspense>
             </div>
             
             {!editingBuildingId && (
                 <footer className="bg-white border-t border-slate-200 px-8 py-5 flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
                     <button onClick={handlePrev} disabled={currentStep === 0} className={`px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 ${currentStep === 0 ? 'text-slate-300' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>Назад</button>
-                    <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.3em]">Шаг {currentStep + 1} / {STEPS_CONFIG.length}</div>
-                    <button onClick={handleNext} disabled={currentStep === STEPS_CONFIG.length - 1} className="px-8 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-slate-300 hover:bg-black active:scale-95 transition-all flex items-center gap-2">Далее</button>
+                    <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.3em]">Шаг {currentStep + 1} / {STEPS_CONFIG?.length || 1}</div>
+                    <button onClick={handleNext} disabled={currentStep === (STEPS_CONFIG?.length || 1) - 1} className="px-8 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-slate-300 hover:bg-black active:scale-95 transition-all flex items-center gap-2">Далее</button>
                 </footer>
             )}
         </main>
@@ -135,88 +157,179 @@ function ProjectEditorLayout({ onBack }) {
 
 // --- ГЛАВНЫЙ КОМПОНЕНТ ---
 export default function App() {
-  const [user, setUser] = useState(null);
+  const [firebaseUser, setFirebaseUser] = useState(null);
+  const [activePersona, setActivePersona] = useState(TEST_USERS[0]);
   const [currentProjectId, setCurrentProjectId] = useState(null);
   const [projectsList, setProjectsList] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     signInAnonymously(auth).catch(console.error);
     const unsubscribe = onAuthStateChanged(auth, (u) => {
-        setUser(u);
+        setFirebaseUser(u);
         setLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
+  // Загрузка списка
   useEffect(() => {
-    if (!user) return;
-    const metaRef = doc(db, 'artifacts', APP_ID, 'users', 'shared_demo_user', 'registry_data', 'projects_meta');
+    if (!firebaseUser) return;
+    const metaRef = doc(db, 'artifacts', APP_ID, 'users', DB_SCOPE, 'registry_data', 'projects_meta');
+    
     const unsubscribe = onSnapshot(metaRef, (snap) => {
         if (snap.exists()) {
             setProjectsList(snap.data().list || []);
         } else {
-            setDoc(metaRef, { list: [] });
+            setProjectsList([]);
         }
     });
     return () => unsubscribe();
-  }, [user]);
+  }, [firebaseUser]);
 
+  // СОЗДАНИЕ
   const createProject = async () => {
-      if (!user) return;
-      const newId = Date.now().toString();
-      const newProject = { 
-          id: newId, 
-          name: 'Новый проект', 
-          status: 'Проектный', 
-          lastModified: new Date().toISOString() 
-      };
-      
-      const metaRef = doc(db, 'artifacts', APP_ID, 'users', 'shared_demo_user', 'registry_data', 'projects_meta');
-      await setDoc(metaRef, { list: [...projectsList, newProject] }, { merge: true });
-      
-      const projectRef = doc(db, 'artifacts', APP_ID, 'users', 'shared_demo_user', 'registry_data', `project_${newId}`);
-      await setDoc(projectRef, { 
-          complexInfo: { name: 'Новый проект', status: 'Проектный' }, 
-          composition: [] 
-      });
+      if (!firebaseUser || creating) return;
+      setCreating(true);
 
-      setCurrentProjectId(newId);
+      try {
+          const newId = Date.now().toString();
+          const newProject = { 
+              id: newId, 
+              name: 'Новый проект', 
+              status: 'Проектный', 
+              lastModified: new Date().toISOString(),
+              author: activePersona.name,
+              authorId: activePersona.id
+          };
+          
+          const metaRef = doc(db, 'artifacts', APP_ID, 'users', DB_SCOPE, 'registry_data', 'projects_meta');
+          await setDoc(metaRef, { list: arrayUnion(newProject) }, { merge: true });
+          
+          const projectRef = doc(db, 'artifacts', APP_ID, 'users', DB_SCOPE, 'registry_data', `project_${newId}`);
+          await setDoc(projectRef, { 
+              complexInfo: { name: 'Новый проект', status: 'Проектный' }, 
+              composition: []
+          });
+
+      } catch (e) {
+          console.error("Ошибка создания:", e);
+          alert("Не удалось создать проект: " + e.message);
+      } finally {
+          setCreating(false);
+      }
   };
 
+  // УДАЛЕНИЕ
   const deleteProject = async (id) => {
-      if (!user) return;
-      if(!confirm('Вы уверены?')) return;
-      
-      const newList = projectsList.filter(p => p.id !== id);
-      const metaRef = doc(db, 'artifacts', APP_ID, 'users', 'shared_demo_user', 'registry_data', 'projects_meta');
-      await setDoc(metaRef, { list: newList }, { merge: true });
+      if (!confirm('Удалить проект навсегда?')) return;
       try {
-          await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', 'shared_demo_user', 'registry_data', `project_${id}`));
+          const metaRef = doc(db, 'artifacts', APP_ID, 'users', DB_SCOPE, 'registry_data', 'projects_meta');
+          const metaSnap = await getDoc(metaRef);
+          
+          if (metaSnap.exists()) {
+            const currentList = metaSnap.data().list || [];
+            const newList = currentList.filter(p => p.id !== id);
+            await setDoc(metaRef, { list: newList }, { merge: true });
+          }
+          await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', DB_SCOPE, 'registry_data', `project_${id}`));
       } catch (e) {
           console.error("Ошибка удаления:", e);
       }
   };
 
   if (loading) return <div className="flex items-center justify-center h-screen bg-slate-50 gap-2 text-slate-500"><Loader2 className="animate-spin"/> Загрузка...</div>;
-  if (!user) return <div className="flex items-center justify-center h-screen bg-slate-50">Ошибка авторизации</div>;
+  if (!firebaseUser) return <div className="p-8 flex justify-center text-slate-400">Нет соединения с Firebase</div>;
 
+  // --- ЭКРАН 1: ГЛАВНЫЙ ДАШБОРД ---
   if (!currentProjectId) {
       return (
-          <ProjectsDashboard 
-              projects={projectsList} 
-              onCreate={createProject} 
-              onSelect={setCurrentProjectId} 
-              onDelete={deleteProject}
-          />
+          <div className="min-h-screen bg-slate-50">
+             
+             {/* ШАПКА ПРИЛОЖЕНИЯ */}
+             <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-0 z-50 shadow-sm">
+                
+                {/* Логотип и Инфо */}
+                <div className="flex items-center gap-4 w-full md:w-auto">
+                    <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-white shadow-lg">
+                        <FolderOpen size={20} />
+                    </div>
+                    <div>
+                        <h1 className="text-lg font-bold text-slate-800 leading-tight">Реестр МКД</h1>
+                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-2">
+                             <span>{DB_SCOPE}</span>
+                             <span className="text-slate-200">|</span>
+                             <span>Проектов: {projectsList.length}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Правая часть: Пользователи + Кнопки */}
+                <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+                    
+                    {/* Переключатель пользователей */}
+                    <div className="flex bg-slate-100 rounded-full p-1 border border-slate-200 overflow-x-auto max-w-[200px] md:max-w-none custom-scrollbar">
+                        {TEST_USERS.map(user => (
+                            <button
+                                key={user.id}
+                                onClick={() => setActivePersona(user)}
+                                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${
+                                    activePersona.id === user.id 
+                                    ? 'bg-white text-slate-900 shadow-sm' 
+                                    : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                            >
+                                <User size={12} /> {user.name}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Разделитель */}
+                    <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
+
+                    {/* КНОПКА СОЗДАНИЯ */}
+                    <button 
+                        onClick={createProject}
+                        disabled={creating}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-blue-200 transition-all active:scale-95 disabled:opacity-70 disabled:pointer-events-none"
+                    >
+                        {creating ? <Loader2 size={14} className="animate-spin"/> : <Plus size={14}/>}
+                        <span className="hidden sm:inline">Новый объект</span>
+                    </button>
+                </div>
+             </div>
+
+             {/* КОНТЕНТ ДАШБОРДА */}
+             <div className="p-6 md:p-8">
+                <ProjectsDashboard 
+                    projects={projectsList} 
+                    onCreate={createProject} 
+                    onSelect={setCurrentProjectId} 
+                    onDelete={deleteProject}
+                    isCreating={creating}
+                />
+             </div>
+          </div>
       );
   }
 
+  // --- ЭКРАН 2: РЕДАКТОР ---
   return (
     <ToastProvider>
-      <ProjectProvider key={currentProjectId} projectId={currentProjectId} user={user}>
-          <ProjectEditorLayout onBack={() => setCurrentProjectId(null)} />
-          <div className="fixed bottom-1 left-1 z-[9999] px-2 py-1 bg-white/80 text-[10px] text-slate-400 border border-slate-200 rounded pointer-events-none">v1.0</div>
+      <ProjectProvider 
+        key={currentProjectId} 
+        projectId={currentProjectId} 
+        user={firebaseUser}
+        customScope={DB_SCOPE}
+      >
+          <ErrorBoundary onReset={() => setCurrentProjectId(null)}>
+              <ProjectEditorLayout onBack={() => setCurrentProjectId(null)} />
+          </ErrorBoundary>
+          
+          <div className="fixed bottom-1 left-1 z-[9999] px-2 py-1 bg-white/90 text-[10px] text-slate-500 border border-slate-200 rounded shadow-lg pointer-events-none flex items-center gap-1">
+             <Users size={10}/> Вы: <b>{activePersona.name}</b>
+          </div>
       </ProjectProvider>
     </ToastProvider>
   );
