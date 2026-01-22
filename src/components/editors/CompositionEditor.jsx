@@ -1,16 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
-  Wand2, Home, Layout, Car, Box, Plus, Pencil, Trash2, X, Sparkles, Building2
+  Wand2, Home, Layout, Car, Box, Plus, Pencil, Trash2, X, Sparkles, Building2, 
+  Calendar, Hash, Clock, MoreVertical, ArrowRight
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, SectionTitle, Label, Input, Select, Button } from '../ui/UIKit';
+import { Button, Input, Select, Label, SectionTitle } from '../ui/UIKit';
 
-// Вспомогательный компонент для бейджика
-const Badge = ({ children, className = "" }) => (
-  <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border bg-purple-50 text-purple-600 border-purple-100 ${className}`}>
-    {children}
-  </span>
-);
+// --- ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ ---
+
+// Функция для расчета прогресса по датам
+const calculateProgress = (start, end) => {
+    if (!start || !end) return 0;
+    const total = new Date(end).getTime() - new Date(start).getTime();
+    const current = new Date().getTime() - new Date(start).getTime();
+    if (total <= 0) return 0;
+    const percent = (current / total) * 100;
+    return Math.min(100, Math.max(0, percent));
+};
+
+// Функция для цветов стадии
+const getStageColor = (stage) => {
+    switch(stage) {
+        case 'Введенный': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+        case 'Строящийся': return 'bg-blue-100 text-blue-700 border-blue-200';
+        case 'Проектный': return 'bg-purple-100 text-purple-700 border-purple-200';
+        case 'Архив': return 'bg-slate-100 text-slate-500 border-slate-200';
+        default: return 'bg-slate-50 text-slate-600 border-slate-200';
+    }
+};
 
 export default function CompositionEditor() {
     const { composition, setComposition, buildingDetails, setBuildingDetails, saveData } = useProject();
@@ -23,58 +40,35 @@ export default function CompositionEditor() {
         nonResBlocks: 0, 
         hasNonResPart: false, 
         baseName: "", 
+        houseNumber: "",    
+        dateStart: "",      
+        dateEnd: "",        
+        stage: "Проектный",
         editingId: null, 
         parkingType: 'underground', 
         parkingConstruction: 'multi', 
         infraType: 'Котельная' 
     });
 
-    // --- АВТО-ГЕНЕРАЦИЯ СЛОЖНОГО КОМПЛЕКСА (Обновленная) ---
+    // --- ЛОГИКА (Оставили прежней, с небольшими улучшениями) ---
+
     const generateDemoComplex = () => {
-        if (!window.confirm("Это добавит в проект тестовый набор зданий (Демо-ЖК). Существующие данные могут быть перезаписаны. Продолжить?")) return;
-
+        if (!window.confirm("Создать демо-данные? Текущий список будет дополнен.")) return;
         const timestamp = Date.now();
-        
-        // 1. Создаем список зданий
         const demoBuildings = [
-            { id: `b_${timestamp}_1`, label: 'Корпус 1 "Доминанта"', type: 'Жилой дом с нежилыми объектами', category: 'residential', resBlocks: 1, nonResBlocks: 0, hasNonResPart: true, parkingType: 'underground', infraType: 'Котельная' },
-            { id: `b_${timestamp}_2`, label: 'Корпус 2 "Каскад"', type: 'Многоблочный дом', category: 'residential_multiblock', resBlocks: 4, nonResBlocks: 0, hasNonResPart: true, parkingType: 'none', infraType: 'Котельная' },
-            { id: `b_${timestamp}_3`, label: 'Корпус 3 "Клубный"', type: 'Жилой дом', category: 'residential', resBlocks: 1, nonResBlocks: 0, hasNonResPart: false, parkingType: 'underground', infraType: 'Котельная' },
-            { id: `b_${timestamp}_4`, label: 'Паркинг "Север"', type: 'Отдельный паркинг (Многоуровневый)', category: 'parking_separate', resBlocks: 0, nonResBlocks: 0, hasNonResPart: false, parkingType: 'ground', constructionType: 'multi', infraType: '' },
-            { id: `b_${timestamp}_5`, label: 'Детский сад №12', type: 'Инфраструктура', category: 'infrastructure', resBlocks: 0, nonResBlocks: 0, hasNonResPart: false, parkingType: 'none', infraType: 'Детский сад' },
-            // НОВЫЙ ОБЪЕКТ: СЛОЖНЫЙ МНОГОБЛОЧНИК
-            { id: `b_${timestamp}_6`, label: 'Корпус 6 "Сити-Микс"', type: 'Многоблочный дом (Смешанный)', category: 'residential_multiblock', resBlocks: 2, nonResBlocks: 1, hasNonResPart: true, parkingType: 'underground', infraType: '' },
+            { id: `b_${timestamp}_1`, label: 'Корпус "Доминанта"', houseNumber: "1", stage: "Строящийся", dateStart: "2023-01-01", dateEnd: "2025-12-31", type: 'Жилой дом', category: 'residential', resBlocks: 1, nonResBlocks: 0, hasNonResPart: true },
+            { id: `b_${timestamp}_2`, label: 'Паркинг "Север"', houseNumber: "P-1", stage: "Введенный", dateStart: "2022-06-01", dateEnd: "2023-06-01", type: 'Паркинг', category: 'parking_separate', parkingType: 'ground' },
+            { id: `b_${timestamp}_3`, label: 'Детский сад', houseNumber: "12", stage: "Проектный", dateStart: "2024-09-01", dateEnd: "2025-09-01", type: 'Инфраструктура', category: 'infrastructure', infraType: 'Детский сад' },
         ];
-
-        // 2. Генерируем детальные настройки (этажность, подъезды)
-        const demoDetails = {
-            // Башня
-            [`b_${timestamp}_1_main`]: { floorsFrom: 25, floorsTo: 25, entrances: 1, hasBasementFloor: true },
-            [`b_${timestamp}_1_features`]: { material: 'monolith', parkingType: 'underground', basements: [{id: 1, depth: 2}] },
-
-            // Каскад
-            [`b_${timestamp}_2_main`]: { floorsFrom: 12, floorsTo: 16, entrances: 4, hasBasementFloor: true },
-            [`b_${timestamp}_2_features`]: { material: 'panel', parkingType: 'none', basements: [{id: 1, depth: 1}] },
-
-            // Клубный
-            [`b_${timestamp}_3_main`]: { floorsFrom: 5, floorsTo: 5, entrances: 2, hasBasementFloor: false },
-            [`b_${timestamp}_3_features`]: { material: 'brick', parkingType: 'attached', basements: [] },
-
-            // Паркинг
-            [`b_${timestamp}_4_main`]: { floorsFrom: 6, floorsTo: 6, entrances: 2, hasBasementFloor: false },
-            [`b_${timestamp}_4_features`]: { material: 'monolith', parkingType: 'separate', basements: [] },
-
-            // Садик
-            [`b_${timestamp}_5_main`]: { floorsFrom: 2, floorsTo: 2, entrances: 1, hasBasementFloor: true },
-            [`b_${timestamp}_5_features`]: { material: 'block', parkingType: 'none', basements: [{id: 1, depth: 1}] },
-
-            // НОВЫЙ: Сити-Микс (2 жилых башни по 20 эт + 1 офисный блок 3 эт)
-            [`b_${timestamp}_6_main`]: { floorsFrom: 3, floorsTo: 20, entrances: 3, hasBasementFloor: true },
-            [`b_${timestamp}_6_features`]: { material: 'monolith', parkingType: 'underground', basements: [{id: 1, depth: 1}] },
-        };
-
-        const newComposition = composition.length === 0 ? demoBuildings : [...composition, ...demoBuildings];
         
+        // Минимальные детали для демо
+        const demoDetails = {};
+        demoBuildings.forEach(b => {
+             demoDetails[`${b.id}_main`] = { floorsFrom: 10, floorsTo: 10, entrances: 2, hasBasementFloor: true };
+             demoDetails[`${b.id}_features`] = { basements: [] };
+        });
+
+        const newComposition = [...composition, ...demoBuildings];
         setComposition(newComposition);
         setBuildingDetails(prev => ({ ...prev, ...demoDetails }));
         saveData({ composition: newComposition }); 
@@ -88,7 +82,11 @@ export default function CompositionEditor() {
             resBlocks: category.includes('multiblock') ? 2 : (category.includes('residential') ? 1 : 0), 
             nonResBlocks: 0, 
             hasNonResPart: false, 
-            baseName: "Объект", 
+            baseName: "", 
+            houseNumber: "",
+            dateStart: "",
+            dateEnd: "",
+            stage: "Проектный",
             parkingType: 'underground', 
             parkingConstruction: 'multi', 
             infraType: 'Котельная', 
@@ -99,72 +97,45 @@ export default function CompositionEditor() {
     const openEditing = (item) => {
         setModal({ 
             isOpen: true, 
-            category: item.category, 
-            quantity: 1, 
-            resBlocks: item.resBlocks, 
-            nonResBlocks: item.nonResBlocks, 
-            hasNonResPart: item.hasNonResPart, 
-            baseName: item.label, 
+            ...item, // Копируем все поля из item
             editingId: item.id, 
-            parkingType: item.parkingType, 
-            infraType: item.infraType,
+            baseName: item.label, // Маппинг label -> baseName для формы
             parkingConstruction: item.constructionType || 'multi'
         });
     };
     
     const commitPlanning = () => {
-         const types = { 
-             residential: "Жилой дом", 
-             residential_multiblock: "Многоблочный дом", 
-             parking_separate: "Отдельный паркинг", 
-             infrastructure: "Инфраструктура" 
-         };
-         
+         const types = { residential: "Жилой дом", residential_multiblock: "Многоблочный дом", parking_separate: "Отдельный паркинг", infrastructure: "Инфраструктура" };
          let itemType = types[modal.category];
-         let constructionLabel = '';
+         if (modal.category === 'infrastructure') itemType = modal.infraType;
+         if (modal.category === 'parking_separate') itemType = modal.parkingType === 'ground' ? 'Наземный паркинг' : 'Подземный паркинг';
 
-         if (modal.category === 'parking_separate') {
-             const pType = modal.parkingType === 'ground' ? 'Наземный' : 'Подземный';
-             const pConstMap = { 'capital': 'Капитальный', 'light': 'Из легких конструкций', 'open': 'Открытый', 'multi': 'Многоуровневый' };
-             const pConst = modal.parkingType === 'ground' ? (pConstMap[modal.parkingConstruction] || '') : '';
-             itemType = `${pType} паркинг`;
-             constructionLabel = pConst ? ` (${pConst})` : '';
-         } else if (modal.category === 'infrastructure') {
-             itemType = modal.infraType;
-         } else if (modal.category === 'residential' && modal.hasNonResPart) {
-             itemType = "Жилой дом с нежилыми объектами";
-         }
-
-         const finalLabelSuffix = constructionLabel;
+         const newItemData = {
+             label: modal.baseName,
+             houseNumber: modal.houseNumber,
+             dateStart: modal.dateStart,
+             dateEnd: modal.dateEnd,
+             stage: modal.stage,
+             type: itemType,
+             category: modal.category,
+             categoryType: itemType,
+             constructionType: modal.parkingConstruction,
+             resBlocks: modal.resBlocks, 
+             nonResBlocks: modal.nonResBlocks, 
+             hasNonResPart: modal.hasNonResPart, 
+             parkingType: modal.parkingType, 
+             infraType: modal.infraType 
+         };
 
          if (modal.editingId) {
-             const updated = composition.map(c => c.id === modal.editingId ? { 
-                 ...c, 
-                 label: modal.baseName, 
-                 type: itemType + finalLabelSuffix, 
-                 categoryType: itemType, 
-                 constructionType: modal.parkingConstruction,
-                 resBlocks: modal.resBlocks, 
-                 nonResBlocks: modal.nonResBlocks, 
-                 hasNonResPart: modal.hasNonResPart, 
-                 parkingType: modal.parkingType, 
-                 infraType: modal.infraType 
-             } : c);
+             const updated = composition.map(c => c.id === modal.editingId ? { ...c, ...newItemData } : c);
              setComposition(updated);
              saveData({ composition: updated });
          } else {
              const newItems = Array.from({length: modal.quantity}).map((_, i) => ({
                  id: `b_${Date.now()}_${i}`, 
+                 ...newItemData,
                  label: modal.quantity > 1 ? `${modal.baseName} ${i+1}` : modal.baseName, 
-                 type: itemType + finalLabelSuffix,
-                 categoryType: itemType,
-                 constructionType: modal.parkingConstruction,
-                 category: modal.category, 
-                 resBlocks: modal.resBlocks, 
-                 nonResBlocks: modal.nonResBlocks, 
-                 hasNonResPart: modal.hasNonResPart, 
-                 parkingType: modal.parkingType, 
-                 infraType: modal.infraType
              }));
              const newList = [...composition, ...newItems];
              setComposition(newList);
@@ -182,184 +153,228 @@ export default function CompositionEditor() {
     };
 
     return (
-        <div className="max-w-6xl mx-auto pb-20 relative animate-in fade-in duration-500">
+        <div className="max-w-7xl mx-auto pb-20 animate-in fade-in duration-500">
+            {/* --- ШАПКА --- */}
             <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-200 pb-6 mb-8 gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-800">Состав жилого комплекса</h1>
-                    <p className="text-slate-500 text-sm mt-1">Формирование перечня строений</p>
+                    <h1 className="text-3xl font-bold text-slate-800">Состав комплекса</h1>
+                    <p className="text-slate-500 text-sm mt-1 flex items-center gap-2">
+                        <Building2 size={14}/> 
+                        Управление объектами строительства и инфраструктуры
+                    </p>
                 </div>
-                <div className="flex gap-3 items-center">
-                     <Button onClick={generateDemoComplex} variant="secondary" className="bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 shadow-sm">
-                        <Sparkles size={16} /> Демо-ЖК
+                <div className="flex gap-3">
+                     <Button onClick={generateDemoComplex} variant="secondary" className="bg-white border border-slate-200 hover:bg-purple-50 hover:text-purple-600 hover:border-purple-200 transition-all shadow-sm">
+                        <Sparkles size={16} /> Тест-драйв
                     </Button>
-                     <div className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-bold text-lg min-w-[3rem] text-center shadow-sm border border-blue-100">
-                        {composition.length}
+                     <div className="h-10 px-4 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center shadow-lg shadow-slate-900/20">
+                        {composition.length} объектов
                     </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <div className="space-y-4">
-                    <SectionTitle>Инструменты</SectionTitle>
-                    {[
-                        { id: 'residential', label: 'Жилой дом', icon: Home, color: 'bg-blue-600' },
-                        { id: 'residential_multiblock', label: 'Многоблочный', icon: Layout, color: 'bg-indigo-600' },
-                        { id: 'parking_separate', label: 'Отдельный паркинг', icon: Car, color: 'bg-slate-700' },
-                        { id: 'infrastructure', label: 'Инфраструктура', icon: Box, color: 'bg-amber-600' }
-                    ].map(btn => (
-                        <button key={btn.id} onClick={() => openPlanning(btn.id)} className="w-full flex items-center justify-between p-4 bg-white border border-slate-200 rounded-2xl hover:border-blue-500 hover:shadow-lg transition-all group active:scale-95">
-                            <div className="flex items-center gap-3">
-                                <div className={`p-2.5 rounded-xl text-white shadow-md ${btn.color} group-hover:scale-110 transition-transform duration-200`}>
-                                    <btn.icon size={20}/>
-                                </div>
-                                <span className="text-sm font-bold uppercase tracking-wide text-slate-700 group-hover:text-blue-600 transition-colors">{btn.label}</span>
-                            </div>
-                            <Plus size={18} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
-                        </button>
-                    ))}
-                </div>
-
-                <div className="md:col-span-2 space-y-4">
-                    <Card className="border-t-4 border-t-blue-600 min-h-[500px] shadow-xl">
-                        <div className="divide-y divide-slate-50 max-h-[600px] overflow-y-auto custom-scrollbar">
-                            {composition.length === 0 && (
-                                <div className="flex flex-col items-center justify-center py-20 text-center">
-                                    <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-4">
-                                        <Building2 size={40} className="text-slate-300" />
-                                    </div>
-                                    <h3 className="text-lg font-bold text-slate-700">Список пуст</h3>
-                                    <p className="text-slate-400 max-w-xs mt-2 text-sm">
-                                        Добавьте строения вручную или сгенерируйте тестовый ЖК.
-                                    </p>
-                                    <Button onClick={generateDemoComplex} variant="outline" className="mt-6 border-dashed">
-                                        Сгенерировать Демо-ЖК
-                                    </Button>
-                                </div>
-                            )}
-                            {composition.map((item, idx) => (
-                                <div key={item.id} className="grid grid-cols-12 items-center p-5 hover:bg-blue-50/50 transition-all group cursor-default">
-                                    <div className="col-span-1 text-center">
-                                        <span className="text-xs font-bold text-slate-300 group-hover:text-blue-400 transition-colors">#{idx + 1}</span>
-                                    </div>
-                                    <div className="col-span-8 flex items-center gap-4">
-                                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-white text-sm font-bold shadow-sm transition-transform group-hover:scale-105 ${item.category.includes('residential') ? 'bg-gradient-to-br from-blue-500 to-blue-600' : item.category === 'parking_separate' ? 'bg-gradient-to-br from-slate-600 to-slate-700' : 'bg-gradient-to-br from-amber-500 to-amber-600'}`}>
-                                            {item.category.includes('residential') ? 'Ж' : item.category === 'parking_separate' ? 'P' : 'И'}
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <span className="text-base font-bold text-slate-800 group-hover:text-blue-700 transition-colors">{item.label}</span>
-                                                {item.hasNonResPart && <Badge>+ Нежилое</Badge>}
-                                                {(item.nonResBlocks > 0) && <Badge className="bg-indigo-50 text-indigo-600 border-indigo-100">Блоки: {item.resBlocks}Ж + {item.nonResBlocks}Н</Badge>}
-                                                {item.category === 'parking_separate' && <Badge className="bg-slate-100 text-slate-600 border-slate-200">Паркинг</Badge>}
-                                            </div>
-                                            <div className="text-xs font-medium text-slate-400 mt-1 uppercase tracking-wide truncate max-w-[300px]">
-                                                {item.type}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="col-span-3 flex justify-end gap-2 pr-2 items-center opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
-                                        <button onClick={() => openEditing(item)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="Редактировать">
-                                            <Pencil size={16}/>
-                                        </button>
-                                        <button onClick={() => deleteItem(item.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-100 rounded-lg transition-colors" title="Удалить">
-                                            <Trash2 size={16}/>
-                                        </button>
-                                    </div>
-                                </div>
+            {/* --- СЕТКА КАРТОЧЕК --- */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                
+                {/* 1. КАРТОЧКА "ДОБАВИТЬ" */}
+                <div className="group border-2 border-dashed border-slate-300 rounded-3xl p-6 flex flex-col justify-center items-center gap-4 hover:border-blue-400 hover:bg-blue-50/30 transition-all cursor-default min-h-[280px]">
+                    <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm text-slate-300 group-hover:text-blue-500 group-hover:scale-110 transition-all">
+                        <Plus size={32} />
+                    </div>
+                    <div className="text-center">
+                        <h3 className="text-lg font-bold text-slate-700 mb-2">Новый объект</h3>
+                        <p className="text-xs text-slate-400 max-w-[200px] mx-auto mb-4">Выберите тип объекта для добавления в структуру ЖК</p>
+                        <div className="flex flex-wrap justify-center gap-2">
+                            {[
+                                { id: 'residential', label: 'Дом', icon: Home },
+                                { id: 'parking_separate', label: 'Паркинг', icon: Car },
+                                { id: 'infrastructure', label: 'Инфра', icon: Box }
+                            ].map(t => (
+                                <button key={t.id} onClick={() => openPlanning(t.id)} className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:border-blue-400 hover:text-blue-600 shadow-sm transition-all active:scale-95">
+                                    <t.icon size={14}/> {t.label}
+                                </button>
                             ))}
                         </div>
-                    </Card>
+                        {/* Кнопка многоблочного скрыта в "еще", для чистоты UI можно добавить по желанию */}
+                        <button onClick={() => openPlanning('residential_multiblock')} className="mt-2 text-[10px] font-bold text-slate-400 hover:text-slate-600 underline decoration-dashed">
+                            + Многоблочный дом
+                        </button>
+                    </div>
                 </div>
+
+                {/* 2. КАРТОЧКИ ОБЪЕКТОВ */}
+                {composition.map((item) => {
+                    const progress = calculateProgress(item.dateStart, item.dateEnd);
+                    const isRes = item.category.includes('residential');
+                    
+                    return (
+                        <div key={item.id} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden flex flex-col justify-between min-h-[280px]">
+                            {/* Градиентная полоска сверху */}
+                            <div className={`absolute top-0 left-0 right-0 h-1.5 ${isRes ? 'bg-gradient-to-r from-blue-400 to-blue-600' : 'bg-gradient-to-r from-slate-400 to-slate-600'}`} />
+
+                            {/* Верхняя часть */}
+                            <div>
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-black shadow-inner ${isRes ? 'bg-slate-100 text-slate-700' : 'bg-amber-50 text-amber-700'}`}>
+                                            {item.houseNumber || '?'}
+                                        </div>
+                                        <div>
+                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Номер дома</div>
+                                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase border ${getStageColor(item.stage)}`}>
+                                                {item.stage || 'Проект'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button onClick={() => openEditing(item)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-blue-600 transition-colors"><Pencil size={16}/></button>
+                                        <button onClick={() => deleteItem(item.id)} className="p-2 hover:bg-red-50 rounded-lg text-slate-400 hover:text-red-600 transition-colors"><Trash2 size={16}/></button>
+                                    </div>
+                                </div>
+
+                                <h3 className="text-xl font-bold text-slate-800 mb-1 leading-tight">{item.label}</h3>
+                                <p className="text-xs font-medium text-slate-400 mb-4">{item.type}</p>
+
+                                <div className="flex flex-wrap gap-2 mb-4">
+                                    {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
+                                        <div className="px-2 py-1 bg-slate-50 rounded border border-slate-100 text-[10px] font-bold text-slate-600">
+                                            {item.resBlocks} жил. / {item.nonResBlocks} нежил.
+                                        </div>
+                                    )}
+                                    {item.hasNonResPart && <div className="px-2 py-1 bg-indigo-50 rounded border border-indigo-100 text-[10px] font-bold text-indigo-600">Коммерция</div>}
+                                </div>
+                            </div>
+
+                            {/* Нижняя часть: Даты и Прогресс */}
+                            <div className="mt-auto pt-4 border-t border-slate-100">
+                                <div className="flex justify-between items-end mb-2">
+                                    <div className="flex flex-col">
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><Calendar size={10}/> Срок реализации</span>
+                                        <span className="text-xs font-bold text-slate-700">
+                                            {item.dateStart ? new Date(item.dateStart).getFullYear() : '...'} — {item.dateEnd ? new Date(item.dateEnd).getFullYear() : '...'}
+                                        </span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="text-xs font-black text-blue-600">{Math.round(progress)}%</span>
+                                    </div>
+                                </div>
+                                {/* Progress Bar */}
+                                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                                    <div 
+                                        className={`h-full rounded-full transition-all duration-1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} 
+                                        style={{ width: `${progress}%` }} 
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
 
+            {/* --- МОДАЛЬНОЕ ОКНО (Новый дизайн) --- */}
             {modal.isOpen && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-all">
-                    <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl animate-in zoom-in duration-200 overflow-hidden ring-1 ring-slate-900/5">
-                        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                            <h3 className="text-lg font-bold text-slate-800">{modal.editingId ? "Редактирование объекта" : "Новый объект"}</h3>
-                            <button onClick={() => setModal({...modal, isOpen: false})} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
-                                <X size={20} className="text-slate-400 hover:text-slate-600"/>
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden ring-1 ring-white/20 animate-in zoom-in-95 duration-200">
+                        {/* Header */}
+                        <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                            <div>
+                                <h3 className="text-xl font-bold text-slate-800">{modal.editingId ? "Редактирование объекта" : "Создание объекта"}</h3>
+                                <p className="text-xs text-slate-500 font-medium mt-1">Заполните паспортные данные строения</p>
+                            </div>
+                            <button onClick={() => setModal({...modal, isOpen: false})} className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-200">
+                                <X size={20} className="text-slate-400 hover:text-slate-700"/>
                             </button>
                         </div>
                         
-                        <div className="p-6 space-y-5">
-                            {!modal.editingId && (
+                        <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                            
+                            {/* ЛЕВАЯ КОЛОНКА: Идентификация */}
+                            <div className="space-y-5">
+                                <SectionTitle icon={Hash}>Идентификация</SectionTitle>
+                                
                                 <div className="space-y-1.5">
-                                    <Label>Количество (шт)</Label>
+                                    <Label>Номер дома / Корпус <span className="text-red-500">*</span></Label>
+                                    <div className="relative">
+                                        <Hash size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                                        <Input 
+                                            value={modal.houseNumber} 
+                                            onChange={(e) => setModal({...modal, houseNumber: e.target.value})} 
+                                            placeholder="Например: 12А" 
+                                            className="pl-9 font-bold text-lg uppercase"
+                                            autoFocus
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <Label>Маркетинговое название</Label>
                                     <Input 
-                                        type="number" 
-                                        min="1" 
-                                        value={modal.quantity} 
-                                        onChange={(e) => setModal({...modal, quantity: Math.max(1, parseInt(e.target.value)||1)})} 
-                                        className="font-bold text-lg"
+                                        value={modal.baseName} 
+                                        onChange={(e) => setModal({...modal, baseName: e.target.value})} 
+                                        placeholder="Например: Башня Свобода" 
                                     />
                                 </div>
-                            )}
-                            
-                            <div className="space-y-1.5">
-                                <Label required>Наименование</Label>
-                                <Input 
-                                    type="text" 
-                                    value={modal.baseName} 
-                                    onChange={(e) => setModal({...modal, baseName: e.target.value})} 
-                                    placeholder="Например: Литер 4" 
-                                    autoFocus
-                                />
+
+                                {!modal.editingId && (
+                                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                        <div className="flex justify-between items-center">
+                                            <Label className="mb-0">Количество копий</Label>
+                                            <div className="flex items-center gap-3">
+                                                <button onClick={() => setModal(m => ({...m, quantity: Math.max(1, m.quantity - 1)}))} className="w-8 h-8 rounded-full bg-white border shadow-sm flex items-center justify-center font-bold text-slate-500 hover:text-blue-600">-</button>
+                                                <span className="font-bold text-lg w-4 text-center">{modal.quantity}</span>
+                                                <button onClick={() => setModal(m => ({...m, quantity: m.quantity + 1}))} className="w-8 h-8 rounded-full bg-white border shadow-sm flex items-center justify-center font-bold text-slate-500 hover:text-blue-600">+</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
-                            {modal.category === 'residential_multiblock' && (
-                                <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                    <div className="space-y-1">
-                                        <Label>Жилых блоков</Label>
-                                        <Input type="number" min="0" value={modal.resBlocks} onChange={(e) => setModal({...modal, resBlocks: Math.max(0, parseInt(e.target.value)||0)})} />
-                                    </div>
-                                    <div className="space-y-1">
-                                        <Label>Нежилых блоков</Label>
-                                        <Input type="number" min="0" value={modal.nonResBlocks} onChange={(e) => setModal({...modal, nonResBlocks: Math.max(0, parseInt(e.target.value)||0)})} />
-                                    </div>
-                                </div>
-                            )}
+                            {/* ПРАВАЯ КОЛОНКА: Параметры и Сроки */}
+                            <div className="space-y-5">
+                                <SectionTitle icon={Clock}>Параметры и Сроки</SectionTitle>
 
-                            {modal.category?.includes('residential') && (
-                                <label className="flex items-center gap-3 cursor-pointer p-4 bg-blue-50 rounded-xl border border-blue-100 hover:bg-blue-100 transition-colors">
-                                    <input type="checkbox" checked={modal.hasNonResPart} onChange={(e) => setModal({...modal, hasNonResPart: e.target.checked})} className="w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300"/>
-                                    <span className="text-sm font-bold text-blue-800">Есть встроенные нежилые помещения</span>
-                                </label>
-                            )}
-
-                            {modal.category === 'parking_separate' && (
-                                <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                    <div className="space-y-1">
-                                        <Label>Тип паркинга</Label>
-                                        <Select value={modal.parkingType} onChange={e => setModal({...modal, parkingType: e.target.value})}>
-                                            <option value="underground">Подземный</option>
-                                            <option value="ground">Наземный</option>
-                                        </Select>
-                                    </div>
-                                </div>
-                            )}
-
-                            {modal.category === 'infrastructure' && (
-                                <div className="space-y-1">
-                                    <Label>Тип объекта</Label>
-                                    <Select value={modal.infraType} onChange={(e) => setModal({...modal, infraType: e.target.value})}>
-                                        <option value="Котельная">Котельная</option>
-                                        <option value="ТП">ТП (Трансформаторная)</option>
-                                        <option value="Градирня">Градирня</option>
-                                        <option value="КПП">КПП</option>
-                                        <option value="Детский сад">Детский сад</option>
-                                        <option value="Школа">Школа</option>
+                                <div className="space-y-1.5">
+                                    <Label>Текущая стадия</Label>
+                                    <Select value={modal.stage} onChange={e => setModal({...modal, stage: e.target.value})}>
+                                        <option value="Проектный">📁 Проектный</option>
+                                        <option value="Строящийся">🏗️ Строящийся</option>
+                                        <option value="Введенный">🔑 Введенный</option>
+                                        <option value="Архив">📦 Архив</option>
                                     </Select>
                                 </div>
-                            )}
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5">
+                                        <Label>Начало работ</Label>
+                                        <Input type="date" value={modal.dateStart} onChange={(e) => setModal({...modal, dateStart: e.target.value})} className="text-xs font-bold"/>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>Ввод в экспл.</Label>
+                                        <Input type="date" value={modal.dateEnd} onChange={(e) => setModal({...modal, dateEnd: e.target.value})} className="text-xs font-bold"/>
+                                    </div>
+                                </div>
+
+                                {/* Динамические поля в зависимости от типа */}
+                                {modal.category?.includes('residential') && (
+                                    <div className="pt-4 border-t border-slate-100">
+                                        <label className="flex items-start gap-3 cursor-pointer group">
+                                            <input type="checkbox" checked={modal.hasNonResPart} onChange={(e) => setModal({...modal, hasNonResPart: e.target.checked})} className="mt-1 w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300"/>
+                                            <div>
+                                                <span className="text-sm font-bold text-slate-700 group-hover:text-blue-700 transition-colors">Есть коммерция</span>
+                                                <p className="text-[10px] text-slate-400">Встроенные магазины/офисы</p>
+                                            </div>
+                                        </label>
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
-                        <div className="p-6 bg-slate-50 border-t flex gap-3 justify-end">
-                            <Button variant="secondary" onClick={() => setModal({...modal, isOpen: false})}>
-                                Отмена
-                            </Button>
-                            <Button onClick={commitPlanning} className="shadow-lg shadow-blue-200">
-                                Сохранить
+                        {/* Footer */}
+                        <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+                            <Button variant="ghost" onClick={() => setModal({...modal, isOpen: false})}>Отмена</Button>
+                            <Button onClick={commitPlanning} className="shadow-xl shadow-blue-200/50 px-8">
+                                <ArrowRight size={18} /> Сохранить объект
                             </Button>
                         </div>
                     </div>

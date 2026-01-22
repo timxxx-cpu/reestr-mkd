@@ -1,18 +1,27 @@
 import React, { useState } from 'react';
 import { 
   LayoutDashboard, MapPin, Briefcase, FileText, Clock, 
-  Search, Plus, Trash2, Loader2, Save, Wand2 
+  Search, Plus, Trash2, Loader2, Save, Wand2, Building, 
+  Calendar, CheckCircle2, AlertCircle, Image as ImageIcon,
+  MoreHorizontal, FileBadge
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Select, Button } from '../ui/UIKit';
 
-// Вспомогательная функция для расчета прогресса
+// --- Хелперы ---
 function calculateProgress(start, end) {
     if (!start || !end) return 0;
     const total = new Date(end).getTime() - new Date(start).getTime();
     const current = new Date().getTime() - new Date(start).getTime();
     return total <= 0 ? 0 : Math.min(100, Math.max(0, (current / total) * 100));
 }
+
+const STATUS_CONFIG = {
+    'Проектный': { color: 'bg-purple-500', text: 'Проектирование', icon: FileText },
+    'Строящийся': { color: 'bg-blue-500', text: 'Стройка идет', icon: Building },
+    'Готовый к вводу': { color: 'bg-orange-500', text: 'Сдача ГК', icon: AlertCircle },
+    'Введенный': { color: 'bg-emerald-500', text: 'Объект сдан', icon: CheckCircle2 },
+};
 
 export default function PassportEditor() {
     const { 
@@ -23,28 +32,16 @@ export default function PassportEditor() {
         saveData 
     } = useProject();
 
-    // Локальные состояния для загрузчиков
     const [loadingInn, setLoadingInn] = useState({});
     const [loadingCadastre, setLoadingCadastre] = useState(false);
 
-    // --- Функции-имитаторы API ---
-
+    // --- Имитация API ---
     const fetchCadastreInfo = () => {
         if (!cadastre.number) return;
         setLoadingCadastre(true);
-        // Имитация запроса
         setTimeout(() => {
-            setCadastre(prev => ({ 
-                ...prev, 
-                address: "г. Ташкент, Юнусабадский р-н, ул. Амира Темура, 108", 
-                area: "2.5 га" 
-            }));
-            setComplexInfo(prev => ({
-                ...prev,
-                region: "Ташкент",
-                district: "Юнусабадский р-н",
-                street: "ул. Амира Темура, 108"
-            }));
+            setCadastre(prev => ({ ...prev, address: "г. Ташкент, Мирзо-Улугбекский р-н, пр. Мустакиллик, 88", area: "1.85 га" }));
+            setComplexInfo(prev => ({ ...prev, region: "Ташкент", district: "Мирзо-Улугбекский", street: "пр. Мустакиллик, 88" }));
             setLoadingCadastre(false);
         }, 800);
     };
@@ -52,269 +49,273 @@ export default function PassportEditor() {
     const fetchParticipant = (role) => {
         const inn = participants[role]?.inn;
         if (!inn) return;
-        
         setLoadingInn(p => ({ ...p, [role]: true }));
         setTimeout(() => {
-            setParticipants(prev => ({
-                ...prev,
-                [role]: { ...prev[role], name: `ООО "Компания ${inn}"`, loading: false }
-            }));
+            setParticipants(prev => ({ ...prev, [role]: { ...prev[role], name: `ООО "Строй-Гигант ${inn.slice(-3)}"`, loading: false } }));
             setLoadingInn(p => ({ ...p, [role]: false }));
         }, 600);
     };
 
-    // --- Управление документами ---
-
     const addDocument = (type) => {
-        const newDoc = { 
-            id: Date.now(), 
-            name: `${type} №${Math.floor(Math.random()*1000)}`, 
-            type, 
-            date: new Date().toISOString().split('T')[0] 
-        };
+        const newDoc = { id: Date.now(), name: `${type} №${Math.floor(Math.random()*1000)}/24`, type, date: new Date().toISOString().split('T')[0] };
         setDocuments(prev => [...prev, newDoc]);
     };
 
-    const removeDocument = (id) => {
-        setDocuments(prev => prev.filter(d => d.id !== id));
-    };
-
-    // --- Автозаполнение ---
     const autoFill = () => {
         setComplexInfo({
-            name: 'ЖК "Мегаполис Сити"', 
-            status: 'Строящийся', 
-            region: 'Ташкент', 
-            district: 'Юнусабадский р-н', 
-            street: 'ул. Амира Темура, 108', 
-            landmark: 'Ориентир: Телебашня',
-            dateStartProject: '2023-01-10', 
-            dateStartFact: '2023-02-01', 
-            dateEndProject: '2027-12-31', 
-            dateEndFact: ''
+            name: 'ЖК "Grand Capital"', status: 'Строящийся', 
+            region: 'Ташкент', district: 'Мирзо-Улугбекский', street: 'пр. Мустакиллик, 88', landmark: 'Напротив парка',
+            dateStartProject: '2023-03-01', dateEndProject: '2025-12-30', dateStartFact: '2023-04-10', dateEndFact: ''
         });
         setParticipants({
-            developer: { inn: '123456789', name: 'ООО "Global Development"' },
-            designer: { inn: '987654321', name: 'ЧП "City Architects"' },
-            contractor: { inn: '456123789', name: 'АО "Tashkent Construction"' }
+            developer: { inn: '202020202', name: 'ООО "Golden House Develop"' },
+            designer: { inn: '303030303', name: 'ЧП "Urban Arch Studio"' },
+            contractor: { inn: '404040404', name: 'АО "Tashkent City Stroy"' }
         });
-        setCadastre({ 
-            number: '71:01:04:02:0099', 
-            address: 'г. Ташкент, Юнусабадский р-н, ул. Амира Темура, 108', 
-            area: '2.5 га' 
-        });
+        setCadastre({ number: '11:05:04:02:0077', address: 'г. Ташкент, Мирзо-Улугбекский р-н, пр. Мустакиллик, 88', area: '1.85 га' });
     };
 
+    const progress = calculateProgress(complexInfo.dateStartProject, complexInfo.dateEndProject);
+    const StatusIcon = STATUS_CONFIG[complexInfo.status]?.icon || LayoutDashboard;
+
     return (
-        <div className="max-w-6xl mx-auto pb-20 animate-in fade-in duration-500">
-            {/* Заголовок */}
-            <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-8">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800">Паспорт объекта</h1>
-                    <p className="text-slate-500 text-sm mt-1">Базовые данные, участники и сроки</p>
-                </div>
-                <div className="flex gap-2">
-                    <button onClick={autoFill} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors">
-                        <Wand2 size={14}/> Заполнить
-                    </button>
-                    <Button onClick={() => saveData()}><Save size={14}/> Сохранить</Button>
+        <div className="max-w-7xl mx-auto pb-20 animate-in fade-in duration-500 space-y-6">
+            
+            {/* --- HERO HEADER --- */}
+            <div className="relative rounded-3xl overflow-hidden bg-slate-900 text-white shadow-2xl">
+                {/* Фоновый паттерн/градиент */}
+                <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900/50 z-0"></div>
+                
+                <div className="relative z-10 p-8 md:p-10">
+                    <div className="flex justify-between items-start mb-6">
+                        <div className="flex gap-4">
+                            <div className="w-16 h-16 bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl flex items-center justify-center text-white shadow-lg">
+                                <Building size={32} />
+                            </div>
+                            <div>
+                                <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-2">
+                                    {complexInfo.name || "Новый Жилой Комплекс"}
+                                </h1>
+                                <div className="flex items-center gap-3 text-slate-300 text-sm font-medium">
+                                    <span className="flex items-center gap-1"><MapPin size={14}/> {complexInfo.region ? `${complexInfo.region}, ${complexInfo.street}` : "Адрес не указан"}</span>
+                                    {cadastre.area && <span className="bg-white/10 px-2 py-0.5 rounded text-white text-xs">{cadastre.area}</span>}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="flex flex-col gap-2 items-end">
+                            <div className="flex gap-2">
+                                <Button variant="secondary" onClick={autoFill} className="bg-white/10 border-white/10 text-white hover:bg-white/20 text-xs h-9">
+                                    <Wand2 size={14}/> Демо
+                                </Button>
+                                <Button onClick={() => saveData()} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50 h-9">
+                                    <Save size={14}/> Сохранить
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Progress Bar в хедере */}
+                    <div className="bg-black/20 rounded-xl p-4 backdrop-blur-sm border border-white/5 flex items-center gap-6">
+                        <div className="flex-1">
+                            <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                                <span>Прогресс строительства</span>
+                                <span className="text-white">{Math.round(progress)}%</span>
+                            </div>
+                            <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                                <div className="h-full bg-gradient-to-r from-blue-400 to-emerald-400 transition-all duration-1000" style={{width: `${progress}%`}} />
+                            </div>
+                        </div>
+                        <div className="h-8 w-px bg-white/10"></div>
+                        <div className="flex items-center gap-3 min-w-[180px]">
+                            <div className={`p-2 rounded-lg ${STATUS_CONFIG[complexInfo.status]?.color || 'bg-slate-500'}`}>
+                                <StatusIcon size={20} className="text-white"/>
+                            </div>
+                            <div>
+                                <div className="text-[10px] text-slate-400 font-bold uppercase">Статус</div>
+                                <select 
+                                    value={complexInfo.status} 
+                                    onChange={e => setComplexInfo({...complexInfo, status: e.target.value})}
+                                    className="bg-transparent text-sm font-bold text-white outline-none cursor-pointer hover:text-blue-300 transition-colors appearance-none"
+                                >
+                                    {Object.keys(STATUS_CONFIG).map(s => <option key={s} value={s} className="text-slate-900">{s}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Левая колонка */}
-                <div className="space-y-6">
-                    {/* 1. Идентификация */}
-                    <Card className="p-6">
-                        <SectionTitle icon={LayoutDashboard}>Идентификация</SectionTitle>
-                        <div className="space-y-4">
-                            <div className="space-y-1">
-                                <Label required>Название ЖК</Label>
-                                <Input 
-                                    value={complexInfo.name || ''} 
-                                    onChange={e => setComplexInfo({...complexInfo, name: e.target.value})} 
-                                    placeholder="Например: ЖК Новый Горизонт" 
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <Label>Стадия реализации</Label>
-                                <Select 
-                                    value={complexInfo.status} 
-                                    onChange={e => setComplexInfo({...complexInfo, status: e.target.value})}
-                                >
-                                    <option>Проектный</option>
-                                    <option>Строящийся</option>
-                                    <option>Готовый к вводу</option>
-                                    <option>Введенный</option>
-                                </Select>
-                            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* --- ЛЕВАЯ КОЛОНКА (2/3) --- */}
+                <div className="lg:col-span-2 space-y-6">
+                    
+                    {/* ЛОКАЦИЯ И КАДАСТР */}
+                    <Card className="p-0 overflow-hidden shadow-sm">
+                        <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                            <SectionTitle icon={MapPin} className="mb-0">Локация и Кадастр</SectionTitle>
                         </div>
-                    </Card>
-
-                    {/* 2. Локация и Кадастр */}
-                    <Card className="p-6">
-                        <SectionTitle icon={MapPin}>Локация</SectionTitle>
-                        <div className="space-y-4">
-                            <div className="space-y-1">
-                                <Label>Кадастровый номер</Label>
-                                <div className="flex gap-2">
-                                    <Input 
-                                        value={cadastre.number || ''} 
-                                        onChange={e => setCadastre({...cadastre, number: e.target.value})} 
-                                        placeholder="00:00:00:00:0000" 
-                                    />
-                                    <Button variant="secondary" onClick={fetchCadastreInfo} disabled={loadingCadastre}>
-                                        {loadingCadastre ? <Loader2 size={14} className="animate-spin"/> : <Search size={14}/>}
-                                    </Button>
+                        <div className="grid grid-cols-1 md:grid-cols-2">
+                            {/* Форма */}
+                            <div className="p-6 space-y-5">
+                                <div className="space-y-1.5">
+                                    <Label>Кадастровый номер</Label>
+                                    <div className="flex gap-2">
+                                        <Input 
+                                            value={cadastre.number || ''} 
+                                            onChange={e => setCadastre({...cadastre, number: e.target.value})} 
+                                            placeholder="00:00:00:00:0000" 
+                                            className="font-mono text-sm"
+                                        />
+                                        <Button variant="secondary" onClick={fetchCadastreInfo} disabled={loadingCadastre} className="shrink-0">
+                                            {loadingCadastre ? <Loader2 size={16} className="animate-spin"/> : <Search size={16}/>}
+                                        </Button>
+                                    </div>
                                 </div>
-                            </div>
-                            
-                            {cadastre.address && (
-                                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs text-slate-600">
-                                    <span className="font-bold block mb-1">Адрес по кадастру:</span>
-                                    {cadastre.address}
-                                </div>
-                            )}
-
-                            <div className="grid grid-cols-2 gap-4 pt-2">
-                                <div className="space-y-1">
-                                    <Label>Регион</Label>
-                                    <Input 
-                                        value={complexInfo.region || ''} 
-                                        onChange={e => setComplexInfo({...complexInfo, region: e.target.value})} 
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label>Район</Label>
+                                <div className="space-y-1.5">
+                                    <Label>Район / Ориентир</Label>
                                     <Input 
                                         value={complexInfo.district || ''} 
                                         onChange={e => setComplexInfo({...complexInfo, district: e.target.value})} 
+                                        placeholder="Район"
                                     />
                                 </div>
-                                <div className="col-span-2 space-y-1">
-                                    <Label>Улица / Ориентир</Label>
-                                    <Input 
-                                        value={complexInfo.street || ''} 
-                                        onChange={e => setComplexInfo({...complexInfo, street: e.target.value})} 
+                                <div className="space-y-1.5">
+                                    <Label>Улица / Адрес</Label>
+                                    <textarea 
+                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 transition-all resize-none h-24"
+                                        value={complexInfo.street || ''}
+                                        onChange={e => setComplexInfo({...complexInfo, street: e.target.value})}
+                                        placeholder="Полный адрес..."
                                     />
                                 </div>
                             </div>
+                            
+                            {/* Заглушка Карты */}
+                            <div className="bg-slate-100 relative min-h-[250px] border-l border-slate-100">
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 pointer-events-none">
+                                    <MapPin size={48} className="mb-2 opacity-20"/>
+                                    <span className="text-xs font-bold uppercase opacity-50">Карта местности</span>
+                                    {cadastre.address && <div className="mt-4 px-4 py-2 bg-white/80 backdrop-blur rounded-lg text-[10px] font-bold shadow-sm max-w-[200px] text-center">{cadastre.address}</div>}
+                                </div>
+                                {/* Паттерн сетки для карты */}
+                                <div className="absolute inset-0 opacity-5" style={{backgroundImage: 'radial-gradient(#475569 1px, transparent 1px)', backgroundSize: '20px 20px'}}></div>
+                            </div>
                         </div>
                     </Card>
-                </div>
 
-                {/* Правая колонка */}
-                <div className="space-y-6">
-                    {/* 3. Участники */}
-                    <Card className="p-6">
-                        <SectionTitle icon={Briefcase}>Участники проекта</SectionTitle>
-                        <div className="space-y-6">
+                    {/* УЧАСТНИКИ */}
+                    <Card className="p-6 shadow-sm">
+                        <SectionTitle icon={Briefcase}>Команда проекта</SectionTitle>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                             {[
-                                { id: 'developer', label: 'Застройщик' },
-                                { id: 'designer', label: 'Проектировщик' },
-                                { id: 'contractor', label: 'Генподрядчик' }
+                                { id: 'developer', label: 'Застройщик', color: 'blue' },
+                                { id: 'designer', label: 'Проектировщик', color: 'purple' },
+                                { id: 'contractor', label: 'Генподрядчик', color: 'orange' }
                             ].map(role => (
-                                <div key={role.id} className="space-y-1">
-                                    <Label>{role.label}</Label>
-                                    <div className="flex gap-2">
-                                        <Input 
-                                            placeholder="ИНН" 
-                                            value={participants[role.id]?.inn || ''} 
-                                            onChange={e => setParticipants({...participants, [role.id]: {...participants[role.id], inn: e.target.value}})}
-                                        />
-                                        <Button variant="secondary" onClick={() => fetchParticipant(role.id)} disabled={loadingInn[role.id]}>
-                                            {loadingInn[role.id] ? <Loader2 size={14} className="animate-spin"/> : <Search size={14}/>}
+                                <div key={role.id} className="group relative p-4 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:border-blue-300 hover:shadow-lg transition-all duration-300">
+                                    <div className={`absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity`}>
+                                        <Button variant="ghost" onClick={() => fetchParticipant(role.id)} className="h-6 w-6 p-0 rounded-full" disabled={loadingInn[role.id]}>
+                                            {loadingInn[role.id] ? <Loader2 size={12} className="animate-spin"/> : <Search size={12}/>}
                                         </Button>
                                     </div>
-                                    {participants[role.id]?.name && (
-                                        <div className="text-xs font-bold text-blue-600 px-1 pt-1">
-                                            {participants[role.id].name}
-                                        </div>
-                                    )}
+                                    
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{role.label}</div>
+                                    
+                                    <div className="mb-3">
+                                        <Input 
+                                            className="bg-transparent border-transparent px-0 py-0 h-auto text-sm font-bold text-slate-800 placeholder:text-slate-300 focus:bg-white focus:px-2 focus:py-1 focus:border-blue-200" 
+                                            placeholder="Наименование организации"
+                                            value={participants[role.id]?.name || ''}
+                                            onChange={e => setParticipants({...participants, [role.id]: {...participants[role.id], name: e.target.value}})}
+                                        />
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-bold text-slate-400 bg-white border border-slate-200 px-1.5 py-0.5 rounded">ИНН</span>
+                                        <input 
+                                            className="bg-transparent outline-none text-xs font-mono text-slate-600 w-full"
+                                            placeholder="Введите ИНН"
+                                            value={participants[role.id]?.inn || ''}
+                                            onChange={e => setParticipants({...participants, [role.id]: {...participants[role.id], inn: e.target.value}})}
+                                        />
+                                    </div>
                                 </div>
                             ))}
                         </div>
                     </Card>
+                </div>
 
-                    {/* 4. Сроки */}
-                    <Card className="p-6">
-                        <SectionTitle icon={Clock}>Сроки строительства</SectionTitle>
+                {/* --- ПРАВАЯ КОЛОНКА (1/3) --- */}
+                <div className="space-y-6">
+                    
+                    {/* ТАЙМЛАЙН */}
+                    <Card className="p-6 shadow-sm border-t-4 border-t-blue-500">
+                        <SectionTitle icon={Clock}>Сроки реализации</SectionTitle>
                         
-                        {complexInfo.dateStartProject && complexInfo.dateEndProject && (
-                            <div className="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase mb-2">
-                                    <span>Прогресс (по времени)</span>
-                                    <span>{Math.round(calculateProgress(complexInfo.dateStartProject, complexInfo.dateEndProject))}%</span>
-                                </div>
-                                <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                                    <div 
-                                        className="h-full bg-blue-500 rounded-full transition-all duration-1000" 
-                                        style={{width: `${calculateProgress(complexInfo.dateStartProject, complexInfo.dateEndProject)}%`}}
-                                    />
-                                </div>
-                            </div>
-                        )}
+                        <div className="relative pl-4 space-y-8 mt-6">
+                            {/* Линия */}
+                            <div className="absolute left-[19px] top-2 bottom-2 w-0.5 bg-slate-100"></div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1">
-                                <Label>Начало (Проект)</Label>
-                                <Input type="date" value={complexInfo.dateStartProject || ''} onChange={e => setComplexInfo({...complexInfo, dateStartProject: e.target.value})} />
+                            {/* Старт */}
+                            <div className="relative flex items-start gap-4">
+                                <div className="w-2.5 h-2.5 rounded-full bg-blue-500 ring-4 ring-white shadow-sm z-10 mt-1.5 translate-x-[9px]"></div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Начало работ</label>
+                                    <Input type="date" className="py-1 px-2 text-xs font-bold" value={complexInfo.dateStartProject || ''} onChange={e => setComplexInfo({...complexInfo, dateStartProject: e.target.value})} />
+                                    <div className="mt-1 flex gap-2">
+                                        <span className="text-[9px] text-slate-400">Факт:</span>
+                                        <input type="date" className="bg-transparent text-[9px] outline-none text-slate-600" value={complexInfo.dateStartFact || ''} onChange={e => setComplexInfo({...complexInfo, dateStartFact: e.target.value})} />
+                                    </div>
+                                </div>
                             </div>
-                            <div className="space-y-1">
-                                <Label>Окончание (Проект)</Label>
-                                <Input type="date" value={complexInfo.dateEndProject || ''} onChange={e => setComplexInfo({...complexInfo, dateEndProject: e.target.value})} />
-                            </div>
-                            <div className="space-y-1">
-                                <Label>Начало (Факт)</Label>
-                                <Input type="date" value={complexInfo.dateStartFact || ''} onChange={e => setComplexInfo({...complexInfo, dateStartFact: e.target.value})} />
-                            </div>
-                            <div className="space-y-1">
-                                <Label>Окончание (Факт)</Label>
-                                <Input type="date" value={complexInfo.dateEndFact || ''} onChange={e => setComplexInfo({...complexInfo, dateEndFact: e.target.value})} />
+
+                            {/* Финиш */}
+                            <div className="relative flex items-start gap-4">
+                                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-white shadow-sm z-10 mt-1.5 translate-x-[9px]"></div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Ввод в эксплуатацию</label>
+                                    <Input type="date" className="py-1 px-2 text-xs font-bold" value={complexInfo.dateEndProject || ''} onChange={e => setComplexInfo({...complexInfo, dateEndProject: e.target.value})} />
+                                    <div className="mt-1 flex gap-2">
+                                        <span className="text-[9px] text-slate-400">Факт:</span>
+                                        <input type="date" className="bg-transparent text-[9px] outline-none text-slate-600" value={complexInfo.dateEndFact || ''} onChange={e => setComplexInfo({...complexInfo, dateEndFact: e.target.value})} />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </Card>
 
-                    {/* 5. Документы */}
-                    <Card className="p-6">
-                        <SectionTitle icon={FileText}>Документация</SectionTitle>
-                        
-                        <div className="space-y-2 mb-4">
-                            {documents.length === 0 && (
-                                <div className="text-center py-4 text-slate-400 text-xs border-2 border-dashed border-slate-100 rounded-xl">
-                                    Нет документов
-                                </div>
-                            )}
+                    {/* ДОКУМЕНТЫ */}
+                    <Card className="p-6 shadow-sm">
+                        <div className="flex justify-between items-center mb-4">
+                            <SectionTitle icon={FileText} className="mb-0">Документы</SectionTitle>
+                            <div className="flex gap-1">
+                                <button onClick={() => addDocument('РНР')} title="Разрешение" className="w-6 h-6 flex items-center justify-center rounded bg-slate-50 text-slate-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"><Plus size={14}/></button>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1 custom-scrollbar">
+                            {documents.length === 0 && <div className="text-center text-xs text-slate-400 py-4 italic">Нет документов</div>}
                             {documents.map(doc => (
-                                <div key={doc.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-100 rounded-xl group">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-white rounded-lg border border-slate-200 text-blue-500">
-                                            <FileText size={14}/>
+                                <div key={doc.id} className="group flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-xl hover:border-blue-200 transition-all">
+                                    <div className="flex items-center gap-3 overflow-hidden">
+                                        <div className="shrink-0 p-2 bg-white rounded-lg text-blue-500 shadow-sm">
+                                            <FileBadge size={16}/>
                                         </div>
-                                        <div>
-                                            <div className="text-xs font-bold text-slate-700">{doc.name}</div>
-                                            <div className="text-[10px] text-slate-400">{doc.type} • {doc.date}</div>
+                                        <div className="min-w-0">
+                                            <div className="text-xs font-bold text-slate-700 truncate">{doc.name}</div>
+                                            <div className="text-[10px] text-slate-400">{doc.date}</div>
                                         </div>
                                     </div>
-                                    <button onClick={() => removeDocument(doc.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={() => setDocuments(d => d.filter(x => x.id !== doc.id))} className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-500 transition-all">
                                         <Trash2 size={14}/>
                                     </button>
                                 </div>
                             ))}
                         </div>
-
-                        <div className="flex gap-2">
-                            <Button variant="ghost" onClick={() => addDocument('РНР')} className="flex-1 text-[10px]">
-                                <Plus size={12}/> РНР
-                            </Button>
-                            <Button variant="ghost" onClick={() => addDocument('ГПЗУ')} className="flex-1 text-[10px]">
-                                <Plus size={12}/> ГПЗУ
-                            </Button>
-                            <Button variant="ghost" onClick={() => addDocument('Экспертиза')} className="flex-1 text-[10px]">
-                                <Plus size={12}/> Экспертиза
-                            </Button>
-                        </div>
                     </Card>
+
                 </div>
             </div>
         </div>
