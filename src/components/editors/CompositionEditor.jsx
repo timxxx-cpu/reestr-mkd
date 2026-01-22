@@ -1,14 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { 
-  Wand2, Home, Layout, Car, Box, Plus, Pencil, Trash2, X, Sparkles, Building2, 
-  Calendar, Hash, Clock, MoreVertical, ArrowRight
+  Home, Layout, Car, Box, Pencil, Trash2, X, Sparkles, Building2, 
+  Calendar, Hash, Clock, ArrowRight, Plus
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Button, Input, Select, Label, SectionTitle } from '../ui/UIKit';
 
-// --- ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ ---
-
-// Функция для расчета прогресса по датам
+// --- Хелперы ---
 const calculateProgress = (start, end) => {
     if (!start || !end) return 0;
     const total = new Date(end).getTime() - new Date(start).getTime();
@@ -18,7 +16,6 @@ const calculateProgress = (start, end) => {
     return Math.min(100, Math.max(0, percent));
 };
 
-// Функция для цветов стадии
 const getStageColor = (stage) => {
     switch(stage) {
         case 'Введенный': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
@@ -27,6 +24,20 @@ const getStageColor = (stage) => {
         case 'Архив': return 'bg-slate-100 text-slate-500 border-slate-200';
         default: return 'bg-slate-50 text-slate-600 border-slate-200';
     }
+};
+
+const TYPE_NAMES = {
+    residential: "Отдельный жилой дом", 
+    residential_multiblock: "Жилой дом из нескольких секций/блоков", 
+    parking_separate: "Отдельный паркинг", 
+    infrastructure: "Объект инфраструктуры" 
+};
+
+// Словарь конструктива паркингов
+const PARKING_CONSTRUCTION_NAMES = {
+    capital: "Капитальный",
+    light: "Из легких конструкций",
+    open: "Открытый"
 };
 
 export default function CompositionEditor() {
@@ -46,22 +57,35 @@ export default function CompositionEditor() {
         stage: "Проектный",
         editingId: null, 
         parkingType: 'underground', 
-        parkingConstruction: 'multi', 
+        parkingConstruction: 'capital', // capital, light, open
         infraType: 'Котельная' 
     });
 
-    // --- ЛОГИКА (Оставили прежней, с небольшими улучшениями) ---
-
+    // --- ЛОГИКА ---
     const generateDemoComplex = () => {
         if (!window.confirm("Создать демо-данные? Текущий список будет дополнен.")) return;
         const timestamp = Date.now();
         const demoBuildings = [
-            { id: `b_${timestamp}_1`, label: 'Корпус "Доминанта"', houseNumber: "1", stage: "Строящийся", dateStart: "2023-01-01", dateEnd: "2025-12-31", type: 'Жилой дом', category: 'residential', resBlocks: 1, nonResBlocks: 0, hasNonResPart: true },
-            { id: `b_${timestamp}_2`, label: 'Паркинг "Север"', houseNumber: "P-1", stage: "Введенный", dateStart: "2022-06-01", dateEnd: "2023-06-01", type: 'Паркинг', category: 'parking_separate', parkingType: 'ground' },
-            { id: `b_${timestamp}_3`, label: 'Детский сад', houseNumber: "12", stage: "Проектный", dateStart: "2024-09-01", dateEnd: "2025-09-01", type: 'Инфраструктура', category: 'infrastructure', infraType: 'Детский сад' },
+            { 
+                id: `b_${timestamp}_1`, label: 'Корпус "Доминанта"', houseNumber: "1", stage: "Строящийся", 
+                dateStart: "2023-01-01", dateEnd: "2025-12-31", 
+                type: TYPE_NAMES.residential,
+                category: 'residential', resBlocks: 1, nonResBlocks: 0, hasNonResPart: true 
+            },
+            { 
+                id: `b_${timestamp}_2`, label: 'Паркинг "Север"', houseNumber: "P-1", stage: "Введенный", 
+                dateStart: "2022-06-01", dateEnd: "2023-06-01", 
+                type: TYPE_NAMES.parking_separate,
+                category: 'parking_separate', parkingType: 'ground', constructionType: 'capital'
+            },
+            { 
+                id: `b_${timestamp}_3`, label: 'Детский сад', houseNumber: "12", stage: "Проектный", 
+                dateStart: "2024-09-01", dateEnd: "2025-09-01", 
+                type: TYPE_NAMES.infrastructure,
+                category: 'infrastructure', infraType: 'Детский сад' 
+            },
         ];
         
-        // Минимальные детали для демо
         const demoDetails = {};
         demoBuildings.forEach(b => {
              demoDetails[`${b.id}_main`] = { floorsFrom: 10, floorsTo: 10, entrances: 2, hasBasementFloor: true };
@@ -75,6 +99,8 @@ export default function CompositionEditor() {
     };
 
     const openPlanning = (category) => {
+        const defaultName = TYPE_NAMES[category] || "Новый объект";
+
         setModal({ 
             isOpen: true, 
             category, 
@@ -82,13 +108,13 @@ export default function CompositionEditor() {
             resBlocks: category.includes('multiblock') ? 2 : (category.includes('residential') ? 1 : 0), 
             nonResBlocks: 0, 
             hasNonResPart: false, 
-            baseName: "", 
+            baseName: defaultName,
             houseNumber: "",
             dateStart: "",
             dateEnd: "",
             stage: "Проектный",
             parkingType: 'underground', 
-            parkingConstruction: 'multi', 
+            parkingConstruction: 'capital', // Дефолтное значение
             infraType: 'Котельная', 
             editingId: null 
         });
@@ -97,19 +123,16 @@ export default function CompositionEditor() {
     const openEditing = (item) => {
         setModal({ 
             isOpen: true, 
-            ...item, // Копируем все поля из item
+            ...item, 
             editingId: item.id, 
-            baseName: item.label, // Маппинг label -> baseName для формы
-            parkingConstruction: item.constructionType || 'multi'
+            baseName: item.label, 
+            parkingConstruction: item.constructionType || 'capital'
         });
     };
     
     const commitPlanning = () => {
-         const types = { residential: "Жилой дом", residential_multiblock: "Многоблочный дом", parking_separate: "Отдельный паркинг", infrastructure: "Инфраструктура" };
-         let itemType = types[modal.category];
-         if (modal.category === 'infrastructure') itemType = modal.infraType;
-         if (modal.category === 'parking_separate') itemType = modal.parkingType === 'ground' ? 'Наземный паркинг' : 'Подземный паркинг';
-
+         let itemType = TYPE_NAMES[modal.category];
+         
          const newItemData = {
              label: modal.baseName,
              houseNumber: modal.houseNumber,
@@ -117,8 +140,9 @@ export default function CompositionEditor() {
              dateEnd: modal.dateEnd,
              stage: modal.stage,
              type: itemType,
+             
              category: modal.category,
-             categoryType: itemType,
+             categoryType: modal.category === 'infrastructure' ? modal.infraType : itemType,
              constructionType: modal.parkingConstruction,
              resBlocks: modal.resBlocks, 
              nonResBlocks: modal.nonResBlocks, 
@@ -155,12 +179,12 @@ export default function CompositionEditor() {
     return (
         <div className="max-w-7xl mx-auto pb-20 animate-in fade-in duration-500">
             {/* --- ШАПКА --- */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-200 pb-6 mb-8 gap-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 mb-2 gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-slate-800">Состав комплекса</h1>
                     <p className="text-slate-500 text-sm mt-1 flex items-center gap-2">
                         <Building2 size={14}/> 
-                        Управление объектами строительства и инфраструктуры
+                        Создание зданий и сооружений
                     </p>
                 </div>
                 <div className="flex gap-3">
@@ -173,110 +197,123 @@ export default function CompositionEditor() {
                 </div>
             </div>
 
-            {/* --- СЕТКА КАРТОЧЕК --- */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                
-                {/* 1. КАРТОЧКА "ДОБАВИТЬ" */}
-                <div className="group border-2 border-dashed border-slate-300 rounded-3xl p-6 flex flex-col justify-center items-center gap-4 hover:border-blue-400 hover:bg-blue-50/30 transition-all cursor-default min-h-[280px]">
-                    <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm text-slate-300 group-hover:text-blue-500 group-hover:scale-110 transition-all">
-                        <Plus size={32} />
-                    </div>
-                    <div className="text-center">
-                        <h3 className="text-lg font-bold text-slate-700 mb-2">Новый объект</h3>
-                        <p className="text-xs text-slate-400 max-w-[200px] mx-auto mb-4">Выберите тип объекта для добавления в структуру ЖК</p>
-                        <div className="flex flex-wrap justify-center gap-2">
-                            {[
-                                { id: 'residential', label: 'Дом', icon: Home },
-                                { id: 'parking_separate', label: 'Паркинг', icon: Car },
-                                { id: 'infrastructure', label: 'Инфра', icon: Box }
-                            ].map(t => (
-                                <button key={t.id} onClick={() => openPlanning(t.id)} className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:border-blue-400 hover:text-blue-600 shadow-sm transition-all active:scale-95">
-                                    <t.icon size={14}/> {t.label}
-                                </button>
-                            ))}
-                        </div>
-                        {/* Кнопка многоблочного скрыта в "еще", для чистоты UI можно добавить по желанию */}
-                        <button onClick={() => openPlanning('residential_multiblock')} className="mt-2 text-[10px] font-bold text-slate-400 hover:text-slate-600 underline decoration-dashed">
-                            + Многоблочный дом
-                        </button>
-                    </div>
-                </div>
-
-                {/* 2. КАРТОЧКИ ОБЪЕКТОВ */}
-                {composition.map((item) => {
-                    const progress = calculateProgress(item.dateStart, item.dateEnd);
-                    const isRes = item.category.includes('residential');
-                    
-                    return (
-                        <div key={item.id} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden flex flex-col justify-between min-h-[280px]">
-                            {/* Градиентная полоска сверху */}
-                            <div className={`absolute top-0 left-0 right-0 h-1.5 ${isRes ? 'bg-gradient-to-r from-blue-400 to-blue-600' : 'bg-gradient-to-r from-slate-400 to-slate-600'}`} />
-
-                            {/* Верхняя часть */}
-                            <div>
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-black shadow-inner ${isRes ? 'bg-slate-100 text-slate-700' : 'bg-amber-50 text-amber-700'}`}>
-                                            {item.houseNumber || '?'}
-                                        </div>
-                                        <div>
-                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Номер дома</div>
-                                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase border ${getStageColor(item.stage)}`}>
-                                                {item.stage || 'Проект'}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button onClick={() => openEditing(item)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-blue-600 transition-colors"><Pencil size={16}/></button>
-                                        <button onClick={() => deleteItem(item.id)} className="p-2 hover:bg-red-50 rounded-lg text-slate-400 hover:text-red-600 transition-colors"><Trash2 size={16}/></button>
-                                    </div>
-                                </div>
-
-                                <h3 className="text-xl font-bold text-slate-800 mb-1 leading-tight">{item.label}</h3>
-                                <p className="text-xs font-medium text-slate-400 mb-4">{item.type}</p>
-
-                                <div className="flex flex-wrap gap-2 mb-4">
-                                    {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
-                                        <div className="px-2 py-1 bg-slate-50 rounded border border-slate-100 text-[10px] font-bold text-slate-600">
-                                            {item.resBlocks} жил. / {item.nonResBlocks} нежил.
-                                        </div>
-                                    )}
-                                    {item.hasNonResPart && <div className="px-2 py-1 bg-indigo-50 rounded border border-indigo-100 text-[10px] font-bold text-indigo-600">Коммерция</div>}
-                                </div>
-                            </div>
-
-                            {/* Нижняя часть: Даты и Прогресс */}
-                            <div className="mt-auto pt-4 border-t border-slate-100">
-                                <div className="flex justify-between items-end mb-2">
-                                    <div className="flex flex-col">
-                                        <span className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><Calendar size={10}/> Срок реализации</span>
-                                        <span className="text-xs font-bold text-slate-700">
-                                            {item.dateStart ? new Date(item.dateStart).getFullYear() : '...'} — {item.dateEnd ? new Date(item.dateEnd).getFullYear() : '...'}
-                                        </span>
-                                    </div>
-                                    <div className="text-right">
-                                        <span className="text-xs font-black text-blue-600">{Math.round(progress)}%</span>
-                                    </div>
-                                </div>
-                                {/* Progress Bar */}
-                                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                                    <div 
-                                        className={`h-full rounded-full transition-all duration-1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} 
-                                        style={{ width: `${progress}%` }} 
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    );
-                })}
+            {/* --- ТУЛБАР СОЗДАНИЯ --- */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-8 flex flex-wrap gap-3 items-center">
+                <span className="text-xs font-bold text-slate-400 uppercase mr-2">Добавить объект:</span>
+                {[
+                    { id: 'residential', label: 'Жилой дом', icon: Home, color: 'text-blue-600 bg-blue-50 border-blue-200 hover:bg-blue-100' },
+                    { id: 'residential_multiblock', label: 'Многоблочный дом', icon: Layout, color: 'text-indigo-600 bg-indigo-50 border-indigo-200 hover:bg-indigo-100' },
+                    { id: 'parking_separate', label: 'Паркинг', icon: Car, color: 'text-slate-600 bg-slate-50 border-slate-200 hover:bg-slate-100' },
+                    { id: 'infrastructure', label: 'Инфраструктура', icon: Box, color: 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-100' }
+                ].map(btn => (
+                    <button 
+                        key={btn.id} 
+                        onClick={() => openPlanning(btn.id)} 
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-bold transition-all active:scale-95 shadow-sm ${btn.color}`}
+                    >
+                        <Plus size={14} strokeWidth={3} />
+                        {btn.label}
+                    </button>
+                ))}
             </div>
 
-            {/* --- МОДАЛЬНОЕ ОКНО (Новый дизайн) --- */}
+            {/* --- ТАБЛИЦА ОБЪЕКТОВ --- */}
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-h-[400px]">
+                {/* Header */}
+                <div className="grid grid-cols-12 bg-slate-50 border-b border-slate-200 py-3 px-6 text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+                    <div className="col-span-1">#</div>
+                    <div className="col-span-1">Дом №</div>
+                    <div className="col-span-3">Наименование</div>
+                    <div className="col-span-3">Тип / Характеристики</div>
+                    <div className="col-span-2">Статус / Сроки</div>
+                    <div className="col-span-2 text-right">Действия</div>
+                </div>
+
+                {composition.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-20 text-center">
+                        <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4 text-slate-300">
+                            <Building2 size={32} />
+                        </div>
+                        <h3 className="text-sm font-bold text-slate-700">Список объектов пуст</h3>
+                        <p className="text-xs text-slate-400 mt-1">Используйте кнопки сверху для создания</p>
+                    </div>
+                )}
+
+                <div className="divide-y divide-slate-100">
+                    {composition.map((item, idx) => {
+                        const progress = calculateProgress(item.dateStart, item.dateEnd);
+                        const isRes = item.category.includes('residential');
+                        
+                        // Парсим бейдж паркинга с правильными названиями
+                        let detailsBadge = null;
+                        if (item.category === 'parking_separate') {
+                            const pType = item.parkingType === 'ground' ? 'Наземный' : 'Подземный';
+                            // Маппинг для конструктива
+                            const pConstName = PARKING_CONSTRUCTION_NAMES[item.constructionType] || item.constructionType;
+                            detailsBadge = `${pType} • ${pConstName}`;
+                        }
+
+                        return (
+                            <div key={item.id} className="grid grid-cols-12 items-center py-4 px-6 hover:bg-blue-50/30 transition-colors group">
+                                <div className="col-span-1 text-xs font-bold text-slate-300">{idx + 1}</div>
+                                
+                                <div className="col-span-1">
+                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-black text-sm shadow-sm border ${isRes ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-200 text-amber-700'}`}>
+                                        {item.houseNumber || '?'}
+                                    </div>
+                                </div>
+
+                                <div className="col-span-3 pr-4">
+                                    <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">{item.label}</div>
+                                </div>
+
+                                <div className="col-span-3 pr-4">
+                                    <div className="text-xs font-medium text-slate-600 mb-1">{item.type}</div>
+                                    <div className="flex flex-wrap gap-1">
+                                        {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
+                                            <span className="px-1.5 py-0.5 bg-slate-100 rounded text-[9px] font-bold text-slate-500">
+                                                {item.resBlocks}Ж / {item.nonResBlocks}Н
+                                            </span>
+                                        )}
+                                        {item.hasNonResPart && <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[9px] font-bold">+Коммерция</span>}
+                                        {item.category === 'infrastructure' && <span className="px-1.5 py-0.5 bg-amber-50 text-amber-600 rounded text-[9px] font-bold">{item.infraType}</span>}
+                                        {detailsBadge && <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[9px] font-bold">{detailsBadge}</span>}
+                                    </div>
+                                </div>
+
+                                <div className="col-span-2 pr-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}>
+                                            {item.stage || 'Проект'}
+                                        </span>
+                                        <span className="text-[10px] font-black text-slate-400">{Math.round(progress)}%</span>
+                                    </div>
+                                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                                        <div 
+                                            className={`h-full rounded-full ${progress >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} 
+                                            style={{ width: `${progress}%` }} 
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="col-span-2 flex justify-end gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={() => openEditing(item)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Редактировать">
+                                        <Pencil size={16}/>
+                                    </button>
+                                    <button onClick={() => deleteItem(item.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Удалить">
+                                        <Trash2 size={16}/>
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* --- МОДАЛЬНОЕ ОКНО --- */}
             {modal.isOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden ring-1 ring-white/20 animate-in zoom-in-95 duration-200">
-                        {/* Header */}
                         <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                             <div>
                                 <h3 className="text-xl font-bold text-slate-800">{modal.editingId ? "Редактирование объекта" : "Создание объекта"}</h3>
@@ -289,7 +326,7 @@ export default function CompositionEditor() {
                         
                         <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
                             
-                            {/* ЛЕВАЯ КОЛОНКА: Идентификация */}
+                            {/* ЛЕВАЯ КОЛОНКА */}
                             <div className="space-y-5">
                                 <SectionTitle icon={Hash}>Идентификация</SectionTitle>
                                 
@@ -300,7 +337,7 @@ export default function CompositionEditor() {
                                         <Input 
                                             value={modal.houseNumber} 
                                             onChange={(e) => setModal({...modal, houseNumber: e.target.value})} 
-                                            placeholder="Например: 12А" 
+                                            placeholder="12А" 
                                             className="pl-9 font-bold text-lg uppercase"
                                             autoFocus
                                         />
@@ -308,11 +345,11 @@ export default function CompositionEditor() {
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <Label>Маркетинговое название</Label>
+                                    <Label>Наименование</Label>
                                     <Input 
                                         value={modal.baseName} 
                                         onChange={(e) => setModal({...modal, baseName: e.target.value})} 
-                                        placeholder="Например: Башня Свобода" 
+                                        placeholder="Например: Отдельный жилой дом" 
                                     />
                                 </div>
 
@@ -330,9 +367,59 @@ export default function CompositionEditor() {
                                 )}
                             </div>
 
-                            {/* ПРАВАЯ КОЛОНКА: Параметры и Сроки */}
+                            {/* ПРАВАЯ КОЛОНКА */}
                             <div className="space-y-5">
                                 <SectionTitle icon={Clock}>Параметры и Сроки</SectionTitle>
+
+                                {/* ДИНАМИЧЕСКИЕ ПОЛЯ */}
+                                {modal.category === 'residential_multiblock' && (
+                                    <div className="grid grid-cols-2 gap-3 p-3 bg-indigo-50 rounded-xl border border-indigo-100 animate-in fade-in">
+                                        <div className="space-y-1">
+                                            <Label>Жилых блоков</Label>
+                                            <Input type="number" min="0" value={modal.resBlocks} onChange={(e) => setModal({...modal, resBlocks: Math.max(0, parseInt(e.target.value)||0)})} />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label>Нежилых</Label>
+                                            <Input type="number" min="0" value={modal.nonResBlocks} onChange={(e) => setModal({...modal, nonResBlocks: Math.max(0, parseInt(e.target.value)||0)})} />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {modal.category === 'parking_separate' && (
+                                    <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-in fade-in">
+                                        <div className="space-y-1.5">
+                                            <Label>Тип паркинга</Label>
+                                            <Select value={modal.parkingType} onChange={e => setModal({...modal, parkingType: e.target.value})}>
+                                                <option value="underground">Подземный</option>
+                                                <option value="ground">Наземный</option>
+                                            </Select>
+                                        </div>
+                                        {/* КОНСТРУКТИВ - Исправленные опции */}
+                                        {modal.parkingType === 'ground' && (
+                                            <div className="space-y-1.5 animate-in slide-in-from-top-2">
+                                                <Label>Конструктив</Label>
+                                                <Select value={modal.parkingConstruction} onChange={e => setModal({...modal, parkingConstruction: e.target.value})}>
+                                                    <option value="capital">Капитальный</option>
+                                                    <option value="light">Из легких конструкций</option>
+                                                    <option value="open">Открытый</option>
+                                                </Select>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {modal.category === 'infrastructure' && (
+                                    <div className="space-y-1.5 p-3 bg-amber-50 rounded-xl border border-amber-100 animate-in fade-in">
+                                        <Label>Тип объекта</Label>
+                                        <Select value={modal.infraType} onChange={(e) => setModal({...modal, infraType: e.target.value})}>
+                                            <option value="Котельная">Котельная</option>
+                                            <option value="ТП">ТП</option>
+                                            <option value="Детский сад">Детский сад</option>
+                                            <option value="Школа">Школа</option>
+                                            <option value="КПП">КПП</option>
+                                        </Select>
+                                    </div>
+                                )}
 
                                 <div className="space-y-1.5">
                                     <Label>Текущая стадия</Label>
@@ -355,9 +442,8 @@ export default function CompositionEditor() {
                                     </div>
                                 </div>
 
-                                {/* Динамические поля в зависимости от типа */}
                                 {modal.category?.includes('residential') && (
-                                    <div className="pt-4 border-t border-slate-100">
+                                    <div className="pt-2 border-t border-slate-100 mt-2">
                                         <label className="flex items-start gap-3 cursor-pointer group">
                                             <input type="checkbox" checked={modal.hasNonResPart} onChange={(e) => setModal({...modal, hasNonResPart: e.target.checked})} className="mt-1 w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300"/>
                                             <div>
@@ -370,7 +456,6 @@ export default function CompositionEditor() {
                             </div>
                         </div>
 
-                        {/* Footer */}
                         <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
                             <Button variant="ghost" onClick={() => setModal({...modal, isOpen: false})}>Отмена</Button>
                             <Button onClick={commitPlanning} className="shadow-xl shadow-blue-200/50 px-8">
