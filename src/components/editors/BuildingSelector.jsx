@@ -3,7 +3,16 @@ import { ArrowRight, Building2, Search } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { STEPS_CONFIG } from '../../lib/constants';
 
-// Хелпер для цветов статуса
+// --- Хелперы (для визуального соответствия) ---
+const calculateProgress = (start, end) => {
+    if (!start || !end) return 0;
+    const total = new Date(end).getTime() - new Date(start).getTime();
+    const current = new Date().getTime() - new Date(start).getTime();
+    if (total <= 0) return 0;
+    const percent = (current / total) * 100;
+    return Math.min(100, Math.max(0, percent));
+};
+
 const getStageStyle = (stage) => {
     switch(stage) {
         case 'Введенный': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
@@ -14,7 +23,6 @@ const getStageStyle = (stage) => {
     }
 };
 
-// !!! ВОТ ЗДЕСЬ ОБЯЗАТЕЛЬНО ДОЛЖНО БЫТЬ "export default" !!!
 export default function BuildingSelector({ stepId, onSelect }) {
     const { composition } = useProject();
 
@@ -22,25 +30,24 @@ export default function BuildingSelector({ stepId, onSelect }) {
     const filteredItems = useMemo(() => {
         return composition.filter(item => {
             if (stepId === 'registry_nonres') {
-                // ЛОГИКА ФИЛЬТРАЦИИ ДЛЯ НЕЖИЛЫХ:
-                
-                // 1. Сразу исключаем обычные жилые дома (категория 'residential')
-                // Даже если там есть галочка "коммерция", они настраиваются в разделе Жилые.
+                // Исключаем обычные жилые дома
                 if (item.category === 'residential') return false; 
 
-                // 2. Оставляем: Инфраструктуру, Паркинги, и Многоблочные (если есть нежилые блоки)
+                // Оставляем Инфраструктуру, Паркинги и Многоблочные (если есть нежилые блоки)
                 return item.category === 'infrastructure' || 
                        item.category === 'parking_separate' || 
                        (item.category === 'residential_multiblock' && item.nonResBlocks > 0);
             }
             
             if (stepId === 'registry_res') {
-                // Для шага "Жилые": только жилые (одиночные и многоблочные)
+                // Только жилые (одиночные и многоблочные)
                 return item.category.includes('residential');
             }
             
-            // Для остальных шагов
+            // Для остальных шагов (Шахматка, МОП и т.д.)
             if (['floors', 'entrances', 'mop', 'apartments'].includes(stepId)) {
+                 // В квартирографии обычно не участвуют паркинги и инфраструктура (если там нет апартаментов)
+                 // Но пока оставим фильтр по жилым, можно расширить при необходимости
                  if (stepId === 'apartments') return item.category.includes('residential');
             }
             return true; 
@@ -52,9 +59,11 @@ export default function BuildingSelector({ stepId, onSelect }) {
     const StepIcon = currentStepConfig.icon || Building2;
 
     return (
-        <div className="max-w-6xl mx-auto pb-20 animate-in fade-in duration-500">
-             {/* Хедер */}
-             <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-8">
+        // НА ВСЮ ШИРИНУ
+        <div className="w-full px-6 pb-20 animate-in fade-in duration-500">
+             
+             {/* --- Хедер --- */}
+             <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-6">
                 <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-lg shadow-slate-900/20">
                         <StepIcon size={24} />
@@ -69,15 +78,16 @@ export default function BuildingSelector({ stepId, onSelect }) {
                 </div>
              </div>
 
-             {/* ТАБЛИЦА */}
+             {/* --- ТАБЛИЦА --- */}
              <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-h-[300px]">
+                 
                  {/* Заголовки таблицы */}
-                 <div className="grid grid-cols-12 bg-slate-50 border-b border-slate-200 py-3 px-6 text-[10px] font-bold uppercase text-slate-400 tracking-wider">
-                    <div className="col-span-1">#</div>
-                    <div className="col-span-1">Дом №</div>
+                 <div className="grid grid-cols-12 bg-slate-50/80 border-b border-slate-200 py-4 px-6 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
+                    <div className="col-span-1 text-center">#</div>
+                    <div className="col-span-1 text-center">Дом №</div>
                     <div className="col-span-4">Наименование</div>
                     <div className="col-span-3">Тип</div>
-                    <div className="col-span-2">Статус</div>
+                    <div className="col-span-2">Статус / Прогресс</div>
                     <div className="col-span-1 text-right"></div>
                  </div>
 
@@ -98,24 +108,25 @@ export default function BuildingSelector({ stepId, onSelect }) {
                  <div className="divide-y divide-slate-100">
                      {filteredItems.map((item, idx) => {
                          const isRes = item.category.includes('residential');
+                         const progress = calculateProgress(item.dateStart, item.dateEnd);
                          
                          return (
                              <div 
                                 key={item.id} 
                                 onClick={() => onSelect(item.id)}
-                                className="grid grid-cols-12 items-center py-3 px-6 hover:bg-blue-50/40 cursor-pointer transition-colors group"
+                                className="grid grid-cols-12 items-center py-4 px-6 hover:bg-blue-50/50 cursor-pointer transition-colors group even:bg-slate-50/50"
                              >
-                                 {/* Индекс */}
-                                 <div className="col-span-1 text-xs font-bold text-slate-300 group-hover:text-blue-300">{idx + 1}</div>
+                                 {/* Индекс (Центр) */}
+                                 <div className="col-span-1 text-xs font-bold text-slate-400 text-center group-hover:text-blue-400">{idx + 1}</div>
                                  
-                                 {/* Номер дома */}
-                                 <div className="col-span-1">
+                                 {/* Номер дома (Центр) */}
+                                 <div className="col-span-1 flex justify-center">
                                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-xs shadow-sm border ${isRes ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-200 text-amber-700'}`}>
                                          {item.houseNumber || '?'}
                                      </div>
                                  </div>
 
-                                 {/* Наименование (БЕЗ ID) */}
+                                 {/* Наименование */}
                                  <div className="col-span-4 pr-4">
                                      <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors line-clamp-1">{item.label}</div>
                                  </div>
@@ -132,11 +143,20 @@ export default function BuildingSelector({ stepId, onSelect }) {
                                      )}
                                  </div>
 
-                                 {/* Статус */}
-                                 <div className="col-span-2">
-                                     <span className={`text-[9px] px-2 py-1 rounded-full font-bold uppercase border ${getStageStyle(item.stage)}`}>
-                                         {item.stage || 'Проект'}
-                                     </span>
+                                 {/* Статус и Прогресс */}
+                                 <div className="col-span-2 pr-6">
+                                     <div className="flex items-center justify-between mb-1.5">
+                                         <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageStyle(item.stage)}`}>
+                                             {item.stage || 'Проект'}
+                                         </span>
+                                         <span className="text-[10px] font-bold text-slate-400">{Math.round(progress)}%</span>
+                                     </div>
+                                     <div className="h-1 w-full bg-slate-200 rounded-full overflow-hidden">
+                                        <div 
+                                            className={`h-full rounded-full transition-all duration-1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} 
+                                            style={{ width: `${progress}%` }} 
+                                        />
+                                    </div>
                                  </div>
 
                                  {/* Стрелка */}

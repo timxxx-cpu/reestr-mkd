@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Home, Layout, Car, Box, Pencil, Trash2, X, Sparkles, Building2, 
-  Calendar, Hash, Clock, ArrowRight, Plus
+  Calendar, Hash, Clock, ArrowRight, Plus, Layers
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Button, Input, Select, Label, SectionTitle } from '../ui/UIKit';
@@ -33,7 +33,6 @@ const TYPE_NAMES = {
     infrastructure: "Объект инфраструктуры" 
 };
 
-// Словарь конструктива паркингов
 const PARKING_CONSTRUCTION_NAMES = {
     capital: "Капитальный",
     light: "Из легких конструкций",
@@ -57,7 +56,7 @@ export default function CompositionEditor() {
         stage: "Проектный",
         editingId: null, 
         parkingType: 'underground', 
-        parkingConstruction: 'capital', // capital, light, open
+        parkingConstruction: 'capital', 
         infraType: 'Котельная' 
     });
 
@@ -114,7 +113,7 @@ export default function CompositionEditor() {
             dateEnd: "",
             stage: "Проектный",
             parkingType: 'underground', 
-            parkingConstruction: 'capital', // Дефолтное значение
+            parkingConstruction: 'capital', 
             infraType: 'Котельная', 
             editingId: null 
         });
@@ -177,19 +176,21 @@ export default function CompositionEditor() {
     };
 
     return (
-        <div className="max-w-7xl mx-auto pb-20 animate-in fade-in duration-500">
+        // УБРАЛИ max-w-7xl, теперь тянется на всю ширину (w-full) с отступами px-6
+        <div className="w-full px-6 pb-20 animate-in fade-in duration-500">
+            
             {/* --- ШАПКА --- */}
             <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 mb-2 gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-slate-800">Состав комплекса</h1>
+                    {/* Заголовок теперь более явный */}
+                    <h1 className="text-2xl font-bold text-slate-800">Состав комплекса</h1>
                     <p className="text-slate-500 text-sm mt-1 flex items-center gap-2">
-                        <Building2 size={14}/> 
-                        Создание зданий и сооружений
+                        Создание и управление перечнем строений
                     </p>
                 </div>
                 <div className="flex gap-3">
-                     <Button onClick={generateDemoComplex} variant="secondary" className="bg-white border border-slate-200 hover:bg-purple-50 hover:text-purple-600 hover:border-purple-200 transition-all shadow-sm">
-                        <Sparkles size={16} /> Тест-драйв
+                     <Button onClick={generateDemoComplex} variant="secondary" className="bg-white border border-slate-200 hover:bg-purple-50 hover:text-purple-600 transition-all shadow-sm">
+                        <Sparkles size={16} /> Демо-данные
                     </Button>
                      <div className="h-10 px-4 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center shadow-lg shadow-slate-900/20">
                         {composition.length} объектов
@@ -198,35 +199,37 @@ export default function CompositionEditor() {
             </div>
 
             {/* --- ТУЛБАР СОЗДАНИЯ --- */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-8 flex flex-wrap gap-3 items-center">
-                <span className="text-xs font-bold text-slate-400 uppercase mr-2">Добавить объект:</span>
-                {[
-                    { id: 'residential', label: 'Жилой дом', icon: Home, color: 'text-blue-600 bg-blue-50 border-blue-200 hover:bg-blue-100' },
-                    { id: 'residential_multiblock', label: 'Многоблочный дом', icon: Layout, color: 'text-indigo-600 bg-indigo-50 border-indigo-200 hover:bg-indigo-100' },
-                    { id: 'parking_separate', label: 'Паркинг', icon: Car, color: 'text-slate-600 bg-slate-50 border-slate-200 hover:bg-slate-100' },
-                    { id: 'infrastructure', label: 'Инфраструктура', icon: Box, color: 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-100' }
-                ].map(btn => (
-                    <button 
-                        key={btn.id} 
-                        onClick={() => openPlanning(btn.id)} 
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-bold transition-all active:scale-95 shadow-sm ${btn.color}`}
-                    >
-                        <Plus size={14} strokeWidth={3} />
-                        {btn.label}
-                    </button>
-                ))}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap gap-3 items-center">
+                <span className="text-xs font-bold text-slate-400 uppercase mr-2">Создать:</span>
+                <div className="flex flex-wrap gap-2">
+                    {[
+                        { id: 'residential', label: 'Жилой дом', icon: Home, color: 'text-slate-700 bg-white border-slate-200 hover:border-blue-400 hover:text-blue-600 hover:shadow-md' },
+                        { id: 'residential_multiblock', label: 'Многоблочный', icon: Layers, color: 'text-slate-700 bg-white border-slate-200 hover:border-indigo-400 hover:text-indigo-600 hover:shadow-md' },
+                        { id: 'parking_separate', label: 'Паркинг', icon: Car, color: 'text-slate-700 bg-white border-slate-200 hover:border-slate-400 hover:text-slate-900 hover:shadow-md' },
+                        { id: 'infrastructure', label: 'Инфраструктура', icon: Box, color: 'text-slate-700 bg-white border-slate-200 hover:border-amber-400 hover:text-amber-600 hover:shadow-md' }
+                    ].map(btn => (
+                        <button 
+                            key={btn.id} 
+                            onClick={() => openPlanning(btn.id)} 
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all active:scale-95 shadow-sm ${btn.color}`}
+                        >
+                            <btn.icon size={14} />
+                            {btn.label}
+                        </button>
+                    ))}
+                </div>
             </div>
 
             {/* --- ТАБЛИЦА ОБЪЕКТОВ --- */}
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-h-[400px]">
-                {/* Header */}
-                <div className="grid grid-cols-12 bg-slate-50 border-b border-slate-200 py-3 px-6 text-[10px] font-bold uppercase text-slate-400 tracking-wider">
-                    <div className="col-span-1">#</div>
-                    <div className="col-span-1">Дом №</div>
+                {/* Header Таблицы - Темный фон для контраста */}
+                <div className="grid grid-cols-12 bg-slate-50/80 border-b border-slate-200 py-4 px-6 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
+                    <div className="col-span-1 text-center">#</div>
+                    <div className="col-span-1 text-center">Дом №</div>
                     <div className="col-span-3">Наименование</div>
-                    <div className="col-span-3">Тип / Характеристики</div>
-                    <div className="col-span-2">Статус / Сроки</div>
-                    <div className="col-span-2 text-right">Действия</div>
+                    <div className="col-span-3">Характеристики</div>
+                    <div className="col-span-3">Статус / Сроки</div>
+                    <div className="col-span-1 text-right"></div>
                 </div>
 
                 {composition.length === 0 && (
@@ -244,63 +247,75 @@ export default function CompositionEditor() {
                         const progress = calculateProgress(item.dateStart, item.dateEnd);
                         const isRes = item.category.includes('residential');
                         
-                        // Парсим бейдж паркинга с правильными названиями
                         let detailsBadge = null;
                         if (item.category === 'parking_separate') {
                             const pType = item.parkingType === 'ground' ? 'Наземный' : 'Подземный';
-                            // Маппинг для конструктива
                             const pConstName = PARKING_CONSTRUCTION_NAMES[item.constructionType] || item.constructionType;
                             detailsBadge = `${pType} • ${pConstName}`;
                         }
 
                         return (
-                            <div key={item.id} className="grid grid-cols-12 items-center py-4 px-6 hover:bg-blue-50/30 transition-colors group">
-                                <div className="col-span-1 text-xs font-bold text-slate-300">{idx + 1}</div>
+                            <div key={item.id} className="grid grid-cols-12 items-center py-4 px-6 hover:bg-blue-50/50 transition-colors group even:bg-slate-50/50">
+                                {/* # (Центрировано) */}
+                                <div className="col-span-1 text-xs font-bold text-slate-400 text-center">{idx + 1}</div>
                                 
-                                <div className="col-span-1">
-                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-black text-sm shadow-sm border ${isRes ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-200 text-amber-700'}`}>
+                                {/* Номер дома (Центрировано) */}
+                                <div className="col-span-1 flex justify-center">
+                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-sm shadow-sm border ${isRes ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-200 text-amber-700'}`}>
                                         {item.houseNumber || '?'}
                                     </div>
                                 </div>
 
+                                {/* Наименование */}
                                 <div className="col-span-3 pr-4">
                                     <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">{item.label}</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">{item.type}</div>
                                 </div>
 
-                                <div className="col-span-3 pr-4">
-                                    <div className="text-xs font-medium text-slate-600 mb-1">{item.type}</div>
+                                {/* Характеристики */}
+                                <div className="col-span-3 pr-4 flex flex-col justify-center gap-1.5">
                                     <div className="flex flex-wrap gap-1">
                                         {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
-                                            <span className="px-1.5 py-0.5 bg-slate-100 rounded text-[9px] font-bold text-slate-500">
-                                                {item.resBlocks}Ж / {item.nonResBlocks}Н
+                                            <span className="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-[10px] font-bold text-slate-600">
+                                                {item.resBlocks} жил. / {item.nonResBlocks} нежил.
                                             </span>
                                         )}
-                                        {item.hasNonResPart && <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[9px] font-bold">+Коммерция</span>}
-                                        {item.category === 'infrastructure' && <span className="px-1.5 py-0.5 bg-amber-50 text-amber-600 rounded text-[9px] font-bold">{item.infraType}</span>}
-                                        {detailsBadge && <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[9px] font-bold">{detailsBadge}</span>}
+                                        {item.hasNonResPart && <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">Коммерция</span>}
+                                        {item.category === 'infrastructure' && <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold">{item.infraType}</span>}
+                                        {detailsBadge && <span className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold">{detailsBadge}</span>}
                                     </div>
                                 </div>
 
-                                <div className="col-span-2 pr-4">
-                                    <div className="flex items-center gap-2 mb-2">
+                                {/* Статус и Прогресс */}
+                                <div className="col-span-3 pr-8">
+                                    <div className="flex items-center justify-between mb-1.5">
                                         <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}>
                                             {item.stage || 'Проект'}
                                         </span>
-                                        <span className="text-[10px] font-black text-slate-400">{Math.round(progress)}%</span>
+                                        <span className="text-[10px] font-bold text-slate-400">{Math.round(progress)}%</span>
                                     </div>
-                                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                                    
+                                    {/* Тонкий прогресс бар */}
+                                    <div className="h-1 w-full bg-slate-200 rounded-full overflow-hidden">
                                         <div 
-                                            className={`h-full rounded-full ${progress >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} 
+                                            className={`h-full rounded-full transition-all duration-1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} 
                                             style={{ width: `${progress}%` }} 
                                         />
                                     </div>
+                                    
+                                    {/* Даты */}
+                                    <div className="flex justify-between text-[9px] text-slate-400 mt-1 font-mono">
+                                        <span>{item.dateStart ? new Date(item.dateStart).toLocaleDateString('ru-RU') : '...'}</span>
+                                        <span>{item.dateEnd ? new Date(item.dateEnd).toLocaleDateString('ru-RU') : '...'}</span>
+                                    </div>
                                 </div>
 
-                                <div className="col-span-2 flex justify-end gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => openEditing(item)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Редактировать">
+                                {/* Действия */}
+                                <div className="col-span-1 flex justify-end gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={() => openEditing(item)} className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
                                         <Pencil size={16}/>
                                     </button>
-                                    <button onClick={() => deleteItem(item.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Удалить">
+                                    <button onClick={() => deleteItem(item.id)} className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
                                         <Trash2 size={16}/>
                                     </button>
                                 </div>
@@ -394,7 +409,6 @@ export default function CompositionEditor() {
                                                 <option value="ground">Наземный</option>
                                             </Select>
                                         </div>
-                                        {/* КОНСТРУКТИВ - Исправленные опции */}
                                         {modal.parkingType === 'ground' && (
                                             <div className="space-y-1.5 animate-in slide-in-from-top-2">
                                                 <Label>Конструктив</Label>
