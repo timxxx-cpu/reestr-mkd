@@ -3,12 +3,13 @@ import {
   ArrowLeft, Wand2, Save, ImageIcon, Hammer, Maximize, 
   ArrowDownToLine, X, Zap, Settings2, Trash2, Droplets, 
   Thermometer, Flame, Wind, ShieldCheck, Wifi, Store, Layers,
-  Fan, Plug, ArrowUpFromLine, Plus, AlertCircle
+  Fan, Plug, ArrowUpFromLine, Plus, AlertCircle, Car, Footprints,
+  ArrowDown, ArrowUp, Building2, Warehouse, Tent
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Select, Button, TabButton } from '../ui/UIKit';
 
-// Утилита для получения списка блоков
+// --- Хелперы ---
 function getBlocksList(building) {
     if (!building) return [];
     const list = [];
@@ -30,6 +31,29 @@ function getBlocksList(building) {
     return list;
 }
 
+const getStageColor = (stage) => {
+    switch(stage) {
+        case 'Введенный': return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+        case 'Строящийся': return 'text-blue-700 bg-blue-50 border-blue-200';
+        case 'Проектный': return 'text-purple-700 bg-purple-50 border-purple-200';
+        default: return 'text-slate-700 bg-slate-50 border-slate-200';
+    }
+};
+
+const calculateProgress = (start, end) => {
+    if (!start || !end) return 0;
+    const total = new Date(end).getTime() - new Date(start).getTime();
+    const current = new Date().getTime() - new Date(start).getTime();
+    if (total <= 0) return 0;
+    return Math.min(100, Math.max(0, (current / total) * 100));
+};
+
+const PARKING_TYPE_LABELS = {
+    capital: "Капитальный",
+    light: "Легкие конструкции",
+    open: "Открытый"
+};
+
 export default function BuildingConfigurator({ buildingId, mode = 'all', onBack }) {
     const { composition, buildingDetails, setBuildingDetails, saveData } = useProject();
     
@@ -39,7 +63,16 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
 
     const blocksList = useMemo(() => getBlocksList(building), [building]);
   
-    // Фильтр блоков
+    // --- ОПРЕДЕЛЕНИЕ ТИПА ПАРКИНГА ---
+    const isParking = building?.category === 'parking_separate';
+    const isUnderground = isParking && building?.parkingType === 'underground';
+    
+    const constructionType = building?.constructionType || 'capital';
+    const isGroundCapital = isParking && !isUnderground && constructionType === 'capital';
+    const isGroundLight = isParking && !isUnderground && constructionType === 'light';
+    const isGroundOpen = isParking && !isUnderground && constructionType === 'open';
+    const isCapitalStructure = isUnderground || isGroundCapital;
+
     const visibleBlocks = useMemo(() => {
         if (!building) return [];
         if (mode === 'res') return blocksList.filter(b => b.type === 'Ж');
@@ -47,60 +80,59 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         return blocksList;
     }, [blocksList, mode, building]);
 
-    // Авто-переключение на первый доступный блок
     useEffect(() => {
-        if (visibleBlocks.length > 0 && activeTabId === 'photo') {
-            setActiveTabId(visibleBlocks[0].id);
-        } else if (visibleBlocks.length > 0 && !visibleBlocks.find(b => b.id === activeTabId)) {
-            setActiveTabId(visibleBlocks[0].id);
+        if (!isParking) {
+            if (visibleBlocks.length > 0 && activeTabId === 'photo') {
+                setActiveTabId(visibleBlocks[0].id);
+            } else if (visibleBlocks.length > 0 && !visibleBlocks.find(b => b.id === activeTabId)) {
+                setActiveTabId(visibleBlocks[0].id);
+            }
         }
-    }, [visibleBlocks.length, mode]);
+    }, [visibleBlocks.length, mode, isParking]);
 
     if (!building) return <div className="p-8 text-center">Объект не найден</div>;
 
-    const currentBlock = blocksList.find(b => b.id === activeTabId);
+    // --- ЛОГИКА ДАННЫХ ---
+    const currentBlock = isParking ? { id: 'main', type: 'Паркинг' } : blocksList.find(b => b.id === activeTabId);
     const currentBlockId = currentBlock?.id;
-    const isResidentialBlock = currentBlock?.type === 'Ж';
     const detailsKey = currentBlockId ? `${building.id}_${currentBlockId}` : null;
     const featuresKey = `${building.id}_features`;
 
-    // Данные
     const features = buildingDetails[featuresKey] || { basements: [], exploitableRoofs: [] };
+    
     const details = buildingDetails[detailsKey] || { 
         foundation: 'Монолитная плита', walls: 'Кирпич', slabs: 'Монолитные ж/б', roof: 'Плоская рулонная', 
         floorsFrom: 1, floorsTo: 1, entrances: 1, inputs: 1, vehicleEntries: 1, elevators: 0, 
-        commercialFloors: [], 
-        hasBasementFloor: false, hasAttic: false, hasLoft: false, 
-        hasTechnicalFloor: false, technicalFloors: [], 
-        hasExploitableRoof: false, 
+        commercialFloors: [], hasBasementFloor: false, hasAttic: false, hasLoft: false, 
+        hasTechnicalFloor: false, technicalFloors: [], hasExploitableRoof: false, 
         placementType: 'attached', parentBlocks: [],
+        levelsDepth: 1, 
+        floorsCount: 1, 
+        lightStructureType: 'canopy', 
         engineering: { hvs: true, gvs: true, heating: true, electricity: true, gas: false, sewerage: true, ventilation: true, firefighting: true, lowcurrent: true } 
     };
 
-    const residentialBlocks = blocksList.filter(b => b.type === 'Ж');
-
     const updateDetail = (key, val) => setBuildingDetails(prev => ({ ...prev, [detailsKey]: { ...details, [key]: val } }));
     const updateFeatures = (updates) => setBuildingDetails(prev => ({ ...prev, [featuresKey]: { ...features, ...updates } }));
-    
-    // --- ПОДВАЛЫ ---
+    const progress = calculateProgress(building.dateStart, building.dateEnd);
+
+    // --- УПРАВЛЕНИЕ ПОДВАЛАМИ ---
     const updateBasement = (id, field, val) => {
         const updatedBasements = (features.basements || []).map(b => b.id === id ? { ...b, [field]: val } : b);
         updateFeatures({ basements: updatedBasements });
     };
-
+    
+    // Фильтруем подвалы для текущего блока (или main для паркинга)
     const blockBasements = (features.basements || []).filter(b => b.blocks?.includes(currentBlock?.id));
     const canAddBasement = blockBasements.length < 3;
-
+    
     const createBlockBasement = () => {
         if (!canAddBasement) return; 
-        const isUndergroundParking = building.category === 'parking_separate' && building.parkingType === 'underground';
-        const newB = { id: Date.now(), depth: 1, hasParking: isUndergroundParking, parkingLevels: isUndergroundParking ? {1: true} : {}, blocks: [currentBlock.id] }; 
+        const newB = { id: Date.now(), depth: 1, hasParking: false, parkingLevels: {}, blocks: [currentBlock.id] }; 
         updateFeatures({ basements: [...(features.basements || []), newB] }); 
     };
-
     const removeBasement = (id) => updateFeatures({ basements: (features.basements || []).filter(b => b.id !== id) });
     
-    // --- ЭТАЖИ ---
     const floorRange = useMemo(() => {
         const from = details.floorsFrom || 1;
         const to = details.floorsTo || 1;
@@ -108,357 +140,377 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         return Array.from({length: safeTo - from + 1}, (_, i) => from + i);
     }, [details.floorsFrom, details.floorsTo]);
 
-    // Универсальный переключатель (разрешает пересечения)
     const toggleFloorAttribute = (targetList, value) => {
         const currentTarget = details[targetList] || [];
-        const newTarget = currentTarget.includes(value) 
-            ? currentTarget.filter(f => f !== value) 
-            : [...currentTarget, value];
-        
-        setBuildingDetails(prev => ({
-            ...prev,
-            [detailsKey]: { ...details, [targetList]: newTarget }
-        }));
+        const newTarget = currentTarget.includes(value) ? currentTarget.filter(f => f !== value) : [...currentTarget, value];
+        updateDetail(targetList, newTarget);
     };
 
-    const autoFillConfig = () => {
-        const updates = {};
-        const baseKey = `${building.id}_features`; 
-        const newBasements = blocksList.map((b, i) => ({ id: Date.now() + i, depth: 1, hasParking: true, parkingLevels: {1: true}, blocks: [b.id] }));
-        setBuildingDetails(prev => ({ ...prev, [baseKey]: { basements: newBasements, exploitableRoofs: [] } }));
-        blocksList.forEach((b) => { 
-             const k = `${building.id}_${b.id}`; 
-             updates[k] = { 
-                 foundation: 'Монолитная плита', walls: 'Кирпич', slabs: 'Монолитные ж/б', roof: 'Плоская рулонная', 
-                 floorsFrom: 1, floorsTo: 9, entrances: 2, inputs: 1, vehicleEntries: 1, elevators: 1, 
-                 commercialFloors: b.type === 'Ж' ? [1] : [], hasBasementFloor: true, 
-                 engineering: { hvs: true, gvs: true, heating: true, electricity: true, sewerage: true, ventilation: true, firefighting: true, lowcurrent: true } 
-             }; 
-        });
-        setBuildingDetails(prev => ({ ...prev, ...updates }));
-    };
+    const autoFillConfig = () => { alert('Авто-конфиг доступен для жилых домов'); };
 
     const engineeringSystems = [
         { id: 'hvs', label: 'ХВС', icon: Droplets, color: 'text-blue-600 bg-blue-50 border-blue-200 hover:bg-blue-100' },
         { id: 'gvs', label: 'ГВС', icon: Droplets, color: 'text-cyan-600 bg-cyan-50 border-cyan-200 hover:bg-cyan-100' },
         { id: 'sewerage', label: 'Канализ.', icon: ArrowDownToLine, color: 'text-slate-600 bg-slate-100 border-slate-200 hover:bg-slate-200' },
         { id: 'heating', label: 'Отопл.', icon: Thermometer, color: 'text-orange-600 bg-orange-50 border-orange-200 hover:bg-orange-100' },
-        { id: 'gas', label: 'Газ', icon: Flame, color: 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-100' },
         { id: 'electricity', label: 'Электро', icon: Zap, color: 'text-yellow-600 bg-yellow-50 border-yellow-200 hover:bg-yellow-100' },
         { id: 'lowcurrent', label: 'Слаботоч.', icon: Wifi, color: 'text-indigo-600 bg-indigo-50 border-indigo-200 hover:bg-indigo-100' },
         { id: 'ventilation', label: 'Вент.', icon: Fan, color: 'text-teal-600 bg-teal-50 border-teal-200 hover:bg-teal-100' },
         { id: 'firefighting', label: 'Пож.', icon: ShieldCheck, color: 'text-red-600 bg-red-50 border-red-200 hover:bg-red-100' },
     ];
+    if (!isParking) engineeringSystems.splice(4, 0, { id: 'gas', label: 'Газ', icon: Flame, color: 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-100' });
 
     const specialCommercialLevels = [
         { id: 'tsokol', label: 'Цоколь', condition: details.hasBasementFloor },
         { id: 'basement', label: 'Подвал', condition: blockBasements.length > 0 },
         { id: 'attic', label: 'Мансарда', condition: details.hasAttic },
         { id: 'loft', label: 'Чердак', condition: details.hasLoft },
-        { id: 'tech', label: 'Технический этаж', condition: details.hasTechnicalFloor }, // Для отображения в "Нежилых"
+        { id: 'tech', label: 'Технический этаж', condition: details.hasTechnicalFloor },
         { id: 'roof', label: 'Крыша', condition: details.hasExploitableRoof },
     ];
 
-    // --- ВАЛИДАЦИЯ ---
-    const elevatorError = (details.floorsTo > 5) && ((details.elevators || 0) < 1);
-    const hasCriticalErrors = elevatorError;
+    const hasCriticalErrors = !isParking && (details.floorsTo > 5) && ((details.elevators || 0) < 1);
 
     return (
-        <div className="animate-in slide-in-from-bottom duration-500 space-y-6 pb-20 max-w-7xl mx-auto">
-            {/* --- HEADER --- */}
-            <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-4">
-                <div className="flex items-center gap-4">
-                    <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"><ArrowLeft size={24}/></button>
-                    <div><h2 className="text-2xl font-bold text-slate-800 leading-tight">{building.label}</h2><p className="text-slate-500 text-xs font-semibold uppercase tracking-wider opacity-70">Конфигурация {mode === 'nonres' ? '(Нежилые)' : mode === 'res' ? '(Жилые)' : ''}</p></div>
-                </div>
-                <div className="flex gap-2">
-                    <button onClick={autoFillConfig} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors"><Wand2 size={14}/> Авто-конфиг</button>
-                    <Button 
-                        onClick={() => { saveData(); onBack(); }} 
-                        disabled={hasCriticalErrors}
-                        className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}
-                    >
-                        <Save size={16}/> Готово
-                    </Button>
-                </div>
-            </div>
-
-            {/* --- TABS --- */}
-            <div className="flex gap-2 p-1 bg-slate-200/50 rounded-xl w-max overflow-x-auto max-w-full mb-6">
-                {visibleBlocks.map((block) => (<TabButton key={block.id} active={activeTabId === block.id} onClick={() => setActiveTabId(block.id)}>Блок {block.index + 1} ({block.type})</TabButton>))}
-                <TabButton active={activeTabId === 'photo'} onClick={() => setActiveTabId('photo')}><ImageIcon size={14}/> Фасад</TabButton>
-            </div>
+        <div className="animate-in slide-in-from-bottom duration-500 space-y-6 pb-20 max-w-7xl mx-auto w-full">
             
-            {currentBlockId && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    
-                    <div className="lg:col-span-2 space-y-6">
-                        <Card className="p-5 shadow-sm">
-                            <SectionTitle icon={Hammer}>Конструктив</SectionTitle>
-                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                                {['foundation:Фундамент:Монолитная плита,Свайный', 'walls:Стены:Монолитный ж/б,Кирпич,Блок', 'slabs:Перекрытия:Монолитные ж/б,Сборные плиты', 'roof:Крыша:Плоская,Скатная'].map(field => {
-                                    const [key, label, opts] = field.split(':'); 
-                                    return <div key={key} className="space-y-1"><Label>{label}</Label><Select className="text-xs py-1.5" value={details[key]} onChange={(e)=>updateDetail(key, e.target.value)}>{opts.split(',').map(o=><option key={o}>{o}</option>)}</Select></div>;
-                                })}
-                            </div>
-                        </Card>
-
-                        <Card className="p-6 shadow-sm">
-                            <SectionTitle icon={Maximize}>Параметры этажности</SectionTitle>
-                            <div className="grid grid-cols-2 gap-8 mb-6">
-                                <div className="space-y-1">
-                                    <Label>С этажа</Label>
-                                    <Input 
-                                        type="number" value={isResidentialBlock ? 1 : details.floorsFrom} 
-                                        onChange={(e)=>updateDetail('floorsFrom', parseInt(e.target.value)||1)}
-                                        disabled={isResidentialBlock}
-                                        className={isResidentialBlock ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""}
-                                    />
-                                    {isResidentialBlock && <span className="text-[10px] text-slate-400">Жилой блок всегда с 1-го этажа</span>}
-                                </div>
-                                <div className="space-y-1">
-                                    <Label>По этаж (макс. 50)</Label>
-                                    <Input 
-                                        type="number" min="1" max="50"
-                                        value={details.floorsTo} 
-                                        onChange={(e) => {
-                                            let val = parseInt(e.target.value) || 1;
-                                            if (val > 50) val = 50; 
-                                            updateDetail('floorsTo', val);
-                                        }} 
-                                    />
-                                </div>
+            {/* --- ШАПКА --- */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                    {isParking ? <Car size={140}/> : <Building2 size={140}/>}
+                </div>
+                
+                <div className="flex flex-col md:flex-row justify-between items-start gap-6 relative z-10">
+                    <div className="flex gap-5">
+                        <button onClick={onBack} className="mt-1 p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors h-min">
+                            <ArrowLeft size={24}/>
+                        </button>
+                        
+                        <div>
+                            <div className="flex items-center gap-3 mb-2">
+                                <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${getStageColor(building.stage)}`}>
+                                    {building.stage || 'Проект'}
+                                </span>
+                                <span className="text-xs font-bold text-slate-400">ID: {building.id.slice(-6)}</span>
                             </div>
                             
-                            <div className="flex flex-wrap gap-4 mt-4 mb-6">
-                                {[
-                                    {k: 'hasBasementFloor', l: 'Цокольный этаж'}, 
-                                    {k: 'hasAttic', l: 'Мансарда'}, 
-                                    {k: 'hasLoft', l: 'Чердак'}, 
-                                    // 'hasTechnicalFloor' удален отсюда
-                                    {k: 'hasExploitableRoof', l: 'Эксплуатируемая крыша'}, 
-                                ].map(({k, l}) => (
-                                    <label key={k} className="flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 hover:border-blue-300 transition-colors">
-                                        <input type="checkbox" checked={details[k] || false} onChange={(e)=>updateDetail(k,e.target.checked)} className="rounded text-blue-600 w-4 h-4"/>
-                                        <span className="text-xs font-bold text-slate-600">{l}</span>
-                                    </label>
-                                ))}
+                            <h1 className="text-3xl font-bold text-slate-800 mb-2">{building.label}</h1>
+                            
+                            <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-600">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Дом №</span>
+                                    <span className="font-bold bg-slate-100 px-2 py-0.5 rounded">{building.houseNumber}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Тип</span>
+                                    <span className="font-medium">{building.type}</span>
+                                </div>
+                                {isParking && (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase">Вид</span>
+                                        <span className="font-medium">
+                                            {isUnderground ? 'Подземный' : 'Наземный'} 
+                                            {building.constructionType && ` • ${PARKING_TYPE_LABELS[building.constructionType] || building.constructionType}`}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
+                        </div>
+                    </div>
 
-                            {/* --- ТЕХНИЧЕСКИЕ ЭТАЖИ (ВСТАВКИ) - ТЕПЕРЬ ВСЕГДА ВИДНО --- */}
-                            <div className="mt-4 p-4 bg-amber-50/50 border border-amber-100 rounded-xl animate-in fade-in slide-in-from-top-2">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <div className="p-1.5 bg-amber-100 text-amber-600 rounded-lg"><Settings2 size={16}/></div>
-                                    <div>
-                                        <Label className="text-amber-900">Вставка тех. этажей</Label>
-                                        <p className="text-[10px] text-amber-600/80 leading-tight">Выберите этаж, <b>НАД</b> которым нужно добавить тех.этаж (например, 6 → появится 6-Т).</p>
+                    <div className="w-full md:w-64 bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <div className="flex justify-between items-end mb-2">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">Прогресс</span>
+                            <span className="text-xs font-bold text-blue-600">{Math.round(progress)}%</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden mb-3">
+                            <div className="h-full bg-blue-500 rounded-full" style={{width: `${progress}%`}}/>
+                        </div>
+                        <div className="flex justify-between text-[10px] font-mono text-slate-500">
+                            <div>{building.dateStart}</div>
+                            <div>{building.dateEnd}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* --- ВЕТВЛЕНИЕ: ПАРКИНГ --- */}
+            {isParking ? (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    {/* ЛЕВАЯ КОЛОНКА */}
+                    <div className="lg:col-span-2 space-y-6">
+                         
+                         {isGroundOpen && (
+                            <Card className="p-12 border-dashed flex flex-col items-center justify-center text-center">
+                                <div className="p-4 bg-slate-50 rounded-full text-slate-300 mb-4"><Car size={48} /></div>
+                                <h3 className="text-xl font-bold text-slate-700">Открытая площадка</h3>
+                                <p className="text-slate-500 max-w-sm mt-2">Для открытого типа паркинга нет дополнительных параметров конфигурации.</p>
+                            </Card>
+                         )}
+
+                         {isGroundLight && (
+                            <Card className="p-6 shadow-sm border-t-4 border-t-indigo-500">
+                                <SectionTitle icon={Tent}>Легкие конструкции</SectionTitle>
+                                <div className="space-y-4 mt-6">
+                                    <Label>Тип конструкции</Label>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <button onClick={() => updateDetail('lightStructureType', 'canopy')} className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${details.lightStructureType === 'canopy' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-100 bg-white text-slate-500 hover:border-slate-300'}`}>
+                                            <Warehouse size={24} /><span className="font-bold">Навесы</span>
+                                        </button>
+                                        <button onClick={() => updateDetail('lightStructureType', 'box')} className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${details.lightStructureType === 'box' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-100 bg-white text-slate-500 hover:border-slate-300'}`}>
+                                            <Store size={24} /><span className="font-bold">Боксы / Гаражи</span>
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-slate-400">Для данного типа паркинга этажность и подъезды не учитываются.</p>
+                                </div>
+                            </Card>
+                         )}
+
+                         {isCapitalStructure && (
+                            <Card className="p-6 shadow-sm border-t-4 border-t-slate-500">
+                                <SectionTitle icon={Car}>Параметры паркинга</SectionTitle>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6">
+                                    <div className="space-y-4">
+                                        {isUnderground ? (
+                                            <div className="space-y-2">
+                                                <Label className="flex items-center gap-2"><ArrowDown size={16} className="text-blue-600"/> Количество уровней (вниз)</Label>
+                                                <div className="flex gap-2">
+                                                    {[1, 2, 3, 4].map(lvl => (
+                                                        <button key={lvl} onClick={() => updateDetail('levelsDepth', lvl)} className={`flex-1 py-3 rounded-xl border font-bold text-sm transition-all ${(details.levelsDepth || 1) === lvl ? 'bg-slate-800 text-white border-slate-800 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'}`}>-{lvl}</button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-4">
+                                                <div className="space-y-2">
+                                                    <Label className="flex items-center gap-2"><ArrowUp size={16} className="text-blue-600"/> Количество этажей (вверх)</Label>
+                                                    <Input 
+                                                        type="number" 
+                                                        min="1" max="10" 
+                                                        value={details.floorsCount || 1} 
+                                                        onChange={(e) => {
+                                                            let val = parseInt(e.target.value) || 1;
+                                                            if (val > 10) val = 10; // Ограничение до 10 этажей
+                                                            updateDetail('floorsCount', val);
+                                                        }} 
+                                                        className="font-bold text-lg"
+                                                    />
+                                                    <p className="text-[10px] text-slate-400 mt-1">Максимум 10 этажей для капитального паркинга.</p>
+                                                </div>
+                                                
+                                                {/* Полноценный блок ПОДВАЛ для наземного паркинга */}
+                                                <div className="pt-2">
+                                                    <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
+                                                        <Label className="flex items-center gap-2"><ArrowDownToLine size={14}/> Подвал</Label>
+                                                        <button onClick={createBlockBasement} disabled={!canAddBasement} className={`px-2 py-1 rounded text-[10px] font-bold border transition-all ${ canAddBasement ? 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200' : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed opacity-60'}`}>
+                                                            {canAddBasement ? '+ Добавить' : 'Макс. 3'}
+                                                        </button>
+                                                    </div>
+                                                    
+                                                    {blockBasements.length === 0 ? (
+                                                        <div className="text-center py-3 text-slate-400 text-xs bg-slate-50 rounded-lg border border-dashed border-slate-200">Нет подвала</div>
+                                                    ) : (
+                                                        <div className="space-y-2">
+                                                            {blockBasements.map((base, idx) => (
+                                                                <div key={base.id} className="p-3 bg-slate-800 rounded-lg border border-slate-700 relative group text-white shadow-inner">
+                                                                    <button onClick={() => removeBasement(base.id)} className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 text-slate-400 hover:text-white hover:bg-slate-700 p-0.5 rounded transition-all"><X size={12}/></button>
+                                                                    <div className="flex gap-3 items-center">
+                                                                        <div className="w-8 h-8 flex items-center justify-center bg-slate-700 border border-slate-600 rounded font-bold text-slate-300 text-xs">P-{idx+1}</div>
+                                                                        <div className="flex flex-col">
+                                                                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Уровень {idx+1}</span>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span className="text-[10px] font-medium text-slate-300">Глубина:</span>
+                                                                                <input type="number" value={-base.depth} onChange={(e) => { let val = parseInt(e.target.value); if (isNaN(val)) val = -1; if (val > 0) val = -val; if (val > -1) val = -1; if (val < -4) val = -4; updateBasement(base.id, 'depth', Math.abs(val)); }} className="w-10 text-center bg-slate-900 border border-slate-600 rounded text-[10px] font-bold text-white outline-none py-0.5"/>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                        <div className="space-y-1">
+                                            <Label className="flex items-center gap-2"><Car size={14} /> Въезды (для авто)</Label>
+                                            <div className="flex items-center gap-3">
+                                                <button onClick={() => updateDetail('vehicleEntries', Math.max(1, (details.vehicleEntries||1) - 1))} className="w-8 h-8 bg-white rounded border border-slate-200 font-bold hover:bg-slate-100">-</button>
+                                                <span className="font-bold text-lg w-8 text-center">{details.vehicleEntries || 1}</span>
+                                                <button onClick={() => updateDetail('vehicleEntries', (details.vehicleEntries||1) + 1)} className="w-8 h-8 bg-white rounded border border-slate-200 font-bold hover:bg-slate-100">+</button>
+                                            </div>
+                                        </div>
+                                        <div className="h-px bg-slate-200 w-full" />
+                                        <div className="space-y-1">
+                                            <Label className="flex items-center gap-2"><Footprints size={14} /> Входы (для людей)</Label>
+                                            <div className="flex items-center gap-3">
+                                                <button onClick={() => updateDetail('inputs', Math.max(0, (details.inputs||1) - 1))} className="w-8 h-8 bg-white rounded border border-slate-200 font-bold hover:bg-slate-100">-</button>
+                                                <span className="font-bold text-lg w-8 text-center">{details.inputs || 1}</span>
+                                                <button onClick={() => updateDetail('inputs', (details.inputs||1) + 1)} className="w-8 h-8 bg-white rounded border border-slate-200 font-bold hover:bg-slate-100">+</button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {floorRange.map((f, idx) => {
-                                        const isTech = details.technicalFloors?.includes(f);
-                                        const isGap = (idx > 0) && (idx % 10 === 0);
+                            </Card>
+                         )}
+                    </div>
+
+                    {/* ПРАВАЯ КОЛОНКА */}
+                    <div className="space-y-6">
+                        
+                        {isCapitalStructure && (
+                            <Card className="p-5 shadow-sm">
+                                <SectionTitle icon={Hammer}>Конструктив</SectionTitle>
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-1 gap-3">
+                                        {/* Крыша - стандартный набор */}
+                                        {['foundation:Фундамент:Монолитная плита,Свайный', 'walls:Стены:Монолитный ж/б,Кирпич,Блок', 'slabs:Перекрытия:Монолитные ж/б,Сборные плиты', 'roof:Крыша:Плоская рулонная,Скатная'].map(field => {
+                                            const [key, label, opts] = field.split(':'); 
+                                            return <div key={key} className="space-y-1"><Label>{label}</Label><Select className="text-xs py-1.5" value={details[key]} onChange={(e)=>updateDetail(key, e.target.value)}>{opts.split(',').map(o=><option key={o}>{o}</option>)}</Select></div>;
+                                        })}
+                                    </div>
+                                    
+                                    <div className="pt-4 border-t border-slate-100">
+                                        <Label>Лифтов</Label>
+                                        <div className="flex items-center gap-3 mt-1">
+                                            <button onClick={() => updateDetail('elevators', Math.max(0, (details.elevators||0) - 1))} className="w-8 h-8 bg-white rounded border border-slate-200 font-bold hover:bg-slate-100">-</button>
+                                            <span className="font-bold text-lg w-8 text-center">{details.elevators || 0}</span>
+                                            <button onClick={() => updateDetail('elevators', (details.elevators||0) + 1)} className="w-8 h-8 bg-white rounded border border-slate-200 font-bold hover:bg-slate-100">+</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </Card>
+                        )}
+
+                        {(!isGroundOpen) && (
+                            <Card className="p-6 shadow-sm">
+                                <SectionTitle icon={Zap}>Инженерия</SectionTitle>
+                                <div className="space-y-2 mt-4">
+                                    {engineeringSystems.map(sys => {
+                                        if (['gas', 'lowcurrent'].includes(sys.id)) return null;
+                                        if (isGroundLight && !['electricity', 'firefighting'].includes(sys.id)) return null;
+
+                                        const isActive = details.engineering?.[sys.id];
+                                        const Icon = sys.icon;
                                         return (
-                                            <React.Fragment key={f}>
-                                                {isGap && <div className="w-3"></div>}
-                                                <button 
-                                                    onClick={() => toggleFloorAttribute('technicalFloors', f)} 
-                                                    className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border flex items-center justify-center gap-1 ${isTech ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-amber-200 text-amber-600 hover:bg-amber-50'}`}
-                                                >
-                                                    {f}
-                                                    {isTech ? <ArrowUpFromLine size={10}/> : <Plus size={10} className="opacity-50"/>}
-                                                </button>
-                                            </React.Fragment>
+                                            <button key={sys.id} onClick={() => updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'}`}>
+                                                <div className="flex items-center gap-3"><Icon size={18} /><span className="text-xs font-bold uppercase">{sys.label}</span></div>
+                                                <div className={`w-4 h-4 rounded border flex items-center justify-center ${isActive ? 'bg-white border-transparent' : 'border-slate-300'}`}>{isActive && <div className="w-2 h-2 rounded-full bg-current"/>}</div>
+                                            </button>
                                         )
                                     })}
                                 </div>
-                            </div>
-
-                            {/* --- НЕЖИЛЫЕ ОБЪЕКТЫ --- */}
-                            {building.hasNonResPart && (
-                                <div className="mt-6 p-4 bg-blue-50/50 border border-blue-100 rounded-xl animate-in fade-in slide-in-from-top-2">
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <div className="p-1.5 bg-blue-100 text-blue-600 rounded-lg"><Store size={16}/></div>
-                                        <div><Label className="text-blue-900">Нежилые объекты</Label><p className="text-[10px] text-blue-500/80 leading-tight">Отметьте этажи, где расположены нежилые помещения.</p></div>
-                                    </div>
-
-                                    <div className="flex flex-wrap gap-1.5 mb-4">
-                                        {floorRange.map((f, idx) => {
-                                            const isComm = details.commercialFloors?.includes(f);
-                                            const hasTechAbove = details.technicalFloors?.includes(f);
-                                            const isCommTech = details.commercialFloors?.includes(`${f}-Т`);
-                                            const isGap = (idx > 0) && (idx % 10 === 0);
-                                            
-                                            return (
-                                                <React.Fragment key={f}>
-                                                    {isGap && <div className="w-3"></div>}
-                                                    {/* Обычный этаж */}
-                                                    <button onClick={() => toggleFloorAttribute('commercialFloors', f)} className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border ${isComm ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'}`}>{f}</button>
-                                                    
-                                                    {/* Если выбран тех. этаж (f), показываем кнопку f-Т */}
-                                                    {hasTechAbove && (
-                                                        <button 
-                                                            onClick={() => toggleFloorAttribute('commercialFloors', `${f}-Т`)} 
-                                                            className={`px-1.5 h-8 rounded-md text-[10px] font-bold shadow-sm transition-all border flex items-center justify-center relative ${isCommTech ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-indigo-50 border-indigo-200 text-indigo-500 hover:bg-indigo-100'}`}
-                                                            title={`Отметить тех.этаж ${f}-Т как нежилой`}
-                                                        >
-                                                            {f}-Т
-                                                        </button>
-                                                    )}
-                                                </React.Fragment>
-                                            )
+                            </Card>
+                        )}
+                        
+                        <Button onClick={() => { saveData(); onBack(); }} className="w-full py-4 text-sm shadow-xl shadow-blue-200/50"><Save size={18} /> Сохранить паркинг</Button>
+                    </div>
+                </div>
+            ) : (
+                // --- СТАНДАРТНЫЙ ИНТЕРФЕЙС ---
+                <>
+                    <div className="flex gap-2 p-1 bg-slate-200/50 rounded-xl w-max overflow-x-auto max-w-full mb-6">
+                        {visibleBlocks.map((block) => (<TabButton key={block.id} active={activeTabId === block.id} onClick={() => setActiveTabId(block.id)}>Блок {block.index + 1} ({block.type})</TabButton>))}
+                        <TabButton active={activeTabId === 'photo'} onClick={() => setActiveTabId('photo')}><ImageIcon size={14}/> Фасад</TabButton>
+                    </div>
+                    {currentBlockId && (
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            <div className="lg:col-span-2 space-y-6">
+                                <Card className="p-5 shadow-sm">
+                                    <SectionTitle icon={Hammer}>Конструктив</SectionTitle>
+                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                        {['foundation:Фундамент:Монолитная плита,Свайный', 'walls:Стены:Монолитный ж/б,Кирпич,Блок', 'slabs:Перекрытия:Монолитные ж/б,Сборные плиты', 'roof:Крыша:Плоская рулонная,Скатная,Эксплуатируемая'].map(field => {
+                                            const [key, label, opts] = field.split(':'); 
+                                            return <div key={key} className="space-y-1"><Label>{label}</Label><Select className="text-xs py-1.5" value={details[key]} onChange={(e)=>updateDetail(key, e.target.value)}>{opts.split(',').map(o=><option key={o}>{o}</option>)}</Select></div>;
                                         })}
                                     </div>
-
-                                    {specialCommercialLevels.some(l => l.condition) && (
-                                        <div className="pt-3 border-t border-blue-200/50">
-                                            <Label className="text-[10px] mb-2 text-blue-400 font-bold uppercase block">Специальные уровни:</Label>
-                                            <div className="flex flex-wrap gap-2">
-                                                {specialCommercialLevels.map(lvl => {
-                                                    if (!lvl.condition) return null;
-                                                    const isSelected = details.commercialFloors?.includes(lvl.id);
-                                                    return (
-                                                        <button key={lvl.id} onClick={() => toggleFloorAttribute('commercialFloors', lvl.id)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-2 transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-blue-200 text-blue-500 hover:bg-blue-50'}`}>
-                                                            <Layers size={12} /> {lvl.label}
-                                                        </button>
-                                                    );
+                                </Card>
+                                <Card className="p-6 shadow-sm">
+                                    <SectionTitle icon={Maximize}>Параметры этажности</SectionTitle>
+                                    <div className="grid grid-cols-2 gap-8 mb-6">
+                                        <div className="space-y-1">
+                                            <Label>С этажа</Label>
+                                            <Input type="number" value={currentBlock?.type === 'Ж' ? 1 : details.floorsFrom} onChange={(e)=>updateDetail('floorsFrom', parseInt(e.target.value)||1)} disabled={currentBlock?.type === 'Ж'} className={currentBlock?.type === 'Ж' ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""}/>
+                                            {currentBlock?.type === 'Ж' && <span className="text-[10px] text-slate-400">Жилой блок всегда с 1-го этажа</span>}
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label>По этаж (макс. 50)</Label>
+                                            <Input type="number" min="1" max="50" value={details.floorsTo} onChange={(e) => { let val = parseInt(e.target.value) || 1; if (val > 50) val = 50; updateDetail('floorsTo', val); }} />
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-4 mt-4 mb-6">
+                                        {[ {k: 'hasBasementFloor', l: 'Цокольный этаж'}, {k: 'hasAttic', l: 'Мансарда'}, {k: 'hasLoft', l: 'Чердак'}, {k: 'hasExploitableRoof', l: 'Эксплуатируемая крыша'} ].map(({k, l}) => (
+                                            <label key={k} className="flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 hover:border-blue-300 transition-colors">
+                                                <input type="checkbox" checked={details[k] || false} onChange={(e)=>updateDetail(k,e.target.checked)} className="rounded text-blue-600 w-4 h-4"/>
+                                                <span className="text-xs font-bold text-slate-600">{l}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                    <div className="mt-4 p-4 bg-amber-50/50 border border-amber-100 rounded-xl">
+                                        <div className="flex items-center gap-2 mb-3"><div className="p-1.5 bg-amber-100 text-amber-600 rounded-lg"><Settings2 size={16}/></div><div><Label className="text-amber-900">Вставка тех. этажей</Label><p className="text-[10px] text-amber-600/80 leading-tight">Выберите этаж, <b>НАД</b> которым нужно добавить тех.этаж</p></div></div>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {floorRange.map((f, idx) => {
+                                                const isTech = details.technicalFloors?.includes(f);
+                                                const isGap = (idx > 0) && (idx % 10 === 0);
+                                                return <React.Fragment key={f}>{isGap && <div className="w-3"></div>}<button onClick={() => toggleFloorAttribute('technicalFloors', f)} className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border flex items-center justify-center gap-1 ${isTech ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-amber-200 text-amber-600 hover:bg-amber-50'}`}>{f}{isTech ? <ArrowUpFromLine size={10}/> : <Plus size={10} className="opacity-50"/>}</button></React.Fragment>
+                                            })}
+                                        </div>
+                                    </div>
+                                    {building.hasNonResPart && (
+                                        <div className="mt-6 p-4 bg-blue-50/50 border border-blue-100 rounded-xl">
+                                            <div className="flex items-center gap-2 mb-4"><div className="p-1.5 bg-blue-100 text-blue-600 rounded-lg"><Store size={16}/></div><div><Label className="text-blue-900">Нежилые объекты</Label><p className="text-[10px] text-blue-500/80 leading-tight">Отметьте этажи, где расположены нежилые помещения.</p></div></div>
+                                            <div className="flex flex-wrap gap-1.5 mb-4">
+                                                {floorRange.map((f, idx) => {
+                                                    const isComm = details.commercialFloors?.includes(f);
+                                                    const hasTechAbove = details.technicalFloors?.includes(f);
+                                                    const isCommTech = details.commercialFloors?.includes(`${f}-Т`);
+                                                    const isGap = (idx > 0) && (idx % 10 === 0);
+                                                    return <React.Fragment key={f}>{isGap && <div className="w-3"></div>}<button onClick={() => toggleFloorAttribute('commercialFloors', f)} className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border ${isComm ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'}`}>{f}</button>{hasTechAbove && (<button onClick={() => toggleFloorAttribute('commercialFloors', `${f}-Т`)} className={`px-1.5 h-8 rounded-md text-[10px] font-bold shadow-sm transition-all border flex items-center justify-center relative ${isCommTech ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-indigo-50 border-indigo-200 text-indigo-500 hover:bg-indigo-100'}`} title={`Отметить тех.этаж ${f}-Т как нежилой`}>{f}-Т</button>)}</React.Fragment>
                                                 })}
                                             </div>
                                         </div>
                                     )}
-                                </div>
-                            )}
-                        </Card>
-
-                        <Card className="p-6 shadow-sm">
-                            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
-                                <SectionTitle icon={ArrowDownToLine} className="mb-0">Подвал</SectionTitle>
-                                <button onClick={createBlockBasement} disabled={!canAddBasement} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all shadow-sm ${ canAddBasement ? 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200' : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed opacity-60'}`}>
-                                    {canAddBasement ? '+ Добавить подвал' : 'Макс. 3 уровня'}
-                                </button>
+                                </Card>
+                                <Card className="p-6 shadow-sm">
+                                    <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+                                        <SectionTitle icon={ArrowDownToLine} className="mb-0">Подвал</SectionTitle>
+                                        <button onClick={createBlockBasement} disabled={!canAddBasement} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all shadow-sm ${ canAddBasement ? 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200' : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed opacity-60'}`}>{canAddBasement ? '+ Добавить подвал' : 'Макс. 3 уровня'}</button>
+                                    </div>
+                                    {blockBasements.length === 0 ? (<div className="text-center py-6 text-slate-400 text-sm bg-slate-50 rounded-xl border border-dashed border-slate-200">Подвальные помещения отсутствуют</div>) : (<div className="space-y-3">{blockBasements.map((base, idx) => (<div key={base.id} className="p-4 bg-slate-800 rounded-xl border border-slate-700 relative group text-white shadow-inner"><button onClick={() => removeBasement(base.id)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-slate-400 hover:text-white hover:bg-slate-700 p-1 rounded transition-all"><X size={14}/></button><div className="flex gap-4 items-center"><div className="w-10 h-10 flex items-center justify-center bg-slate-700 border border-slate-600 rounded-lg font-bold text-slate-300 shadow-sm">P-{idx+1}</div><div className="flex flex-col gap-0.5"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Уровень {idx+1}</span><div className="flex items-center gap-2"><span className="text-xs font-medium text-slate-300">Глубина:</span><input type="number" value={-base.depth} onChange={(e) => { let val = parseInt(e.target.value); if (isNaN(val)) val = -1; if (val > 0) val = -val; if (val > -1) val = -1; if (val < -4) val = -4; updateBasement(base.id, 'depth', Math.abs(val)); }} className="w-14 text-center bg-slate-900 border border-slate-600 rounded text-sm font-bold text-white focus:border-blue-500 outline-none py-0.5"/></div></div></div></div>))}</div>)}
+                                </Card>
                             </div>
-                            
-                            {blockBasements.length === 0 ? (
-                                <div className="text-center py-6 text-slate-400 text-sm bg-slate-50 rounded-xl border border-dashed border-slate-200">Подвальные помещения отсутствуют</div>
-                            ) : (
-                                <div className="space-y-3">
-                                    {blockBasements.map((base, idx) => (
-                                        <div key={base.id} className="p-4 bg-slate-800 rounded-xl border border-slate-700 relative group text-white shadow-inner">
-                                            <button onClick={() => removeBasement(base.id)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-slate-400 hover:text-white hover:bg-slate-700 p-1 rounded transition-all"><X size={14}/></button>
-                                            <div className="flex gap-4 items-center">
-                                                <div className="w-10 h-10 flex items-center justify-center bg-slate-700 border border-slate-600 rounded-lg font-bold text-slate-300 shadow-sm">P-{idx+1}</div>
-                                                <div className="flex flex-col gap-0.5">
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Уровень {idx+1}</span>
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-xs font-medium text-slate-300">Глубина этажей вниз:</span>
-                                                        <input type="number" value={-base.depth} onChange={(e) => {
-                                                                let val = parseInt(e.target.value);
-                                                                if (isNaN(val)) val = -1;
-                                                                if (val > 0) val = -val;
-                                                                if (val > -1) val = -1;
-                                                                if (val < -4) val = -4; 
-                                                                updateBasement(base.id, 'depth', Math.abs(val));
-                                                            }} className="w-14 text-center bg-slate-900 border border-slate-600 rounded text-sm font-bold text-white focus:border-blue-500 outline-none py-0.5"
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </Card>
-                    </div>
-
-                    <div className="space-y-6">
-                        <Card className="p-6 shadow-sm">
-                            <SectionTitle icon={Zap}>Инженерия</SectionTitle>
-                            <div className="grid grid-cols-2 gap-2">
-                                {engineeringSystems.map(sys => {
-                                    const Icon = sys.icon; 
-                                    const isActive = details.engineering?.[sys.id]; 
-                                    return (
-                                        <button key={sys.id} onClick={()=>updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`p-3 rounded-xl border flex items-center gap-3 transition-all duration-200 ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 opacity-60 hover:opacity-100'}`}>
-                                            <Icon size={16} strokeWidth={isActive ? 2.5 : 2} />
-                                            <span className="text-[10px] font-bold uppercase">{sys.label}</span>
-                                        </button>
-                                    )
-                                })}
-                            </div>
-                        </Card>
-                        
-                        <Card className="p-6 shadow-sm">
-                            <SectionTitle icon={Settings2}>Общие</SectionTitle>
-                            <div className="space-y-4">
-                                <div className="space-y-1">
-                                    <Label>Подъездов / Входов (макс. 30)</Label>
-                                    <Input 
-                                        type="number" min="1" max="30" value={details.entrances || 1} 
-                                        onChange={(e) => {
-                                            let val = parseInt(e.target.value);
-                                            if (isNaN(val)) val = 1;
-                                            if (val > 30) val = 30; 
-                                            if (val < 1) val = 1;
-                                            updateDetail('entrances', val);
-                                        }}
-                                    />
-                                </div>
-                                <div className="space-y-1 relative">
-                                    <Label>Лифтов (на блок)</Label>
-                                    <Input 
-                                        type="number" min="0" value={details.elevators || 0} 
-                                        onChange={(e)=> {
-                                            let val = parseInt(e.target.value);
-                                            if (val < 0) val = 0;
-                                            updateDetail('elevators', val)
-                                        }}
-                                        className={elevatorError ? "border-red-500 focus:border-red-500 bg-red-50" : ""}
-                                    />
-                                    {elevatorError && (
-                                        <div className="flex items-center gap-1 mt-1 text-[10px] text-red-500 font-bold animate-in fade-in">
-                                            <AlertCircle size={10} />
-                                            <span>Более 5 этажей — лифт обязателен</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </Card>
-
-                        {currentBlock.type === 'Н' && (
-                            <div className="bg-slate-900 rounded-2xl p-6 text-white space-y-4 shadow-xl">
-                                <h4 className="text-[10px] font-bold uppercase opacity-60 flex items-center gap-2"><Settings2 size={12}/> Специфика блока</h4>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Тип размещения</label>
-                                    <select className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs font-bold text-white outline-none focus:border-blue-500" value={details.placementType || 'attached'} onChange={e => updateDetail('placementType', e.target.value)}>
-                                        <option value="attached">Отдельно-пристроенный</option>
-                                        <option value="built_in">Встроенный (стилобат)</option>
-                                    </select>
-                                </div>
-                                {details.placementType === 'built_in' && (
-                                    <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200 pt-2 border-t border-slate-800">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Находится под блоками:</label>
-                                        <div className="flex flex-wrap gap-2">
-                                            {residentialBlocks.length > 0 ? residentialBlocks.map(resBlock => (
-                                                <label key={resBlock.id} className={`flex items-center gap-2 cursor-pointer px-2 py-1.5 rounded-lg border transition-all ${ (details.parentBlocks || []).includes(resBlock.id) ? 'bg-blue-900/50 border-blue-500 text-blue-200' : 'bg-slate-800 border-slate-700 hover:border-slate-600 text-slate-400' }`}>
-                                                    <input type="checkbox" checked={(details.parentBlocks || []).includes(resBlock.id)} onChange={() => { 
-                                                            const current = details.parentBlocks || []; 
-                                                            const updated = current.includes(resBlock.id) ? current.filter(id => id !== resBlock.id) : [...current, resBlock.id]; 
-                                                            updateDetail('parentBlocks', updated); 
-                                                        }} className="hidden"
-                                                    />
-                                                    <span className="text-[10px] font-bold">Блок {resBlock.index + 1}</span>
-                                                </label>
-                                            )) : (<span className="text-[10px] text-slate-500 italic">Нет доступных жилых блоков</span>)}
+                            <div className="space-y-6">
+                                <Card className="p-6 shadow-sm">
+                                    <SectionTitle icon={Zap}>Инженерия</SectionTitle>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {engineeringSystems.map(sys => { const Icon = sys.icon; const isActive = details.engineering?.[sys.id]; return (<button key={sys.id} onClick={()=>updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`p-3 rounded-xl border flex items-center gap-3 transition-all duration-200 ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 opacity-60 hover:opacity-100'}`}><Icon size={16} strokeWidth={isActive ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase">{sys.label}</span></button>)})}
+                                    </div>
+                                </Card>
+                                <Card className="p-6 shadow-sm">
+                                    <SectionTitle icon={Settings2}>Общие</SectionTitle>
+                                    <div className="space-y-4">
+                                        <div className="space-y-1"><Label>Подъездов / Входов (макс. 30)</Label><Input type="number" min="1" max="30" value={details.entrances || 1} onChange={(e) => { let val = parseInt(e.target.value); if (isNaN(val)) val = 1; if (val > 30) val = 30; if (val < 1) val = 1; updateDetail('entrances', val); }}/></div>
+                                        <div className="space-y-1 relative">
+                                            <Label>Лифтов (на блок)</Label>
+                                            <Input type="number" min="0" value={details.elevators || 0} onChange={(e)=> { let val = parseInt(e.target.value); if (val < 0) val = 0; updateDetail('elevators', val) }} className={hasCriticalErrors ? "border-red-500 focus:border-red-500 bg-red-50" : ""}/>
+                                            {hasCriticalErrors && <div className="flex items-center gap-1 mt-1 text-[10px] text-red-500 font-bold animate-in fade-in"><AlertCircle size={10} /><span>Лифт обязателен &gt; 5 этажей</span></div>}
                                         </div>
                                     </div>
-                                )}
+                                </Card>
+                                <div className="flex flex-col gap-3">
+                                     <Button onClick={() => { saveData(); onBack(); }} disabled={hasCriticalErrors} className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}><Save size={16}/> Готово</Button>
+                                    <Button onClick={autoFillConfig} variant="secondary" className="bg-purple-50 text-purple-600 border-purple-100"><Wand2 size={14}/> Авто-заполнение</Button>
+                                </div>
                             </div>
-                        )}
-                    </div>
-                </div>
+                        </div>
+                    )}
+                    {activeTabId === 'photo' && !isParking && (<Card className="p-12 flex flex-col items-center justify-center text-center space-y-6 min-h-[400px] border-2 border-dashed border-slate-200 shadow-none">{buildingDetails[`${building.id}_photo`] ? (<div className="relative group max-w-lg"><img src={buildingDetails[`${building.id}_photo`]} className="rounded-2xl shadow-xl ring-4 ring-white" alt="Facade"/><button onClick={()=>setBuildingDetails(p=>({...p, [`${building.id}_photo`]: ''}))} className="absolute top-4 right-4 bg-white text-red-500 p-2 rounded-xl shadow-lg opacity-0 group-hover:opacity-100 transition-all transform hover:scale-110"><Trash2 size={20}/></button></div>) : (<><div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center text-slate-300 mb-2"><ImageIcon size={40}/></div><div><h3 className="text-lg font-bold text-slate-700">Изображение фасада</h3><p className="text-slate-400 text-sm">Вставьте прямую ссылку на изображение</p></div><div className="flex gap-2 w-full max-w-md mt-4"><Input type="text" placeholder="https://example.com/image.jpg" value={photoUrlInput} onChange={e=>setPhotoUrlInput(e.target.value)} className="shadow-sm" /><Button onClick={()=>{if(photoUrlInput) setBuildingDetails(p=>({...p, [`${building.id}_photo`]: photoUrlInput}))}} className="shadow-lg shadow-blue-200">Загрузить</Button></div></>)}</Card>)}
+                </>
             )}
-            
-            {activeTabId === 'photo' && (<Card className="p-12 flex flex-col items-center justify-center text-center space-y-6 min-h-[400px] border-2 border-dashed border-slate-200 shadow-none">{buildingDetails[`${building.id}_photo`] ? (<div className="relative group max-w-lg"><img src={buildingDetails[`${building.id}_photo`]} className="rounded-2xl shadow-xl ring-4 ring-white" alt="Facade"/><button onClick={()=>setBuildingDetails(p=>({...p, [`${building.id}_photo`]: ''}))} className="absolute top-4 right-4 bg-white text-red-500 p-2 rounded-xl shadow-lg opacity-0 group-hover:opacity-100 transition-all transform hover:scale-110"><Trash2 size={20}/></button></div>) : (<><div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center text-slate-300 mb-2"><ImageIcon size={40}/></div><div><h3 className="text-lg font-bold text-slate-700">Изображение фасада</h3><p className="text-slate-400 text-sm">Вставьте прямую ссылку на изображение</p></div><div className="flex gap-2 w-full max-w-md mt-4"><Input type="text" placeholder="https://example.com/image.jpg" value={photoUrlInput} onChange={e=>setPhotoUrlInput(e.target.value)} className="shadow-sm" /><Button onClick={()=>{if(photoUrlInput) setBuildingDetails(p=>({...p, [`${building.id}_photo`]: photoUrlInput}))}} className="shadow-lg shadow-blue-200">Загрузить</Button></div></>)}</Card>)}
         </div>
     );
 }

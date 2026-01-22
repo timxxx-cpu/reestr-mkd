@@ -3,7 +3,7 @@ import { ArrowRight, Building2, Search } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { STEPS_CONFIG } from '../../lib/constants';
 
-// --- Хелперы (для визуального соответствия) ---
+// --- Хелперы ---
 const calculateProgress = (start, end) => {
     if (!start || !end) return 0;
     const total = new Date(end).getTime() - new Date(start).getTime();
@@ -23,6 +23,12 @@ const getStageStyle = (stage) => {
     }
 };
 
+const PARKING_CONSTRUCTION_NAMES = {
+    capital: "Капитальный",
+    light: "Из легких конструкций",
+    open: "Открытый"
+};
+
 export default function BuildingSelector({ stepId, onSelect }) {
     const { composition } = useProject();
 
@@ -30,36 +36,27 @@ export default function BuildingSelector({ stepId, onSelect }) {
     const filteredItems = useMemo(() => {
         return composition.filter(item => {
             if (stepId === 'registry_nonres') {
-                // Исключаем обычные жилые дома
                 if (item.category === 'residential') return false; 
-
-                // Оставляем Инфраструктуру, Паркинги и Многоблочные (если есть нежилые блоки)
                 return item.category === 'infrastructure' || 
                        item.category === 'parking_separate' || 
                        (item.category === 'residential_multiblock' && item.nonResBlocks > 0);
             }
             
             if (stepId === 'registry_res') {
-                // Только жилые (одиночные и многоблочные)
                 return item.category.includes('residential');
             }
             
-            // Для остальных шагов (Шахматка, МОП и т.д.)
             if (['floors', 'entrances', 'mop', 'apartments'].includes(stepId)) {
-                 // В квартирографии обычно не участвуют паркинги и инфраструктура (если там нет апартаментов)
-                 // Но пока оставим фильтр по жилым, можно расширить при необходимости
                  if (stepId === 'apartments') return item.category.includes('residential');
             }
             return true; 
         });
     }, [composition, stepId]);
 
-    // Получаем конфиг текущего шага для заголовка
     const currentStepConfig = STEPS_CONFIG.find(s => s.id === stepId) || {};
     const StepIcon = currentStepConfig.icon || Building2;
 
     return (
-        // НА ВСЮ ШИРИНУ
         <div className="w-full px-6 pb-20 animate-in fade-in duration-500">
              
              {/* --- Хедер --- */}
@@ -81,12 +78,12 @@ export default function BuildingSelector({ stepId, onSelect }) {
              {/* --- ТАБЛИЦА --- */}
              <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-h-[300px]">
                  
-                 {/* Заголовки таблицы */}
+                 {/* Заголовки */}
                  <div className="grid grid-cols-12 bg-slate-50/80 border-b border-slate-200 py-4 px-6 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
                     <div className="col-span-1 text-center">#</div>
                     <div className="col-span-1 text-center">Дом №</div>
                     <div className="col-span-4">Наименование</div>
-                    <div className="col-span-3">Тип</div>
+                    <div className="col-span-3">Тип / Характеристики</div>
                     <div className="col-span-2">Статус / Прогресс</div>
                     <div className="col-span-1 text-right"></div>
                  </div>
@@ -110,16 +107,24 @@ export default function BuildingSelector({ stepId, onSelect }) {
                          const isRes = item.category.includes('residential');
                          const progress = calculateProgress(item.dateStart, item.dateEnd);
                          
+                         // --- ЛОГИКА ХАРАКТЕРИСТИК (БЕЙДЖИ) ---
+                         let detailsBadge = null;
+                         if (item.category === 'parking_separate') {
+                             const pType = item.parkingType === 'ground' ? 'Наземный' : 'Подземный';
+                             const pConstName = PARKING_CONSTRUCTION_NAMES[item.constructionType] || item.constructionType;
+                             detailsBadge = `${pType} • ${pConstName}`;
+                         }
+
                          return (
                              <div 
                                 key={item.id} 
                                 onClick={() => onSelect(item.id)}
                                 className="grid grid-cols-12 items-center py-4 px-6 hover:bg-blue-50/50 cursor-pointer transition-colors group even:bg-slate-50/50"
                              >
-                                 {/* Индекс (Центр) */}
+                                 {/* # */}
                                  <div className="col-span-1 text-xs font-bold text-slate-400 text-center group-hover:text-blue-400">{idx + 1}</div>
                                  
-                                 {/* Номер дома (Центр) */}
+                                 {/* Номер */}
                                  <div className="col-span-1 flex justify-center">
                                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-xs shadow-sm border ${isRes ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-200 text-amber-700'}`}>
                                          {item.houseNumber || '?'}
@@ -131,16 +136,23 @@ export default function BuildingSelector({ stepId, onSelect }) {
                                      <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors line-clamp-1">{item.label}</div>
                                  </div>
 
-                                 {/* Тип */}
+                                 {/* Характеристики (Обновлено) */}
                                  <div className="col-span-3 pr-4">
-                                     <div className="text-xs font-medium text-slate-600 line-clamp-1" title={item.type}>
+                                     <div className="text-xs font-medium text-slate-600 line-clamp-1 mb-1" title={item.type}>
                                          {item.type}
                                      </div>
-                                     {item.category === 'residential_multiblock' && (
-                                         <span className="text-[9px] text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 mt-1 inline-block">
-                                             {item.resBlocks} жил. / {item.nonResBlocks} нежил.
-                                         </span>
-                                     )}
+                                     
+                                     {/* БЕЙДЖИ */}
+                                     <div className="flex flex-wrap gap-1">
+                                        {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
+                                            <span className="px-1.5 py-0.5 bg-slate-100 rounded border border-slate-200 text-[9px] font-bold text-slate-600">
+                                                {item.resBlocks} жил. / {item.nonResBlocks} нежил.
+                                            </span>
+                                        )}
+                                        {item.hasNonResPart && <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[9px] font-bold">+Коммерция</span>}
+                                        {item.category === 'infrastructure' && <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[9px] font-bold">{item.infraType}</span>}
+                                        {detailsBadge && <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[9px] font-bold">{detailsBadge}</span>}
+                                     </div>
                                  </div>
 
                                  {/* Статус и Прогресс */}
