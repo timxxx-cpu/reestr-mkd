@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { 
   Building2, Home, Car, Layers, PieChart, 
-  ArrowRight, CheckCircle2, Ruler 
+  ArrowRight, CheckCircle2 
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Button } from '../ui/UIKit';
@@ -13,10 +13,10 @@ const fmtFloat = (n) => new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 
 export default function SummaryDashboard() {
     const { 
         complexInfo, composition, 
-        flatMatrix, parkingPlaces, mopData, floorData 
+        flatMatrix, parkingPlaces, mopData 
     } = useProject();
 
-    // --- РАСЧЕТ СТАТИСТИКИ ---
+    // --- РАСЧЕТ ОБЩЕЙ СТАТИСТИКИ ---
     const stats = useMemo(() => {
         let totalFlats = 0;
         let totalFlatArea = 0;
@@ -24,56 +24,87 @@ export default function SummaryDashboard() {
         let totalParkingArea = 0;
         let totalMopArea = 0;
         
-        // Считаем Квартиры
-        Object.values(flatMatrix).forEach(flat => {
-            totalFlats++;
-            totalFlatArea += parseFloat(flat.area || 0);
-        });
+        // 1. Считаем Квартиры
+        if (flatMatrix) {
+            Object.values(flatMatrix).forEach(flat => {
+                if (flat && flat.area) {
+                    totalFlats++;
+                    totalFlatArea += parseFloat(flat.area || 0);
+                }
+            });
+        }
 
-        // Считаем Паркинг
-        // Исключаем мета-ключи (которые заканчиваются на _meta)
-        Object.keys(parkingPlaces).forEach(key => {
-            if (!key.endsWith('_meta')) {
-                totalParking++;
-                totalParkingArea += parseFloat(parkingPlaces[key]?.area || 0);
-            }
-        });
+        // 2. Считаем Паркинг (ТОЛЬКО МЕСТА)
+        if (parkingPlaces) {
+            Object.keys(parkingPlaces).forEach(key => {
+                // Считаем только ключи, содержащие '_place' (это сами места)
+                // Пример ключа: buildingId_main_floor_1_place0
+                if (key.includes('_place')) {
+                    const place = parkingPlaces[key];
+                    if (place) {
+                        totalParking++;
+                        totalParkingArea += parseFloat(place.area || 0);
+                    }
+                }
+            });
+        }
 
-        // Считаем МОП
-        Object.values(mopData).forEach(floorMops => {
-            // floorMops содержит ключи типов (lk, corridor, etc.) или mop0, mop1...
-            // В нашей последней версии структура: key -> { name, area, height ... }
-            if (floorMops.area) {
-                totalMopArea += parseFloat(floorMops.area || 0);
-            } else {
-                // Если старая структура (по типам)
-                Object.values(floorMops).forEach(mop => {
-                    if (mop.s) totalMopArea += parseFloat(mop.s || 0); // s - это площадь
-                    if (mop.area) totalMopArea += parseFloat(mop.area || 0);
-                });
-            }
-        });
+        // 3. Считаем МОП
+        if (mopData) {
+            Object.values(mopData).forEach(floorMops => {
+                if (Array.isArray(floorMops)) {
+                    // Новый формат (массив)
+                    floorMops.forEach(mop => {
+                        if (mop && mop.area) {
+                            totalMopArea += parseFloat(mop.area || 0);
+                        }
+                    });
+                } else if (typeof floorMops === 'object') {
+                    // Старый формат
+                    Object.values(floorMops).forEach(mop => {
+                        if (mop && (mop.area || mop.s)) {
+                            totalMopArea += parseFloat(mop.area || mop.s || 0);
+                        }
+                    });
+                }
+            });
+        }
 
         return { totalFlats, totalFlatArea, totalParking, totalParkingArea, totalMopArea };
     }, [flatMatrix, parkingPlaces, mopData]);
 
-    // Статистика по зданиям
+    // --- РАСЧЕТ СТАТИСТИКИ ПО ЗДАНИЯМ ---
     const buildingStats = useMemo(() => {
         return composition.map(b => {
             let bFlats = 0;
             let bFlatArea = 0;
+            let bParking = 0;
+            let bParkingArea = 0;
             
-            // Ищем ключи, относящиеся к этому зданию
-            Object.keys(flatMatrix).forEach(key => {
-                if (key.startsWith(`${b.id}_`)) {
-                    bFlats++;
-                    bFlatArea += parseFloat(flatMatrix[key]?.area || 0);
-                }
-            });
+            // 1. Квартиры здания
+            if (flatMatrix) {
+                Object.keys(flatMatrix).forEach(key => {
+                    if (key.startsWith(`${b.id}_`)) {
+                        bFlats++;
+                        bFlatArea += parseFloat(flatMatrix[key]?.area || 0);
+                    }
+                });
+            }
 
-            return { ...b, bFlats, bFlatArea };
+            // 2. Паркинг здания
+            if (parkingPlaces) {
+                Object.keys(parkingPlaces).forEach(key => {
+                    // Проверяем, что ключ относится к этому зданию (начинается с ID) и является местом
+                    if (key.startsWith(`${b.id}_`) && key.includes('_place')) {
+                        bParking++;
+                        bParkingArea += parseFloat(parkingPlaces[key]?.area || 0);
+                    }
+                });
+            }
+
+            return { ...b, bFlats, bFlatArea, bParking, bParkingArea };
         });
-    }, [composition, flatMatrix]);
+    }, [composition, flatMatrix, parkingPlaces]);
 
     return (
         <div className="max-w-7xl mx-auto pb-20 animate-in fade-in duration-700">
@@ -91,7 +122,7 @@ export default function SummaryDashboard() {
                     </div>
                 </div>
                 <div className="text-right">
-                    <div className="text-xs font-bold text-slate-400 uppercase mb-1">Общая площадь (S продаваемая)</div>
+                    <div className="text-xs font-bold text-slate-400 uppercase mb-1">Общая площадь (Кв + Паркинг)</div>
                     <div className="text-2xl font-bold text-blue-600">{fmtFloat(stats.totalFlatArea + stats.totalParkingArea)} м²</div>
                 </div>
             </div>
@@ -121,6 +152,7 @@ export default function SummaryDashboard() {
                         <div className="p-3 bg-amber-50 text-amber-600 rounded-xl"><Layers size={24}/></div>
                         <span className="text-xs font-bold text-slate-400 uppercase">МОП</span>
                     </div>
+                    {/* МОПы не считаются по штукам */}
                     <div className="text-3xl font-bold text-slate-800">-</div>
                     <div className="text-sm text-slate-500 mt-1 font-medium">{fmtFloat(stats.totalMopArea)} м²</div>
                 </Card>
@@ -151,22 +183,27 @@ export default function SummaryDashboard() {
                                 </div>
                             </div>
 
-                            <div className="flex gap-8 text-right">
-                                {b.category.includes('residential') && (
+                            <div className="flex gap-8 text-right items-center">
+                                {/* БЛОК КВАРТИР */}
+                                {b.category.includes('residential') && b.bFlats > 0 && (
                                     <div>
                                         <div className="text-[10px] font-bold text-slate-400 uppercase">Квартир</div>
-                                        <div className="font-bold text-slate-800">{b.bFlats}</div>
+                                        <div className="font-bold text-slate-800">{b.bFlats} <span className="text-xs text-slate-400 font-normal">({fmtFloat(b.bFlatArea)} м²)</span></div>
                                     </div>
                                 )}
-                                {b.category.includes('residential') && (
+
+                                {/* БЛОК ПАРКИНГА (показываем, если есть места) */}
+                                {b.bParking > 0 && (
                                     <div>
-                                        <div className="text-[10px] font-bold text-slate-400 uppercase">Площадь жилая</div>
-                                        <div className="font-bold text-blue-600">{fmtFloat(b.bFlatArea)} м²</div>
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase">Паркинг</div>
+                                        <div className="font-bold text-indigo-600">{b.bParking} <span className="text-xs text-indigo-400 font-normal">({fmtFloat(b.bParkingArea)} м²)</span></div>
                                     </div>
                                 )}
-                                {!b.category.includes('residential') && (
+
+                                {/* ЕСЛИ НИЧЕГО НЕТ */}
+                                {!b.bFlats && !b.bParking && (
                                     <div className="flex items-center text-slate-400 text-sm italic">
-                                        <CheckCircle2 size={16} className="mr-2"/> Объект сконфигурирован
+                                        <CheckCircle2 size={16} className="mr-2"/> Нет данных
                                     </div>
                                 )}
                             </div>
