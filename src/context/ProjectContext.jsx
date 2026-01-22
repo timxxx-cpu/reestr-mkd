@@ -1,16 +1,16 @@
-import { useToast } from './ToastContext';
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { doc, setDoc, onSnapshot, getDoc } from 'firebase/firestore'; 
 import { db, APP_ID } from '../lib/firebase';
+import { useToast } from './ToastContext'; // <-- Подключили тосты
 
 const ProjectContext = createContext();
 
 export const useProject = () => useContext(ProjectContext);
 
 export const ProjectProvider = ({ children, projectId, user, customScope }) => {
-  const toast = useToast();
+  const toast = useToast(); // <-- Хук уведомлений
   
-  // Состояния данных проекта
+  // Состояния
   const [complexInfo, setComplexInfo] = useState({});
   const [participants, setParticipants] = useState({});
   const [cadastre, setCadastre] = useState({});
@@ -26,10 +26,9 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const saveTimeoutRef = useRef(null);
 
-  // Определяем область видимости (папку)
   const dbScope = customScope || user?.uid;
 
-  // 1. ЗАГРУЗКА ДАННЫХ ПРОЕКТА
+  // 1. ЗАГРУЗКА
   useEffect(() => {
     if (!dbScope || !projectId) return;
 
@@ -38,7 +37,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
     const unsubscribe = onSnapshot(docRef, (snap) => {
         if (snap.exists()) {
             const d = snap.data();
-            // Аккуратно обновляем стейт
             if(d.complexInfo) setComplexInfo(d.complexInfo);
             if(d.participants) setParticipants(d.participants);
             if(d.cadastre) setCadastre(d.cadastre);
@@ -52,27 +50,27 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
             if(d.parkingData) setParkingPlaces(d.parkingData);
         }
     }, (error) => {
-        console.error("FIREBASE ERROR:", error);
+        console.error("FIREBASE READ ERROR:", error);
+        toast.error("Ошибка чтения данных: " + error.message);
     });
 
     return () => unsubscribe();
-  }, [projectId, dbScope]);
+  }, [projectId, dbScope, toast]); // Добавил toast в зависимости
 
-  // 2. СОХРАНЕНИЕ (И ОБНОВЛЕНИЕ СПИСКА)
+  // 2. СОХРАНЕНИЕ
   const saveData = useCallback((updates = {}, showNotification = false) => {
     if (!dbScope || !projectId) return;
 
-    // Фильтр событий клика
+    // Игнорируем события клика, если они случайно попали в аргументы
     if (updates && (updates.nativeEvent || updates.type === 'click')) {
         updates = {};
-        showNotification = true;
+        showNotification = true; // Если вызвано кнопкой - всегда показываем уведомление
     }
 
     setIsSyncing(true);
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
-    // 1. Подготовка данных для ФАЙЛА ПРОЕКТА
-    // Если в updates пришли новые данные, они перекроют текущий стейт
+    // Берем актуальные данные для сохранения
     const currentComplexInfo = updates.complexInfo || complexInfo;
     
     const dataToSave = {
@@ -81,20 +79,25 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
         commonAreasData: mopData,
         apartmentsData: flatMatrix,
         parkingData: parkingPlaces,
-        
         lastModified: new Date().toISOString(),
         lastEditor: user?.displayName || user?.email || 'unknown',
-        
         ...updates 
     };
 
     saveTimeoutRef.current = setTimeout(async () => {
+        let toastId = null;
+
         try {
-            // А. Сохраняем сам файл проекта
+            // А. Если это ручное сохранение (кнопка) - показываем "Сохранение..."
+            if (showNotification) {
+                toastId = toast.loading("Запись в базу данных...");
+            }
+
+            // Б. Пишем в Firebase
             const docRef = doc(db, 'artifacts', APP_ID, 'users', dbScope, 'registry_data', `project_${projectId}`);
             await setDoc(docRef, dataToSave, { merge: true });
 
-            // Б. ОБНОВЛЯЕМ ОБЩИЙ СПИСОК (чтобы на дашборде обновилось имя и адрес)
+            // В. Обновляем мета-список (для дашборда)
             const metaRef = doc(db, 'artifacts', APP_ID, 'users', dbScope, 'registry_data', 'projects_meta');
             const metaSnap = await getDoc(metaRef);
             
@@ -103,33 +106,34 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
                 const index = list.findIndex(p => p.id === projectId);
                 
                 if (index !== -1) {
-                    // Обновляем поля в списке
                     const updatedItem = {
                         ...list[index],
                         name: currentComplexInfo.name || list[index].name,
                         status: currentComplexInfo.status || list[index].status,
-                        // Формируем адрес из улицы и района
                         address: currentComplexInfo.street || list[index].address || '',
                         lastModified: new Date().toISOString(),
-                        author: user?.displayName || list[index].author // Обновляем автора последнего изменения
+                        author: user?.displayName || list[index].author
                     };
-                    
                     list[index] = updatedItem;
                     await setDoc(metaRef, { list }, { merge: true });
-                    console.log("Список проектов обновлен (Sync)");
                 }
             }
 
-            if (showNotification) {
-                toast?.success("Данные сохранены");
+            // Г. Убираем лоадер и показываем успех
+            if (showNotification && toastId) {
+                toast.dismiss(toastId); // Убираем спиннер
+                toast.success("Успешно сохранено!");
             }
+
         } catch (e) {
             console.error("SAVE ERROR:", e);
-            toast?.error("Ошибка сохранения");
+            if (toastId) toast.dismiss(toastId);
+            toast.error("Ошибка сохранения: " + e.message);
+        } finally {
+            setIsSyncing(false);
         }
-        setIsSyncing(false);
-    }, 500); 
-  }, [dbScope, projectId, complexInfo, participants, cadastre, documents, composition, buildingDetails, floorData, entrancesData, mopData, flatMatrix, parkingPlaces, user]);
+    }, 500); // Debounce 500ms
+  }, [dbScope, projectId, complexInfo, participants, cadastre, documents, composition, buildingDetails, floorData, entrancesData, mopData, flatMatrix, parkingPlaces, user, toast]);
 
   const value = {
     complexInfo, setComplexInfo,
@@ -143,7 +147,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
     mopData, setMopData,
     flatMatrix, setFlatMatrix,
     parkingPlaces, setParkingPlaces,
-    
     saveData, 
     isSyncing
   };

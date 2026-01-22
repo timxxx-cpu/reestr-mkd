@@ -94,7 +94,9 @@ export default function CompositionEditor() {
         const newComposition = [...composition, ...demoBuildings];
         setComposition(newComposition);
         setBuildingDetails(prev => ({ ...prev, ...demoDetails }));
-        saveData({ composition: newComposition }); 
+        
+        // Сохраняем с уведомлением
+        saveData({ composition: newComposition }, true); 
     };
 
     const openPlanning = (category) => {
@@ -153,7 +155,8 @@ export default function CompositionEditor() {
          if (modal.editingId) {
              const updated = composition.map(c => c.id === modal.editingId ? { ...c, ...newItemData } : c);
              setComposition(updated);
-             saveData({ composition: updated });
+             // Сохраняем с уведомлением
+             saveData({ composition: updated }, true);
          } else {
              const newItems = Array.from({length: modal.quantity}).map((_, i) => ({
                  id: `b_${Date.now()}_${i}`, 
@@ -162,7 +165,8 @@ export default function CompositionEditor() {
              }));
              const newList = [...composition, ...newItems];
              setComposition(newList);
-             saveData({ composition: newList });
+             // Сохраняем с уведомлением
+             saveData({ composition: newList }, true);
          }
          setModal({...modal, isOpen: false});
     };
@@ -171,18 +175,17 @@ export default function CompositionEditor() {
         if(confirm('Удалить этот объект?')) {
             const newList = composition.filter(c => c.id !== id);
             setComposition(newList);
-            saveData({ composition: newList });
+            // Сохраняем с уведомлением
+            saveData({ composition: newList }, true);
         }
     };
 
     return (
-        // УБРАЛИ max-w-7xl, теперь тянется на всю ширину (w-full) с отступами px-6
         <div className="w-full px-6 pb-20 animate-in fade-in duration-500">
             
             {/* --- ШАПКА --- */}
             <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 mb-2 gap-4">
                 <div>
-                    {/* Заголовок теперь более явный */}
                     <h1 className="text-2xl font-bold text-slate-800">Состав комплекса</h1>
                     <p className="text-slate-500 text-sm mt-1 flex items-center gap-2">
                         Создание и управление перечнем строений

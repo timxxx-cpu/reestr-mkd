@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, User, Users, FolderOpen, Plus, Trash2, AlertTriangle, RefreshCw } from 'lucide-react'; // Убрал Wrench
+import { Loader2, User, Users, FolderOpen, Plus, AlertTriangle } from 'lucide-react';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { doc, setDoc, onSnapshot, deleteDoc, getDoc, arrayUnion, deleteField } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot, deleteDoc, getDoc, arrayUnion } from 'firebase/firestore';
 import { auth, db, APP_ID } from './lib/firebase';
 
 // Контексты
@@ -73,18 +73,22 @@ function ProjectEditorLayout({ onBack }) {
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [editingBuildingId, setEditingBuildingId] = useState(null);
   
-    const { complexInfo, composition } = useProject();
+    // Достаем saveData для автосохранения при переходах
+    const { complexInfo, composition, saveData } = useProject();
   
     const handleNext = () => {
         setEditingBuildingId(null);
+        saveData(); // Автосохранение
         setCurrentStep(prev => Math.min(prev + 1, (STEPS_CONFIG?.length || 1) - 1));
     };
     const handlePrev = () => {
         setEditingBuildingId(null);
+        saveData(); // Автосохранение
         setCurrentStep(prev => Math.max(prev - 1, 0));
     };
     const onStepChange = (idx) => {
         setEditingBuildingId(null);
+        saveData(); // Автосохранение
         setCurrentStep(idx);
     };
   

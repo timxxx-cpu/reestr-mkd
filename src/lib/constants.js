@@ -12,7 +12,7 @@ export const STEPS_CONFIG = [
   { id: 'parking_config', title: "Конфигурация паркингов", desc: "Зоны парковки", icon: ParkingSquare },
   { id: 'floors', title: "Внешняя инвентаризация", desc: "Матрица этажей", icon: Grid },
   { id: 'entrances', title: "Подъезды", desc: "Входы", icon: DoorOpen },
-  { id: 'mop', title: "МОП", desc: "Инвентаризация", icon: Armchair },
+  { id: 'mop', title: "Места общего пользования", desc: "Инвентаризация", icon: Armchair },
   { id: 'apartments', title: "Квартиры", desc: "Нумерация", icon: Key },
-  { id: 'summary', title: "Сводка", desc: "Дашбоард", icon: PieChart }
+  { id: 'summary', title: "Сводные данные", desc: "Дашбоард", icon: PieChart }
 ];

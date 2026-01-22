@@ -44,10 +44,10 @@ export default function Sidebar({ currentStep, onStepChange, isOpen, onToggle, o
         {isOpen && (
           <div className="animate-in fade-in duration-300 overflow-hidden">
             <h1 className="font-bold text-xs leading-tight text-slate-100 uppercase tracking-wide mb-1">
-              Реестр Жилых Комплексов <br/> и МКД
+              Реестр Жилых Комплексов <br/> и Многоквартирных домов
             </h1>
             <div className="inline-block bg-slate-800 text-blue-400 text-[10px] px-2 py-0.5 rounded-full border border-slate-700 font-mono">
-              прототип v1.0
+              прототип v1.4
             </div>
           </div>
         )}
