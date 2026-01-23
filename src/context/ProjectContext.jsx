@@ -49,7 +49,7 @@ import { RegistryService } from '../lib/registry-service';
  * @property {boolean} isSyncing - Индикатор загрузки
  */
 
-// Создаем контекст с типизацией
+// Создаем контекст с типизацией (null по умолчанию)
 const ProjectContext = createContext(/** @type {ProjectContextType | null} */ (null));
 
 export const useProject = () => {
@@ -70,8 +70,9 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
   const toast = useToast();
   
   // -- STATE --
-  // Используем кастинг (/** @type {ProjectMeta} */ ({})), чтобы успокоить TS
-  const [projectMeta, setProjectMeta] = useState(/** @type {ProjectMeta} */ ({})); 
+  /** @type {[ProjectMeta, function(ProjectMeta|function(ProjectMeta):ProjectMeta):void]} */
+  // @ts-ignore
+  const [projectMeta, setProjectMeta] = useState({}); 
   
   /** @type {[Object.<string, BuildingData>, function(Object):void]} */
   const [buildingsState, setBuildingsState] = useState({});
@@ -85,11 +86,13 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
   useEffect(() => {
     if (!dbScope || !projectId) return;
 
+    // Подписка на шапку
     const unsubMeta = RegistryService.subscribeProjectMeta(dbScope, projectId, (data) => {
       // @ts-ignore
       if (data) setProjectMeta(prev => ({ ...prev, ...data }));
     });
 
+    // Подписка на тела зданий
     const unsubBuildings = RegistryService.subscribeBuildings(dbScope, projectId, (data) => {
       if (data) setBuildingsState(data);
     });
@@ -102,6 +105,8 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
 
   // --- 2. СЛИЯНИЕ ДАННЫХ (БЕЗОПАСНОЕ) ---
   const mergedState = useMemo(() => {
+    // 1. Основа - локальный стейт.
+    /** @type {ProjectMeta} */
     const combined = {
       complexInfo: projectMeta.complexInfo || {},
       participants: projectMeta.participants || {},
@@ -110,6 +115,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
       composition: projectMeta.composition || [],
       buildingDetails: { ...(projectMeta.buildingDetails || {}) },
       
+      // Инициализируем тяжелые данные из локального стейта (если они там временно есть)
       floorData: { ...(projectMeta.floorData || {}) },
       entrancesData: { ...(projectMeta.entrancesData || {}) },
       mopData: { ...(projectMeta.mopData || {}) }, 
@@ -117,12 +123,18 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
       parkingPlaces: { ...(projectMeta.parkingPlaces || {}) }
     };
 
+    // 2. Заполняем пробелы данными из базы (для каждого загруженного здания)
     Object.values(buildingsState).forEach(b => {
-       if (b.buildingDetails) combined.buildingDetails = { ...b.buildingDetails, ...combined.buildingDetails };
+       if (b.buildingDetails) {
+           // @ts-ignore
+           combined.buildingDetails = { ...b.buildingDetails, ...combined.buildingDetails };
+       }
        
+       // Слияние матриц: (Данные из БД) <--перекрываются-- (Локальные правки)
        if (b.floorData) combined.floorData = { ...b.floorData, ...combined.floorData };
        if (b.entrancesData) combined.entrancesData = { ...b.entrancesData, ...combined.entrancesData };
        
+       // Маппинг ключей БД -> Стейт
        if (b.commonAreasData) combined.mopData = { ...b.commonAreasData, ...combined.mopData };
        if (b.apartmentsData) combined.flatMatrix = { ...b.apartmentsData, ...combined.flatMatrix };
        if (b.parkingData) combined.parkingPlaces = { ...b.parkingData, ...combined.parkingPlaces };
@@ -137,8 +149,10 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
     if (updates && (updates.nativeEvent || updates.type === 'click')) { updates = {}; showNotification = true; }
 
     const safeUpdates = { ...updates };
+    // Убираем тяжелые данные, чтобы не засорять основной файл
     HEAVY_KEYS.forEach(k => delete safeUpdates[k]);
 
+    // Если нечего сохранять (пустой объект после фильтрации) и не просили уведомление - выходим
     if (Object.keys(safeUpdates).length === 0 && !showNotification) return;
 
     setIsSyncing(true);
@@ -151,46 +165,58 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
         await RegistryService.saveData(dbScope, projectId, safeUpdates);
         if (showNotification && toastId) { toast.dismiss(toastId); toast.success("Сохранено!"); }
       } catch (e) {
-        console.error(e);
+        console.error("SAVE ERROR:", e);
         if (toastId) toast.dismiss(toastId);
-        toast.error("Ошибка сохранения");
-      } finally { setIsSyncing(false); }
+        toast.error("Ошибка: " + e.message);
+      } finally {
+        setIsSyncing(false);
+      }
     }, 500);
   }, [dbScope, projectId, toast]);
 
   // --- 4. СОХРАНЕНИЕ ЗДАНИЯ (Detail) ---
   const saveBuildingData = useCallback(async (buildingId, dataKey, dataVal) => {
       setIsSyncing(true);
-      const toastId = toast.loading("Сохранение данных здания...");
+      const toastId = toast.loading("Запись данных здания...");
       try {
-          await RegistryService.saveData(dbScope, projectId, {
-              buildingSpecificData: { [buildingId]: { [dataKey]: dataVal } }
-          });
+          // Формируем payload для RegistryService
+          const payload = {
+              buildingSpecificData: {
+                  [buildingId]: { [dataKey]: dataVal }
+              }
+          };
+          await RegistryService.saveData(dbScope, projectId, payload);
           toast.dismiss(toastId);
-          toast.success("Успешно");
+          toast.success("Данные здания сохранены");
       } catch(e) {
           console.error(e);
           toast.dismiss(toastId);
-          toast.error("Ошибка сохранения");
-      } finally { setIsSyncing(false); }
+          toast.error("Ошибка сохранения здания");
+      } finally {
+          setIsSyncing(false);
+      }
   }, [dbScope, projectId, toast]);
 
-  // --- 5. УДАЛЕНИЕ ---
+  // --- 5. УДАЛЕНИЕ (С очисткой мусора) ---
   const deleteProjectBuilding = useCallback(async (buildingId) => {
-      if (!confirm('Удалить объект и все данные?')) return;
+      if (!confirm('Удалить объект и все связанные данные?')) return;
       try {
+          // 1. Убираем из списка composition
           // @ts-ignore
           const newComposition = mergedState.composition.filter(b => b.id !== buildingId);
           
+          // 2. Чистим настройки в buildingDetails
           const newBuildingDetails = { ...mergedState.buildingDetails };
           Object.keys(newBuildingDetails).forEach(k => {
               if (k.startsWith(buildingId)) delete newBuildingDetails[k];
           });
 
+          // Вызываем сервис
           await RegistryService.deleteBuilding(dbScope, projectId, buildingId, { 
               composition: newComposition,
               buildingDetails: newBuildingDetails
           });
+          
           toast.success("Объект удален");
       } catch (e) {
           console.error(e);
@@ -198,13 +224,19 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
       }
   }, [dbScope, projectId, mergedState, toast]);
 
-  // --- 6. СЕТТЕРЫ ---
+  // --- 6. УМНЫЕ СЕТТЕРЫ ---
   const createSetter = (key) => (value) => {
       // @ts-ignore
       const newValue = typeof value === 'function' ? value(mergedState[key]) : value;
+      
+      // Обновляем локально (UI реагирует мгновенно)
       // @ts-ignore
       setProjectMeta(prev => ({ ...prev, [key]: newValue }));
-      if (!HEAVY_KEYS.includes(key)) saveData({ [key]: newValue });
+
+      // Пишем в базу ТОЛЬКО если это легкие данные. Тяжелые ждут saveBuildingData.
+      if (!HEAVY_KEYS.includes(key)) {
+          saveData({ [key]: newValue });
+      }
   };
 
   const value = {
@@ -216,14 +248,17 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
     setComposition: createSetter('composition'),
     setDocuments: createSetter('documents'),
     setBuildingDetails: createSetter('buildingDetails'),
+    
+    // Сеттеры для тяжелых данных (обновляют только UI, запись по кнопке)
     setFloorData: createSetter('floorData'),
     setEntrancesData: createSetter('entrancesData'),
     setMopData: createSetter('mopData'),
     setFlatMatrix: createSetter('flatMatrix'),
     setParkingPlaces: createSetter('parkingPlaces'),
+
     saveData,
-    saveBuildingData,
-    deleteProjectBuilding,
+    saveBuildingData, 
+    deleteProjectBuilding, 
     isSyncing
   };
 

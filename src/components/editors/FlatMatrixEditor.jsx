@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
-import { getBlocksList } from '../../lib/utils'; // <--- Импорт
+import { getBlocksList } from '../../lib/utils';
 
 const TYPE_COLORS = {
     flat: 'bg-white border-slate-200 hover:border-blue-300',
@@ -12,8 +12,10 @@ const TYPE_COLORS = {
     duplex_down: 'bg-orange-50 border-orange-200 text-orange-700'
 };
 
+/**
+ * @param {{ buildingId: string, onBack: () => void }} props
+ */
 export default function FlatMatrixEditor({ buildingId, onBack }) {
-    // ВАЖНО: Добавили saveBuildingData
     const { 
         composition = [], 
         buildingDetails = {}, 
@@ -30,13 +32,14 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
     const building = composition?.find(c => c.id === buildingId);
     
-    // Используем общую функцию
     const blocksList = useMemo(() => getBlocksList(building), [building]);
     const currentBlock = blocksList[activeBlockIndex];
 
     const blockKey = (building && currentBlock) ? `${building.id}_${currentBlock.id}` : null;
+    // @ts-ignore
     const blockDetails = blockKey ? (buildingDetails[blockKey] || {}) : {};
     const featureKey = building ? `${building.id}_features` : null;
+    // @ts-ignore
     const currentBasements = featureKey ? (buildingDetails[featureKey]?.basements?.filter(b => b.blocks?.includes(currentBlock?.id)) || []) : [];
     const hasBasement = currentBasements.length > 0;
     const entrances = Array.from({ length: blockDetails.entrances || 1 }, (_, i) => i + 1);
@@ -44,21 +47,26 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     const floorList = useMemo(() => {
         if (!currentBlock) return [];
         let list = [];
+        // @ts-ignore
         currentBasements.forEach(b => { for(let d=b.depth; d>=1; d--) list.push({ id: `base_${b.id}_L${d}`, label: `-${d}`, type: 'basement', sortOrder: -100-d }); });
         if(blockDetails.hasBasementFloor) list.push({ id: 'floor_0', label: '0', index: 0, type: 'basement_floor', sortOrder: 0 });
         const start = blockDetails.floorsFrom || 1;
         const end = blockDetails.floorsTo || 1;
         for(let i=start; i<=end; i++) list.push({ id: `floor_${i}`, label: `${i}`, index: i, type: 'res', sortOrder: i });
 
+        // @ts-ignore
         return list.filter(f => entrances.some(e => parseInt(entrancesData[`${currentBlock.fullId}_ent${e}_${f.id}`]?.apts || 0) > 0))
                    .sort((a,b) => a.sortOrder - b.sortOrder);
     }, [currentBlock, blockDetails, currentBasements, entrancesData, entrances]);
 
+    /** @type {(ent: number, floorId: string, idx: number) => { num: string, type: string }} */
     const getApt = (ent, floorId, idx) => {
         if (!currentBlock) return { num: '', type: 'flat' };
+        // @ts-ignore
         return flatMatrix[`${currentBlock.fullId}_e${ent}_f${floorId}_i${idx}`] || { num: '', type: 'flat' };
     };
 
+    /** @type {(ent: number, floorId: string, idx: number, field: string, val: string) => void} */
     const updateApt = (ent, floorId, idx, field, val) => {
         if (!currentBlock) return;
         if (field === 'num' && val !== '' && !/^\d/.test(val)) return;
@@ -66,17 +74,21 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         setFlatMatrix(prev => ({
             ...prev,
             [`${currentBlock.fullId}_e${ent}_f${floorId}_i${idx}`]: { 
+                // @ts-ignore
                 ...(prev[`${currentBlock.fullId}_e${ent}_f${floorId}_i${idx}`] || { type: 'flat' }), 
                 [field]: val 
             }
         }));
     };
 
+    /** @type {(floorId: string) => boolean} */
     const isFloorDuplexValid = (floorId) => {
         if (!currentBlock) return true;
+        // @ts-ignore
         const isDuplexFloor = floorData[`${currentBlock.fullId}_${floorId}`]?.isDuplex;
         if (!isDuplexFloor) return true;
         return entrances.some(e => {
+            // @ts-ignore
             const count = parseInt(entrancesData[`${currentBlock.fullId}_ent${e}_${floorId}`]?.apts || 0);
             for(let i=0; i<count; i++) {
                 if (getApt(e, floorId, i).type !== 'flat') return true;
@@ -91,13 +103,16 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         const updates = {};
         entrances.forEach(e => {
             floorList.forEach(f => {
+                // @ts-ignore
                 const count = parseInt(entrancesData[`${currentBlock.fullId}_ent${e}_${f.id}`]?.apts || 0);
                 for(let i=0; i<count; i++) {
                     const key = `${currentBlock.fullId}_e${e}_f${f.id}_i${i}`;
+                    // @ts-ignore
                     updates[key] = { ...(flatMatrix[key] || {}), num: String(n++), type: flatMatrix[key]?.type || 'flat' };
                 }
             });
         });
+        // @ts-ignore
         setFlatMatrix(p => ({...p, ...updates})); 
     };
 
@@ -125,6 +140,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                         const specificData = {};
                         Object.keys(flatMatrix).forEach(k => {
                             if (k.startsWith(building.id)) {
+                                // @ts-ignore
                                 specificData[k] = flatMatrix[k];
                             }
                         });
@@ -156,6 +172,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {floorList.map(f => {
+                                // @ts-ignore
                                 const isDuplexFloor = floorData[`${currentBlock.fullId}_${f.id}`]?.isDuplex;
                                 const isValid = isFloorDuplexValid(f.id);
 
@@ -172,6 +189,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                                             </div>
                                         </td>
                                         {entrances.map(e => {
+                                            // @ts-ignore
                                             const count = parseInt(entrancesData[`${currentBlock.fullId}_ent${e}_${f.id}`]?.apts || 0);
                                             const isEvenCol = e % 2 === 0;
                                             if (count === 0) return <td key={e} className={`p-2 border-r-2 border-slate-100 ${isEvenCol ? 'bg-slate-50/30' : 'bg-blue-50/10'}`}></td>;

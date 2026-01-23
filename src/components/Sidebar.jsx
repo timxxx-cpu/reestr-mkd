@@ -6,14 +6,21 @@ import {
 } from 'lucide-react';
 import { STEPS_CONFIG } from '../lib/constants';
 
+/**
+ * @param {Object} props
+ * @param {number} props.currentStep
+ * @param {function(number): void} props.onStepChange
+ * @param {boolean} props.isOpen
+ * @param {function(): void} props.onToggle
+ * @param {function(): void} props.onBackToDashboard
+ */
 export default function Sidebar({ currentStep, onStepChange, isOpen, onToggle, onBackToDashboard }) {
   
-  // Иконки для меню
   const getIcon = (id) => {
     switch (id) {
       case 'passport': return <FileText size={20} />;
       case 'composition': return <Layers size={20} />;
-      case 'parking_config': return <ParkingSquare size={20} />; // Исправил иконку на ParkingSquare
+      case 'parking_config': return <ParkingSquare size={20} />;
       case 'registry_res': return <Building2 size={20} />;
       case 'registry_nonres': return <Building2 size={20} />;
       case 'floors': return <Layers size={20} />;
@@ -22,7 +29,7 @@ export default function Sidebar({ currentStep, onStepChange, isOpen, onToggle, o
       case 'apartments': return <Grid size={20} />;
       case 'parking': return <ParkingSquare size={20} />;
       case 'summary': return <LayoutDashboard size={20} />;
-      case 'history': return <Settings size={20} />; // Для истории
+      case 'history': return <Settings size={20} />;
       default: return <FileText size={20} />;
     }
   };
@@ -34,13 +41,11 @@ export default function Sidebar({ currentStep, onStepChange, isOpen, onToggle, o
         ${isOpen ? 'w-72' : 'w-20'}
       `}
     >
-      {/* --- ЛОГОТИП И НАЗВАНИЕ --- */}
       <div className="p-4 border-b border-slate-700 flex items-center gap-3 min-h-[80px]">
         <div className="w-10 h-10 min-w-[40px] bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/50 text-white font-bold text-xl">
           Р
         </div>
         
-        {/* Показываем текст только если меню открыто */}
         {isOpen && (
           <div className="animate-in fade-in duration-300 overflow-hidden">
             <h1 className="font-bold text-xs leading-tight text-slate-100 uppercase tracking-wide mb-1">
@@ -53,7 +58,6 @@ export default function Sidebar({ currentStep, onStepChange, isOpen, onToggle, o
         )}
       </div>
 
-      {/* --- НАВИГАЦИЯ --- */}
       <div className="flex-1 overflow-y-auto py-4 scrollbar-hide">
         <nav className="space-y-1 px-2">
           {STEPS_CONFIG.map((step, idx) => {
@@ -81,7 +85,6 @@ export default function Sidebar({ currentStep, onStepChange, isOpen, onToggle, o
                   </span>
                 )}
 
-                {/* Индикатор активного пункта (полоска слева) */}
                 {isActive && !isOpen && (
                   <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-blue-400 rounded-r-full" />
                 )}
@@ -91,7 +94,6 @@ export default function Sidebar({ currentStep, onStepChange, isOpen, onToggle, o
         </nav>
       </div>
 
-      {/* --- ПОДВАЛ (Кнопки) --- */}
       <div className="p-4 border-t border-slate-700 bg-slate-900/50 space-y-2">
         <button 
           onClick={onBackToDashboard}

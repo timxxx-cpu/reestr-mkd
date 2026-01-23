@@ -1,44 +1,52 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { X, CheckCircle2, AlertCircle, Info, Loader2 } from 'lucide-react';
 
-const ToastContext = createContext();
+/**
+ * @typedef {Object} ToastContextType
+ * @property {function(string): string} success
+ * @property {function(string): string} error
+ * @property {function(string): string} info
+ * @property {function(string): string} loading
+ * @property {function(string): void} dismiss
+ */
 
-export const useToast = () => useContext(ToastContext);
+const ToastContext = createContext(/** @type {ToastContextType | null} */ (null));
+
+export const useToast = () => {
+    const context = useContext(ToastContext);
+    if (!context) {
+        throw new Error('useToast must be used within a ToastProvider');
+    }
+    return context;
+};
 
 export const ToastProvider = ({ children }) => {
     const [toasts, setToasts] = useState([]);
 
-    // Функция удаления (мемоизирована, чтобы не менялась ссылка)
     const removeToast = useCallback((id) => {
         setToasts(prev => prev.filter(t => t.id !== id));
     }, []);
 
     const addToast = useCallback((message, type = 'info') => {
-        // Улучшенный ID: время + случайное число
         const id = Date.now().toString() + Math.random().toString(36).slice(2);
         
         setToasts(prev => [...prev, { id, message, type }]);
 
-        // Авто-удаление: 
-        // Если это 'loading', мы его НЕ удаляем автоматически (ждем завершения операции)
-        // Для остальных типов ставим таймер
         if (type !== 'loading') {
             setTimeout(() => {
-                removeToast(id); // Используем функцию удаления
+                removeToast(id); 
             }, 3000);
         }
         
-        return id; // Возвращаем ID, чтобы можно было удалить программно
+        return id;
     }, [removeToast]);
 
-    // МЕМОИЗАЦИЯ (Самое важное исправление)
-    // Теперь объект `toast` не пересоздается при каждом чихе
     const toast = useMemo(() => ({
         success: (msg) => addToast(msg, 'success'),
         error: (msg) => addToast(msg, 'error'),
         info: (msg) => addToast(msg, 'info'),
         loading: (msg) => addToast(msg, 'loading'),
-        dismiss: (id) => removeToast(id) // Возможность закрыть тост вручную из кода
+        dismiss: (id) => removeToast(id)
     }), [addToast, removeToast]);
 
     return (
@@ -57,7 +65,6 @@ export const ToastProvider = ({ children }) => {
                             ${t.type === 'loading' ? 'bg-blue-50 border-blue-100 text-blue-800' : ''}
                         `}
                     >
-                        {/* Иконки */}
                         <div className="shrink-0">
                             {t.type === 'success' && <CheckCircle2 size={18} className="text-emerald-500" />}
                             {t.type === 'error' && <AlertCircle size={18} className="text-red-500" />}

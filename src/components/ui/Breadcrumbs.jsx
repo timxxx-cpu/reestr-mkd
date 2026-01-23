@@ -1,6 +1,13 @@
 import React from 'react';
 import { ChevronRight, Home, LayoutGrid } from 'lucide-react';
 
+/**
+ * @param {Object} props
+ * @param {string} [props.projectName]
+ * @param {string} [props.stepTitle]
+ * @param {string} [props.buildingName]
+ * @param {function(): void} [props.onBackToStep]
+ */
 export default function Breadcrumbs({ projectName, stepTitle, buildingName, onBackToStep }) {
     return (
         <div className="flex items-center gap-2 text-sm text-slate-500 mb-6 bg-white/50 p-2 rounded-xl backdrop-blur-sm w-max border border-slate-200/50">

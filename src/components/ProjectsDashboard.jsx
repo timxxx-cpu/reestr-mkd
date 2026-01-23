@@ -4,14 +4,13 @@ import {
   LayoutGrid, List as ListIcon, MapPin, HardHat, FileText, 
   Archive, Trash2, Lock, User
 } from 'lucide-react';
-import { getStageColor } from '../lib/utils'; // <--- Импорт утилиты
+import { getStageColor } from '../lib/utils'; 
 
 export default function ProjectsDashboard({ projects = [], onSelect, onCreate, onDelete }) {
     const [searchTerm, setSearchTerm] = useState('');
-    const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
+    const [viewMode, setViewMode] = useState('grid');
     const [statusFilter, setStatusFilter] = useState('all');
 
-    // --- ДЕМО ДАННЫЕ (10 ШТ) + АВТОР ---
     const demoProjects = useMemo(() => [
         { id: 'demo_1', isDemo: true, name: 'ЖК "Солнечная Долина"', status: 'Строящийся', address: 'ул. Ленина, 45', lastModified: '2023-10-15', author: 'Система' },
         { id: 'demo_2', isDemo: true, name: 'Квартал "Новая Эра"', status: 'Проектный', address: 'пр. Мира, уч. 12', lastModified: '2023-11-02', author: 'Менеджер' },
@@ -25,10 +24,8 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
         { id: 'demo_10', isDemo: true, name: 'ЖК "Центральный"', status: 'Строящийся', address: 'Площадь Победы, 1', lastModified: '2023-10-30', author: 'Система' },
     ], []);
 
-    // Объединяем реальные проекты (из пропсов) с демо
     const allProjects = useMemo(() => [...projects, ...demoProjects], [projects, demoProjects]);
 
-    // --- СТАТИСТИКА ---
     const stats = useMemo(() => {
         return {
             total: allProjects.length,
@@ -38,7 +35,6 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
         };
     }, [allProjects]);
 
-    // --- ФИЛЬТРАЦИЯ ---
     const filteredProjects = allProjects.filter(p => {
         const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesStatus = statusFilter === 'all' || 
@@ -59,7 +55,6 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
         <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
             <main className="max-w-7xl mx-auto px-4 md:px-8 py-8 space-y-8">
                 
-                {/* --- СВОДКА (METRICS) --- */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <MetricCard label="Всего объектов" value={stats.total} icon={Building2} color="text-slate-600" />
                     <MetricCard label="В проектировании" value={stats.design} icon={FileText} color="text-purple-600" />
@@ -67,9 +62,7 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                     <MetricCard label="Введены / Архив" value={stats.done} icon={Archive} color="text-emerald-600" />
                 </div>
 
-                {/* --- КОНТРОЛЫ --- */}
                 <div className="flex flex-col md:flex-row gap-4 justify-between items-end md:items-center">
-                    {/* Табы фильтров */}
                     <div className="flex p-1 bg-white border border-slate-200 rounded-xl shadow-sm">
                         <FilterTab label="Все проекты" active={statusFilter === 'all'} onClick={() => setStatusFilter('all')} />
                         <FilterTab label="В работе" active={statusFilter === 'active'} onClick={() => setStatusFilter('active')} />
@@ -77,7 +70,6 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                     </div>
 
                     <div className="flex gap-3 w-full md:w-auto">
-                        {/* Поиск */}
                         <div className="relative flex-1 md:w-64 group">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={16} />
                             <input 
@@ -89,7 +81,6 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                             />
                         </div>
 
-                        {/* Переключатель вида */}
                         <div className="flex bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
                             <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-slate-100 text-slate-900 shadow-inner' : 'text-slate-400 hover:text-slate-600'}`}>
                                 <LayoutGrid size={18} />
@@ -101,7 +92,6 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                     </div>
                 </div>
 
-                {/* --- СПИСОК ОБЪЕКТОВ --- */}
                 {filteredProjects.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed border-slate-200 rounded-3xl bg-slate-50/50">
                         <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-slate-300 mb-4 shadow-sm">
@@ -134,7 +124,9 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                                                     <Trash2 size={16} />
                                                 </button>
                                             ) : (
-                                                <Lock size={14} className="text-slate-300" title="Демонстрационный режим" />
+                                                <span title="Демонстрационный режим">
+                                                    <Lock size={14} className="text-slate-300" />
+                                                </span>
                                             )}
                                         </div>
 
@@ -148,7 +140,6 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                                             </div>
                                         </div>
 
-                                        {/* --- ДОБАВЛЕНО: АВТОР --- */}
                                         <div className="flex items-center gap-2 mb-4 bg-slate-50 p-2 rounded-lg border border-slate-100">
                                             <div className="w-6 h-6 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400">
                                                 <User size={12} />
@@ -179,7 +170,7 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                                     <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase font-bold text-slate-500">
                                         <tr>
                                             <th className="px-6 py-4">Название объекта</th>
-                                            <th className="px-6 py-4">Автор</th> {/* Добавлена колонка */}
+                                            <th className="px-6 py-4">Автор</th>
                                             <th className="px-6 py-4">Статус</th>
                                             <th className="px-6 py-4">Адрес</th>
                                             <th className="px-6 py-4 text-right">Обновлено</th>
@@ -197,7 +188,6 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                                                     {project.name}
                                                     {project.isDemo && <span className="ml-2 text-[9px] text-slate-400 font-normal uppercase border px-1 rounded">Демо</span>}
                                                 </td>
-                                                {/* Добавлена ячейка автора */}
                                                 <td className="px-6 py-4 text-slate-600">
                                                     <div className="flex items-center gap-2">
                                                         <User size={12} className="text-slate-400"/>
@@ -237,8 +227,6 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
         </div>
     );
 }
-
-// --- SUBCOMPONENTS ---
 
 function MetricCard({ label, value, icon: Icon, color }) {
     return (

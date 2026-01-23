@@ -3,24 +3,36 @@ import { Loader2 } from 'lucide-react';
 
 // --- Контейнеры и Текст ---
 
+/**
+ * @param {{ children: React.ReactNode, className?: string }} props
+ */
 export const Card = ({ children, className = "" }) => (
   <div className={`bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden ${className}`}>
     {children}
   </div>
 );
 
+/**
+ * @param {{ children: React.ReactNode, icon?: any, className?: string }} props
+ */
 export const SectionTitle = ({ children, icon: Icon, className = "" }) => (
   <h3 className={`text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2 ${className}`}>
     {Icon && <Icon size={16} />} {children}
   </h3>
 );
 
+/**
+ * @param {{ children: React.ReactNode, required?: boolean, className?: string }} props
+ */
 export const Label = ({ children, required, className = "" }) => (
   <label className={`text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block ${className}`}>
     {children} {required && <span className="text-red-500">*</span>}
   </label>
 );
 
+/**
+ * @param {{ children: React.ReactNode, className?: string }} props
+ */
 export const Badge = ({ children, className = "" }) => (
   <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border bg-slate-100 text-slate-500 border-slate-200 ${className}`}>
     {children}
@@ -29,20 +41,19 @@ export const Badge = ({ children, className = "" }) => (
 
 // --- Элементы ввода ---
 
-// Базовый Input
-export const Input = React.forwardRef(({ className = "", ...props }, ref) => (
+// Используем inline-типизацию для forwardRef, чтобы TS понимал пропсы
+export const Input = React.forwardRef((/** @type {any} */ { className = "", ...props }, ref) => (
   <input ref={ref} className={`w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all placeholder:text-slate-300 disabled:opacity-60 disabled:cursor-not-allowed ${className}`} {...props} />
 ));
 
-// Базовый Select
-export const Select = React.forwardRef(({ className = "", children, ...props }, ref) => (
+export const Select = React.forwardRef((/** @type {any} */ { className = "", children, ...props }, ref) => (
   <select ref={ref} className={`w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all appearance-none cursor-pointer disabled:opacity-60 ${className}`} {...props}>
     {children}
   </select>
 ));
 
-// Input с задержкой (Для таблиц, чтобы не тормозило при вводе)
-export const DebouncedInput = React.memo(({ value: initialValue, onChange, delay = 300, className = "", ...props }) => {
+// @ts-ignore
+export const DebouncedInput = React.memo((/** @type {any} */ { value: initialValue, onChange, delay = 300, className = "", ...props }) => {
   const [value, setValue] = useState(initialValue || '');
 
   useEffect(() => {
@@ -57,7 +68,7 @@ export const DebouncedInput = React.memo(({ value: initialValue, onChange, delay
     }, delay);
 
     return () => clearTimeout(handler);
-  }, [value, delay]); // Убрали onChange из зависимостей
+  }, [value, delay]);
 
   return (
     <input
@@ -71,6 +82,9 @@ export const DebouncedInput = React.memo(({ value: initialValue, onChange, delay
 
 // --- Кнопки ---
 
+/**
+ * @param {{ children: React.ReactNode, variant?: 'primary'|'secondary'|'destructive'|'ghost', loading?: boolean, className?: string, disabled?: boolean, onClick?: React.MouseEventHandler<HTMLButtonElement>, type?: "button" | "submit" | "reset" }} props
+ */
 export const Button = ({ children, variant = 'primary', loading, className = "", ...props }) => {
   const variants = {
     primary: "bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200",
@@ -91,6 +105,9 @@ export const Button = ({ children, variant = 'primary', loading, className = "",
   );
 };
 
+/**
+ * @param {{ active?: boolean, children: React.ReactNode, onClick: React.MouseEventHandler<HTMLButtonElement>, className?: string }} props
+ */
 export const TabButton = ({ active, children, onClick, className = "" }) => (
   <button 
     onClick={onClick}

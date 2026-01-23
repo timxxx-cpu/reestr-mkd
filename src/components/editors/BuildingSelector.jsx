@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { ArrowRight, Building2, Search } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { STEPS_CONFIG } from '../../lib/constants';
-import { calculateProgress, getStageColor } from '../../lib/utils'; // <--- Импорт
+import { calculateProgress, getStageColor } from '../../lib/utils';
 
 const PARKING_CONSTRUCTION_NAMES = {
     capital: "Капитальный",
@@ -10,10 +10,12 @@ const PARKING_CONSTRUCTION_NAMES = {
     open: "Открытый"
 };
 
+/**
+ * @param {{ stepId: string, onSelect: (id: string) => void }} props
+ */
 export default function BuildingSelector({ stepId, onSelect }) {
     const { composition } = useProject();
 
-    // Фильтруем список зданий в зависимости от текущего шага
     const filteredItems = useMemo(() => {
         return composition.filter(item => {
             if (stepId === 'registry_nonres') {
@@ -34,8 +36,9 @@ export default function BuildingSelector({ stepId, onSelect }) {
         });
     }, [composition, stepId]);
 
-    const currentStepConfig = STEPS_CONFIG.find(s => s.id === stepId) || {};
-    const StepIcon = currentStepConfig.icon || Building2;
+    // ИСПРАВЛЕНИЕ: Безопасный доступ к конфигу шага
+    const currentStepConfig = STEPS_CONFIG.find(s => s.id === stepId);
+    const StepIcon = currentStepConfig?.icon || Building2;
 
     return (
         <div className="w-full px-6 pb-20 animate-in fade-in duration-500">
@@ -45,7 +48,7 @@ export default function BuildingSelector({ stepId, onSelect }) {
                         <StepIcon size={24} />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-bold text-slate-800">{currentStepConfig.title}</h1>
+                        <h1 className="text-2xl font-bold text-slate-800">{currentStepConfig?.title || 'Выбор объекта'}</h1>
                         <p className="text-slate-500 text-sm mt-1">Выберите объект для настройки</p>
                     </div>
                 </div>

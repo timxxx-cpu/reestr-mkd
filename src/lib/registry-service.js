@@ -31,7 +31,7 @@ export const RegistryService = {
    */
   subscribeProjectMeta: (scope, projectId, callback) => {
     return onSnapshot(getProjectRef(scope, projectId), (snap) => {
-      // @ts-ignore - Firebase types can be tricky with generics in JSDoc
+      // @ts-ignore
       callback(snap.exists() ? snap.data() : null);
     });
   },
