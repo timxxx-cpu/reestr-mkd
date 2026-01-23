@@ -26,6 +26,7 @@ import EntranceMatrixEditor from './components/editors/EntranceMatrixEditor';
 import MopEditor from './components/editors/MopEditor';
 import FlatMatrixEditor from './components/editors/FlatMatrixEditor';
 import SummaryDashboard from './components/editors/SummaryDashboard';
+import RegistryView from './components/editors/RegistryView'; // <--- ДОБАВЛЕН ИМПОРТ
 import ProjectsDashboard from './components/ProjectsDashboard';
 
 /**
@@ -63,7 +64,6 @@ function ProjectEditorRoute() {
     const handleBackToDashboard = () => { saveData(); navigate('/'); };
   
     /** @type {StepConfig | undefined} */
-    // Исправление 1: Убрали || {}, теперь это либо конфиг, либо undefined
     const stepConfig = STEPS_CONFIG?.[currentStep];
     const stepId = stepConfig?.id || 'unknown';
   
@@ -79,9 +79,14 @@ function ProjectEditorRoute() {
       switch (stepId) {
         case 'passport': return <PassportEditor />;
         case 'composition': return <CompositionEditor />;
-        // Исправление 2: Явно передаем buildingId={null}, чтобы удовлетворить TS
         case 'parking_config': return <ParkingConfigurator onSave={handleNext} buildingId={null} />;
         case 'summary': return <SummaryDashboard />;
+        
+        // --- НОВЫЕ КЕЙСЫ ДЛЯ РЕЕСТРА ---
+        case 'registry_res_view': return <RegistryView mode="res" />;
+        case 'registry_nonres_view': return <RegistryView mode="nonres" />;
+        // -------------------------------
+
         case 'registry_res': 
         case 'registry_nonres':
         case 'floors':
@@ -141,7 +146,6 @@ export default function App() {
 
   useEffect(() => {
     if (!firebaseUser) return;
-    // Используем сервис вместо прямого вызова
     const unsubscribe = RegistryService.subscribeProjectsList(DB_SCOPE, setProjectsList);
     return () => unsubscribe();
   }, [firebaseUser]);
@@ -164,7 +168,6 @@ export default function App() {
               composition: [] 
           };
           
-          // Создаем через сервис
           await RegistryService.createProject(DB_SCOPE, newProjectMeta, initialContent);
           
           navigate(`/project/${newId}`);
@@ -179,7 +182,6 @@ export default function App() {
   const deleteProject = async (id) => {
       if (!confirm('Удалить проект навсегда?')) return;
       try {
-          // Удаляем через сервис
           await RegistryService.deleteProject(DB_SCOPE, id);
       } catch (e) {
           console.error("Ошибка удаления:", e);

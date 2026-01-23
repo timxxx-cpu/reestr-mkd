@@ -63,7 +63,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         const commFloors = blockDetails.commercialFloors || []; 
 
         // Подвалы
-        const isBasementMixed = commFloors.includes('basement');
         // @ts-ignore
         const currentBlockBasements = basements.filter(b => b.blocks?.includes(currentBlock.id));
         
@@ -72,15 +71,20 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             // Приводим к числу
             const depth = parseInt(String(b.depth || '1'), 10);
             
+            // ИСПРАВЛЕНИЕ: Проверяем конкретный ID подвала или общий флаг (для совместимости)
+            const isThisBasementMixed = commFloors.includes(`basement_${b.id}`) || commFloors.includes('basement');
+
             for(let d = depth; d >= 1; d--) {
+                // Теперь bIdx точно число
+                const sortVal = -1000 - d + (bIdx * 0.1);
+
                 list.push({ 
                     id: `base_${b.id}_L${d}`, 
                     label: `Подвал -${d}`, 
                     type: 'basement', 
                     // @ts-ignore
-                    isComm: isBasementMixed, 
-                    // ИСПРАВЛЕНИЕ: Принудительное приведение к Number()
-                    sortOrder: -1000 - Number(d) + (Number(bIdx) * 0.1) 
+                    isComm: isThisBasementMixed, 
+                    sortOrder: sortVal
                 }); 
             }
         });
@@ -116,7 +120,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         const extraTechs = (blockDetails.technicalFloors || []).filter(f => f > end);
         // @ts-ignore
         extraTechs.forEach(f => {
-             // ИСПРАВЛЕНИЕ: Принудительное приведение к Number() для f
              list.push({ id: `floor_${f}_tech_extra`, label: `${f} (Тех)`, type: 'technical', isComm: false, sortOrder: (Number(f) * 10) });
         });
 

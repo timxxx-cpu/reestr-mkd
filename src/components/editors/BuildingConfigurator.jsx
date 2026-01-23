@@ -227,6 +227,9 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     if (!isParking) engineeringSystems.splice(4, 0, { id: 'gas', label: 'Газ', icon: Flame, color: 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-100' });
 
     const isCommercialValid = useMemo(() => {
+        // ИСПРАВЛЕНИЕ: В режиме нежилых блоков игнорируем проверку
+        if (mode === 'nonres') return true;
+        
         if (!building.hasNonResPart) return true;
         if (isParking || isInfrastructure) return true;
         const residentialBlockIds = blocksList.filter(b => b.type === 'Ж');
@@ -236,7 +239,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
             return blockDetails?.commercialFloors?.length > 0;
         });
         return hasAnyCommercial;
-    }, [building, buildingDetails, blocksList, isParking, isInfrastructure]);
+    }, [building, buildingDetails, blocksList, isParking, isInfrastructure, mode]);
 
     const hasCriticalErrors = (!isParking && !isInfrastructure && (details.floorsTo > 5) && ((details.elevators || 0) < 1)) || 
                               (!isCommercialValid);
@@ -456,6 +459,28 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                         <div className="mt-6 p-4 bg-blue-50/50 border border-blue-100 rounded-xl animate-in fade-in slide-in-from-top-2">
                                             <div className="flex items-center gap-2 mb-4"><div className="p-1.5 bg-blue-100 text-blue-600 rounded-lg"><Store size={16}/></div><div><Label className="text-blue-900">Нежилые объекты (Коммерция)</Label><p className="text-[10px] text-blue-500/80 leading-tight">Отметьте этажи с нежилыми помещениями.</p></div></div>
                                             <div className="flex flex-wrap gap-1.5 mb-4">
+                                                {/* Кнопки Подвалов (P-1, P-2...) - используем уникальные ID */}
+                                                {blockBasements.map((b, idx) => {
+                                                    const val = `basement_${b.id}`; // Используем уникальный ID подвала
+                                                    // @ts-ignore
+                                                    const isActive = details.commercialFloors?.includes(val);
+                                                    return (
+                                                         <button 
+                                                            key={b.id} 
+                                                            onClick={() => toggleFloorAttribute('commercialFloors', val)} 
+                                                            className={`px-2 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${isActive ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'}`}
+                                                         >
+                                                            P-{idx+1}
+                                                         </button>
+                                                    )
+                                                })}
+
+                                                {/* Кнопка Цоколь (если включен) */}
+                                                {details.hasBasementFloor && (
+                                                    // @ts-ignore
+                                                    <button onClick={() => toggleFloorAttribute('commercialFloors', 'tsokol')} className={`px-2 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${details.commercialFloors?.includes('tsokol') ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'}`}>Цоколь</button>
+                                                )}
+
                                                 {floorRange.map((f, idx) => { 
                                                     // @ts-ignore
                                                     const isComm = details.commercialFloors?.includes(f); 
@@ -467,6 +492,20 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                                         details.technicalFloors?.includes(f) && (<button onClick={() => toggleFloorAttribute('commercialFloors', `${f}-Т`)} className={`px-1.5 h-8 rounded-md text-[10px] font-bold shadow-sm transition-all border flex items-center justify-center relative ${isCommTech ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-indigo-50 border-indigo-200 text-indigo-500 hover:bg-indigo-100'}`} title={`Отметить тех.этаж ${f}-Т как нежилой`}>{f}-Т</button>)}</React.Fragment>) 
                                                     })
                                                 }
+
+                                                {/* Кнопки спецэтажей (если включены) */}
+                                                {details.hasAttic && (
+                                                    // @ts-ignore
+                                                    <button onClick={() => toggleFloorAttribute('commercialFloors', 'attic')} className={`px-2 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${details.commercialFloors?.includes('attic') ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'}`}>Мансарда</button>
+                                                )}
+                                                {details.hasLoft && (
+                                                    // @ts-ignore
+                                                    <button onClick={() => toggleFloorAttribute('commercialFloors', 'loft')} className={`px-2 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${details.commercialFloors?.includes('loft') ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'}`}>Чердак</button>
+                                                )}
+                                                {details.hasExploitableRoof && (
+                                                    // @ts-ignore
+                                                    <button onClick={() => toggleFloorAttribute('commercialFloors', 'roof')} className={`px-2 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${details.commercialFloors?.includes('roof') ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'}`}>Кровля</button>
+                                                )}
                                             </div>
                                         </div>
                                     )}
