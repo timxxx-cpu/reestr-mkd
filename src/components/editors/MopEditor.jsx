@@ -16,7 +16,8 @@ const MOP_TYPES = [
 ];
 
 export default function MopEditor({ buildingId, onBack }) {
-    const { composition, buildingDetails, entrancesData, mopData, setMopData, saveData } = useProject();
+    // ВАЖНО: Добавили saveBuildingData
+    const { composition, buildingDetails, entrancesData, mopData, setMopData, saveBuildingData, saveData } = useProject();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
 
     const building = composition.find(c => c.id === buildingId);
@@ -215,7 +216,27 @@ export default function MopEditor({ buildingId, onBack }) {
                 </div>
                 <div className="flex gap-2">
                     <button onClick={autoFillMops} disabled={!showEditor} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${showEditor ? 'hover:bg-purple-100' : 'opacity-50 cursor-not-allowed'}`}><Wand2 size={14}/> Авто-генерация</button>
-                    <Button onClick={() => { saveData(); onBack(); }} disabled={!validationState.isValid} className={`shadow-lg ${!validationState.isValid ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}><Save size={14}/> Готово</Button>
+                    
+                    {/* ОБНОВЛЕНО: Используем saveBuildingData */}
+                    <Button 
+                        onClick={async () => { 
+                            const specificData = {};
+                            Object.keys(mopData).forEach(k => {
+                                if (k.startsWith(building.id)) {
+                                    specificData[k] = mopData[k];
+                                }
+                            });
+
+                            await saveBuildingData(building.id, 'commonAreasData', specificData);
+                            await saveData(); 
+                            
+                            onBack(); 
+                        }} 
+                        disabled={!validationState.isValid} 
+                        className={`shadow-lg ${!validationState.isValid ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}
+                    >
+                        <Save size={14}/> Готово
+                    </Button>
                 </div>
             </div>
 

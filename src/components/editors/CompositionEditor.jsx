@@ -22,7 +22,8 @@ const PARKING_CONSTRUCTION_NAMES = {
 };
 
 export default function CompositionEditor() {
-    const { composition, setComposition, buildingDetails, setBuildingDetails, saveData } = useProject();
+    // ВАЖНО: Добавили deleteProjectBuilding
+    const { composition, setComposition, buildingDetails, setBuildingDetails, saveData, deleteProjectBuilding } = useProject();
 
     const [modal, setModal] = useState({ 
         isOpen: false, 
@@ -153,13 +154,9 @@ export default function CompositionEditor() {
          setModal({...modal, isOpen: false});
     };
     
+    // ОБНОВЛЕНО: Используем deleteProjectBuilding из контекста
     const deleteItem = (id) => {
-        if(confirm('Удалить этот объект?')) {
-            const newList = composition.filter(c => c.id !== id);
-            setComposition(newList);
-            // Сохраняем с уведомлением
-            saveData({ composition: newList }, true);
-        }
+        deleteProjectBuilding(id);
     };
 
     return (

@@ -15,7 +15,8 @@ const PARKING_TYPE_LABELS = {
 };
 
 export default function FloorMatrixEditor({ buildingId, onBack }) {
-    const { composition, buildingDetails, floorData, setFloorData, saveData } = useProject();
+    // ВАЖНО: Добавили saveBuildingData в импорт
+    const { composition, buildingDetails, floorData, setFloorData, saveBuildingData, saveData } = useProject();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
 
     const building = composition.find(c => c.id === buildingId);
@@ -243,7 +244,29 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                  </div>
                  <div className="flex gap-2">
                      <button onClick={autoFill} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors shadow-sm"><Wand2 size={14}/> Автозаполнение</button>
-                     <Button onClick={() => { saveData(); onBack(); }} disabled={hasCriticalErrors} className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}><Save size={14}/> {hasCriticalErrors ? 'Исправьте ошибки' : 'Готово'}</Button>
+                     
+                     {/* ОБНОВЛЕНО:
+                        Используем async/await и saveBuildingData
+                     */}
+                     <Button 
+                        onClick={async () => { 
+                            const specificData = {};
+                            Object.keys(floorData).forEach(k => {
+                                if (k.startsWith(building.id)) {
+                                    specificData[k] = floorData[k];
+                                }
+                            });
+
+                            await saveBuildingData(building.id, 'floorData', specificData);
+                            await saveData(); 
+                            
+                            onBack(); 
+                        }} 
+                        disabled={hasCriticalErrors} 
+                        className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}
+                     >
+                        <Save size={14}/> {hasCriticalErrors ? 'Исправьте ошибки' : 'Готово'}
+                     </Button>
                  </div>
              </div>
 

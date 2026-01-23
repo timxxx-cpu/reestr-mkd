@@ -8,7 +8,8 @@ import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils'; // <--- Импорт утилиты
 
 export default function EntranceMatrixEditor({ buildingId, onBack }) {
-    const { composition, buildingDetails, entrancesData, setEntrancesData, floorData, setFloorData, saveData } = useProject();
+    // ВАЖНО: Добавили saveBuildingData в импорт
+    const { composition, buildingDetails, entrancesData, setEntrancesData, floorData, setFloorData, saveBuildingData, saveData } = useProject();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
 
     const building = composition.find(c => c.id === buildingId);
@@ -245,7 +246,21 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 </div>
                 <div className="flex gap-2">
                     <button onClick={autoFill} disabled={!isResidentialBlock} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${isResidentialBlock ? 'hover:bg-purple-100' : 'opacity-50 cursor-not-allowed'}`}><Wand2 size={14}/> Заполнить типовыми</button>
-                    <Button onClick={() => { saveData(); onBack(); }}><Save size={14}/> Готово</Button>
+                    
+                    {/* ОБНОВЛЕНО: Используем saveBuildingData */}
+                    <Button onClick={async () => { 
+                        const specificData = {};
+                        Object.keys(entrancesData).forEach(k => {
+                            if (k.startsWith(building.id)) {
+                                specificData[k] = entrancesData[k];
+                            }
+                        });
+
+                        await saveBuildingData(building.id, 'entrancesData', specificData);
+                        await saveData(); 
+                        
+                        onBack(); 
+                    }}><Save size={14}/> Готово</Button>
                 </div>
             </div>
 

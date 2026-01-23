@@ -13,6 +13,7 @@ const TYPE_COLORS = {
 };
 
 export default function FlatMatrixEditor({ buildingId, onBack }) {
+    // ВАЖНО: Добавили saveBuildingData
     const { 
         composition = [], 
         buildingDetails = {}, 
@@ -20,6 +21,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         flatMatrix = {}, 
         setFlatMatrix, 
         floorData = {}, 
+        saveBuildingData, 
         saveData 
     } = useProject();
     
@@ -117,7 +119,21 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                         <input type="number" className="w-12 bg-transparent font-bold text-xs text-slate-700 outline-none text-center" value={startNum} onChange={e=>setStartNum(parseInt(e.target.value)||1)} />
                     </div>
                     <button onClick={autoNumber} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors"><Wand2 size={14}/> Авто-нум.</button>
-                    <Button onClick={() => { saveData(); onBack(); }}><Save size={14}/> Готово</Button>
+                    
+                    {/* ОБНОВЛЕНО: Используем saveBuildingData */}
+                    <Button onClick={async () => { 
+                        const specificData = {};
+                        Object.keys(flatMatrix).forEach(k => {
+                            if (k.startsWith(building.id)) {
+                                specificData[k] = flatMatrix[k];
+                            }
+                        });
+
+                        await saveBuildingData(building.id, 'apartmentsData', specificData);
+                        await saveData(); 
+                        
+                        onBack(); 
+                    }}><Save size={14}/> Готово</Button>
                 </div>
             </div>
 

@@ -5,7 +5,8 @@ import { Card, Button, DebouncedInput } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils'; // <--- Импорт
 
 export default function ParkingConfigurator({ onSave, buildingId }) {
-    const { composition, buildingDetails, setBuildingDetails, parkingPlaces, setParkingPlaces, saveData } = useProject();
+    // ВАЖНО: Добавили saveBuildingData
+    const { composition, buildingDetails, setBuildingDetails, parkingPlaces, setParkingPlaces, saveBuildingData, saveData } = useProject();
 
     const building = useMemo(() => 
         buildingId ? composition.find(c => c.id === buildingId) : composition[0]
@@ -170,7 +171,7 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
         }));
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         const newPlaces = { ...parkingPlaces };
         allRows.forEach(lvl => {
             const enabled = isParkingEnabled(lvl);
@@ -190,8 +191,22 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
             }
         });
 
+        // Фильтруем данные только для текущего здания
+        const specificData = {};
+        Object.keys(newPlaces).forEach(k => {
+            if (k.startsWith(building.id)) {
+                specificData[k] = newPlaces[k];
+            }
+        });
+
         setParkingPlaces(newPlaces);
-        saveData(); 
+        
+        // Сохраняем "тяжелые" данные в отдельный документ
+        await saveBuildingData(building.id, 'parkingData', specificData);
+        
+        // Сохраняем общие данные (настройки)
+        await saveData(); 
+        
         if (onSave) onSave();
     };
 
