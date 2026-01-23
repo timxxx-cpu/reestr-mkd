@@ -26,7 +26,7 @@ import EntranceMatrixEditor from './components/editors/EntranceMatrixEditor';
 import MopEditor from './components/editors/MopEditor';
 import FlatMatrixEditor from './components/editors/FlatMatrixEditor';
 import SummaryDashboard from './components/editors/SummaryDashboard';
-import RegistryView from './components/editors/RegistryView'; // <--- ДОБАВЛЕН ИМПОРТ
+import RegistryView from './components/editors/RegistryView'; 
 import ProjectsDashboard from './components/ProjectsDashboard';
 
 /**
@@ -94,7 +94,7 @@ function ProjectEditorRoute() {
         case 'mop':
         case 'apartments':
             return <BuildingSelector stepId={stepId} onSelect={setEditingBuildingId} />;
-        default: return <div>Раздел в разработке</div>;
+        default: return <div className="p-8 text-center text-slate-400">Раздел в разработке</div>;
       }
     };
   
@@ -103,11 +103,17 @@ function ProjectEditorRoute() {
         <Sidebar currentStep={currentStep} onStepChange={onStepChange} isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} onBackToDashboard={handleBackToDashboard} />
         <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
             <div className="px-8 pt-6 pb-2">
-                 <Breadcrumbs projectName={complexInfo?.name || "Загрузка..."} stepTitle={stepConfig?.title} buildingName={editingBuildingId ? composition?.find(b => b.id === editingBuildingId)?.label : null} onBackToStep={() => setEditingBuildingId(null)}/>
+                 <Breadcrumbs 
+                    projectName={complexInfo?.name || "Загрузка..."} 
+                    stepTitle={stepConfig?.title} 
+                    // ИСПРАВЛЕНО ЗДЕСЬ: === вместо =>
+                    buildingName={editingBuildingId ? composition?.find(b => b.id === editingBuildingId)?.label : null} 
+                    onBackToStep={() => setEditingBuildingId(null)}
+                 />
             </div>
             <div className="flex-1 overflow-y-auto px-8 pb-6 scroll-smooth">
                 {!editingBuildingId && <StepIndicator currentStep={currentStep} />}
-                <React.Suspense fallback={<Loader2 className="animate-spin"/>}>{renderStepContent()}</React.Suspense>
+                <React.Suspense fallback={<Loader2 className="animate-spin text-blue-600"/>}>{renderStepContent()}</React.Suspense>
             </div>
             {!editingBuildingId && (
                 <footer className="bg-white border-t border-slate-200 px-8 py-5 flex justify-between items-center shadow-sm z-20">
@@ -154,7 +160,8 @@ export default function App() {
       if (!firebaseUser || creating) return;
       setCreating(true);
       try {
-          const newId = Date.now().toString();
+          // ИСПОЛЬЗУЕМ БЕЗОПАСНЫЙ UUID
+          const newId = crypto.randomUUID();
           /** @type {import('./lib/types').ProjectMeta} */
           const newProjectMeta = { 
               id: newId, 

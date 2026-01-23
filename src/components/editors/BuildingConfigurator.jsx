@@ -4,11 +4,12 @@ import {
   ArrowDownToLine, X, Zap, Settings2, Trash2, Droplets, 
   Thermometer, Flame, Wind, ShieldCheck, Wifi, Store, Layers,
   Fan, Plug, ArrowUpFromLine, Plus, AlertCircle, Car, Footprints,
-  ArrowDown, ArrowUp, Building2, Warehouse, Tent, Box, MapPin, DoorOpen, Lock
+  ArrowDown, ArrowUp, Building2, Warehouse, Tent, Box, MapPin, Lock
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Select, Button, TabButton } from '../ui/UIKit';
 import { getBlocksList, calculateProgress, getStageColor } from '../../lib/utils';
+import { Validators } from '../../lib/validators'; 
 
 const PARKING_TYPE_LABELS = {
     capital: "Капитальный",
@@ -166,7 +167,8 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     /** @type {() => void} */
     const createBlockBasement = () => {
         if (!canAddBasement) return; 
-        const newB = { id: Date.now(), depth: 1, hasParking: false, parkingLevels: {}, blocks: [currentBlock.id] }; 
+        // ИСПОЛЬЗУЕМ БЕЗОПАСНЫЙ UUID
+        const newB = { id: crypto.randomUUID(), depth: 1, hasParking: false, parkingLevels: {}, blocks: [currentBlock.id] }; 
         // @ts-ignore
         updateFeatures({ basements: [...(features.basements || []), newB] }); 
     };
@@ -226,23 +228,10 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     ];
     if (!isParking) engineeringSystems.splice(4, 0, { id: 'gas', label: 'Газ', icon: Flame, color: 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-100' });
 
-    const isCommercialValid = useMemo(() => {
-        // ИСПРАВЛЕНИЕ: В режиме нежилых блоков игнорируем проверку
-        if (mode === 'nonres') return true;
-        
-        if (!building.hasNonResPart) return true;
-        if (isParking || isInfrastructure) return true;
-        const residentialBlockIds = blocksList.filter(b => b.type === 'Ж');
-        const hasAnyCommercial = residentialBlockIds.some(block => {
-            const key = `${building.id}_${block.id}`;
-            const blockDetails = buildingDetails[key];
-            return blockDetails?.commercialFloors?.length > 0;
-        });
-        return hasAnyCommercial;
-    }, [building, buildingDetails, blocksList, isParking, isInfrastructure, mode]);
-
-    const hasCriticalErrors = (!isParking && !isInfrastructure && (details.floorsTo > 5) && ((details.elevators || 0) < 1)) || 
-                              (!isCommercialValid);
+    // --- ВАЛИДАЦИЯ ---
+    const isCommercialValid = Validators.commercialPresence(building, buildingDetails, blocksList, mode);
+    const hasElevatorIssue = Validators.elevatorRequirement(isParking, isInfrastructure, details.floorsTo, details.elevators || 0);
+    const hasCriticalErrors = hasElevatorIssue || !isCommercialValid;
 
     const isFloorFromDisabled = currentBlock?.type === 'Ж' || currentBlock?.type === 'Н';
     const isStylobate = currentBlock?.type === 'Н' && (details.parentBlocks || []).length > 0;
@@ -517,7 +506,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                             </div>
                             <div className="space-y-6">
                                 <Card className="p-6 shadow-sm"><SectionTitle icon={Zap}>Инженерия</SectionTitle><div className="grid grid-cols-2 gap-2">{engineeringSystems.map(sys => { const Icon = sys.icon; const isActive = details.engineering?.[sys.id]; return (<button key={sys.id} onClick={()=>updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`p-3 rounded-xl border flex items-center gap-3 transition-all duration-200 ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 opacity-60 hover:opacity-100'}`}><Icon size={16} strokeWidth={isActive ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase">{sys.label}</span></button>)})}</div></Card>
-                                <Card className="p-6 shadow-sm"><SectionTitle icon={Settings2}>Общие</SectionTitle><div className="space-y-4"><div className="space-y-1"><Label>{currentBlock?.type === 'Ж' ? 'Подъездов' : 'Входов'} (макс. 30)</Label><Input type="number" min="1" max="30" value={details.entrances || 1} onChange={(e) => { let val = parseInt(e.target.value); if (isNaN(val)) val = 1; if (val > 30) val = 30; if (val < 1) val = 1; updateDetail('entrances', val); }}/></div><div className="space-y-1 relative"><Label>Лифтов (на блок)</Label><Input type="number" min="0" value={details.elevators || 0} onChange={(e)=> { let val = parseInt(e.target.value); if (val < 0) val = 0; updateDetail('elevators', val) }} className={(!isParking && !isInfrastructure && (details.floorsTo > 5) && ((details.elevators || 0) < 1)) ? "border-red-500 focus:border-red-500 bg-red-50" : ""}/>{(!isParking && !isInfrastructure && (details.floorsTo > 5) && ((details.elevators || 0) < 1)) && <div className="flex items-center gap-1 mt-1 text-[10px] text-red-500 font-bold animate-in fade-in"><AlertCircle size={10} /><span>Лифт обязателен &gt; 5 этажей</span></div>}</div></div></Card>
+                                <Card className="p-6 shadow-sm"><SectionTitle icon={Settings2}>Общие</SectionTitle><div className="space-y-4"><div className="space-y-1"><Label>{currentBlock?.type === 'Ж' ? 'Подъездов' : 'Входов'} (макс. 30)</Label><Input type="number" min="1" max="30" value={details.entrances || 1} onChange={(e) => { let val = parseInt(e.target.value); if (isNaN(val)) val = 1; if (val > 30) val = 30; if (val < 1) val = 1; updateDetail('entrances', val); }}/></div><div className="space-y-1 relative"><Label>Лифтов (на блок)</Label><Input type="number" min="0" value={details.elevators || 0} onChange={(e)=> { let val = parseInt(e.target.value); if (val < 0) val = 0; updateDetail('elevators', val) }} className={hasElevatorIssue ? "border-red-500 focus:border-red-500 bg-red-50" : ""}/>{hasElevatorIssue && <div className="flex items-center gap-1 mt-1 text-[10px] text-red-500 font-bold animate-in fade-in"><AlertCircle size={10} /><span>Лифт обязателен &gt; 5 этажей</span></div>}</div></div></Card>
                                 
                                 <div className="flex flex-col gap-3">
                                      <Button onClick={() => { saveData(); onBack(); }} disabled={hasCriticalErrors} className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}><Save size={16}/> Готово</Button>

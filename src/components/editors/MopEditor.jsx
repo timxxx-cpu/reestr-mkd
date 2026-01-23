@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  ArrowLeft, Save, Wand2, ArrowDown, ArrowUp, 
-  DoorOpen, ChevronLeft, ChevronsRight, Building2, Store, Car, Box, Ban, AlertCircle, Maximize2
+  ArrowLeft, Save, Wand2, AlertCircle, DoorOpen, Ban
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils';
+import { useBuildingFloors } from '../../hooks/useBuildingFloors';
+import { Validators } from '../../lib/validators'; // <--- ИМПОРТ
 
 const MOP_TYPES = [
     'Лестничная клетка', 'Межквартирный коридор', 'Лифтовой холл', 'Тамбур', 'Вестибюль', 
@@ -25,118 +26,17 @@ export default function MopEditor({ buildingId, onBack }) {
     const building = composition.find(c => c.id === buildingId);
     
     const blocksList = useMemo(() => getBlocksList(building), [building]);
-    const currentBlock = blocksList[activeBlockIndex];
+    
+    const { floorList, currentBlock, isUndergroundParking } = useBuildingFloors(buildingId, activeBlockIndex);
 
     if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Данные не найдены</div>;
 
-    const isResidentialBlock = currentBlock.type === 'Ж';
-    const isUndergroundParking = building.category === 'parking_separate' && building.parkingType === 'underground';
-    const showEditor = isResidentialBlock || isUndergroundParking;
+    const showEditor = (currentBlock.type === 'Ж') || isUndergroundParking;
 
     // @ts-ignore
     const blockDetails = buildingDetails[`${building.id}_${currentBlock.id}`] || {};
     const entrancesCount = isUndergroundParking ? (blockDetails.inputs || 1) : (blockDetails.entrances || 1);
     const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
-    // @ts-ignore
-    const basements = buildingDetails[`${building.id}_features`]?.basements || [];
-
-    const stylobateHeight = useMemo(() => {
-        if (currentBlock.type !== 'Ж') return 0;
-        let maxH = 0;
-        blocksList.forEach(b => {
-            if (b.type === 'Н') {
-                const key = `${building.id}_${b.id}`;
-                // @ts-ignore
-                const details = buildingDetails[key];
-                if (details?.parentBlocks?.includes(currentBlock.id)) {
-                    const h = details.floorsTo || 0;
-                    if (h > maxH) maxH = h;
-                }
-            }
-        });
-        return maxH;
-    }, [blocksList, buildingDetails, currentBlock, building.id]);
-
-    const floorList = useMemo(() => {
-        if (!showEditor) return [];
-        const list = [];
-
-        if (isUndergroundParking) {
-            const depth = blockDetails.levelsDepth || 1;
-            for (let i = 1; i <= depth; i++) {
-                list.push({ id: `level_minus_${i}`, label: `Уровень -${i}`, type: 'parking_floor', isComm: false, sortOrder: -i });
-            }
-            return list.sort((a,b) => b.sortOrder - a.sortOrder); 
-        }
-
-        const commFloors = blockDetails.commercialFloors || []; 
-        const isBasementMixed = commFloors.includes('basement');
-        // @ts-ignore
-        const currentBlockBasements = basements.filter(b => b.blocks?.includes(currentBlock.id));
-        
-        // @ts-ignore
-        currentBlockBasements.forEach((b, bIdx) => { 
-            const depth = parseInt(String(b.depth || '1'), 10);
-            for(let d = depth; d >= 1; d--) {
-                // ИСПРАВЛЕНИЕ: Приведение типов для сортировки
-                const sortVal = -1000 - Number(d) + (Number(bIdx) * 0.1);
-                
-                list.push({ 
-                    id: `base_${b.id}_L${d}`, 
-                    label: `Подвал -${d}`, 
-                    type: 'basement', 
-                    // @ts-ignore
-                    isComm: isBasementMixed, 
-                    sortOrder: sortVal 
-                }); 
-            }
-        });
-        
-        if(blockDetails.hasBasementFloor) { 
-            const isTsokolMixed = commFloors.includes('tsokol');
-            list.push({ id: 'floor_0', label: 'Цоколь', type: 'tsokol', isComm: isTsokolMixed, sortOrder: 0 }); 
-        }
-        
-        const start = blockDetails.floorsFrom || 1;
-        const end = blockDetails.floorsTo || 1;
-        
-        for(let i=start; i<=end; i++) { 
-            if (currentBlock.type === 'Ж' && i <= stylobateHeight) continue;
-            const isMixed = commFloors.includes(i); 
-            // ИСПРАВЛЕНИЕ: Приведение к Number
-            list.push({ id: `floor_${i}`, label: `${i} этаж`, index: i, type: isMixed ? 'mixed' : 'residential', isComm: isMixed, sortOrder: Number(i) * 10 }); 
-            
-            // @ts-ignore
-            if (blockDetails.technicalFloors?.includes(i)) {
-                // @ts-ignore
-                const isTechMixed = commFloors.includes(`${i}-Т`);
-                // ИСПРАВЛЕНИЕ: Приведение к Number
-                list.push({ id: `floor_${i}_tech`, label: `${i}-Т (Тех)`, type: 'technical', isComm: isTechMixed, sortOrder: (Number(i) * 10) + 5 });
-            }
-        }
-        
-        // @ts-ignore
-        const extraTechs = (blockDetails.technicalFloors || []).filter(f => f > end);
-        // @ts-ignore
-        extraTechs.forEach(f => {
-             list.push({ id: `floor_${f}_tech_extra`, label: `${f} (Тех)`, type: 'technical', isComm: false, sortOrder: (Number(f) * 10) });
-        });
-
-        if(blockDetails.hasAttic) {
-            const isAtticMixed = commFloors.includes('attic');
-            list.push({ id: 'attic', label: 'Мансарда', type: 'attic', isComm: isAtticMixed, sortOrder: 50000 }); 
-        }
-        if(blockDetails.hasLoft) {
-            const isLoftMixed = commFloors.includes('loft');
-            list.push({ id: 'loft', label: 'Чердак', type: 'loft', isComm: isLoftMixed, sortOrder: 55000 }); 
-        }
-        if(blockDetails.hasExploitableRoof) {
-            const isRoofMixed = commFloors.includes('roof');
-            list.push({ id: 'roof', label: 'Кровля', type: 'roof', isComm: isRoofMixed, sortOrder: 60000 }); 
-        }
-
-        return list.sort((a,b) => a.sortOrder - b.sortOrder); 
-    }, [currentBlock, blockDetails, basements, building, isResidentialBlock, isUndergroundParking, showEditor, stylobateHeight]);
 
     // @ts-ignore
     const getTargetMopCount = (ent, floorId) => {
@@ -159,15 +59,12 @@ export default function MopEditor({ buildingId, onBack }) {
         // @ts-ignore
         const currentMops = [...(mopData[key] || [])];
         if (!currentMops[index]) {
-            currentMops[index] = { id: Date.now() + Math.random(), type: '', area: '' };
+            currentMops[index] = { id: crypto.randomUUID(), type: '', area: '' }; // Используем безопасный ID
         }
         currentMops[index] = { ...currentMops[index], [field]: val };
         // @ts-ignore
         setMopData(prev => ({ ...prev, [key]: currentMops }));
     };
-
-    // @ts-ignore
-    const isMopValid = (mop) => { return mop && mop.type && mop.area && parseFloat(mop.area) > 0; };
 
     const validationState = useMemo(() => {
         let isValid = true;
@@ -179,7 +76,8 @@ export default function MopEditor({ buildingId, onBack }) {
                 if (targetQty > 0) {
                     const mops = getMops(e, f.id);
                     for (let i = 0; i < targetQty; i++) {
-                        if (!isMopValid(mops[i])) { isValid = false; missingCount++; }
+                        // ИСПОЛЬЗОВАНИЕ ВАЛИДАТОРА
+                        if (!Validators.isMopValid(mops[i])) { isValid = false; missingCount++; }
                     }
                 }
             });
@@ -210,7 +108,7 @@ export default function MopEditor({ buildingId, onBack }) {
                             let type = defaultType;
                             if (!isUndergroundParking && i === 1) type = 'Лифтовой холл';
                             if (!isUndergroundParking && i === 2) type = 'Межквартирный коридор';
-                            newMops[i] = { id: Date.now() + Math.random() + i, type: type, area: '15' };
+                            newMops[i] = { id: crypto.randomUUID(), type: type, area: '15' }; // Безопасный ID
                         }
                     }
                     updates[key] = newMops; 
@@ -256,7 +154,6 @@ export default function MopEditor({ buildingId, onBack }) {
                 <div className="flex gap-2">
                     <button onClick={autoFillMops} disabled={!showEditor} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${showEditor ? 'hover:bg-purple-100' : 'opacity-50 cursor-not-allowed'}`}><Wand2 size={14}/> Авто-генерация</button>
                     
-                    {/* ОБНОВЛЕНО: Используем saveBuildingData */}
                     <Button 
                         onClick={async () => { 
                             const specificData = {};
@@ -303,7 +200,7 @@ export default function MopEditor({ buildingId, onBack }) {
                                 <tbody className="divide-y divide-slate-100 bg-white">
                                     {floorList.map((f) => (
                                         <tr key={f.id} className="group hover:bg-slate-50/50 focus-within:bg-blue-50/50 transition-colors duration-200">
-                                            <td className="p-3 w-36 min-w-[140px] sticky left-0 bg-white group-focus-within:bg-blue-50/50 transition-colors duration-200 border-r align-top relative z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
+                                            <td className="p-3 w-36 min-w-[140px] sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 border-r align-top relative z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
                                                 <div className="flex flex-col gap-1.5"><span className="font-bold text-sm text-slate-700">{f.label}</span>{renderBadge(f.type)}</div>
                                             </td>
                                             {entrancesList.map(e => {
@@ -315,7 +212,7 @@ export default function MopEditor({ buildingId, onBack }) {
                                                             <div className="flex flex-col gap-2">
                                                                 {Array.from({ length: targetQty }).map((_, idx) => {
                                                                     const mop = mops[idx] || {};
-                                                                    const isValid = isMopValid(mop);
+                                                                    const isValid = Validators.isMopValid(mop);
                                                                     return (
                                                                         <div key={idx} className={`flex gap-1 items-center bg-white border rounded-lg p-1 shadow-sm transition-all focus-within:ring-2 focus-within:ring-blue-100 ${isValid ? 'border-slate-200' : 'border-red-300 bg-red-50/20'}`}>
                                                                             <div className="w-6 h-6 flex items-center justify-center rounded bg-slate-100 text-[10px] font-bold text-slate-500 shrink-0">{idx + 1}</div>

@@ -66,27 +66,26 @@ export default function CompositionEditor() {
     // --- ЛОГИКА ---
     const generateDemoComplex = () => {
         if (!window.confirm("Создать демо-данные? Текущий список будет дополнен.")) return;
-        const timestamp = Date.now();
         
         /** @type {import('../../lib/types').BuildingMeta[]} */
         // @ts-ignore
         const demoBuildings = [
             { 
-                id: `b_${timestamp}_1`, label: 'Корпус "Доминанта"', houseNumber: "1", stage: "Строящийся", 
+                id: crypto.randomUUID(), label: 'Корпус "Доминанта"', houseNumber: "1", stage: "Строящийся", 
                 dateStart: "2023-01-01", dateEnd: "2025-12-31", 
                 type: TYPE_NAMES.residential,
                 category: 'residential', resBlocks: 1, nonResBlocks: 0, hasNonResPart: true,
                 parkingType: '', constructionType: '', infraType: ''
             },
             { 
-                id: `b_${timestamp}_2`, label: 'Паркинг "Север"', houseNumber: "P-1", stage: "Введенный", 
+                id: crypto.randomUUID(), label: 'Паркинг "Север"', houseNumber: "P-1", stage: "Введенный", 
                 dateStart: "2022-06-01", dateEnd: "2023-06-01", 
                 type: TYPE_NAMES.parking_separate,
                 category: 'parking_separate', parkingType: 'ground', constructionType: 'capital',
                 resBlocks: 0, nonResBlocks: 0, hasNonResPart: false, infraType: ''
             },
             { 
-                id: `b_${timestamp}_3`, label: 'Детский сад', houseNumber: "12", stage: "Проектный", 
+                id: crypto.randomUUID(), label: 'Детский сад', houseNumber: "12", stage: "Проектный", 
                 dateStart: "2024-09-01", dateEnd: "2025-09-01", 
                 type: TYPE_NAMES.infrastructure,
                 category: 'infrastructure', infraType: 'Детский сад',
@@ -187,7 +186,7 @@ export default function CompositionEditor() {
              saveData({ composition: updated }, true);
          } else {
              const newItems = Array.from({length: modal.quantity}).map((_, i) => ({
-                 id: `b_${Date.now()}_${i}`, 
+                 id: crypto.randomUUID(), 
                  ...newItemData,
                  label: modal.quantity > 1 ? `${modal.baseName} ${i+1}` : modal.baseName, 
              }));

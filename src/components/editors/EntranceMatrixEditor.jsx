@@ -1,11 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { 
   ArrowLeft, Save, Wand2, ArrowDown, ArrowUp, 
-  DoorOpen, ChevronLeft, ChevronsRight, Building2, Store, Car, Box, Ban
+  DoorOpen, ChevronLeft, ChevronsRight, Ban
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils';
+import { useBuildingFloors } from '../../hooks/useBuildingFloors';
+import { Validators } from '../../lib/validators';
 
 /**
  * @param {{ buildingId: string, onBack: () => void }} props
@@ -17,14 +19,17 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const building = composition.find(c => c.id === buildingId);
     
     const blocksList = useMemo(() => getBlocksList(building), [building]);
-    const currentBlock = blocksList[activeBlockIndex];
+    
+    // --- ИСПОЛЬЗОВАНИЕ ХУКА ---
+    const { floorList, currentBlock, isUndergroundParking, isParking, isInfrastructure } = useBuildingFloors(buildingId, activeBlockIndex);
 
     if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Данные не найдены</div>;
 
-    // --- ПРОВЕРКИ ТИПА ---
+    // --- ВОССТАНОВЛЕННАЯ ПЕРЕМЕННАЯ ---
     const isResidentialBlock = currentBlock.type === 'Ж';
-    const isUndergroundParking = building.category === 'parking_separate' && building.parkingType === 'underground';
-    
+
+    // --- ПРОВЕРКИ ТИПА ---
+    // Редактор доступен для жилья и подземных паркингов. Недоступен для инфры и наземных паркингов.
     const showEditor = isResidentialBlock || isUndergroundParking;
 
     // @ts-ignore
@@ -35,111 +40,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         
     const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
     
-    // @ts-ignore
-    const basements = buildingDetails[`${building.id}_features`]?.basements || [];
-
-    // --- ГЕНЕРАЦИЯ СПИСКА ЭТАЖЕЙ ---
-    const floorList = useMemo(() => {
-        if (!showEditor) return [];
-
-        const list = [];
-
-        // 1. СЦЕНАРИЙ: ПОДЗЕМНЫЙ ПАРКИНГ
-        if (isUndergroundParking) {
-            const depth = blockDetails.levelsDepth || 1;
-            for (let i = 1; i <= depth; i++) {
-                list.push({
-                    id: `level_minus_${i}`,
-                    label: `Уровень -${i}`,
-                    type: 'parking_floor',
-                    isComm: false, // Коммерции нет
-                    sortOrder: -i
-                });
-            }
-            return list.sort((a,b) => b.sortOrder - a.sortOrder); 
-        }
-
-        // 2. СЦЕНАРИЙ: ЖИЛОЙ БЛОК
-        const commFloors = blockDetails.commercialFloors || []; 
-
-        // Подвалы
-        // @ts-ignore
-        const currentBlockBasements = basements.filter(b => b.blocks?.includes(currentBlock.id));
-        
-        // @ts-ignore
-        currentBlockBasements.forEach((b, bIdx) => { 
-            // Приводим к числу
-            const depth = parseInt(String(b.depth || '1'), 10);
-            
-            // ИСПРАВЛЕНИЕ: Проверяем конкретный ID подвала или общий флаг (для совместимости)
-            const isThisBasementMixed = commFloors.includes(`basement_${b.id}`) || commFloors.includes('basement');
-
-            for(let d = depth; d >= 1; d--) {
-                // Теперь bIdx точно число
-                const sortVal = -1000 - d + (bIdx * 0.1);
-
-                list.push({ 
-                    id: `base_${b.id}_L${d}`, 
-                    label: `Подвал -${d}`, 
-                    type: 'basement', 
-                    // @ts-ignore
-                    isComm: isThisBasementMixed, 
-                    sortOrder: sortVal
-                }); 
-            }
-        });
-        
-        // Цоколь
-        if(blockDetails.hasBasementFloor) { 
-            const isTsokolMixed = commFloors.includes('tsokol');
-            list.push({ id: 'floor_0', label: 'Цоколь', type: 'tsokol', isComm: isTsokolMixed, sortOrder: 0 }); 
-        }
-        
-        // Наземные этажи
-        const start = blockDetails.floorsFrom || 1;
-        const end = blockDetails.floorsTo || 1;
-        
-        for(let i=start; i<=end; i++) { 
-            const isMixed = commFloors.includes(i); 
-            list.push({ 
-                id: `floor_${i}`, label: `${i} этаж`, index: i, type: isMixed ? 'mixed' : 'residential', 
-                isComm: isMixed, sortOrder: i * 10 
-            }); 
-
-            if (blockDetails.technicalFloors?.includes(i)) {
-                const isTechMixed = commFloors.includes(`${i}-Т`);
-                list.push({ 
-                    id: `floor_${i}_tech`, label: `${i}-Т (Тех)`, type: 'technical', 
-                    isComm: isTechMixed, sortOrder: (i * 10) + 5 
-                });
-            }
-        }
-        
-        // Верхние тех. этажи
-        // @ts-ignore
-        const extraTechs = (blockDetails.technicalFloors || []).filter(f => f > end);
-        // @ts-ignore
-        extraTechs.forEach(f => {
-             list.push({ id: `floor_${f}_tech_extra`, label: `${f} (Тех)`, type: 'technical', isComm: false, sortOrder: (Number(f) * 10) });
-        });
-
-        // Крыша
-        if(blockDetails.hasAttic) {
-            const isAtticMixed = commFloors.includes('attic');
-            list.push({ id: 'attic', label: 'Мансарда', type: 'attic', isComm: isAtticMixed, sortOrder: 50000 }); 
-        }
-        if(blockDetails.hasLoft) {
-            const isLoftMixed = commFloors.includes('loft');
-            list.push({ id: 'loft', label: 'Чердак', type: 'loft', isComm: isLoftMixed, sortOrder: 55000 }); 
-        }
-        if(blockDetails.hasExploitableRoof) {
-            const isRoofMixed = commFloors.includes('roof');
-            list.push({ id: 'roof', label: 'Кровля', type: 'roof', isComm: isRoofMixed, sortOrder: 60000 }); 
-        }
-
-        return list.sort((a,b) => a.sortOrder - b.sortOrder); 
-    }, [currentBlock, blockDetails, basements, building, isResidentialBlock, isUndergroundParking, showEditor]);
-
     // --- DATA HANDLERS ---
     
     /** @type {(entIdx: number, floorId: string, field: string, val: any) => void} */
@@ -163,22 +63,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         const current = floorData[key]?.isDuplex; 
         // @ts-ignore
         setFloorData(p => ({...p, [key]: {...(p[key]||{}), isDuplex: !current}})); 
-    };
-
-    // @ts-ignore
-    const getDuplexState = (f, idx) => {
-        if (!['residential', 'mixed'].includes(f.type)) return { disabled: true, title: 'Только на жилых/смешанных этажах' };
-        let hasApts = false;
-        for (const e of entrancesList) {
-            const val = getEntData(e, f.id, 'apts');
-            // @ts-ignore
-            if (val && parseInt(val) > 0) { hasApts = true; break; }
-        }
-        if (!hasApts) return { disabled: true, title: 'Введите количество квартир' };
-        const floorAbove = floorList[idx + 1];
-        if (!floorAbove) return { disabled: true, title: 'Нет этажа сверху для второго уровня' };
-        if (floorAbove.type === 'technical') return { disabled: true, title: 'Нельзя объединить с техническим этажом' };
-        return { disabled: false, title: 'Объединить с этажом выше' };
     };
 
     const autoFill = () => { 
@@ -294,9 +178,9 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={autoFill} disabled={!isResidentialBlock} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${isResidentialBlock ? 'hover:bg-purple-100' : 'opacity-50 cursor-not-allowed'}`}><Wand2 size={14}/> Заполнить типовыми</button>
+                    {/* Кнопка "Заполнить типовыми" теперь корректно использует isResidentialBlock */}
+                    <button onClick={autoFill} disabled={!isResidentialBlock && !isParking} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${!isResidentialBlock && !isParking ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-100'}`}><Wand2 size={14}/> Заполнить типовыми</button>
                     
-                    {/* ОБНОВЛЕНО: Используем saveBuildingData */}
                     <Button onClick={async () => { 
                         const specificData = {};
                         Object.keys(entrancesData).forEach(k => {
@@ -342,7 +226,15 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                     // @ts-ignore
                                     const isDuplex = floorData[`${currentBlock.fullId}_${f.id}`]?.isDuplex; 
                                     const canHaveApts = ['residential', 'mixed', 'basement', 'tsokol', 'attic'].includes(f.type) && !isUndergroundParking;
-                                    const duplexState = getDuplexState(f, idx);
+                                    
+                                    // --- ЛОГИКА ДУПЛЕКСА ЧЕРЕЗ ВАЛИДАТОР ---
+                                    let hasApts = false;
+                                    for (const e of entrancesList) {
+                                        const val = getEntData(e, f.id, 'apts');
+                                        // @ts-ignore
+                                        if (val && parseInt(val) > 0) { hasApts = true; break; }
+                                    }
+                                    const duplexState = Validators.checkDuplexAvailability(f, floorList[idx + 1], hasApts);
 
                                     return (
                                         <tr key={f.id} className="hover:bg-blue-50/30 focus-within:bg-blue-50 transition-colors duration-200 group h-10">

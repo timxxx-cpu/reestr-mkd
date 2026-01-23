@@ -68,7 +68,7 @@ export default function PassportEditor() {
 
     /** @param {string} type */
     const addDocument = (type) => {
-        const newDoc = { id: Date.now(), name: `${type} №${Math.floor(Math.random()*1000)}/24`, type, date: new Date().toISOString().split('T')[0] };
+        const newDoc = { id: crypto.randomUUID(), name: `${type} №${Math.floor(Math.random()*1000)}/24`, type, date: new Date().toISOString().split('T')[0] };
         // ИСПРАВЛЕНИЕ: Передаем массив напрямую, а не функцию
         // @ts-ignore
         setDocuments([...documents, newDoc]);

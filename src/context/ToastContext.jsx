@@ -28,7 +28,8 @@ export const ToastProvider = ({ children }) => {
     }, []);
 
     const addToast = useCallback((message, type = 'info') => {
-        const id = Date.now().toString() + Math.random().toString(36).slice(2);
+        // ИСПОЛЬЗУЕМ БЕЗОПАСНЫЙ UUID
+        const id = crypto.randomUUID();
         
         setToasts(prev => [...prev, { id, message, type }]);
 

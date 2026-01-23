@@ -5,6 +5,7 @@ import {
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils';
+import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 
 const TYPE_COLORS = {
     flat: 'bg-white border-slate-200 hover:border-blue-300',
@@ -33,31 +34,34 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     const building = composition?.find(c => c.id === buildingId);
     
     const blocksList = useMemo(() => getBlocksList(building), [building]);
-    const currentBlock = blocksList[activeBlockIndex];
+    
+    // --- ИСПОЛЬЗОВАНИЕ ХУКА ---
+    const { floorList: rawFloorList, currentBlock } = useBuildingFloors(buildingId, activeBlockIndex);
 
     const blockKey = (building && currentBlock) ? `${building.id}_${currentBlock.id}` : null;
     // @ts-ignore
     const blockDetails = blockKey ? (buildingDetails[blockKey] || {}) : {};
-    const featureKey = building ? `${building.id}_features` : null;
-    // @ts-ignore
-    const currentBasements = featureKey ? (buildingDetails[featureKey]?.basements?.filter(b => b.blocks?.includes(currentBlock?.id)) || []) : [];
-    const hasBasement = currentBasements.length > 0;
-    const entrances = Array.from({ length: blockDetails.entrances || 1 }, (_, i) => i + 1);
+    
+    // Получаем список подъездов для фильтрации
+    const entrances = useMemo(() => 
+        Array.from({ length: blockDetails.entrances || 1 }, (_, i) => i + 1),
+    [blockDetails.entrances]);
 
+    // В Квартирографии показываем только те этажи, где есть квартиры (apts > 0 в EntranceMatrix)
     const floorList = useMemo(() => {
-        if (!currentBlock) return [];
-        let list = [];
-        // @ts-ignore
-        currentBasements.forEach(b => { for(let d=b.depth; d>=1; d--) list.push({ id: `base_${b.id}_L${d}`, label: `-${d}`, type: 'basement', sortOrder: -100-d }); });
-        if(blockDetails.hasBasementFloor) list.push({ id: 'floor_0', label: '0', index: 0, type: 'basement_floor', sortOrder: 0 });
-        const start = blockDetails.floorsFrom || 1;
-        const end = blockDetails.floorsTo || 1;
-        for(let i=start; i<=end; i++) list.push({ id: `floor_${i}`, label: `${i}`, index: i, type: 'res', sortOrder: i });
-
-        // @ts-ignore
-        return list.filter(f => entrances.some(e => parseInt(entrancesData[`${currentBlock.fullId}_ent${e}_${f.id}`]?.apts || 0) > 0))
-                   .sort((a,b) => a.sortOrder - b.sortOrder);
-    }, [currentBlock, blockDetails, currentBasements, entrancesData, entrances]);
+        if (!rawFloorList) return [];
+        return rawFloorList.filter(f => {
+            // Если этаж технический или паркинг без квартир - скрываем, 
+            // но проверяем через матрицу подъездов (EntranceData)
+            return entrances.some(e => {
+                // @ts-ignore
+                const key = `${currentBlock.fullId}_ent${e}_${f.id}`;
+                // ИСПРАВЛЕНО: Используем Number() вместо parseInt() для избежания ошибки типов
+                const aptsCount = Number(entrancesData[key]?.apts || 0);
+                return aptsCount > 0;
+            });
+        });
+    }, [rawFloorList, entrances, entrancesData, currentBlock]);
 
     /** @type {(ent: number, floorId: string, idx: number) => { num: string, type: string }} */
     const getApt = (ent, floorId, idx) => {
@@ -101,6 +105,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         if (!currentBlock) return;
         let n = startNum;
         const updates = {};
+        
         entrances.forEach(e => {
             floorList.forEach(f => {
                 // @ts-ignore
@@ -117,6 +122,9 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     };
 
     if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Загрузка данных...</div>;
+
+    // Вспомогательная переменная для отображения подвала (если есть) в селекторе дуплекса
+    const hasBasement = rawFloorList?.some(f => f.type === 'basement');
 
     return (
         <div className="space-y-6 pb-20 w-full animate-in fade-in duration-500">
@@ -135,7 +143,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                     </div>
                     <button onClick={autoNumber} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors"><Wand2 size={14}/> Авто-нум.</button>
                     
-                    {/* ОБНОВЛЕНО: Используем saveBuildingData */}
                     <Button onClick={async () => { 
                         const specificData = {};
                         Object.keys(flatMatrix).forEach(k => {
