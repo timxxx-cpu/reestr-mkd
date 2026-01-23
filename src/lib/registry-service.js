@@ -4,6 +4,13 @@ import {
 } from 'firebase/firestore';
 import { db, APP_ID } from './firebase';
 
+/**
+ * Импорт типов для JSDoc
+ * @typedef {import('./types').ProjectMeta} ProjectMeta
+ * @typedef {import('./types').BuildingData} BuildingData
+ * @typedef {import('firebase/firestore').Unsubscribe} Unsubscribe
+ */
+
 // Генерируем пути
 const getUserRoot = (scope) => `artifacts/${APP_ID}/users/${scope}`;
 const getProjectRef = (scope, id) => doc(db, `${getUserRoot(scope)}/registry_data/project_${id}`);
@@ -15,34 +22,62 @@ export const RegistryService = {
   
   // --- ЧТЕНИЕ ---
 
-  // 1. Получение шапки проекта (название, конфиги, списки)
+  /**
+   * Подписка на мета-данные проекта (основной файл)
+   * @param {string} scope - Область данных (userId или общий scope)
+   * @param {string} projectId - ID проекта
+   * @param {function(ProjectMeta|null): void} callback - Функция обновления стейта
+   * @returns {Unsubscribe} Функция отписки
+   */
   subscribeProjectMeta: (scope, projectId, callback) => {
     return onSnapshot(getProjectRef(scope, projectId), (snap) => {
+      // @ts-ignore - Firebase types can be tricky with generics in JSDoc
       callback(snap.exists() ? snap.data() : null);
     });
   },
 
-  // 2. Получение тяжелых данных зданий (каждое здание - отдельный документ)
+  /**
+   * Подписка на детальные данные зданий (коллекция 'buildings')
+   * @param {string} scope 
+   * @param {string} projectId 
+   * @param {function(Object.<string, BuildingData>): void} callback - Возвращает словарь { buildingId: data }
+   * @returns {Unsubscribe}
+   */
   subscribeBuildings: (scope, projectId, callback) => {
     return onSnapshot(getBuildingsRef(scope, projectId), (snapshot) => {
+      /** @type {Object.<string, BuildingData>} */
       const buildings = {};
       snapshot.forEach(doc => {
+          // @ts-ignore
           buildings[doc.id] = doc.data();
       });
       callback(buildings);
     });
   },
 
-  // 3. Получение списка проектов для дашборда
+  /**
+   * Подписка на список всех проектов (для дашборда)
+   * @param {string} scope 
+   * @param {function(ProjectMeta[]): void} callback 
+   * @returns {Unsubscribe}
+   */
   subscribeProjectsList: (scope, callback) => {
       return onSnapshot(getMetaListRef(scope), (snap) => {
+          // @ts-ignore
           callback(snap.exists() ? snap.data().list || [] : []);
       });
   },
 
   // --- ЗАПИСЬ ---
 
-  // 4. Умное сохранение: раскладывает данные по разным документам
+  /**
+   * Универсальное сохранение данных
+   * @param {string} scope 
+   * @param {string} projectId 
+   * @param {Object} payload - Данные для записи
+   * @param {Object.<string, Object>} [payload.buildingSpecificData] - Данные для под-коллекций (тяжелые)
+   * @param {ProjectMeta} [payload.complexInfo] - Если нужно обновить список проектов
+   */
   saveData: async (scope, projectId, payload) => {
     const batch = writeBatch(db);
     const { buildingSpecificData, ...generalData } = payload;
@@ -61,7 +96,7 @@ export const RegistryService = {
 
     await batch.commit();
 
-    // В. Синхронизация названия в списке проектов (эмуляция SQL UPDATE)
+    // В. Синхронизация названия в списке проектов
     if (generalData.complexInfo) {
         await RegistryService._syncDashboardItem(scope, projectId, generalData.complexInfo);
     }
@@ -69,6 +104,12 @@ export const RegistryService = {
 
   // --- СОЗДАНИЕ И УДАЛЕНИЕ ---
 
+  /**
+   * Создание нового проекта
+   * @param {string} scope 
+   * @param {ProjectMeta} projectMeta - Данные для списка
+   * @param {Object} initialContent - Начальное содержимое проекта
+   */
   createProject: async (scope, projectMeta, initialContent) => {
       const batch = writeBatch(db);
       batch.set(getMetaListRef(scope), { list: arrayUnion(projectMeta) }, { merge: true });
@@ -76,6 +117,13 @@ export const RegistryService = {
       await batch.commit();
   },
 
+  /**
+   * Удаление здания и очистка ссылок
+   * @param {string} scope 
+   * @param {string} projectId 
+   * @param {string} buildingId 
+   * @param {Object} generalUpdates - Обновленный список composition без этого здания
+   */
   deleteBuilding: async (scope, projectId, buildingId, generalUpdates) => {
     const batch = writeBatch(db);
     // Удаляем настройки здания из основного файла

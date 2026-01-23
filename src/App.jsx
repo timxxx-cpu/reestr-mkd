@@ -28,6 +28,10 @@ import FlatMatrixEditor from './components/editors/FlatMatrixEditor';
 import SummaryDashboard from './components/editors/SummaryDashboard';
 import ProjectsDashboard from './components/ProjectsDashboard';
 
+/**
+ * @typedef {import('./lib/types').StepConfig} StepConfig
+ */
+
 const DB_SCOPE = 'shared_dev_env'; 
 const TEST_USERS = [
     { id: 'u1', name: 'Тимур', role: 'admin' },
@@ -58,8 +62,10 @@ function ProjectEditorRoute() {
     const onStepChange = (idx) => { setEditingBuildingId(null); saveData(); setCurrentStep(idx); };
     const handleBackToDashboard = () => { saveData(); navigate('/'); };
   
-    const stepConfig = STEPS_CONFIG?.[currentStep] || {};
-    const stepId = stepConfig.id || 'unknown';
+    /** @type {StepConfig | undefined} */
+    // Исправление 1: Убрали || {}, теперь это либо конфиг, либо undefined
+    const stepConfig = STEPS_CONFIG?.[currentStep];
+    const stepId = stepConfig?.id || 'unknown';
   
     const renderStepContent = () => {
       if (editingBuildingId) {
@@ -73,7 +79,8 @@ function ProjectEditorRoute() {
       switch (stepId) {
         case 'passport': return <PassportEditor />;
         case 'composition': return <CompositionEditor />;
-        case 'parking_config': return <ParkingConfigurator onSave={handleNext} />;
+        // Исправление 2: Явно передаем buildingId={null}, чтобы удовлетворить TS
+        case 'parking_config': return <ParkingConfigurator onSave={handleNext} buildingId={null} />;
         case 'summary': return <SummaryDashboard />;
         case 'registry_res': 
         case 'registry_nonres':
@@ -144,13 +151,13 @@ export default function App() {
       setCreating(true);
       try {
           const newId = Date.now().toString();
+          /** @type {import('./lib/types').ProjectMeta} */
           const newProjectMeta = { 
               id: newId, 
               name: 'Новый проект', 
               status: 'Проектный', 
               lastModified: new Date().toISOString(),
-              author: activePersona.name,
-              authorId: activePersona.id
+              author: activePersona.name
           };
           const initialContent = { 
               complexInfo: { name: 'Новый проект', status: 'Проектный' }, 
