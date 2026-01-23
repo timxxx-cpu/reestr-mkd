@@ -4,26 +4,13 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
+import { getBlocksList } from '../../lib/utils'; // <--- Импорт
 
 const TYPE_COLORS = {
     flat: 'bg-white border-slate-200 hover:border-blue-300',
     duplex_up: 'bg-purple-50 border-purple-200 text-purple-700',
     duplex_down: 'bg-orange-50 border-orange-200 text-orange-700'
 };
-
-function getBlocksList(building) {
-    if (!building) return [];
-    const list = [];
-    if (building.category && building.category.includes('residential')) {
-        for(let i=0; i<(building.resBlocks || 0); i++) {
-            list.push({ id: `res_${i}`, type: 'Ж', index: i, fullId: `${building.id}_res_${i}` });
-        }
-    }
-    if (list.length === 0 && building.category && building.category.includes('residential')) {
-        list.push({ id: 'main', type: 'Основной', index: 0, fullId: `${building.id}_main` });
-    }
-    return list;
-}
 
 export default function FlatMatrixEditor({ buildingId, onBack }) {
     const { 
@@ -40,6 +27,8 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     const [startNum, setStartNum] = useState(1);
 
     const building = composition?.find(c => c.id === buildingId);
+    
+    // Используем общую функцию
     const blocksList = useMemo(() => getBlocksList(building), [building]);
     const currentBlock = blocksList[activeBlockIndex];
 
@@ -70,7 +59,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
     const updateApt = (ent, floorId, idx, field, val) => {
         if (!currentBlock) return;
-        // Валидация: номер должен начинаться с цифры
         if (field === 'num' && val !== '' && !/^\d/.test(val)) return;
 
         setFlatMatrix(prev => ({
@@ -115,7 +103,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
     return (
         <div className="space-y-6 pb-20 w-full animate-in fade-in duration-500">
-            {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-4">
                 <div className="flex gap-4 items-center">
                     <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><ArrowLeft size={24}/></button>
@@ -138,7 +125,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                  {blocksList.map((b,i) => (<TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>Блок {i+1}</TabButton>))}
             </div>
 
-            {/* ТАБЛИЦА */}
             <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden flex flex-col">
                 <div className="flex-1 overflow-auto relative w-full max-w-[calc(100vw-64px)]" style={{ maxHeight: 'calc(100vh - 250px)' }}>
                     <table className="border-collapse bg-white" style={{ width: 'max-content' }}>
@@ -159,7 +145,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
                                 return (
                                     <tr key={f.id} className={`${isDuplexFloor ? 'bg-purple-50/5' : ''} transition-colors h-10`}>
-                                        {/* Ячейка Этажа */}
                                         <td className={`p-2 font-bold text-xs sticky left-0 border-r-2 border-slate-300 text-center z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] ${!isValid ? 'bg-red-50 text-red-600' : 'bg-white text-slate-700'}`}>
                                             <div className="flex flex-col items-center gap-0.5">
                                                 {f.label}
@@ -170,41 +155,20 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                                                 )}
                                             </div>
                                         </td>
-
-                                        {/* Ячейки Подъездов */}
                                         {entrances.map(e => {
                                             const count = parseInt(entrancesData[`${currentBlock.fullId}_ent${e}_${f.id}`]?.apts || 0);
                                             const isEvenCol = e % 2 === 0;
-
                                             if (count === 0) return <td key={e} className={`p-2 border-r-2 border-slate-100 ${isEvenCol ? 'bg-slate-50/30' : 'bg-blue-50/10'}`}></td>;
-
                                             return (
                                                 <td key={e} className={`p-2 border-r-2 border-slate-100 align-top min-w-[220px] ${isEvenCol ? 'bg-slate-50/20' : 'bg-blue-50/5'}`}>
                                                     <div className="flex flex-wrap gap-1.5">
                                                         {Array.from({length: count}).map((_, i) => {
                                                             const a = getApt(e, f.id, i);
                                                             const isMissingNum = !a.num || String(a.num).trim() === '';
-                                                            
                                                             return (
                                                                 <div key={i} className={`flex flex-col gap-0.5 p-1.5 border rounded-lg w-[64px] text-center transition-all shadow-sm ${TYPE_COLORS[a.type] || TYPE_COLORS.flat} ${isMissingNum ? 'border-red-300 ring-2 ring-red-50' : ''}`}>
-                                                                    <DebouncedInput 
-                                                                        type="text" 
-                                                                        className="w-full text-center font-black text-xs outline-none bg-transparent" 
-                                                                        value={a.num} 
-                                                                        onChange={val=>updateApt(e,f.id,i,'num',val)} 
-                                                                        placeholder="№"
-                                                                    />
-                                                                    {isDuplexFloor && (
-                                                                        <select 
-                                                                            className="w-full text-[8px] bg-transparent outline-none font-bold cursor-pointer text-center appearance-none border-t border-black/5 mt-0.5 pt-0.5" 
-                                                                            value={a.type} 
-                                                                            onChange={ev=>updateApt(e,f.id,i,'type',ev.target.value)}
-                                                                        >
-                                                                            <option value="flat">—</option>
-                                                                            <option value="duplex_up">Вверх</option>
-                                                                            {(f.label === '1' && hasBasement) && <option value="duplex_down">Вниз</option>}
-                                                                        </select>
-                                                                    )}
+                                                                    <DebouncedInput type="text" className="w-full text-center font-black text-xs outline-none bg-transparent" value={a.num} onChange={val=>updateApt(e,f.id,i,'num',val)} placeholder="№"/>
+                                                                    {isDuplexFloor && (<select className="w-full text-[8px] bg-transparent outline-none font-bold cursor-pointer text-center appearance-none border-t border-black/5 mt-0.5 pt-0.5" value={a.type} onChange={ev=>updateApt(e,f.id,i,'type',ev.target.value)}><option value="flat">—</option><option value="duplex_up">Вверх</option>{(f.label === '1' && hasBasement) && <option value="duplex_down">Вниз</option>}</select>)}
                                                                 </div>
                                                             );
                                                         })}

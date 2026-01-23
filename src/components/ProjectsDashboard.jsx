@@ -2,9 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { 
   Plus, Building2, Search, ChevronRight, 
   LayoutGrid, List as ListIcon, MapPin, HardHat, FileText, 
-  Archive, Trash2, Lock, User // <-- Добавил иконку User
+  Archive, Trash2, Lock, User
 } from 'lucide-react';
-import { Button } from './ui/UIKit'; // Убедитесь, что этот путь правильный, или удалите, если используете html button
+import { getStageColor } from '../lib/utils'; // <--- Импорт утилиты
 
 export default function ProjectsDashboard({ projects = [], onSelect, onCreate, onDelete }) {
     const [searchTerm, setSearchTerm] = useState('');
@@ -55,26 +55,8 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
         onSelect(project.id);
     };
 
-    // Хелпер для цветов статуса
-    const getStatusStyle = (status) => {
-        switch(status) {
-            case 'Строящийся': return 'bg-blue-100 text-blue-700 border-blue-200';
-            case 'Проектный': return 'bg-purple-100 text-purple-700 border-purple-200';
-            case 'Введенный': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-            case 'Архив': return 'bg-slate-100 text-slate-500 border-slate-200';
-            default: return 'bg-slate-100 text-slate-600 border-slate-200';
-        }
-    };
-
     return (
         <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
-            {/* --- ШАПКА --- */}
-            {/* Если вы используете этот компонент внутри App.jsx, где уже есть шапка, 
-                то этот header можно скрыть или адаптировать */}
-            {/* <header className="bg-white border-b border-slate-200 px-8 py-5 sticky top-0 z-20 shadow-sm/50">
-               ... код шапки ...
-            </header> */}
-
             <main className="max-w-7xl mx-auto px-4 md:px-8 py-8 space-y-8">
                 
                 {/* --- СВОДКА (METRICS) --- */}
@@ -141,7 +123,7 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                                         `}
                                     >
                                         <div className="flex justify-between items-start mb-4">
-                                            <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider border ${getStatusStyle(project.status)}`}>
+                                            <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider border ${getStageColor(project.status)}`}>
                                                 {project.status}
                                             </span>
                                             {!project.isDemo ? (
@@ -223,7 +205,7 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4">
-                                                    <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wide border ${getStatusStyle(project.status)}`}>
+                                                    <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wide border ${getStageColor(project.status)}`}>
                                                         {project.status}
                                                     </span>
                                                 </td>

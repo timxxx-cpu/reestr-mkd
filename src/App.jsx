@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, User, Users, FolderOpen, Plus, AlertTriangle } from 'lucide-react';
+import { Loader2, User, FolderOpen, Plus, AlertTriangle } from 'lucide-react';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, deleteDoc, getDoc, arrayUnion } from 'firebase/firestore';
+import { Routes, Route, useNavigate, useParams, Navigate } from 'react-router-dom';
 import { auth, db, APP_ID } from './lib/firebase';
 
 // Контексты
@@ -37,7 +38,7 @@ const TEST_USERS = [
     { id: 'u4', name: 'Аббос', role: 'editor' },
 ];
 
-// --- ERROR BOUNDARY ---
+// --- ERROR BOUNDARY (Обработчик ошибок) ---
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -67,34 +68,47 @@ const PlaceholderEditor = ({ title }) => (
   </div>
 );
 
-// --- Внутренний лейаут редактора ---
-function ProjectEditorLayout({ onBack }) {
+// --- Внутренний лейаут редактора с Роутингом ---
+function ProjectEditorRoute() {
+    // Получаем ID проекта прямо из URL браузера
+    const { projectId } = useParams();
+    const navigate = useNavigate();
+    
+    // Локальное состояние шагов
     const [currentStep, setCurrentStep] = useState(0);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [editingBuildingId, setEditingBuildingId] = useState(null);
   
-    // Достаем saveData для автосохранения при переходах
+    // Хук для работы с данными (автосохранение и пр.)
     const { complexInfo, composition, saveData } = useProject();
   
+    // Логика переключения шагов
     const handleNext = () => {
         setEditingBuildingId(null);
-        saveData(); // Автосохранение
+        saveData(); 
         setCurrentStep(prev => Math.min(prev + 1, (STEPS_CONFIG?.length || 1) - 1));
     };
     const handlePrev = () => {
         setEditingBuildingId(null);
-        saveData(); // Автосохранение
+        saveData(); 
         setCurrentStep(prev => Math.max(prev - 1, 0));
     };
     const onStepChange = (idx) => {
         setEditingBuildingId(null);
-        saveData(); // Автосохранение
+        saveData(); 
         setCurrentStep(idx);
+    };
+    
+    // Выход в меню проектов
+    const handleBackToDashboard = () => {
+        saveData();
+        navigate('/');
     };
   
     const stepConfig = STEPS_CONFIG?.[currentStep] || {};
     const stepId = stepConfig.id || 'unknown';
   
+    // Рендер контента в зависимости от шага и выбранного здания
     const renderStepContent = () => {
       if (editingBuildingId) {
           if (stepId === 'registry_res') return <BuildingConfigurator buildingId={editingBuildingId} mode="res" onBack={() => setEditingBuildingId(null)} />;
@@ -128,12 +142,12 @@ function ProjectEditorLayout({ onBack }) {
             onStepChange={onStepChange} 
             isOpen={sidebarOpen} 
             onToggle={() => setSidebarOpen(!sidebarOpen)} 
-            onBackToDashboard={onBack} 
+            onBackToDashboard={handleBackToDashboard} 
         />
         <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
             <div className="px-8 pt-6 pb-2">
                  <Breadcrumbs 
-                     projectName={complexInfo?.name || "Новый проект"} 
+                     projectName={complexInfo?.name || "Загрузка..."} 
                      stepTitle={stepConfig?.title}
                      buildingName={editingBuildingId ? composition?.find(b => b.id === editingBuildingId)?.label : null}
                      onBackToStep={() => setEditingBuildingId(null)}
@@ -157,17 +171,36 @@ function ProjectEditorLayout({ onBack }) {
         </main>
       </div>
     );
-  }
+}
 
-// --- ГЛАВНЫЙ КОМПОНЕНТ ---
+// Вспомогательная обертка для ProjectProvider
+// Она нужна, чтобы при смене URL (смене ID проекта) полностью пересоздавать контекст
+const ProjectProviderWrapper = ({ children, firebaseUser, dbScope }) => {
+    const { projectId } = useParams();
+    return (
+        <ProjectProvider 
+            key={projectId} // Ключ заставляет React пересоздать компонент при смене ID
+            projectId={projectId} 
+            user={firebaseUser}
+            customScope={dbScope}
+        >
+            <ErrorBoundary onReset={() => window.location.href = '/'}>
+                {children}
+            </ErrorBoundary>
+        </ProjectProvider>
+    );
+};
+
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [activePersona, setActivePersona] = useState(TEST_USERS[0]);
-  const [currentProjectId, setCurrentProjectId] = useState(null);
   const [projectsList, setProjectsList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  
+  const navigate = useNavigate();
 
+  // Аутентификация
   useEffect(() => {
     signInAnonymously(auth).catch(console.error);
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -177,26 +210,21 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Загрузка списка
+  // Загрузка списка проектов
   useEffect(() => {
     if (!firebaseUser) return;
     const metaRef = doc(db, 'artifacts', APP_ID, 'users', DB_SCOPE, 'registry_data', 'projects_meta');
-    
     const unsubscribe = onSnapshot(metaRef, (snap) => {
-        if (snap.exists()) {
-            setProjectsList(snap.data().list || []);
-        } else {
-            setProjectsList([]);
-        }
+        if (snap.exists()) setProjectsList(snap.data().list || []);
+        else setProjectsList([]);
     });
     return () => unsubscribe();
   }, [firebaseUser]);
 
-  // СОЗДАНИЕ
+  // Создание нового проекта
   const createProject = async () => {
       if (!firebaseUser || creating) return;
       setCreating(true);
-
       try {
           const newId = Date.now().toString();
           const newProject = { 
@@ -208,14 +236,19 @@ export default function App() {
               authorId: activePersona.id
           };
           
+          // Обновляем список
           const metaRef = doc(db, 'artifacts', APP_ID, 'users', DB_SCOPE, 'registry_data', 'projects_meta');
           await setDoc(metaRef, { list: arrayUnion(newProject) }, { merge: true });
           
+          // Создаем файл проекта
           const projectRef = doc(db, 'artifacts', APP_ID, 'users', DB_SCOPE, 'registry_data', `project_${newId}`);
           await setDoc(projectRef, { 
               complexInfo: { name: 'Новый проект', status: 'Проектный' }, 
               composition: []
           });
+          
+          // Переходим на страницу нового проекта
+          navigate(`/project/${newId}`);
 
       } catch (e) {
           console.error("Ошибка создания:", e);
@@ -225,13 +258,12 @@ export default function App() {
       }
   };
 
-  // УДАЛЕНИЕ
+  // Удаление проекта
   const deleteProject = async (id) => {
       if (!confirm('Удалить проект навсегда?')) return;
       try {
           const metaRef = doc(db, 'artifacts', APP_ID, 'users', DB_SCOPE, 'registry_data', 'projects_meta');
           const metaSnap = await getDoc(metaRef);
-          
           if (metaSnap.exists()) {
             const currentList = metaSnap.data().list || [];
             const newList = currentList.filter(p => p.id !== id);
@@ -246,95 +278,63 @@ export default function App() {
   if (loading) return <div className="flex items-center justify-center h-screen bg-slate-50 gap-2 text-slate-500"><Loader2 className="animate-spin"/> Загрузка...</div>;
   if (!firebaseUser) return <div className="p-8 flex justify-center text-slate-400">Нет соединения с Firebase</div>;
 
-  // --- ЭКРАН 1: ГЛАВНЫЙ ДАШБОРД ---
-  if (!currentProjectId) {
-      return (
-          <div className="min-h-screen bg-slate-50">
-             
-             {/* ШАПКА ПРИЛОЖЕНИЯ */}
-             <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-0 z-50 shadow-sm">
-                
-                {/* Логотип и Инфо */}
-                <div className="flex items-center gap-4 w-full md:w-auto">
-                    <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-white shadow-lg">
-                        <FolderOpen size={20} />
-                    </div>
-                    <div>
-                        <h1 className="text-lg font-bold text-slate-800 leading-tight">Реестр МКД</h1>
-                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-2">
-                             <span>{DB_SCOPE}</span>
-                             <span className="text-slate-200">|</span>
-                             <span>Проектов: {projectsList.length}</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Правая часть: Пользователи + Кнопки */}
-                <div className="flex items-center gap-3 w-full md:w-auto justify-end">
-                    
-                    {/* Переключатель пользователей */}
-                    <div className="flex bg-slate-100 rounded-full p-1 border border-slate-200 overflow-x-auto max-w-[200px] md:max-w-none custom-scrollbar">
-                        {TEST_USERS.map(user => (
-                            <button
-                                key={user.id}
-                                onClick={() => setActivePersona(user)}
-                                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${
-                                    activePersona.id === user.id 
-                                    ? 'bg-white text-slate-900 shadow-sm' 
-                                    : 'text-slate-500 hover:text-slate-700'
-                                }`}
-                            >
-                                <User size={12} /> {user.name}
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* Разделитель */}
-                    <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
-
-                    {/* КНОПКА СОЗДАНИЯ */}
-                    <button 
-                        onClick={createProject}
-                        disabled={creating}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-blue-200 transition-all active:scale-95 disabled:opacity-70 disabled:pointer-events-none"
-                    >
-                        {creating ? <Loader2 size={14} className="animate-spin"/> : <Plus size={14}/>}
-                        <span className="hidden sm:inline">Новый объект</span>
-                    </button>
-                </div>
-             </div>
-
-             {/* КОНТЕНТ ДАШБОРДА */}
-             <div className="p-6 md:p-8">
-                <ProjectsDashboard 
-                    projects={projectsList} 
-                    onCreate={createProject} 
-                    onSelect={setCurrentProjectId} 
-                    onDelete={deleteProject}
-                    isCreating={creating}
-                />
-             </div>
-          </div>
-      );
-  }
-
-  // --- ЭКРАН 2: РЕДАКТОР ---
   return (
     <ToastProvider>
-      <ProjectProvider 
-        key={currentProjectId} 
-        projectId={currentProjectId} 
-        user={firebaseUser}
-        customScope={DB_SCOPE}
-      >
-          <ErrorBoundary onReset={() => setCurrentProjectId(null)}>
-              <ProjectEditorLayout onBack={() => setCurrentProjectId(null)} />
-          </ErrorBoundary>
-          
-          <div className="fixed bottom-1 left-1 z-[9999] px-2 py-1 bg-white/90 text-[10px] text-slate-500 border border-slate-200 rounded shadow-lg pointer-events-none flex items-center gap-1">
-             <Users size={10}/> Вы: <b>{activePersona.name}</b>
-          </div>
-      </ProjectProvider>
+        <Routes>
+            {/* ГЛАВНАЯ СТРАНИЦА (ДАШБОРД) */}
+            <Route path="/" element={
+                <div className="min-h-screen bg-slate-50">
+                    <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-0 z-50 shadow-sm">
+                        <div className="flex items-center gap-4 w-full md:w-auto">
+                            <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-white shadow-lg">
+                                <FolderOpen size={20} />
+                            </div>
+                            <div>
+                                <h1 className="text-lg font-bold text-slate-800 leading-tight">Реестр МКД</h1>
+                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-2">
+                                    <span>{DB_SCOPE}</span><span className="text-slate-200">|</span><span>Проектов: {projectsList.length}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+                            <div className="flex bg-slate-100 rounded-full p-1 border border-slate-200 overflow-x-auto max-w-[200px] md:max-w-none custom-scrollbar">
+                                {TEST_USERS.map(user => (
+                                    <button key={user.id} onClick={() => setActivePersona(user)} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${activePersona.id === user.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                        <User size={12} /> {user.name}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
+                            <button onClick={createProject} disabled={creating} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-blue-200 transition-all active:scale-95 disabled:opacity-70 disabled:pointer-events-none">
+                                {creating ? <Loader2 size={14} className="animate-spin"/> : <Plus size={14}/>} <span className="hidden sm:inline">Новый объект</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div className="p-6 md:p-8">
+                        <ProjectsDashboard 
+                            projects={projectsList} 
+                            onSelect={(id) => navigate(`/project/${id}`)} 
+                            onCreate={createProject}
+                            onDelete={deleteProject}
+                        />
+                    </div>
+                </div>
+            } />
+
+            {/* СТРАНИЦА РЕДАКТОРА */}
+            <Route path="/project/:projectId" element={
+                <ProjectProviderWrapper firebaseUser={firebaseUser} dbScope={DB_SCOPE}>
+                    <ProjectEditorRoute />
+                </ProjectProviderWrapper>
+            } />
+
+            {/* Ловушка 404 (Переадресация на главную) */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+
+        <div className="fixed bottom-1 left-1 z-[9999] px-2 py-1 bg-white/90 text-[10px] text-slate-500 border border-slate-200 rounded shadow-lg pointer-events-none flex items-center gap-1">
+             <User size={10}/> Вы: <b>{activePersona.name}</b>
+        </div>
     </ToastProvider>
   );
 }

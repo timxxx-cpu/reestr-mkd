@@ -7,16 +7,9 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Button } from '../ui/UIKit';
+import { calculateProgress } from '../../lib/utils'; // <--- Импорт утилиты
 
-// --- Хелперы ---
-function calculateProgress(start, end) {
-    if (!start || !end) return 0;
-    const total = new Date(end).getTime() - new Date(start).getTime();
-    const current = new Date().getTime() - new Date(start).getTime();
-    return total <= 0 ? 0 : Math.min(100, Math.max(0, (current / total) * 100));
-}
-
-// Расчет длительности в месяцах
+// Расчет длительности в месяцах (оставим тут, т.к. специфично для паспорта)
 function getDuration(start, end) {
     if (!start || !end) return null;
     const d1 = new Date(start);
@@ -89,10 +82,10 @@ export default function PassportEditor() {
         saveData({}, true);
     };
 
+    // Используем функцию из utils.js
     const progress = calculateProgress(complexInfo.dateStartProject, complexInfo.dateEndProject);
     const StatusIcon = STATUS_CONFIG[complexInfo.status]?.icon || LayoutDashboard;
 
-    // Расчеты длительности
     const durProject = getDuration(complexInfo.dateStartProject, complexInfo.dateEndProject);
     const durFact = getDuration(complexInfo.dateStartFact, complexInfo.dateEndFact);
 
@@ -125,7 +118,7 @@ export default function PassportEditor() {
                                 <Button variant="secondary" onClick={autoFill} className="bg-white/10 border-white/10 text-white hover:bg-white/20 text-xs h-9">
                                     <Wand2 size={14}/> Демо
                                 </Button>
-                                <Button onClick={handleSaveClick} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50 h-9">
+                                <Button onClick={handleSaveClick} className="bg-blue-600 hover:bg-blue-50 text-white shadow-lg shadow-blue-900/50 h-9">
                                     <Save size={14}/> Сохранить
                                 </Button>
                             </div>

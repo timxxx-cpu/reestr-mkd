@@ -6,82 +6,13 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
+import { getBlocksList } from '../../lib/utils'; // <--- Импорт
 
-// --- Константы ---
 const PARKING_TYPE_LABELS = {
     capital: "Капитальный",
     light: "Легкие конструкции",
     open: "Открытый"
 };
-
-// --- Утилита для получения списка блоков ---
-function getBlocksList(building) {
-    if (!building) return [];
-    const list = [];
-    
-    // 1. ЖИЛЫЕ БЛОКИ
-    if (building.category && building.category.includes('residential')) {
-        const count = building.resBlocks || (building.category === 'residential' ? 1 : 0);
-        for(let i=0; i < count; i++) {
-            list.push({ 
-                id: `res_${i}`, 
-                type: 'Ж', 
-                index: i, 
-                fullId: `${building.id}_res_${i}`,
-                tabLabel: count > 1 ? `Жилой Блок - ${i+1}` : `Жилой дом`,
-                icon: Building2
-            });
-        }
-    }
-
-    // 2. НЕЖИЛЫЕ БЛОКИ
-    if (building.nonResBlocks > 0) {
-         for(let i=0; i < building.nonResBlocks; i++) {
-             list.push({ 
-                 id: `non_${i}`, 
-                 type: 'Н', 
-                 index: i, 
-                 fullId: `${building.id}_non_${i}`,
-                 tabLabel: `Нежилой Блок - ${i+1}`,
-                 icon: Store
-             });
-         }
-    }
-
-    // 3. СПЕЦИАЛЬНЫЕ ТИПЫ
-    if (building.category === 'parking_separate') {
-         list.push({ 
-             id: 'main', 
-             type: 'Паркинг', 
-             index: 0, 
-             fullId: `${building.id}_main`,
-             tabLabel: 'Паркинг',
-             icon: Car 
-        });
-    } else if (building.category === 'infrastructure') {
-         list.push({ 
-             id: 'main', 
-             type: 'Инфра', 
-             index: 0, 
-             fullId: `${building.id}_main`,
-             tabLabel: building.infraType || 'Объект',
-             icon: Box
-        });
-    }
-
-    if (list.length === 0) {
-        list.push({ 
-            id: 'main', 
-            type: 'Основной', 
-            index: 0, 
-            fullId: `${building.id}_main`,
-            tabLabel: 'Основной корпус',
-            icon: Building2
-        });
-    }
-    
-    return list;
-}
 
 export default function FloorMatrixEditor({ buildingId, onBack }) {
     const { composition, buildingDetails, floorData, setFloorData, saveData } = useProject();
@@ -94,26 +25,20 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     const isInfrastructure = building?.category === 'infrastructure';
     const isUndergroundParking = isParking && building?.parkingType === 'underground';
     
-    // Исключаем открытые и легкие паркинги из инвентаризации
     const isExcludedType = isParking && (building.constructionType === 'open' || building.constructionType === 'light');
 
-    // Списки блоков
+    // Используем общую функцию
     const blocksList = useMemo(() => getBlocksList(building), [building]);
     const currentBlock = blocksList[activeBlockIndex];
 
     if (!building) return <div className="p-8 text-center">Объект не найден</div>;
 
-    // Если тип исключен, показываем заглушку
     if (isExcludedType) {
         return (
             <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-4 animate-in fade-in">
-                <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
-                    <Ruler size={40} />
-                </div>
+                <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400"><Ruler size={40} /></div>
                 <h3 className="text-xl font-bold text-slate-700">Внешняя инвентаризация не требуется</h3>
-                <p className="text-slate-500 max-w-md">
-                    Для паркингов открытого типа или легких конструкций обмеры этажей не производятся.
-                </p>
+                <p className="text-slate-500 max-w-md">Для паркингов открытого типа или легких конструкций обмеры этажей не производятся.</p>
                 <Button onClick={onBack} variant="secondary">Вернуться назад</Button>
             </div>
         );
@@ -121,13 +46,11 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
     if (!currentBlock) return <div className="p-8">Блоки не найдены</div>;
     
-    // Детали текущего блока
     const detailsKey = `${building.id}_${currentBlock.id}`;
     const blockDetails = buildingDetails[detailsKey] || {};
     const features = buildingDetails[`${building.id}_features`] || {};
     const basements = features.basements || [];
 
-    // --- РАСЧЕТ ВЫСОТЫ СТИЛОБАТА (ДЛЯ ИСКЛЮЧЕНИЯ ЭТАЖЕЙ) ---
     const stylobateHeight = useMemo(() => {
         if (currentBlock.type !== 'Ж') return 0;
         let maxH = 0;
@@ -144,28 +67,17 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         return maxH;
     }, [blocksList, buildingDetails, currentBlock, building.id]);
     
-    // --- ГЕНЕРАЦИЯ СПИСКА ЭТАЖЕЙ ---
     const floorList = useMemo(() => { 
         const list = []; 
         
-        // 1. ПОДЗЕМНЫЙ ПАРКИНГ
         if (isUndergroundParking) {
             const depth = blockDetails.levelsDepth || 1;
             for (let i = 1; i <= depth; i++) {
-                list.push({
-                    id: `level_minus_${i}`,
-                    label: `Уровень -${i}`,
-                    type: 'basement',
-                    index: -i,
-                    sortOrder: -i
-                });
+                list.push({ id: `level_minus_${i}`, label: `Уровень -${i}`, type: 'basement', index: -i, sortOrder: -i });
             }
             return list.sort((a,b) => b.sortOrder - a.sortOrder); 
         }
 
-        // 2. СТАНДАРТНЫЕ ЗДАНИЯ
-        
-        // --- ПОДВАЛЫ ---
         const currentBlockBasements = basements.filter(b => b.blocks?.includes(currentBlock.id));
         const hasMultipleBasements = currentBlockBasements.length > 1;
 
@@ -173,23 +85,14 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
             for(let d = b.depth; d >= 1; d--) {
                 let label = `Подвал (этаж -${d})`;
                 if (hasMultipleBasements) label = `Подвал ${bIdx + 1} (этаж -${d})`;
-
-                list.push({ 
-                    id: `base_${b.id}_L${d}`, 
-                    label: label, 
-                    type: 'basement', 
-                    isSeparator: d === 1,
-                    sortOrder: -1000 - d + (bIdx * 0.1) 
-                }); 
+                list.push({ id: `base_${b.id}_L${d}`, label: label, type: 'basement', isSeparator: d === 1, sortOrder: -1000 - d + (bIdx * 0.1) }); 
             }
         }); 
         
-        // --- ЦОКОЛЬ ---
         if(blockDetails.hasBasementFloor) {
             list.push({ id: 'tsokol', label: 'Цокольный этаж', type: 'tsokol', isSeparator: true, sortOrder: -100 }); 
         }
         
-        // --- НАЗЕМНЫЕ ЭТАЖИ ---
         let start = 1;
         let end = 1;
 
@@ -202,43 +105,21 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         }
         
         for(let i = start; i <= end; i++) { 
-            // Исключаем этажи, занятые стилобатом (только для жилых блоков)
-            if (currentBlock.type === 'Ж' && i <= stylobateHeight) {
-                continue;
-            }
+            if (currentBlock.type === 'Ж' && i <= stylobateHeight) continue;
 
             let type = 'residential'; 
-            
             if (currentBlock.type === 'Н') type = 'office'; 
             if (building.category === 'parking_separate') type = 'parking_floor';
             if (building.category === 'infrastructure') type = 'office';
-            
-            if (currentBlock.type === 'Ж' && blockDetails.commercialFloors?.includes(i)) {
-                type = 'mixed';
-            }
+            if (currentBlock.type === 'Ж' && blockDetails.commercialFloors?.includes(i)) type = 'mixed';
 
-            list.push({ 
-                id: `floor_${i}`, 
-                label: `${i} этаж`, 
-                index: i, 
-                type: type, 
-                sortOrder: i * 10 
-            }); 
+            list.push({ id: `floor_${i}`, label: `${i} этаж`, index: i, type: type, sortOrder: i * 10 }); 
             
-            // Вставной тех.этаж
             if (blockDetails.technicalFloors?.includes(i)) {
-                list.push({ 
-                    id: `floor_${i}_tech`, 
-                    label: `${i}-Т (Технический)`, 
-                    index: i, 
-                    type: 'technical', 
-                    isInserted: true, 
-                    sortOrder: (i * 10) + 5 
-                });
+                list.push({ id: `floor_${i}_tech`, label: `${i}-Т (Технический)`, index: i, type: 'technical', isInserted: true, sortOrder: (i * 10) + 5 });
             }
         } 
         
-        // --- МАНСАРДА, ЧЕРДАК, КРЫША ---
         if(blockDetails.hasAttic) list.push({ id: 'attic', label: 'Мансарда', type: 'attic', sortOrder: 50000 }); 
         if(blockDetails.hasLoft) list.push({ id: 'loft', label: 'Чердак', type: 'loft', sortOrder: 55000 }); 
         if(blockDetails.hasExploitableRoof) list.push({ id: 'roof', label: 'Эксплуатируемая кровля', type: 'roof', sortOrder: 60000 }); 
@@ -257,18 +138,10 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         if (value === '') return null; 
 
         if (field === 'height') {
-            if (floorType === 'roof') {
-                if (numVal < 0) return "Не меньше 0";
-            } else {
-                if (numVal < 1.8) return "Мин. 1.8 м";
-            }
+            if (floorType === 'roof') { if (numVal < 0) return "Не меньше 0"; } else { if (numVal < 1.8) return "Мин. 1.8 м"; }
             if (numVal > 6.0) return "Макс. 6.0 м"; 
         }
-
-        if (field === 'areaProj' || field === 'areaFact') {
-            if (numVal <= 0) return "> 0";
-        }
-
+        if (field === 'areaProj' || field === 'areaFact') { if (numVal <= 0) return "> 0"; }
         if (field === 'areaFact' || field === 'areaProj') {
             const proj = field === 'areaProj' ? numVal : parseFloat(allValues?.areaProj);
             const fact = field === 'areaFact' ? numVal : parseFloat(allValues?.areaFact);
@@ -359,61 +232,25 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                      <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><ArrowLeft size={24}/></button>
                      <div>
                          <h2 className="text-2xl font-bold text-slate-800 leading-tight">{building.label}</h2>
-                         
-                         {/* --- ИНФО О ДОМЕ И ТИПЕ --- */}
                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 items-center">
                              <p className="text-slate-400 text-xs font-bold uppercase tracking-wider">Внешняя инвентаризация</p>
-                             
-                             <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-0.5 rounded text-xs text-slate-600">
-                                 <span className="font-bold text-slate-400 uppercase text-[9px]">Дом</span>
-                                 <span className="font-bold">{building.houseNumber}</span>
-                             </div>
-
-                             <div className="flex items-center gap-1.5 text-xs text-slate-600 pl-2 border-l border-slate-200">
-                                 <span className="font-bold text-slate-400 uppercase text-[9px]">Тип</span>
-                                 <span className="font-medium">{building.type}</span>
-                             </div>
-
-                             {/* --- ДЛЯ ПАРКИНГОВ --- */}
-                             {isParking && (
-                                 <div className="flex items-center gap-1.5 text-xs text-slate-600 pl-2 border-l border-slate-200">
-                                     <span className="font-bold text-slate-400 uppercase text-[9px]">Вид</span>
-                                     <span className="font-medium">
-                                         {isUndergroundParking ? 'Подземный' : 'Наземный'}
-                                         {building.constructionType && ` • ${PARKING_TYPE_LABELS[building.constructionType] || building.constructionType}`}
-                                     </span>
-                                 </div>
-                             )}
-
-                             {/* --- ДЛЯ ИНФРАСТРУКТУРЫ --- */}
-                             {isInfrastructure && (
-                                 <div className="flex items-center gap-1.5 text-xs text-slate-600 pl-2 border-l border-slate-200">
-                                     <span className="font-bold text-slate-400 uppercase text-[9px]">Вид</span>
-                                     <span className="font-medium">{building.infraType || 'Не указан'}</span>
-                                 </div>
-                             )}
+                             <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-0.5 rounded text-xs text-slate-600"><span className="font-bold text-slate-400 uppercase text-[9px]">Дом</span><span className="font-bold">{building.houseNumber}</span></div>
+                             <div className="flex items-center gap-1.5 text-xs text-slate-600 pl-2 border-l border-slate-200"><span className="font-bold text-slate-400 uppercase text-[9px]">Тип</span><span className="font-medium">{building.type}</span></div>
+                             {isParking && (<div className="flex items-center gap-1.5 text-xs text-slate-600 pl-2 border-l border-slate-200"><span className="font-bold text-slate-400 uppercase text-[9px]">Вид</span><span className="font-medium">{isUndergroundParking ? 'Подземный' : 'Наземный'}{building.constructionType && ` • ${PARKING_TYPE_LABELS[building.constructionType] || building.constructionType}`}</span></div>)}
+                             {isInfrastructure && (<div className="flex items-center gap-1.5 text-xs text-slate-600 pl-2 border-l border-slate-200"><span className="font-bold text-slate-400 uppercase text-[9px]">Вид</span><span className="font-medium">{building.infraType || 'Не указан'}</span></div>)}
                          </div>
                      </div>
                  </div>
                  <div className="flex gap-2">
                      <button onClick={autoFill} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors shadow-sm"><Wand2 size={14}/> Автозаполнение</button>
-                     <Button onClick={() => { saveData(); onBack(); }} disabled={hasCriticalErrors} className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}>
-                         <Save size={14}/> {hasCriticalErrors ? 'Исправьте ошибки' : 'Готово'}
-                     </Button>
+                     <Button onClick={() => { saveData(); onBack(); }} disabled={hasCriticalErrors} className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}><Save size={14}/> {hasCriticalErrors ? 'Исправьте ошибки' : 'Готово'}</Button>
                  </div>
              </div>
 
              <div className="space-y-6">
                 <div className="flex gap-2 p-1 bg-slate-100/80 backdrop-blur rounded-xl w-max overflow-x-auto">
                     {blocksList.map((b,i) => (
-                        <TabButton 
-                            key={b.id} 
-                            active={activeBlockIndex===i} 
-                            onClick={()=>setActiveBlockIndex(i)}
-                        >
-                            {b.icon && <b.icon size={14} className="mr-1.5 opacity-70"/>}
-                            {b.tabLabel}
-                        </TabButton>
+                        <TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>{b.icon && <b.icon size={14} className="mr-1.5 opacity-70"/>}{b.tabLabel}</TabButton>
                     ))}
                 </div>
 
@@ -450,38 +287,19 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                     <button onClick={() => fillRest(idx)} title="Применить ниже" className="p-1 bg-white border border-slate-200 rounded shadow-sm text-slate-400 hover:text-blue-600"><ChevronsDown size={12}/></button>
                                                 </div>
                                             </td>
-
-                                            {[
-                                                { id: 'height', ph: '0.00' }, 
-                                                { id: 'areaProj', ph: '0.00' }, 
-                                                { id: 'areaFact', ph: '0.00' }
-                                            ].map(field => {
+                                            {[{ id: 'height', ph: '0.00' }, { id: 'areaProj', ph: '0.00' }, { id: 'areaFact', ph: '0.00' }].map(field => {
                                                 const error = getValidationError(f.type, field.id, val[field.id], val);
                                                 const isWarning = error === "warning_diff";
                                                 const isCritical = error && !isWarning;
-                                                
                                                 let inputClass = "bg-transparent border-transparent text-slate-400 focus:bg-white focus:border-blue-500";
                                                 if (val[field.id]) inputClass = "bg-white border-slate-200 text-slate-800 focus:border-blue-500";
                                                 if (isWarning) inputClass = "bg-yellow-50 border-yellow-300 text-yellow-800 focus:border-yellow-500";
                                                 if (isCritical) inputClass = "bg-red-50 border-red-300 text-red-800 focus:border-red-500";
-
                                                 return (
                                                     <td key={field.id} className="p-2 border-r border-slate-100 relative h-16 group/input">
-                                                        <DebouncedInput 
-                                                            type="number" step="0.01" 
-                                                            className={`w-full h-12 text-center rounded-xl font-bold text-sm outline-none transition-all border-2 ${inputClass}`}
-                                                            placeholder={field.ph} value={val[field.id]} onChange={v => handleInput(f.id, field.id, v)}
-                                                        />
-                                                        {error && error !== "warning_diff" && (
-                                                            <div className="absolute bottom-1 left-0 right-0 text-[9px] text-center text-red-500 font-bold pointer-events-none animate-in fade-in slide-in-from-top-1">
-                                                                {error}
-                                                            </div>
-                                                        )}
-                                                        {isWarning && (
-                                                            <div className="absolute top-1 right-1 text-yellow-500" title="Расхождение > 15%">
-                                                                <AlertCircle size={12}/>
-                                                            </div>
-                                                        )}
+                                                        <DebouncedInput type="number" step="0.01" className={`w-full h-12 text-center rounded-xl font-bold text-sm outline-none transition-all border-2 ${inputClass}`} placeholder={field.ph} value={val[field.id]} onChange={v => handleInput(f.id, field.id, v)} />
+                                                        {error && error !== "warning_diff" && (<div className="absolute bottom-1 left-0 right-0 text-[9px] text-center text-red-500 font-bold pointer-events-none animate-in fade-in slide-in-from-top-1">{error}</div>)}
+                                                        {isWarning && (<div className="absolute top-1 right-1 text-yellow-500" title="Расхождение > 15%"><AlertCircle size={12}/></div>)}
                                                     </td>
                                                 );
                                             })}

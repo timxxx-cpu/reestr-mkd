@@ -5,76 +5,7 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
-
-// --- Хелпер списка блоков (Стандартный) ---
-function getBlocksList(building) {
-    if (!building) return [];
-    const list = [];
-    
-    // 1. ЖИЛЫЕ БЛОКИ
-    if (building.category && building.category.includes('residential')) {
-        const count = building.resBlocks || (building.category === 'residential' ? 1 : 0);
-        for(let i=0; i < count; i++) {
-            list.push({ 
-                id: `res_${i}`, 
-                type: 'Ж', 
-                index: i, 
-                fullId: `${building.id}_res_${i}`,
-                tabLabel: count > 1 ? `Жилой Блок - ${i+1}` : `Жилой дом`,
-                icon: Building2
-            });
-        }
-    }
-
-    // 2. НЕЖИЛЫЕ БЛОКИ
-    if (building.nonResBlocks > 0) {
-         for(let i=0; i < building.nonResBlocks; i++) {
-             list.push({ 
-                 id: `non_${i}`, 
-                 type: 'Н', 
-                 index: i, 
-                 fullId: `${building.id}_non_${i}`,
-                 tabLabel: `Нежилой Блок - ${i+1}`,
-                 icon: Store
-             });
-         }
-    }
-
-    // 3. СПЕЦИАЛЬНЫЕ ТИПЫ
-    if (building.category === 'parking_separate') {
-         list.push({ 
-             id: 'main', 
-             type: 'Паркинг', 
-             index: 0, 
-             fullId: `${building.id}_main`,
-             tabLabel: 'Паркинг',
-             icon: Car 
-        });
-    } else if (building.category === 'infrastructure') {
-         list.push({ 
-             id: 'main', 
-             type: 'Инфра', 
-             index: 0, 
-             fullId: `${building.id}_main`,
-             tabLabel: building.infraType || 'Объект',
-             icon: Box
-        });
-    }
-
-    // Фолбек
-    if (list.length === 0) {
-        list.push({ 
-            id: 'main', 
-            type: 'Основной', 
-            index: 0, 
-            fullId: `${building.id}_main`,
-            tabLabel: 'Основной корпус',
-            icon: Building2
-        });
-    }
-    
-    return list;
-}
+import { getBlocksList } from '../../lib/utils'; // <--- Импорт утилиты
 
 export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const { composition, buildingDetails, entrancesData, setEntrancesData, floorData, setFloorData, saveData } = useProject();
@@ -82,7 +13,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
     const building = composition.find(c => c.id === buildingId);
     
-    // Списки блоков
+    // Используем общую функцию
     const blocksList = useMemo(() => getBlocksList(building), [building]);
     const currentBlock = blocksList[activeBlockIndex];
 
@@ -97,9 +28,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const showEditor = isResidentialBlock || isUndergroundParking;
 
     const blockDetails = buildingDetails[`${building.id}_${currentBlock.id}`] || {};
-    // Для паркинга количество "подъездов" берем из поля inputs (Входы для людей) или vehicleEntries, 
-    // но логичнее использовать inputs как аналог подъездов для людей.
-    // Если inputs не задано, fallback на 1.
     const entrancesCount = isUndergroundParking 
         ? (blockDetails.inputs || 1) 
         : (blockDetails.entrances || 1);
@@ -125,7 +53,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                     sortOrder: -i
                 });
             }
-            return list.sort((a,b) => b.sortOrder - a.sortOrder); // Сортировка: -1 выше, чем -2
+            return list.sort((a,b) => b.sortOrder - a.sortOrder); 
         }
 
         // 2. СЦЕНАРИЙ: ЖИЛОЙ БЛОК
@@ -227,7 +155,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         const updates = {}; 
         entrancesList.forEach(ent => floorList.forEach(f => { 
             let apts = 0;
-            // Автозаполнение только для жилого
             if (isResidentialBlock) {
                 if (f.type === 'residential' || f.type === 'attic') apts = 4;
                 if (f.type === 'mixed') apts = 3;
@@ -304,7 +231,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
     return (
         <div className="space-y-6 pb-20 w-full animate-in fade-in duration-500">
-            {/* Header (СТАНДАРТНЫЙ) */}
             <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-4">
                 <div className="flex gap-4 items-center">
                     <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><ArrowLeft size={24}/></button>
@@ -312,16 +238,8 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                         <h2 className="text-2xl font-bold text-slate-800 leading-tight">{building.label}</h2>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 items-center">
                              <p className="text-slate-400 text-xs font-bold uppercase tracking-wider">Матрица подъездов</p>
-                             
-                             <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-0.5 rounded text-xs text-slate-600">
-                                 <span className="font-bold text-slate-400 uppercase text-[9px]">Дом</span>
-                                 <span className="font-bold">{building.houseNumber}</span>
-                             </div>
-
-                             <div className="flex items-center gap-1.5 text-xs text-slate-600 pl-2 border-l border-slate-200">
-                                 <span className="font-bold text-slate-400 uppercase text-[9px]">Тип</span>
-                                 <span className="font-medium">{building.type}</span>
-                             </div>
+                             <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-0.5 rounded text-xs text-slate-600"><span className="font-bold text-slate-400 uppercase text-[9px]">Дом</span><span className="font-bold">{building.houseNumber}</span></div>
+                             <div className="flex items-center gap-1.5 text-xs text-slate-600 pl-2 border-l border-slate-200"><span className="font-bold text-slate-400 uppercase text-[9px]">Тип</span><span className="font-medium">{building.type}</span></div>
                         </div>
                     </div>
                 </div>
@@ -331,41 +249,24 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 </div>
             </div>
 
-            {/* Вкладки блоков (СТАНДАРТНЫЕ) */}
             <div className="flex gap-2 p-1 bg-slate-200/50 rounded-xl w-max overflow-x-auto max-w-full mb-6 scrollbar-none">
                 {blocksList.map((b,i) => (
-                    <TabButton 
-                        key={b.id} 
-                        active={activeBlockIndex===i} 
-                        onClick={()=>setActiveBlockIndex(i)}
-                    >
-                        {b.icon && <b.icon size={14} className="mr-1.5 opacity-70"/>}
-                        {b.tabLabel}
-                    </TabButton>
+                    <TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>{b.icon && <b.icon size={14} className="mr-1.5 opacity-70"/>}{b.tabLabel}</TabButton>
                 ))}
             </div>
 
-            {/* ОСНОВНОЙ КОНТЕНТ */}
             {showEditor ? (
                 <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden flex flex-col">
                     <div className="flex-1 overflow-auto relative w-full max-w-[calc(100vw-64px)]" style={{ maxHeight: 'calc(100vh - 250px)' }}>
                         <table className="w-max border-collapse table-fixed">
                             <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-30 shadow-sm">
                                 <tr>
-                                    {/* ЭТАЖ */}
                                     <th className="p-2 text-left w-[110px] min-w-[110px] sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
-                                    
                                     {entrancesList.map(e => (
-                                        /* ПОДЪЕЗДЫ */
                                         <th key={e} className="p-1 w-[180px] min-w-[180px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">
                                             <div className="flex flex-col items-center">
-                                                {/* Для паркинга "Подъезд" не очень подходит, меняем на "Сектор / Вход" или оставляем Вход */}
-                                                <span className="text-blue-600 mb-1 font-bold text-xs">
-                                                    {isUndergroundParking ? `Вход ${e}` : `Подъезд ${e}`}
-                                                </span>
-                                                <div className="grid grid-cols-3 gap-1 w-full text-center opacity-60 text-[9px]">
-                                                    <span>Квартир</span><span>Нежилых</span><span>МОП</span>
-                                                </div>
+                                                <span className="text-blue-600 mb-1 font-bold text-xs">{isUndergroundParking ? `Вход ${e}` : `Подъезд ${e}`}</span>
+                                                <div className="grid grid-cols-3 gap-1 w-full text-center opacity-60 text-[9px]"><span>Квартир</span><span>Нежилых</span><span>МОП</span></div>
                                             </div>
                                         </th>
                                     ))}
@@ -374,67 +275,30 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                             <tbody className="divide-y divide-slate-100 bg-white">
                                 {floorList.map((f, idx) => {
                                     const isDuplex = floorData[`${currentBlock.fullId}_${f.id}`]?.isDuplex; 
-                                    // Логика доступности: квартиры только если это жилой тип
                                     const canHaveApts = ['residential', 'mixed', 'basement', 'tsokol', 'attic'].includes(f.type) && !isUndergroundParking;
                                     const duplexState = getDuplexState(f, idx);
 
                                     return (
                                         <tr key={f.id} className="hover:bg-blue-50/30 focus-within:bg-blue-50 transition-colors duration-200 group h-10">
-                                            
-                                            {/* ЯЧЕЙКА ЭТАЖА */}
                                             <td className="p-1 w-[110px] min-w-[110px] sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 z-20 border-r border-slate-200 relative group/cell shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                                 <div className="flex items-center justify-between h-full px-1">
                                                     <div className="flex items-center gap-1.5">
-                                                        {canHaveApts && (
-                                                            <input 
-                                                                type="checkbox" 
-                                                                title={duplexState.title + (duplexState.disabled ? " (недоступно)" : "")}
-                                                                checked={isDuplex || false} 
-                                                                onChange={() => !duplexState.disabled && toggleDuplex(f.id)} 
-                                                                disabled={duplexState.disabled}
-                                                                className={`rounded w-3 h-3 transition-all flex-shrink-0 ${duplexState.disabled ? 'cursor-not-allowed opacity-30 bg-slate-100' : 'cursor-pointer text-purple-600'}`}
-                                                            />
-                                                        )}
+                                                        {canHaveApts && (<input type="checkbox" title={duplexState.title + (duplexState.disabled ? " (недоступно)" : "")} checked={isDuplex || false} onChange={() => !duplexState.disabled && toggleDuplex(f.id)} disabled={duplexState.disabled} className={`rounded w-3 h-3 transition-all flex-shrink-0 ${duplexState.disabled ? 'cursor-not-allowed opacity-30 bg-slate-100' : 'cursor-pointer text-purple-600'}`}/>)}
                                                         <span className="text-xs font-bold text-slate-700">{f.label}</span>
                                                     </div>
                                                     {renderBadge(f.type)}
                                                 </div>
-                                                
-                                                {/* Кнопки копирования (скрыты для паркинга для упрощения, или можно оставить) */}
                                                 <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/cell:opacity-100 flex gap-1 z-30 bg-white/90 p-0.5 rounded shadow-sm border border-slate-200">
                                                     <button onClick={() => fillFloorsAfter(idx)} title="Заполнить вниз" className="p-0.5 hover:text-blue-600"><ArrowDown size={10}/></button>
                                                     <button onClick={() => copyFloorToNext(idx)} title="Копировать на следующий" className="p-0.5 hover:text-blue-600"><ArrowDown size={10} className="opacity-50"/></button>
                                                 </div>
                                             </td>
-
-                                            {/* ЯЧЕЙКИ ПОДЪЕЗДОВ */}
                                             {entrancesList.map(e => (
                                                 <td key={e} className={`p-0 w-[180px] min-w-[180px] border-r border-slate-100 h-10 relative group/cell ${isDuplex ? 'bg-purple-50/10' : ''}`}>
                                                     <div className="grid grid-cols-3 h-full divide-x divide-slate-100">
-                                                        {/* КВАРТИРЫ */}
-                                                        <DebouncedInput 
-                                                            type="number" 
-                                                            disabled={!canHaveApts}
-                                                            className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${!canHaveApts ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : 'text-emerald-700 bg-emerald-50/30'}`} 
-                                                            value={getEntData(e, f.id, 'apts')} 
-                                                            onChange={val => setEntData(e, f.id, 'apts', val)} 
-                                                            placeholder={canHaveApts ? "-" : ""}
-                                                        />
-                                                        {/* НЕЖИЛЫЕ (Для паркинга тоже выключаем) */}
-                                                        <DebouncedInput 
-                                                            type="number" 
-                                                            disabled={!f.isComm || isUndergroundParking} 
-                                                            className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${(!f.isComm || isUndergroundParking) ? 'bg-slate-50 text-slate-200 cursor-not-allowed' : 'bg-blue-50/30 text-blue-700'}`} 
-                                                            value={getEntData(e, f.id, 'units')} 
-                                                            onChange={val => setEntData(e, f.id, 'units', val)} 
-                                                        />
-                                                        {/* МОП - всегда активен */}
-                                                        <DebouncedInput 
-                                                            type="number" 
-                                                            className="text-center text-xs font-bold outline-none h-full w-full bg-white text-slate-500 focus:text-slate-800 focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all" 
-                                                            value={getEntData(e, f.id, 'mopQty')} 
-                                                            onChange={val => setEntData(e, f.id, 'mopQty', val)} 
-                                                        />
+                                                        <DebouncedInput type="number" disabled={!canHaveApts} className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${!canHaveApts ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : 'text-emerald-700 bg-emerald-50/30'}`} value={getEntData(e, f.id, 'apts')} onChange={val => setEntData(e, f.id, 'apts', val)} placeholder={canHaveApts ? "-" : ""}/>
+                                                        <DebouncedInput type="number" disabled={!f.isComm || isUndergroundParking} className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${(!f.isComm || isUndergroundParking) ? 'bg-slate-50 text-slate-200 cursor-not-allowed' : 'bg-blue-50/30 text-blue-700'}`} value={getEntData(e, f.id, 'units')} onChange={val => setEntData(e, f.id, 'units', val)} />
+                                                        <DebouncedInput type="number" className="text-center text-xs font-bold outline-none h-full w-full bg-white text-slate-500 focus:text-slate-800 focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all" value={getEntData(e, f.id, 'mopQty')} onChange={val => setEntData(e, f.id, 'mopQty', val)} />
                                                     </div>
                                                     <div className="absolute top-0 right-0 h-full flex items-center pr-0.5 opacity-0 group-hover/cell:opacity-100 transition-opacity z-10 pointer-events-none">
                                                         <div className="flex flex-col gap-0.5 pointer-events-auto bg-white/90 backdrop-blur-sm shadow-sm border border-slate-200 rounded p-0.5">
@@ -452,17 +316,10 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                     </div>
                 </Card>
             ) : (
-                // ЗАГЛУШКА ДЛЯ НЕЖИЛЫХ БЛОКОВ
                 <div className="flex flex-col items-center justify-center h-[50vh] text-center space-y-4 animate-in fade-in">
-                    <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
-                        <DoorOpen size={40} />
-                        <div className="absolute"><Ban size={20} className="text-slate-400 translate-x-4 translate-y-4"/></div>
-                    </div>
+                    <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400"><DoorOpen size={40} /><div className="absolute"><Ban size={20} className="text-slate-400 translate-x-4 translate-y-4"/></div></div>
                     <h3 className="text-xl font-bold text-slate-700">Настройка подъездов недоступна</h3>
-                    <p className="text-slate-500 max-w-md">
-                        Матрица подъездов и квартир заполняется только для жилых блоков и подземных паркингов.
-                        <br/>Для нежилых блоков и инфраструктуры это не требуется.
-                    </p>
+                    <p className="text-slate-500 max-w-md">Матрица подъездов и квартир заполняется только для жилых блоков и подземных паркингов.<br/>Для нежилых блоков и инфраструктуры это не требуется.</p>
                 </div>
             )}
         </div>

@@ -8,92 +8,7 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Select, Button, TabButton } from '../ui/UIKit';
-
-// --- Хелперы ---
-function getBlocksList(building) {
-    if (!building) return [];
-    const list = [];
-    
-    // 1. ЖИЛЫЕ БЛОКИ
-    if (building.category && building.category.includes('residential')) {
-        const count = building.resBlocks || 0;
-        for(let i=0; i < count; i++) {
-            list.push({ 
-                id: `res_${i}`, 
-                type: 'Ж', 
-                index: i, 
-                fullId: `${building.id}_res_${i}`,
-                tabLabel: count > 1 ? `Жилой Блок - ${i+1}` : `Жилой дом`,
-                icon: Building2
-            });
-        }
-    }
-
-    // 2. НЕЖИЛЫЕ БЛОКИ
-    if (building.nonResBlocks > 0) {
-         for(let i=0; i < building.nonResBlocks; i++) {
-             list.push({ 
-                 id: `non_${i}`, 
-                 type: 'Н', 
-                 index: i, 
-                 fullId: `${building.id}_non_${i}`,
-                 tabLabel: `Нежилой Блок - ${i+1}`,
-                 icon: Store
-             });
-         }
-    }
-
-    // 3. СПЕЦИАЛЬНЫЕ ТИПЫ
-    if (building.category === 'parking_separate') {
-         list.push({ 
-             id: 'main', 
-             type: 'Паркинг', 
-             index: 0, 
-             fullId: `${building.id}_main`,
-             tabLabel: 'Паркинг',
-             icon: Car 
-        });
-    } else if (building.category === 'infrastructure') {
-         list.push({ 
-             id: 'main', 
-             type: 'Инфра', 
-             index: 0, 
-             fullId: `${building.id}_main`,
-             tabLabel: building.infraType || 'Объект',
-             icon: Box
-        });
-    }
-
-    if (list.length === 0) {
-        list.push({ 
-            id: 'main', 
-            type: 'Основной', 
-            index: 0, 
-            fullId: `${building.id}_main`,
-            tabLabel: 'Основной корпус',
-            icon: Building2
-        });
-    }
-    
-    return list;
-}
-
-const getStageColor = (stage) => {
-    switch(stage) {
-        case 'Введенный': return 'text-emerald-700 bg-emerald-50 border-emerald-200';
-        case 'Строящийся': return 'text-blue-700 bg-blue-50 border-blue-200';
-        case 'Проектный': return 'text-purple-700 bg-purple-50 border-purple-200';
-        default: return 'text-slate-700 bg-slate-50 border-slate-200';
-    }
-};
-
-const calculateProgress = (start, end) => {
-    if (!start || !end) return 0;
-    const total = new Date(end).getTime() - new Date(start).getTime();
-    const current = new Date().getTime() - new Date(start).getTime();
-    if (total <= 0) return 0;
-    return Math.min(100, Math.max(0, (current / total) * 100));
-};
+import { getBlocksList, calculateProgress, getStageColor } from '../../lib/utils'; // <--- Импорт из utils
 
 const PARKING_TYPE_LABELS = {
     capital: "Капитальный",
@@ -191,32 +106,24 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         return maxH;
     }, [buildingDetails, blocksList, currentBlock, building.id]);
 
-    // Проверка: Занят ли цоколь нежилым блоком снизу?
     const isResBasementLocked = useMemo(() => {
         if (currentBlock?.type !== 'Ж') return false;
-        
-        // Ищем нежилой блок, который находится под текущим жилым
         const stylobateBlock = blocksList.find(b => {
             if (b.type !== 'Н') return false;
             const key = `${building.id}_${b.id}`;
             const bDetails = buildingDetails[key];
             return bDetails?.parentBlocks?.includes(currentBlock.id);
         });
-
         if (!stylobateBlock) return false;
-
-        // Проверяем, есть ли у этого нежилого блока цоколь
         const stylobateDetails = buildingDetails[`${building.id}_${stylobateBlock.id}`];
         return !!stylobateDetails?.hasBasementFloor;
     }, [blocksList, buildingDetails, currentBlock, building.id]);
 
-    // ЭФФЕКТ: Сброс галочки "Цокольный этаж" у жилого блока, если она заблокирована стилобатом
     useEffect(() => {
         if (isResBasementLocked && details.hasBasementFloor) {
             updateDetail('hasBasementFloor', false);
         }
     }, [isResBasementLocked, details.hasBasementFloor]);
-
 
     const occupiedResBlocks = useMemo(() => {
         const map = {};
@@ -236,7 +143,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
 
     const localResBlocks = useMemo(() => blocksList.filter(b => b.type === 'Ж'), [blocksList]);
 
-    // --- УПРАВЛЕНИЕ ---
     const updateBasement = (id, field, val) => {
         const updatedBasements = (features.basements || []).map(b => b.id === id ? { ...b, [field]: val } : b);
         updateFeatures({ basements: updatedBasements });
@@ -270,14 +176,11 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
             : [...currentParents, blockId];
         
         const updates = { parentBlocks: newParents };
-
-        // Если нежилой блок становится "под" кем-то (стилобатом), сбрасываем крышные параметры
         if (newParents.length > 0 && currentBlock.type === 'Н') {
             updates.hasAttic = false;
             updates.hasLoft = false;
             updates.hasExploitableRoof = false;
         }
-
         setBuildingDetails(prev => ({
             ...prev,
             [detailsKey]: { ...prev[detailsKey], ...updates }
@@ -298,47 +201,35 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     ];
     if (!isParking) engineeringSystems.splice(4, 0, { id: 'gas', label: 'Газ', icon: Flame, color: 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-100' });
 
-    // --- ВАЛИДАЦИЯ КОММЕРЦИИ ---
     const isCommercialValid = useMemo(() => {
         if (!building.hasNonResPart) return true;
         if (isParking || isInfrastructure) return true;
-
         const residentialBlockIds = blocksList.filter(b => b.type === 'Ж');
         const hasAnyCommercial = residentialBlockIds.some(block => {
             const key = `${building.id}_${block.id}`;
             const blockDetails = buildingDetails[key];
             return blockDetails?.commercialFloors?.length > 0;
         });
-
         return hasAnyCommercial;
     }, [building, buildingDetails, blocksList, isParking, isInfrastructure]);
-
 
     const hasCriticalErrors = (!isParking && !isInfrastructure && (details.floorsTo > 5) && ((details.elevators || 0) < 1)) || 
                               (!isCommercialValid);
 
-    // --- БЛОКИРОВКИ ---
-    // 1. Поле "С этажа" заблокировано для 'Ж' и 'Н' (всегда 1)
     const isFloorFromDisabled = currentBlock?.type === 'Ж' || currentBlock?.type === 'Н';
-    
-    // 2. Чекбоксы крыши заблокированы, если блок является стилобатом
     const isStylobate = currentBlock?.type === 'Н' && (details.parentBlocks || []).length > 0;
 
     return (
         <div className="animate-in slide-in-from-bottom duration-500 space-y-6 pb-20 max-w-7xl mx-auto w-full">
-            
-            {/* --- ШАПКА --- */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
                     {isParking ? <Car size={140}/> : isInfrastructure ? <Box size={140}/> : <Building2 size={140}/>}
                 </div>
-                
                 <div className="flex flex-col md:flex-row justify-between items-start gap-6 relative z-10">
                     <div className="flex gap-5">
                         <button onClick={onBack} className="mt-1 p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors h-min">
                             <ArrowLeft size={24}/>
                         </button>
-                        
                         <div>
                             <div className="flex items-center gap-3 mb-2">
                                 <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${getStageColor(building.stage)}`}>
@@ -346,28 +237,15 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                 </span>
                                 <span className="text-xs font-bold text-slate-400">ID: {building.id.slice(-6)}</span>
                             </div>
-                            
                             <h1 className="text-3xl font-bold text-slate-800 mb-2">{building.label}</h1>
-                            
                             <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-600">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Дом №</span>
-                                    <span className="font-bold bg-slate-100 px-2 py-0.5 rounded">{building.houseNumber}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Тип</span>
-                                    <span className="font-medium">{building.type}</span>
-                                </div>
-                                {isParking && (
-                                    <div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-400 uppercase">Вид</span><span className="font-medium">{isUnderground ? 'Подземный' : 'Наземный'} {building.constructionType && ` • ${PARKING_TYPE_LABELS[building.constructionType] || building.constructionType}`}</span></div>
-                                )}
-                                {isInfrastructure && (
-                                    <div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-400 uppercase">Вид</span><span className="font-medium">{building.infraType || 'Не указан'}</span></div>
-                                )}
+                                <div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-400 uppercase">Дом №</span><span className="font-bold bg-slate-100 px-2 py-0.5 rounded">{building.houseNumber}</span></div>
+                                <div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-400 uppercase">Тип</span><span className="font-medium">{building.type}</span></div>
+                                {isParking && <div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-400 uppercase">Вид</span><span className="font-medium">{isUnderground ? 'Подземный' : 'Наземный'} {building.constructionType && ` • ${PARKING_TYPE_LABELS[building.constructionType] || building.constructionType}`}</span></div>}
+                                {isInfrastructure && <div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-400 uppercase">Вид</span><span className="font-medium">{building.infraType || 'Не указан'}</span></div>}
                             </div>
                         </div>
                     </div>
-
                     <div className="w-full md:w-64 bg-slate-50 rounded-xl p-4 border border-slate-100">
                         <div className="flex justify-between items-end mb-2">
                             <span className="text-[10px] font-bold text-slate-400 uppercase">Прогресс</span>
@@ -384,7 +262,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                 </div>
             </div>
 
-            {/* --- ВЕТВЛЕНИЕ: ПАРКИНГ --- */}
             {isParking ? (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2 space-y-6">
@@ -468,27 +345,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                  <div className="space-y-4">
                                     <div className="space-y-2">
                                         <Label className="flex items-center gap-2"><ArrowUp size={16} className="text-amber-600"/> Количество этажей</Label>
-                                        <Input 
-                                            type="number" 
-                                            min="1" max="3" 
-                                            value={details.floorsCount} 
-                                            onChange={(e) => {
-                                                const val = e.target.value;
-                                                if (val === '') { updateDetail('floorsCount', ''); return; }
-                                                let num = parseInt(val);
-                                                if (num > 3) num = 3;
-                                                // ПРАВИЛЬНОЕ ОБНОВЛЕНИЕ: ОДИН ВЫЗОВ setBuildingDetails
-                                                setBuildingDetails(prev => ({
-                                                    ...prev,
-                                                    [detailsKey]: {
-                                                        ...prev[detailsKey],
-                                                        floorsCount: num,
-                                                        floorsFrom: 1
-                                                    }
-                                                }));
-                                            }} 
-                                            className="font-bold text-lg"
-                                        />
+                                        <Input type="number" min="1" max="3" value={details.floorsCount} onChange={(e) => { const val = e.target.value; if (val === '') { updateDetail('floorsCount', ''); return; } let num = parseInt(val); if (num > 3) num = 3; setBuildingDetails(prev => ({ ...prev, [detailsKey]: { ...prev[detailsKey], floorsCount: num, floorsFrom: 1 } })); }} className="font-bold text-lg"/>
                                         <p className="text-[10px] text-slate-400 mt-1">Максимум 3 этажа для объекта инфраструктуры.</p>
                                     </div>
                                  </div>
@@ -508,39 +365,22 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
             ) : (
                 // --- СТАНДАРТНЫЙ ИНТЕРФЕЙС (ЖИЛЬЕ) ---
                 <>
-                    {/* ТАБЫ */}
                     <div className="flex gap-2 p-1 bg-slate-200/50 rounded-xl w-max overflow-x-auto max-w-full mb-6 scrollbar-none">
                         {visibleBlocks.map((block) => (
-                            <TabButton 
-                                key={block.id} 
-                                active={activeTabId === block.id} 
-                                onClick={() => setActiveTabId(block.id)}
-                            >
-                                {block.tabLabel}
-                            </TabButton>
+                            <TabButton key={block.id} active={activeTabId === block.id} onClick={() => setActiveTabId(block.id)}>{block.tabLabel}</TabButton>
                         ))}
-                        <TabButton active={activeTabId === 'photo'} onClick={() => setActiveTabId('photo')}>
-                            <ImageIcon size={14}/> Фасад
-                        </TabButton>
+                        <TabButton active={activeTabId === 'photo'} onClick={() => setActiveTabId('photo')}><ImageIcon size={14}/> Фасад</TabButton>
                     </div>
 
                     {currentBlockId && activeTabId !== 'photo' && (
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                             <div className="lg:col-span-2 space-y-6">
-                                {/* ЛЕВАЯ КОЛОНКА */}
-                                
-                                {/* 1. Конструктив */}
                                 <Card className="p-5 shadow-sm">
                                     <SectionTitle icon={Hammer}>Конструктив</SectionTitle>
                                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                                        {['foundation:Фундамент:Монолитная плита,Свайный', 'walls:Стены:Монолитный ж/б,Кирпич,Блок', 'slabs:Перекрытия:Монолитные ж/б,Сборные плиты', 'roof:Крыша:Плоская рулонная,Скатная,Эксплуатируемая'].map(field => {
-                                            const [key, label, opts] = field.split(':'); 
-                                            return <div key={key} className="space-y-1"><Label>{label}</Label><Select className="text-xs py-1.5" value={details[key]} onChange={(e)=>updateDetail(key, e.target.value)}>{opts.split(',').map(o=><option key={o}>{o}</option>)}</Select></div>;
-                                        })}
+                                        {['foundation:Фундамент:Монолитная плита,Свайный', 'walls:Стены:Монолитный ж/б,Кирпич,Блок', 'slabs:Перекрытия:Монолитные ж/б,Сборные плиты', 'roof:Крыша:Плоская рулонная,Скатная,Эксплуатируемая'].map(field => { const [key, label, opts] = field.split(':'); return <div key={key} className="space-y-1"><Label>{label}</Label><Select className="text-xs py-1.5" value={details[key]} onChange={(e)=>updateDetail(key, e.target.value)}>{opts.split(',').map(o=><option key={o}>{o}</option>)}</Select></div>; })}
                                     </div>
                                 </Card>
-
-                                {/* 2. Выбор родительских блоков (для НЕЖИЛЫХ) */}
                                 {currentBlock.type === 'Н' && localResBlocks.length > 0 && (
                                     <Card className="p-6 shadow-sm border-t-4 border-t-indigo-500">
                                         <SectionTitle icon={Layers}>Расположение (Стилобат)</SectionTitle>
@@ -549,180 +389,41 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                 {localResBlocks.map(res => {
                                                     const isSelected = (details.parentBlocks || []).includes(res.id);
-                                                    const occupiedBy = occupiedResBlocks[res.id]; // Кто занял
-                                                    const isDisabled = !!occupiedBy && occupiedBy !== currentBlock.tabLabel; // Если занят кем-то ЧУЖИМ
-
-                                                    return (
-                                                        <button 
-                                                            key={res.id}
-                                                            disabled={isDisabled}
-                                                            onClick={() => toggleParentBlock(res.id)}
-                                                            className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
-                                                                isSelected 
-                                                                ? 'bg-indigo-600 border-indigo-600 text-white' 
-                                                                : isDisabled 
-                                                                    ? 'bg-slate-50 border-slate-100 text-slate-400 cursor-not-allowed opacity-70'
-                                                                    : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'
-                                                            }`}
-                                                        >
-                                                            <div className="flex items-center gap-3">
-                                                                {isDisabled ? <Lock size={14}/> : <Building2 size={14}/>}
-                                                                <div>
-                                                                    <span className="text-[10px] font-bold block">{res.tabLabel}</span>
-                                                                    {isDisabled && <span className="text-[9px] text-red-400 block">Занят: {occupiedBy}</span>}
-                                                                </div>
-                                                            </div>
-                                                            {isSelected && <div className="w-2 h-2 rounded-full bg-white shrink-0"/>}
-                                                        </button>
-                                                    )
+                                                    const occupiedBy = occupiedResBlocks[res.id]; 
+                                                    const isDisabled = !!occupiedBy && occupiedBy !== currentBlock.tabLabel;
+                                                    return (<button key={res.id} disabled={isDisabled} onClick={() => toggleParentBlock(res.id)} className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : isDisabled ? 'bg-slate-50 border-slate-100 text-slate-400 cursor-not-allowed opacity-70' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'}`}><div className="flex items-center gap-3">{isDisabled ? <Lock size={14}/> : <Building2 size={14}/>}<div><span className="text-[10px] font-bold block">{res.tabLabel}</span>{isDisabled && <span className="text-[9px] text-red-400 block">Занят: {occupiedBy}</span>}</div></div>{isSelected && <div className="w-2 h-2 rounded-full bg-white shrink-0"/>}</button>)
                                                 })}
                                             </div>
                                         </div>
                                     </Card>
                                 )}
-
-                                {/* 3. Этажность и прочее (для ВСЕХ) */}
                                 <Card className="p-6 shadow-sm">
                                     <SectionTitle icon={Maximize}>Параметры этажности</SectionTitle>
                                     <div className="grid grid-cols-2 gap-8 mb-6">
                                         <div className="space-y-1">
                                             <Label>С этажа</Label>
-                                            <Input 
-                                                type="number" 
-                                                min="1"
-                                                value={isFloorFromDisabled ? 1 : details.floorsFrom} 
-                                                onChange={(e) => {
-                                                    const val = e.target.value;
-                                                    if (val === '') { updateDetail('floorsFrom', ''); return; }
-                                                    let num = parseInt(val);
-                                                    if (num < 1) num = 1; 
-                                                    updateDetail('floorsFrom', num);
-                                                }}
-                                                disabled={isFloorFromDisabled}
-                                                className={isFloorFromDisabled ? "bg-slate-100 text-slate-500 cursor-not-allowed font-bold" : ""}
-                                            />
+                                            <Input type="number" min="1" value={isFloorFromDisabled ? 1 : details.floorsFrom} onChange={(e) => { const val = e.target.value; if (val === '') { updateDetail('floorsFrom', ''); return; } let num = parseInt(val); if (num < 1) num = 1; updateDetail('floorsFrom', num); }} disabled={isFloorFromDisabled} className={isFloorFromDisabled ? "bg-slate-100 text-slate-500 cursor-not-allowed font-bold" : ""}/>
                                             {isFloorFromDisabled && <span className="text-[10px] text-slate-400">Начинается всегда с 1-го этажа</span>}
                                         </div>
                                         <div className="space-y-1">
                                             <Label>По этаж (макс. 50)</Label>
-                                            <Input 
-                                                type="number" min="1" max="50" 
-                                                value={details.floorsTo} 
-                                                onChange={(e) => { 
-                                                    const val = e.target.value;
-                                                    if (val === '') { updateDetail('floorsTo', ''); return; }
-                                                    let num = parseInt(val); 
-                                                    if (num > 50) num = 50; 
-                                                    updateDetail('floorsTo', num); 
-                                                }} 
-                                            />
+                                            <Input type="number" min="1" max="50" value={details.floorsTo} onChange={(e) => { const val = e.target.value; if (val === '') { updateDetail('floorsTo', ''); return; } let num = parseInt(val); if (num > 50) num = 50; updateDetail('floorsTo', num); }} />
                                         </div>
                                     </div>
                                     <div className="flex flex-wrap gap-4 mt-4 mb-6">
-                                        {[ 
-                                            {k: 'hasBasementFloor', l: 'Цокольный этаж', disabled: isResBasementLocked}, 
-                                            {k: 'hasAttic', l: 'Мансарда', disabled: isStylobate}, 
-                                            {k: 'hasLoft', l: 'Чердак', disabled: isStylobate}, 
-                                            {k: 'hasExploitableRoof', l: 'Эксплуатируемая крыша', disabled: isStylobate} 
-                                        ].map(({k, l, disabled}) => (
-                                            <label key={k} className={`flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-300'}`}>
-                                                <input 
-                                                    type="checkbox" 
-                                                    disabled={disabled}
-                                                    checked={details[k] || false} 
-                                                    onChange={(e)=>updateDetail(k,e.target.checked)} 
-                                                    className="rounded text-blue-600 w-4 h-4"
-                                                />
-                                                <span className="text-xs font-bold text-slate-600">{l}</span>
-                                                {disabled && k === 'hasBasementFloor' && <span className="text-[8px] text-red-400 ml-auto">Занят стилобатом</span>}
-                                            </label>
-                                        ))}
+                                        {[{k: 'hasBasementFloor', l: 'Цокольный этаж', disabled: isResBasementLocked}, {k: 'hasAttic', l: 'Мансарда', disabled: isStylobate}, {k: 'hasLoft', l: 'Чердак', disabled: isStylobate}, {k: 'hasExploitableRoof', l: 'Эксплуатируемая крыша', disabled: isStylobate}].map(({k, l, disabled}) => (<label key={k} className={`flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-300'}`}><input type="checkbox" disabled={disabled} checked={details[k] || false} onChange={(e)=>updateDetail(k,e.target.checked)} className="rounded text-blue-600 w-4 h-4"/><span className="text-xs font-bold text-slate-600">{l}</span>{disabled && k === 'hasBasementFloor' && <span className="text-[8px] text-red-400 ml-auto">Занят стилобатом</span>}</label>))}
                                     </div>
                                     <div className="mt-4 p-4 bg-amber-50/50 border border-amber-100 rounded-xl">
                                         <div className="flex items-center gap-2 mb-3"><div className="p-1.5 bg-amber-100 text-amber-600 rounded-lg"><Settings2 size={16}/></div><div><Label className="text-amber-900">Вставка тех. этажей</Label><p className="text-[10px] text-amber-600/80 leading-tight">Выберите этаж, <b>НАД</b> которым нужно добавить тех.этаж</p></div></div>
                                         <div className="flex flex-wrap gap-1.5">
-                                            {floorRange.map((f, idx) => {
-                                                const isTech = details.technicalFloors?.includes(f);
-                                                const isGap = (idx > 0) && (idx % 10 === 0);
-                                                
-                                                // Блокируем технические этажи, если они попадают в диапазон стилобата
-                                                const isLockedByStylobate = currentBlock.type === 'Ж' && f <= stylobateHeightUnderCurrentBlock;
-
-                                                return (
-                                                    <React.Fragment key={f}>
-                                                        {isGap && <div className="w-3"></div>}
-                                                        <button 
-                                                            disabled={isLockedByStylobate}
-                                                            onClick={() => toggleFloorAttribute('technicalFloors', f)} 
-                                                            className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border flex items-center justify-center gap-1 relative ${
-                                                                isLockedByStylobate 
-                                                                ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed'
-                                                                : isTech 
-                                                                    ? 'bg-amber-500 border-amber-500 text-white' 
-                                                                    : 'bg-white border-amber-200 text-amber-600 hover:bg-amber-50'
-                                                            }`}
-                                                            title={isLockedByStylobate ? 'Этаж занят стилобатом' : ''}
-                                                        >
-                                                            {f}
-                                                            {isLockedByStylobate 
-                                                                ? <Lock size={8} className="absolute top-0.5 right-0.5 opacity-50"/> 
-                                                                : (isTech ? <ArrowUpFromLine size={10}/> : <Plus size={10} className="opacity-50"/>)
-                                                            }
-                                                        </button>
-                                                    </React.Fragment>
-                                                )
-                                            })}
+                                            {floorRange.map((f, idx) => { const isTech = details.technicalFloors?.includes(f); const isGap = (idx > 0) && (idx % 10 === 0); const isLockedByStylobate = currentBlock.type === 'Ж' && f <= stylobateHeightUnderCurrentBlock; return (<React.Fragment key={f}>{isGap && <div className="w-3"></div>}<button disabled={isLockedByStylobate} onClick={() => toggleFloorAttribute('technicalFloors', f)} className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border flex items-center justify-center gap-1 relative ${isLockedByStylobate ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed' : isTech ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-amber-200 text-amber-600 hover:bg-amber-50'}`} title={isLockedByStylobate ? 'Этаж занят стилобатом' : ''}>{f}{isLockedByStylobate ? <Lock size={8} className="absolute top-0.5 right-0.5 opacity-50"/> : (isTech ? <ArrowUpFromLine size={10}/> : <Plus size={10} className="opacity-50"/>)}</button></React.Fragment>) })}
                                         </div>
                                     </div>
-                                    
-                                    {/* --- СЕКЦИЯ КОММЕРЦИИ (ТОЛЬКО ДЛЯ ЖИЛЫХ БЛОКОВ) --- */}
                                     {building.hasNonResPart && currentBlock.type === 'Ж' && (
                                         <div className="mt-6 p-4 bg-blue-50/50 border border-blue-100 rounded-xl animate-in fade-in slide-in-from-top-2">
-                                            <div className="flex items-center gap-2 mb-4">
-                                                <div className="p-1.5 bg-blue-100 text-blue-600 rounded-lg"><Store size={16}/></div>
-                                                <div><Label className="text-blue-900">Нежилые объекты (Коммерция)</Label><p className="text-[10px] text-blue-500/80 leading-tight">Отметьте этажи с нежилыми помещениями.</p></div>
-                                            </div>
+                                            <div className="flex items-center gap-2 mb-4"><div className="p-1.5 bg-blue-100 text-blue-600 rounded-lg"><Store size={16}/></div><div><Label className="text-blue-900">Нежилые объекты (Коммерция)</Label><p className="text-[10px] text-blue-500/80 leading-tight">Отметьте этажи с нежилыми помещениями.</p></div></div>
                                             <div className="flex flex-wrap gap-1.5 mb-4">
-                                                {floorRange.map((f, idx) => {
-                                                    const isComm = details.commercialFloors?.includes(f);
-                                                    const hasTechAbove = details.technicalFloors?.includes(f);
-                                                    const isCommTech = details.commercialFloors?.includes(`${f}-Т`);
-                                                    
-                                                    // Блокировка, если этаж занят стилобатом
-                                                    const isLockedByStylobate = f <= stylobateHeightUnderCurrentBlock;
-
-                                                    return (
-                                                        <React.Fragment key={f}>
-                                                            {idx > 0 && idx % 10 === 0 && <div className="w-3"></div>}
-                                                            
-                                                            <button 
-                                                                disabled={isLockedByStylobate}
-                                                                onClick={() => toggleFloorAttribute('commercialFloors', f)} 
-                                                                className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${
-                                                                    isLockedByStylobate
-                                                                    ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed'
-                                                                    : isComm 
-                                                                        ? 'bg-blue-600 border-blue-600 text-white transform scale-105' 
-                                                                        : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'
-                                                                }`}
-                                                                title={isLockedByStylobate ? 'Этаж занят стилобатом (нежилым блоком)' : ''}
-                                                            >
-                                                                {f}
-                                                                {isLockedByStylobate && <Lock size={8} className="absolute top-0.5 right-0.5 opacity-50"/>}
-                                                            </button>
-
-                                                            {details.technicalFloors?.includes(f) && (
-                                                                <button 
-                                                                    onClick={() => toggleFloorAttribute('commercialFloors', `${f}-Т`)} 
-                                                                    className={`px-1.5 h-8 rounded-md text-[10px] font-bold shadow-sm transition-all border flex items-center justify-center relative ${isCommTech ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-indigo-50 border-indigo-200 text-indigo-500 hover:bg-indigo-100'}`} 
-                                                                    title={`Отметить тех.этаж ${f}-Т как нежилой`}
-                                                                >
-                                                                    {f}-Т
-                                                                </button>
-                                                            )}
-                                                        </React.Fragment>
-                                                    )
-                                                })}
+                                                {floorRange.map((f, idx) => { const isComm = details.commercialFloors?.includes(f); const isCommTech = details.commercialFloors?.includes(`${f}-Т`); const isLockedByStylobate = f <= stylobateHeightUnderCurrentBlock; return (<React.Fragment key={f}>{idx > 0 && idx % 10 === 0 && <div className="w-3"></div>}<button disabled={isLockedByStylobate} onClick={() => toggleFloorAttribute('commercialFloors', f)} className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${isLockedByStylobate ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed' : isComm ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'}`} title={isLockedByStylobate ? 'Этаж занят стилобатом (нежилым блоком)' : ''}>{f}{isLockedByStylobate && <Lock size={8} className="absolute top-0.5 right-0.5 opacity-50"/>}</button>{details.technicalFloors?.includes(f) && (<button onClick={() => toggleFloorAttribute('commercialFloors', `${f}-Т`)} className={`px-1.5 h-8 rounded-md text-[10px] font-bold shadow-sm transition-all border flex items-center justify-center relative ${isCommTech ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-indigo-50 border-indigo-200 text-indigo-500 hover:bg-indigo-100'}`} title={`Отметить тех.этаж ${f}-Т как нежилой`}>{f}-Т</button>)}</React.Fragment>) })}
                                             </div>
                                         </div>
                                     )}
@@ -737,18 +438,8 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                 <Card className="p-6 shadow-sm"><SectionTitle icon={Settings2}>Общие</SectionTitle><div className="space-y-4"><div className="space-y-1"><Label>{currentBlock?.type === 'Ж' ? 'Подъездов' : 'Входов'} (макс. 30)</Label><Input type="number" min="1" max="30" value={details.entrances || 1} onChange={(e) => { let val = parseInt(e.target.value); if (isNaN(val)) val = 1; if (val > 30) val = 30; if (val < 1) val = 1; updateDetail('entrances', val); }}/></div><div className="space-y-1 relative"><Label>Лифтов (на блок)</Label><Input type="number" min="0" value={details.elevators || 0} onChange={(e)=> { let val = parseInt(e.target.value); if (val < 0) val = 0; updateDetail('elevators', val) }} className={(!isParking && !isInfrastructure && (details.floorsTo > 5) && ((details.elevators || 0) < 1)) ? "border-red-500 focus:border-red-500 bg-red-50" : ""}/>{(!isParking && !isInfrastructure && (details.floorsTo > 5) && ((details.elevators || 0) < 1)) && <div className="flex items-center gap-1 mt-1 text-[10px] text-red-500 font-bold animate-in fade-in"><AlertCircle size={10} /><span>Лифт обязателен &gt; 5 этажей</span></div>}</div></div></Card>
                                 
                                 <div className="flex flex-col gap-3">
-                                     <Button 
-                                        onClick={() => { saveData(); onBack(); }} 
-                                        disabled={hasCriticalErrors} 
-                                        className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}
-                                     >
-                                        <Save size={16}/> Готово
-                                    </Button>
-                                    {!isCommercialValid && (
-                                        <div className="text-[10px] text-red-500 bg-red-50 p-2 rounded text-center border border-red-100">
-                                            Укажите коммерческие этажи хотя бы в одном жилом блоке
-                                        </div>
-                                    )}
+                                     <Button onClick={() => { saveData(); onBack(); }} disabled={hasCriticalErrors} className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}><Save size={16}/> Готово</Button>
+                                    {!isCommercialValid && (<div className="text-[10px] text-red-500 bg-red-50 p-2 rounded text-center border border-red-100">Укажите коммерческие этажи хотя бы в одном жилом блоке</div>)}
                                     <Button onClick={autoFillConfig} variant="secondary" className="bg-purple-50 text-purple-600 border-purple-100"><Wand2 size={14}/> Авто-заполнение</Button>
                                 </div>
                             </div>

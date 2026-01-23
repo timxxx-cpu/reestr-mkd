@@ -5,27 +5,9 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Button, Input, Select, Label, SectionTitle } from '../ui/UIKit';
+import { calculateProgress, getStageColor } from '../../lib/utils'; // <--- Импорт из utils
 
 // --- Хелперы ---
-const calculateProgress = (start, end) => {
-    if (!start || !end) return 0;
-    const total = new Date(end).getTime() - new Date(start).getTime();
-    const current = new Date().getTime() - new Date(start).getTime();
-    if (total <= 0) return 0;
-    const percent = (current / total) * 100;
-    return Math.min(100, Math.max(0, percent));
-};
-
-const getStageColor = (stage) => {
-    switch(stage) {
-        case 'Введенный': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-        case 'Строящийся': return 'bg-blue-100 text-blue-700 border-blue-200';
-        case 'Проектный': return 'bg-purple-100 text-purple-700 border-purple-200';
-        case 'Архив': return 'bg-slate-100 text-slate-500 border-slate-200';
-        default: return 'bg-slate-50 text-slate-600 border-slate-200';
-    }
-};
-
 const TYPE_NAMES = {
     residential: "Отдельный жилой дом", 
     residential_multiblock: "Жилой дом из нескольких секций/блоков", 
