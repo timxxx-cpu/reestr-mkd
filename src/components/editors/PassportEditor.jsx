@@ -8,6 +8,9 @@ import {
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Button } from '../ui/UIKit';
 import { calculateProgress } from '../../lib/utils';
+// ИМПОРТЫ ДЛЯ ВАЛИДАЦИИ
+import { ComplexInfoSchema } from '../../lib/schemas';
+import { useValidation } from '../../hooks/useValidation';
 
 /**
  * @param {string} start
@@ -40,6 +43,9 @@ export default function PassportEditor() {
     const [loadingInn, setLoadingInn] = useState({});
     const [loadingCadastre, setLoadingCadastre] = useState(false);
 
+    // ПОДКЛЮЧЕНИЕ ВАЛИДАЦИИ
+    const { errors, isValid } = useValidation(ComplexInfoSchema, complexInfo);
+
     // --- Имитация API ---
     const fetchCadastreInfo = () => {
         if (!cadastre.number) return;
@@ -69,7 +75,6 @@ export default function PassportEditor() {
     /** @param {string} type */
     const addDocument = (type) => {
         const newDoc = { id: crypto.randomUUID(), name: `${type} №${Math.floor(Math.random()*1000)}/24`, type, date: new Date().toISOString().split('T')[0] };
-        // ИСПРАВЛЕНИЕ: Передаем массив напрямую, а не функцию
         // @ts-ignore
         setDocuments([...documents, newDoc]);
     };
@@ -90,6 +95,10 @@ export default function PassportEditor() {
     };
 
     const handleSaveClick = () => {
+        if (!isValid) {
+            alert("Пожалуйста, исправьте ошибки перед сохранением");
+            return;
+        }
         saveData({}, true);
     };
 
@@ -99,6 +108,9 @@ export default function PassportEditor() {
 
     const durProject = getDuration(complexInfo.dateStartProject, complexInfo.dateEndProject);
     const durFact = getDuration(complexInfo.dateStartFact, complexInfo.dateEndFact);
+
+    // Хелпер для отображения ошибки
+    const ErrorMsg = ({ field }) => errors[field] ? <span className="text-[9px] text-red-500 font-bold ml-2 animate-in fade-in">{errors[field]}</span> : null;
 
     return (
         <div className="max-w-7xl mx-auto pb-20 animate-in fade-in duration-500 space-y-6">
@@ -129,8 +141,8 @@ export default function PassportEditor() {
                                 <Button variant="secondary" onClick={autoFill} className="bg-white/10 border-white/10 text-white hover:bg-white/20 text-xs h-9">
                                     <Wand2 size={14}/> Демо
                                 </Button>
-                                <Button onClick={handleSaveClick} className="bg-blue-600 hover:bg-blue-50 text-white shadow-lg shadow-blue-900/50 h-9">
-                                    <Save size={14}/> Сохранить
+                                <Button onClick={handleSaveClick} disabled={!isValid} className={`h-9 text-white shadow-lg shadow-blue-900/50 transition-all ${isValid ? 'bg-blue-600 hover:bg-blue-50' : 'bg-slate-700 opacity-50 cursor-not-allowed'}`}>
+                                    <Save size={14}/> {isValid ? 'Сохранить' : 'Ошибка'}
                                 </Button>
                             </div>
                         </div>
@@ -183,12 +195,12 @@ export default function PassportEditor() {
                             {/* Форма */}
                             <div className="p-6 space-y-5">
                                 <div className="space-y-1.5">
-                                    <Label>Наименование ЖК / Проекта</Label>
+                                    <Label>Наименование ЖК / Проекта <ErrorMsg field="name"/></Label>
                                     <Input 
                                         value={complexInfo.name || ''} 
                                         onChange={e => setComplexInfo({...complexInfo, name: e.target.value})} 
                                         placeholder="Например: ЖК 'Grand Capital'" 
-                                        className="font-bold text-base"
+                                        className={`font-bold text-base ${errors.name ? 'border-red-300 bg-red-50' : ''}`}
                                     />
                                 </div>
                                 <div className="space-y-1.5">
@@ -214,9 +226,9 @@ export default function PassportEditor() {
                                     />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <Label>Улица / Адрес</Label>
+                                    <Label>Улица / Адрес <ErrorMsg field="street"/></Label>
                                     <textarea 
-                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 transition-all resize-none h-24"
+                                        className={`w-full p-3 bg-slate-50 border rounded-xl text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 transition-all resize-none h-24 ${errors.street ? 'border-red-300 bg-red-50' : 'border-slate-200'}`}
                                         value={complexInfo.street || ''}
                                         onChange={e => setComplexInfo({...complexInfo, street: e.target.value})}
                                         placeholder="Полный адрес..."
@@ -292,7 +304,7 @@ export default function PassportEditor() {
                         <SectionTitle icon={Clock}>График реализации</SectionTitle>
                         
                         {/* 1. Блок: План (Проект) */}
-                        <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 mb-4 relative overflow-hidden">
+                        <div className={`bg-slate-50 rounded-2xl p-4 border mb-4 relative overflow-hidden transition-colors ${errors.dateEndProject ? 'border-red-300 bg-red-50' : 'border-slate-100'}`}>
                             {durProject && <div className="absolute top-0 right-0 bg-slate-200 text-slate-600 text-[9px] font-bold px-2 py-1 rounded-bl-lg">{durProject}</div>}
                             
                             <div className="flex items-center gap-2 mb-3 text-slate-500">
@@ -314,13 +326,16 @@ export default function PassportEditor() {
                                     <ArrowRight size={14} className="rotate-90"/>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] text-slate-400 font-semibold mb-1 block">Ввод в эксплуатацию</label>
+                                    <label className="text-[10px] text-slate-400 font-semibold mb-1 flex justify-between">
+                                        Ввод в эксплуатацию 
+                                    </label>
                                     <Input 
                                         type="date" 
-                                        className="bg-white"
+                                        className={`bg-white ${errors.dateEndProject ? 'border-red-300 ring-2 ring-red-100' : ''}`}
                                         value={complexInfo.dateEndProject || ''} 
                                         onChange={e => setComplexInfo({...complexInfo, dateEndProject: e.target.value})} 
                                     />
+                                    {errors.dateEndProject && <p className="text-[9px] text-red-500 font-bold mt-1 text-right">{errors.dateEndProject}</p>}
                                 </div>
                             </div>
                         </div>
@@ -380,7 +395,6 @@ export default function PassportEditor() {
                                         </div>
                                     </div>
                                     <button 
-                                        // ИСПРАВЛЕНИЕ: Передаем массив напрямую в setDocuments
                                         onClick={() => setDocuments(documents.filter(x => x.id !== doc.id))} 
                                         className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-500 transition-all"
                                     >

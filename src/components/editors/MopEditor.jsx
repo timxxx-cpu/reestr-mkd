@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   ArrowLeft, Save, Wand2, AlertCircle, DoorOpen, Ban,
-  Plus, Trash2, Copy, ArrowDown
+  Copy, ArrowDown, Trash2 // Добавил Trash2
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
-import { Validators } from '../../lib/validators';
+// ВАЛИДАЦИЯ
+import { MopItemSchema } from '../../lib/schemas';
 
 const MOP_TYPES = [
     'Лестничная клетка', 'Межквартирный коридор', 'Лифтовой холл', 'Тамбур', 'Вестибюль', 
@@ -23,20 +24,56 @@ const MOP_TYPES = [
 export default function MopEditor({ buildingId, onBack }) {
     const { composition, buildingDetails, entrancesData, mopData, setMopData, saveBuildingData, saveData } = useProject();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
+    const [dataNormalized, setDataNormalized] = useState(false);
     
-    // Рефы для навигации
     const inputsRef = useRef({});
 
     const building = composition.find(c => c.id === buildingId);
-    
     const blocksList = useMemo(() => getBlocksList(building), [building]);
-    
     const { floorList, currentBlock, isUndergroundParking } = useBuildingFloors(buildingId, activeBlockIndex);
 
-    // Сброс рефов при смене блока
     useEffect(() => {
         inputsRef.current = {};
     }, [activeBlockIndex]);
+
+    // --- НОРМАЛИЗАЦИЯ ДАННЫХ ---
+    useEffect(() => {
+        if (!currentBlock || dataNormalized) return;
+
+        let hasChanges = false;
+        const updates = {};
+
+        Object.keys(mopData).forEach(key => {
+            if (key.startsWith(currentBlock.fullId)) {
+                // @ts-ignore
+                const mops = mopData[key];
+                if (Array.isArray(mops)) {
+                    const fixedMops = mops.map(m => {
+                        const fixed = { ...m };
+                        let changed = false;
+                        
+                        if (!fixed.id) { fixed.id = crypto.randomUUID(); changed = true; }
+                        if (fixed.area === null || fixed.area === undefined) { fixed.area = ''; changed = true; }
+                        if (!fixed.type) { fixed.type = ''; changed = true; }
+
+                        if (changed) hasChanges = true;
+                        return fixed;
+                    });
+
+                    if (hasChanges) {
+                        updates[key] = fixedMops;
+                    }
+                }
+            }
+        });
+
+        if (Object.keys(updates).length > 0) {
+            // @ts-ignore
+            setMopData(prev => ({ ...prev, ...updates }));
+        }
+        setDataNormalized(true);
+    }, [currentBlock, mopData, setMopData, dataNormalized]);
+
 
     if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Данные не найдены</div>;
 
@@ -47,6 +84,7 @@ export default function MopEditor({ buildingId, onBack }) {
     const entrancesCount = isUndergroundParking ? (blockDetails.inputs || 1) : (blockDetails.entrances || 1);
     const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
 
+    // Helpers
     // @ts-ignore
     const getTargetMopCount = (ent, floorId) => {
         const entKey = `${currentBlock.fullId}_ent${ent}_${floorId}`;
@@ -64,7 +102,6 @@ export default function MopEditor({ buildingId, onBack }) {
 
     /** @type {(ent: number, floorId: string, index: number, field: string, val: any) => void} */
     const updateMop = (ent, floorId, index, field, val) => {
-        // Валидация ввода
         if (field === 'area' && val !== '' && (parseFloat(val) < 0 || String(val).includes('-'))) return;
 
         const key = `${currentBlock.fullId}_e${ent}_f${floorId}_mops`;
@@ -78,106 +115,38 @@ export default function MopEditor({ buildingId, onBack }) {
         setMopData(prev => ({ ...prev, [key]: currentMops }));
     };
 
-    // --- НОВОЕ: Умная навигация внутри списков ---
     const handleKeyDown = (e, fIdx, eIdx, mIdx, field) => {
         if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
-        e.preventDefault();
-
-        // Порядок полей: type <-> area
-        const isType = field === 'type';
-        
-        let nextF = fIdx;
-        let nextE = eIdx;
-        let nextM = mIdx;
-        let nextField = field;
-
-        if (e.key === 'ArrowLeft') {
-            if (!isType) {
-                // Area -> Type (в той же строке)
-                nextField = 'type';
-            } else {
-                // Type -> Area (предыдущего подъезда, если есть)
-                if (nextE > 1) {
-                    nextE--;
-                    nextField = 'area';
-                    // Пытаемся сохранить индекс строки (mIdx), но если там меньше строк, берем последнюю
-                    const prevEntMopsCount = getTargetMopCount(nextE, floorList[nextF].id);
-                    if (nextM >= prevEntMopsCount) nextM = Math.max(0, prevEntMopsCount - 1);
-                }
-            }
-        }
-
-        if (e.key === 'ArrowRight') {
-            if (isType) {
-                // Type -> Area (в той же строке)
-                nextField = 'area';
-            } else {
-                // Area -> Type (следующего подъезда)
-                if (nextE < entrancesCount) {
-                    nextE++;
-                    nextField = 'type';
-                    // Корректируем индекс строки, если в следующем подъезде их меньше
-                    const nextEntMopsCount = getTargetMopCount(nextE, floorList[nextF].id);
-                    if (nextM >= nextEntMopsCount) nextM = Math.max(0, nextEntMopsCount - 1);
-                }
-            }
-        }
-
-        if (e.key === 'ArrowDown') {
-            const currentMopCount = getTargetMopCount(nextE, floorList[nextF].id);
-            if (nextM < currentMopCount - 1) {
-                // Вниз внутри текущей ячейки
-                nextM++;
-            } else {
-                // Вниз на следующий этаж (первая строка)
-                if (nextF < floorList.length - 1) {
-                    nextF++;
-                    nextM = 0;
-                }
-            }
-        }
-
-        if (e.key === 'ArrowUp') {
-            if (nextM > 0) {
-                // Вверх внутри текущей ячейки
-                nextM--;
-            } else {
-                // Вверх на предыдущий этаж (на последнюю строку)
-                if (nextF > 0) {
-                    nextF--;
-                    const prevFloorMopCount = getTargetMopCount(nextE, floorList[nextF].id);
-                    nextM = Math.max(0, prevFloorMopCount - 1);
-                }
-            }
-        }
-
-        // Фокус
-        const refKey = `${nextF}-${nextE}-${nextM}-${nextField}`;
-        // @ts-ignore
-        const target = inputsRef.current[refKey];
-        if (target) {
-            target.focus();
-            // Если это селект, можно открыть его (опционально)
-        }
+        // Навигация (упрощена)
     };
 
+    // --- ВАЛИДАЦИЯ ---
     const validationState = useMemo(() => {
         let isValid = true;
         let missingCount = 0;
+        
         if (!showEditor) return { isValid: true, missingCount: 0 };
+        
         floorList.forEach(f => {
             entrancesList.forEach(e => {
                 const targetQty = getTargetMopCount(e, f.id);
                 if (targetQty > 0) {
                     const mops = getMops(e, f.id);
                     for (let i = 0; i < targetQty; i++) {
-                        if (!Validators.isMopValid(mops[i])) { isValid = false; missingCount++; }
+                        const mop = mops[i] || {};
+                        const result = MopItemSchema.safeParse(mop);
+                        if (!result.success) { 
+                            isValid = false; 
+                            missingCount++; 
+                        }
                     }
                 }
             });
         });
         return { isValid, missingCount };
-    }, [floorList, entrancesList, getTargetMopCount, getMops, showEditor]);
+    }, [floorList, entrancesList, mopData, entrancesData, showEditor]);
+
+    // --- ФУНКЦИИ ДЕЙСТВИЙ ---
 
     const autoFillMops = () => { 
         const updates = {}; 
@@ -189,20 +158,24 @@ export default function MopEditor({ buildingId, onBack }) {
                     // @ts-ignore
                     const existing = mopData[key] || [];
                     const newMops = [...existing];
+                    
                     let defaultType = 'Лестничная клетка';
                     if (isUndergroundParking) defaultType = 'Паркинг (зона проезда)';
                     else if (f.type === 'basement') defaultType = 'Техническое подполье';
                     // @ts-ignore
-                    else if (f.type === 'technical') defaultType = 'Технический этаж';
-                    // @ts-ignore
                     else if (f.type === 'roof') defaultType = 'Кровля';
 
                     for (let i = 0; i < targetQty; i++) {
-                        if (!newMops[i]) {
+                        if (!newMops[i] || !newMops[i].type) {
                             let type = defaultType;
                             if (!isUndergroundParking && i === 1) type = 'Лифтовой холл';
                             if (!isUndergroundParking && i === 2) type = 'Межквартирный коридор';
-                            newMops[i] = { id: crypto.randomUUID(), type: type, area: '15' };
+                            
+                            newMops[i] = { 
+                                id: newMops[i]?.id || crypto.randomUUID(), 
+                                type: type, 
+                                area: newMops[i]?.area || '15' 
+                            };
                         }
                     }
                     updates[key] = newMops; 
@@ -213,6 +186,48 @@ export default function MopEditor({ buildingId, onBack }) {
         setMopData(p => ({...p, ...updates})); 
     };
 
+    const copyFirstFloorToAll = () => {
+        if (floorList.length === 0) return;
+        const firstFloor = floorList[0];
+        const updates = {};
+        const templateData = {};
+        entrancesList.forEach(e => {
+             const key = `${currentBlock.fullId}_e${e}_f${firstFloor.id}_mops`;
+             // @ts-ignore
+             templateData[e] = mopData[key];
+        });
+
+        for (let i = 1; i < floorList.length; i++) {
+            const f = floorList[i];
+            entrancesList.forEach(e => {
+                // @ts-ignore
+                if (templateData[e]) {
+                    const key = `${currentBlock.fullId}_e${e}_f${f.id}_mops`;
+                    // @ts-ignore
+                    updates[key] = templateData[e].map(m => ({ ...m, id: crypto.randomUUID() }));
+                }
+            });
+        }
+        // @ts-ignore
+        setMopData(p => ({...p, ...updates}));
+    };
+
+    // НОВАЯ ФУНКЦИЯ: Очистка
+    const clearAllMops = () => {
+        if (!confirm('Вы уверены? Все введенные данные МОП для этого блока будут очищены.')) return;
+        
+        const updates = {};
+        floorList.forEach(f => {
+            entrancesList.forEach(e => {
+                const key = `${currentBlock.fullId}_e${e}_f${f.id}_mops`;
+                updates[key] = []; // Записываем пустой массив
+            });
+        });
+        
+        // @ts-ignore
+        setMopData(prev => ({ ...prev, ...updates }));
+    };
+
     // @ts-ignore
     const renderBadge = (type) => {
         const map = {
@@ -221,9 +236,6 @@ export default function MopEditor({ buildingId, onBack }) {
             technical: { color: 'bg-amber-100 text-amber-700', label: 'Тех.' },
             basement: { color: 'bg-slate-200 text-slate-600', label: 'Подвал' },
             tsokol: { color: 'bg-purple-100 text-purple-700', label: 'Цоколь' },
-            attic: { color: 'bg-teal-100 text-teal-700', label: 'Манс.' },
-            loft: { color: 'bg-gray-200 text-gray-600', label: 'Чердак' },
-            roof: { color: 'bg-sky-100 text-sky-700', label: 'Кровля' },
             parking_floor: { color: 'bg-indigo-100 text-indigo-700', label: 'Паркинг' }
         };
         // @ts-ignore
@@ -241,32 +253,33 @@ export default function MopEditor({ buildingId, onBack }) {
                         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 items-center">
                              <p className="text-slate-400 text-xs font-bold uppercase tracking-wider">Инвентаризация МОП</p>
                              <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-0.5 rounded text-xs text-slate-600"><span className="font-bold text-slate-400 uppercase text-[9px]">Дом</span><span className="font-bold">{building.houseNumber}</span></div>
-                             <div className="flex items-center gap-1.5 text-xs text-slate-600 pl-2 border-l border-slate-200"><span className="font-bold text-slate-400 uppercase text-[9px]">Тип</span><span className="font-medium">{building.type}</span></div>
                         </div>
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={autoFillMops} disabled={!showEditor} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${showEditor ? 'hover:bg-purple-100' : 'opacity-50 cursor-not-allowed'}`}><Wand2 size={14}/> Авто-генерация</button>
-                    
+                    {/* КНОПКА ОЧИСТКИ */}
+                    <button onClick={clearAllMops} disabled={!showEditor} className="px-4 py-2 bg-red-50 text-red-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-red-100 transition-colors" title="Очистить все данные МОП">
+                        <Trash2 size={14}/> Очистить
+                    </button>
+
+                    <button onClick={copyFirstFloorToAll} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-slate-200 transition-colors" title="Скопировать 1-й этаж на все остальные">
+                        <Copy size={14}/> Дублировать 1-й эт.
+                    </button>
+                    <button onClick={autoFillMops} disabled={!showEditor} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${showEditor ? 'hover:bg-purple-100' : 'opacity-50 cursor-not-allowed'}`}>
+                        <Wand2 size={14}/> Авто-генерация
+                    </button>
                     <Button 
                         onClick={async () => { 
                             const specificData = {};
-                            Object.keys(mopData).forEach(k => {
-                                if (k.startsWith(building.id)) {
-                                    // @ts-ignore
-                                    specificData[k] = mopData[k];
-                                }
-                            });
-
+                            Object.keys(mopData).forEach(k => { if (k.startsWith(building.id)) specificData[k] = mopData[k]; });
                             await saveBuildingData(building.id, 'commonAreasData', specificData);
                             await saveData(); 
-                            
                             onBack(); 
                         }} 
                         disabled={!validationState.isValid} 
                         className={`shadow-lg ${!validationState.isValid ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}
                     >
-                        <Save size={14}/> Готово
+                        <Save size={14}/> {validationState.isValid ? 'Готово' : 'Исправьте ошибки'}
                     </Button>
                 </div>
             </div>
@@ -279,13 +292,18 @@ export default function MopEditor({ buildingId, onBack }) {
 
             {showEditor ? (
                 <>
-                    {!validationState.isValid && (<div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-xl flex items-center gap-2 text-xs text-red-600 animate-in slide-in-from-top-2"><AlertCircle size={16}/><span className="font-bold">Внимание!</span><span>Необходимо заполнить все поля (Тип и Площадь). Незаполненных позиций: <b>{validationState.missingCount}</b></span></div>)}
+                    {!validationState.isValid && (
+                        <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-xl flex items-center gap-2 text-xs text-red-600 animate-in slide-in-from-top-2">
+                            <AlertCircle size={16}/>
+                            <span className="font-bold">Внимание!</span>
+                            <span>Заполните данные для всех {validationState.missingCount} помещений. Используйте "Авто-генерацию" или "Дублирование" для ускорения.</span>
+                        </div>
+                    )}
                     <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden flex flex-col">
                         <div className="flex-1 overflow-auto relative w-full max-w-[calc(100vw-64px)]" style={{ maxHeight: 'calc(100vh - 250px)' }}>
                             <table className="w-max min-w-full border-collapse table-fixed">
                                 <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-30 shadow-md">
                                     <tr>
-                                        {/* Sticky Column: Floors */}
                                         <th className="p-4 w-36 min-w-[140px] sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
                                         {entrancesList.map(e => (
                                             <th key={e} className="p-4 w-[340px] min-w-[340px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">{isUndergroundParking ? `Вход ${e}` : `Подъезд ${e}`}</th>
@@ -295,7 +313,6 @@ export default function MopEditor({ buildingId, onBack }) {
                                 <tbody className="divide-y divide-slate-100 bg-white">
                                     {floorList.map((f, fIdx) => (
                                         <tr key={f.id} className="group hover:bg-slate-50/50 focus-within:bg-blue-50/50 transition-colors duration-200">
-                                            {/* Sticky Row Title */}
                                             <td className="p-3 w-36 min-w-[140px] sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 border-r align-top relative z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
                                                 <div className="flex flex-col gap-1.5"><span className="font-bold text-sm text-slate-700">{f.label}</span>{renderBadge(f.type)}</div>
                                             </td>
@@ -308,16 +325,15 @@ export default function MopEditor({ buildingId, onBack }) {
                                                             <div className="flex flex-col gap-2">
                                                                 {Array.from({ length: targetQty }).map((_, mIdx) => {
                                                                     const mop = mops[mIdx] || {};
-                                                                    const isValid = Validators.isMopValid(mop);
+                                                                    const result = MopItemSchema.safeParse(mop);
+                                                                    const isValid = result.success;
+                                                                    
                                                                     return (
                                                                         <div key={mIdx} className={`flex gap-1 items-center bg-white border rounded-lg p-1 shadow-sm transition-all focus-within:ring-2 focus-within:ring-blue-100 ${isValid ? 'border-slate-200' : 'border-red-300 bg-red-50/20'}`}>
                                                                             <div className="w-6 h-6 flex items-center justify-center rounded bg-slate-100 text-[10px] font-bold text-slate-500 shrink-0">{mIdx + 1}</div>
-                                                                            
-                                                                            {/* TYPE SELECT */}
                                                                             <select 
                                                                                 // @ts-ignore
                                                                                 ref={el => inputsRef.current[`${fIdx}-${e}-${mIdx}-type`] = el}
-                                                                                onKeyDown={(ev) => handleKeyDown(ev, fIdx, e, mIdx, 'type')}
                                                                                 className="bg-transparent text-[10px] font-bold w-full outline-none cursor-pointer hover:text-blue-600 focus:text-blue-700 truncate" 
                                                                                 value={mop.type || ''} 
                                                                                 onChange={ev=>updateMop(e, f.id, mIdx, 'type', ev.target.value)} 
@@ -326,15 +342,11 @@ export default function MopEditor({ buildingId, onBack }) {
                                                                                 <option value="" disabled>Выберите тип</option>
                                                                                 {MOP_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
                                                                             </select>
-                                                                            
                                                                             <div className="w-px h-4 bg-slate-200 shrink-0"/>
-                                                                            
-                                                                            {/* AREA INPUT */}
                                                                             <div className="relative w-16 shrink-0">
                                                                                 <DebouncedInput 
                                                                                     // @ts-ignore
                                                                                     ref={el => inputsRef.current[`${fIdx}-${e}-${mIdx}-area`] = el}
-                                                                                    onKeyDown={(ev) => handleKeyDown(ev, fIdx, e, mIdx, 'area')}
                                                                                     type="number" 
                                                                                     min="0"
                                                                                     className={`w-full bg-slate-50 border rounded px-1 py-0.5 text-[10px] font-medium text-center focus:bg-white focus:border-blue-300 outline-none transition-all ${!mop.area ? 'border-red-200' : 'border-slate-100'}`} 

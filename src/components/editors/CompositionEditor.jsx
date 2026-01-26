@@ -6,6 +6,9 @@ import {
 import { useProject } from '../../context/ProjectContext';
 import { Button, Input, Select, Label, SectionTitle } from '../ui/UIKit';
 import { calculateProgress, getStageColor } from '../../lib/utils';
+// ВАЛИДАЦИЯ
+import { BuildingModalSchema } from '../../lib/schemas';
+import { useValidation } from '../../hooks/useValidation';
 
 // --- Хелперы ---
 const TYPE_NAMES = {
@@ -40,8 +43,184 @@ const PARKING_CONSTRUCTION_NAMES = {
  * @property {string} infraType
  */
 
+// Компонент обертка для модального окна, чтобы изолировать хук валидации
+const BuildingModal = ({ modal, setModal, onCommit }) => {
+    // Подключаем валидацию только к данным формы
+    const { errors, isValid } = useValidation(BuildingModalSchema, {
+        baseName: modal.baseName,
+        houseNumber: modal.houseNumber,
+        category: modal.category || '',
+        quantity: modal.quantity,
+        resBlocks: modal.resBlocks,
+        nonResBlocks: modal.nonResBlocks,
+        hasNonResPart: modal.hasNonResPart,
+        stage: modal.stage,
+        dateStart: modal.dateStart,
+        dateEnd: modal.dateEnd,
+        parkingType: modal.parkingType,
+        parkingConstruction: modal.parkingConstruction,
+        infraType: modal.infraType
+    });
+
+    const ErrorMsg = ({ field }) => errors[field] ? <span className="text-[9px] text-red-500 font-bold ml-1 animate-in fade-in">{errors[field]}</span> : null;
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden ring-1 ring-white/20 animate-in zoom-in-95 duration-200">
+                <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                    <div>
+                        <h3 className="text-xl font-bold text-slate-800">{modal.editingId ? "Редактирование объекта" : "Создание объекта"}</h3>
+                        <p className="text-xs text-slate-500 font-medium mt-1">Заполните паспортные данные строения</p>
+                    </div>
+                    <button onClick={() => setModal(m => ({...m, isOpen: false}))} className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-200">
+                        <X size={20} className="text-slate-400 hover:text-slate-700"/>
+                    </button>
+                </div>
+                
+                <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                    
+                    {/* ЛЕВАЯ КОЛОНКА */}
+                    <div className="space-y-5">
+                        <SectionTitle icon={Hash}>Идентификация</SectionTitle>
+                        
+                        <div className="space-y-1.5">
+                            <Label>Номер дома / Корпус <span className="text-red-500">*</span> <ErrorMsg field="houseNumber"/></Label>
+                            <div className="relative">
+                                <Hash size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                                <Input 
+                                    value={modal.houseNumber} 
+                                    onChange={(e) => setModal(m => ({...m, houseNumber: e.target.value}))} 
+                                    placeholder="12А" 
+                                    className={`pl-9 font-bold text-lg uppercase ${errors.houseNumber ? 'border-red-300 bg-red-50' : ''}`}
+                                    autoFocus
+                                />
+                            </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <Label>Наименование <ErrorMsg field="baseName"/></Label>
+                            <Input 
+                                value={modal.baseName} 
+                                onChange={(e) => setModal(m => ({...m, baseName: e.target.value}))} 
+                                placeholder="Например: Отдельный жилой дом"
+                                className={errors.baseName ? 'border-red-300 bg-red-50' : ''}
+                            />
+                        </div>
+
+                        {!modal.editingId && (
+                            <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                <div className="flex justify-between items-center">
+                                    <Label className="mb-0">Количество копий</Label>
+                                    <div className="flex items-center gap-3">
+                                        <button onClick={() => setModal(m => ({...m, quantity: Math.max(1, m.quantity - 1)}))} className="w-8 h-8 rounded-full bg-white border shadow-sm flex items-center justify-center font-bold text-slate-500 hover:text-blue-600">-</button>
+                                        <span className="font-bold text-lg w-4 text-center">{modal.quantity}</span>
+                                        <button onClick={() => setModal(m => ({...m, quantity: Math.min(20, m.quantity + 1)}))} className="w-8 h-8 rounded-full bg-white border shadow-sm flex items-center justify-center font-bold text-slate-500 hover:text-blue-600">+</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* ПРАВАЯ КОЛОНКА */}
+                    <div className="space-y-5">
+                        <SectionTitle icon={Clock}>Параметры и Сроки</SectionTitle>
+
+                        {/* ДИНАМИЧЕСКИЕ ПОЛЯ */}
+                        {modal.category === 'residential_multiblock' && (
+                            <div className="grid grid-cols-2 gap-3 p-3 bg-indigo-50 rounded-xl border border-indigo-100 animate-in fade-in">
+                                <div className="space-y-1">
+                                    <Label>Жилых блоков</Label>
+                                    <Input type="number" min="0" value={modal.resBlocks} onChange={(e) => setModal(m => ({...m, resBlocks: Math.max(0, parseInt(e.target.value)||0)}))} />
+                                </div>
+                                <div className="space-y-1">
+                                    <Label>Нежилых</Label>
+                                    <Input type="number" min="0" value={modal.nonResBlocks} onChange={(e) => setModal(m => ({...m, nonResBlocks: Math.max(0, parseInt(e.target.value)||0)}))} />
+                                </div>
+                            </div>
+                        )}
+
+                        {modal.category === 'parking_separate' && (
+                            <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-in fade-in">
+                                <div className="space-y-1.5">
+                                    <Label>Тип паркинга</Label>
+                                    <Select value={modal.parkingType} onChange={e => setModal(m => ({...m, parkingType: e.target.value}))}>
+                                        <option value="underground">Подземный</option>
+                                        <option value="ground">Наземный</option>
+                                    </Select>
+                                </div>
+                                {modal.parkingType === 'ground' && (
+                                    <div className="space-y-1.5 animate-in slide-in-from-top-2">
+                                        <Label>Конструктив</Label>
+                                        <Select value={modal.parkingConstruction} onChange={e => setModal(m => ({...m, parkingConstruction: e.target.value}))}>
+                                            <option value="capital">Капитальный</option>
+                                            <option value="light">Из легких конструкций</option>
+                                            <option value="open">Открытый</option>
+                                        </Select>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {modal.category === 'infrastructure' && (
+                            <div className="space-y-1.5 p-3 bg-amber-50 rounded-xl border border-amber-100 animate-in fade-in">
+                                <Label>Тип объекта</Label>
+                                <Select value={modal.infraType} onChange={(e) => setModal(m => ({...m, infraType: e.target.value}))}>
+                                    <option value="Котельная">Котельная</option>
+                                    <option value="ТП">ТП</option>
+                                    <option value="Детский сад">Детский сад</option>
+                                    <option value="Школа">Школа</option>
+                                    <option value="КПП">КПП</option>
+                                </Select>
+                            </div>
+                        )}
+
+                        <div className="space-y-1.5">
+                            <Label>Текущая стадия</Label>
+                            <Select value={modal.stage} onChange={e => setModal(m => ({...m, stage: e.target.value}))}>
+                                <option value="Проектный">📁 Проектный</option>
+                                <option value="Строящийся">🏗️ Строящийся</option>
+                                <option value="Введенный">🔑 Введенный</option>
+                                <option value="Архив">📦 Архив</option>
+                            </Select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                                <Label>Начало работ</Label>
+                                <Input type="date" value={modal.dateStart} onChange={(e) => setModal(m => ({...m, dateStart: e.target.value}))} className="text-xs font-bold"/>
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label>Ввод в экспл.</Label>
+                                <Input type="date" value={modal.dateEnd} onChange={(e) => setModal(m => ({...m, dateEnd: e.target.value}))} className="text-xs font-bold"/>
+                            </div>
+                        </div>
+
+                        {modal.category?.includes('residential') && (
+                            <div className="pt-2 border-t border-slate-100 mt-2">
+                                <label className="flex items-start gap-3 cursor-pointer group">
+                                    <input type="checkbox" checked={modal.hasNonResPart} onChange={(e) => setModal(m => ({...m, hasNonResPart: e.target.checked}))} className="mt-1 w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300"/>
+                                    <div>
+                                        <span className="text-sm font-bold text-slate-700 group-hover:text-blue-700 transition-colors">Есть коммерция</span>
+                                        <p className="text-[10px] text-slate-400">Встроенные магазины/офисы</p>
+                                    </div>
+                                </label>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+                    <Button variant="ghost" onClick={() => setModal(m => ({...m, isOpen: false}))}>Отмена</Button>
+                    <Button onClick={onCommit} disabled={!isValid} className={`shadow-xl shadow-blue-200/50 px-8 ${isValid ? '' : 'opacity-50 cursor-not-allowed bg-slate-400'}`}>
+                        <ArrowRight size={18} /> Сохранить объект
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 export default function CompositionEditor() {
-    // ВАЖНО: Добавили deleteProjectBuilding
     const { composition, setComposition, buildingDetails, setBuildingDetails, saveData, deleteProjectBuilding } = useProject();
 
     /** @type {[ModalState, React.Dispatch<React.SetStateAction<ModalState>>]} */
@@ -350,160 +529,8 @@ export default function CompositionEditor() {
                 </div>
             </div>
 
-            {/* --- МОДАЛЬНОЕ ОКНО --- */}
-            {modal.isOpen && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden ring-1 ring-white/20 animate-in zoom-in-95 duration-200">
-                        <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                            <div>
-                                <h3 className="text-xl font-bold text-slate-800">{modal.editingId ? "Редактирование объекта" : "Создание объекта"}</h3>
-                                <p className="text-xs text-slate-500 font-medium mt-1">Заполните паспортные данные строения</p>
-                            </div>
-                            <button onClick={() => setModal(m => ({...m, isOpen: false}))} className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-200">
-                                <X size={20} className="text-slate-400 hover:text-slate-700"/>
-                            </button>
-                        </div>
-                        
-                        <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-                            
-                            {/* ЛЕВАЯ КОЛОНКА */}
-                            <div className="space-y-5">
-                                <SectionTitle icon={Hash}>Идентификация</SectionTitle>
-                                
-                                <div className="space-y-1.5">
-                                    <Label>Номер дома / Корпус <span className="text-red-500">*</span></Label>
-                                    <div className="relative">
-                                        <Hash size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                                        <Input 
-                                            value={modal.houseNumber} 
-                                            onChange={(e) => setModal(m => ({...m, houseNumber: e.target.value}))} 
-                                            placeholder="12А" 
-                                            className="pl-9 font-bold text-lg uppercase"
-                                            autoFocus
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1.5">
-                                    <Label>Наименование</Label>
-                                    <Input 
-                                        value={modal.baseName} 
-                                        onChange={(e) => setModal(m => ({...m, baseName: e.target.value}))} 
-                                        placeholder="Например: Отдельный жилой дом" 
-                                    />
-                                </div>
-
-                                {!modal.editingId && (
-                                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                                        <div className="flex justify-between items-center">
-                                            <Label className="mb-0">Количество копий</Label>
-                                            <div className="flex items-center gap-3">
-                                                <button onClick={() => setModal(m => ({...m, quantity: Math.max(1, m.quantity - 1)}))} className="w-8 h-8 rounded-full bg-white border shadow-sm flex items-center justify-center font-bold text-slate-500 hover:text-blue-600">-</button>
-                                                <span className="font-bold text-lg w-4 text-center">{modal.quantity}</span>
-                                                <button onClick={() => setModal(m => ({...m, quantity: m.quantity + 1}))} className="w-8 h-8 rounded-full bg-white border shadow-sm flex items-center justify-center font-bold text-slate-500 hover:text-blue-600">+</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* ПРАВАЯ КОЛОНКА */}
-                            <div className="space-y-5">
-                                <SectionTitle icon={Clock}>Параметры и Сроки</SectionTitle>
-
-                                {/* ДИНАМИЧЕСКИЕ ПОЛЯ */}
-                                {modal.category === 'residential_multiblock' && (
-                                    <div className="grid grid-cols-2 gap-3 p-3 bg-indigo-50 rounded-xl border border-indigo-100 animate-in fade-in">
-                                        <div className="space-y-1">
-                                            <Label>Жилых блоков</Label>
-                                            <Input type="number" min="0" value={modal.resBlocks} onChange={(e) => setModal(m => ({...m, resBlocks: Math.max(0, parseInt(e.target.value)||0)}))} />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <Label>Нежилых</Label>
-                                            <Input type="number" min="0" value={modal.nonResBlocks} onChange={(e) => setModal(m => ({...m, nonResBlocks: Math.max(0, parseInt(e.target.value)||0)}))} />
-                                        </div>
-                                    </div>
-                                )}
-
-                                {modal.category === 'parking_separate' && (
-                                    <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-in fade-in">
-                                        <div className="space-y-1.5">
-                                            <Label>Тип паркинга</Label>
-                                            <Select value={modal.parkingType} onChange={e => setModal(m => ({...m, parkingType: e.target.value}))}>
-                                                <option value="underground">Подземный</option>
-                                                <option value="ground">Наземный</option>
-                                            </Select>
-                                        </div>
-                                        {modal.parkingType === 'ground' && (
-                                            <div className="space-y-1.5 animate-in slide-in-from-top-2">
-                                                <Label>Конструктив</Label>
-                                                <Select value={modal.parkingConstruction} onChange={e => setModal(m => ({...m, parkingConstruction: e.target.value}))}>
-                                                    <option value="capital">Капитальный</option>
-                                                    <option value="light">Из легких конструкций</option>
-                                                    <option value="open">Открытый</option>
-                                                </Select>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-
-                                {modal.category === 'infrastructure' && (
-                                    <div className="space-y-1.5 p-3 bg-amber-50 rounded-xl border border-amber-100 animate-in fade-in">
-                                        <Label>Тип объекта</Label>
-                                        <Select value={modal.infraType} onChange={(e) => setModal(m => ({...m, infraType: e.target.value}))}>
-                                            <option value="Котельная">Котельная</option>
-                                            <option value="ТП">ТП</option>
-                                            <option value="Детский сад">Детский сад</option>
-                                            <option value="Школа">Школа</option>
-                                            <option value="КПП">КПП</option>
-                                        </Select>
-                                    </div>
-                                )}
-
-                                <div className="space-y-1.5">
-                                    <Label>Текущая стадия</Label>
-                                    <Select value={modal.stage} onChange={e => setModal(m => ({...m, stage: e.target.value}))}>
-                                        <option value="Проектный">📁 Проектный</option>
-                                        <option value="Строящийся">🏗️ Строящийся</option>
-                                        <option value="Введенный">🔑 Введенный</option>
-                                        <option value="Архив">📦 Архив</option>
-                                    </Select>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="space-y-1.5">
-                                        <Label>Начало работ</Label>
-                                        <Input type="date" value={modal.dateStart} onChange={(e) => setModal(m => ({...m, dateStart: e.target.value}))} className="text-xs font-bold"/>
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label>Ввод в экспл.</Label>
-                                        <Input type="date" value={modal.dateEnd} onChange={(e) => setModal(m => ({...m, dateEnd: e.target.value}))} className="text-xs font-bold"/>
-                                    </div>
-                                </div>
-
-                                {modal.category?.includes('residential') && (
-                                    <div className="pt-2 border-t border-slate-100 mt-2">
-                                        <label className="flex items-start gap-3 cursor-pointer group">
-                                            <input type="checkbox" checked={modal.hasNonResPart} onChange={(e) => setModal(m => ({...m, hasNonResPart: e.target.checked}))} className="mt-1 w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300"/>
-                                            <div>
-                                                <span className="text-sm font-bold text-slate-700 group-hover:text-blue-700 transition-colors">Есть коммерция</span>
-                                                <p className="text-[10px] text-slate-400">Встроенные магазины/офисы</p>
-                                            </div>
-                                        </label>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
-                            <Button variant="ghost" onClick={() => setModal(m => ({...m, isOpen: false}))}>Отмена</Button>
-                            <Button onClick={commitPlanning} className="shadow-xl shadow-blue-200/50 px-8">
-                                <ArrowRight size={18} /> Сохранить объект
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* --- МОДАЛЬНОЕ ОКНО (Теперь вынесено в отдельный компонент) --- */}
+            {modal.isOpen && <BuildingModal modal={modal} setModal={setModal} onCommit={commitPlanning} />}
         </div>
     );
 }

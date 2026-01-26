@@ -1,118 +1,91 @@
 import React from 'react';
-import { 
-  LayoutDashboard, FileText, Layers, ParkingSquare, 
-  ArrowLeftRight, Grid, LogOut, Building2, 
-  ChevronLeft, ChevronRight, Settings 
-} from 'lucide-react';
+import { LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
 import { STEPS_CONFIG } from '../lib/constants';
+import { AuthService } from '../lib/auth-service';
 
-/**
- * @param {Object} props
- * @param {number} props.currentStep
- * @param {function(number): void} props.onStepChange
- * @param {boolean} props.isOpen
- * @param {function(): void} props.onToggle
- * @param {function(): void} props.onBackToDashboard
- */
 export default function Sidebar({ currentStep, onStepChange, isOpen, onToggle, onBackToDashboard }) {
   
-  const getIcon = (id) => {
-    switch (id) {
-      case 'passport': return <FileText size={20} />;
-      case 'composition': return <Layers size={20} />;
-      case 'parking_config': return <ParkingSquare size={20} />;
-      case 'registry_res': return <Building2 size={20} />;
-      case 'registry_nonres': return <Building2 size={20} />;
-      case 'floors': return <Layers size={20} />;
-      case 'entrances': return <ArrowLeftRight size={20} />;
-      case 'mop': return <Grid size={20} />;
-      case 'apartments': return <Grid size={20} />;
-      case 'parking': return <ParkingSquare size={20} />;
-      case 'summary': return <LayoutDashboard size={20} />;
-      case 'history': return <Settings size={20} />;
-      default: return <FileText size={20} />;
-    }
+  const handleLogout = async () => {
+      // ИСПРАВЛЕНО: Просто вызываем выход. App.jsx сам переключит экран благодаря подписке.
+      await AuthService.logout();
   };
 
   return (
     <aside 
-      className={`
-        fixed left-0 top-0 h-full bg-slate-900 text-white transition-all duration-300 z-50 shadow-2xl flex flex-col
-        ${isOpen ? 'w-72' : 'w-20'}
-      `}
+      className={`fixed left-0 top-0 h-screen bg-slate-900 border-r border-slate-800 transition-all duration-300 z-50 flex flex-col ${isOpen ? 'w-72' : 'w-20'}`}
     >
-      <div className="p-4 border-b border-slate-700 flex items-center gap-3 min-h-[80px]">
-        <div className="w-10 h-10 min-w-[40px] bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/50 text-white font-bold text-xl">
-          Р
-        </div>
-        
-        {isOpen && (
-          <div className="animate-in fade-in duration-300 overflow-hidden">
-            <h1 className="font-bold text-xs leading-tight text-slate-100 uppercase tracking-wide mb-1">
-              Реестр Жилых Комплексов <br/> и Многоквартирных домов
-            </h1>
-            <div className="inline-block bg-slate-800 text-blue-400 text-[10px] px-2 py-0.5 rounded-full border border-slate-700 font-mono">
-              прототип v1.4
+      <div className={`h-16 flex items-center border-b border-slate-800 ${isOpen ? 'px-6 justify-between' : 'justify-center'}`}>
+        {isOpen ? (
+            <div className="font-bold text-base leading-tight text-white cursor-pointer uppercase tracking-tight" onClick={onBackToDashboard}>
+              Реестр <span className="text-blue-500">Многоквартирных домов</span>
             </div>
-          </div>
+        ) : (
+            <div className="font-black text-xl text-blue-500 cursor-pointer" onClick={onToggle}>Р</div>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto py-4 scrollbar-hide">
-        <nav className="space-y-1 px-2">
-          {STEPS_CONFIG.map((step, idx) => {
-            const isActive = idx === currentStep;
-            return (
-              <button
-                key={step.id}
-                onClick={() => onStepChange(idx)}
-                className={`
-                  w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group relative
-                  ${isActive 
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' 
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                  }
-                `}
-                title={!isOpen ? step.title : ''}
-              >
-                <div className={`${isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'}`}>
-                  {getIcon(step.id)}
-                </div>
-                
-                {isOpen && (
-                  <span className="text-sm font-medium text-left truncate animate-in fade-in duration-200">
+      <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1 custom-scrollbar">
+        {STEPS_CONFIG.map((step, index) => {
+          const isActive = currentStep === index;
+          const Icon = step.icon;
+
+          return (
+            <button
+              key={step.id}
+              onClick={() => onStepChange(index)}
+              className={`
+                w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all group relative min-h-[48px] h-auto
+                ${isActive 
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' 
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                }
+              `}
+            >
+              <div className={`shrink-0 ${!isOpen && 'mx-auto'}`}>
+                  <Icon size={20} className={isActive ? 'text-white' : 'group-hover:text-white transition-colors'} />
+              </div>
+
+              {isOpen && (
+                <div className="flex flex-col items-start text-left">
+                  <span className="text-xs font-bold uppercase tracking-wide whitespace-normal break-words leading-tight">
                     {step.title}
                   </span>
-                )}
+                  <span className={`text-[10px] font-medium mt-1 leading-none ${isActive ? 'text-blue-200' : 'text-slate-600 group-hover:text-slate-400'}`}>
+                     {step.description}
+                  </span>
+                </div>
+              )}
 
-                {isActive && !isOpen && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-blue-400 rounded-r-full" />
-                )}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
+              {!isOpen && (
+                <div className="absolute left-full ml-4 px-3 py-2 bg-slate-800 text-white text-xs font-bold rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 shadow-xl transition-opacity border border-slate-700">
+                  {step.title}
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </nav>
 
-      <div className="p-4 border-t border-slate-700 bg-slate-900/50 space-y-2">
-        <button 
-          onClick={onBackToDashboard}
-          className={`
-            w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2.5 rounded-xl transition-all border border-slate-700
-            ${!isOpen && 'px-0'}
-          `}
-          title="Выйти к проектам"
-        >
-          <LogOut size={18} />
-          {isOpen && <span className="text-xs font-bold uppercase">Выход</span>}
-        </button>
-
-        <button 
-          onClick={onToggle}
-          className="w-full flex items-center justify-center py-2 text-slate-500 hover:text-white transition-colors"
-        >
-          {isOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
-        </button>
+      <div className="p-4 border-t border-slate-800 flex flex-col gap-2">
+          <button 
+            onClick={handleLogout}
+            className={`flex items-center gap-3 w-full px-3 py-2 rounded-xl text-slate-500 hover:bg-red-900/20 hover:text-red-500 transition-colors ${!isOpen && 'justify-center'}`}
+            title="Выйти из системы"
+          >
+              <LogOut size={18} />
+              {isOpen && <span className="text-xs font-bold uppercase">Выйти</span>}
+          </button>
+          
+          <button 
+            onClick={onToggle} 
+            className={`
+                flex items-center justify-center p-2 rounded-lg text-slate-600 hover:bg-slate-800 hover:text-white transition-colors
+                ${isOpen ? 'self-end' : 'mx-auto w-full'}
+            `}
+            title={isOpen ? "Свернуть меню" : "Развернуть меню"}
+          >
+              {isOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
+          </button>
       </div>
     </aside>
   );

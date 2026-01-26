@@ -10,6 +10,9 @@ import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Select, Button, TabButton } from '../ui/UIKit';
 import { getBlocksList, calculateProgress, getStageColor } from '../../lib/utils';
 import { Validators } from '../../lib/validators'; 
+// ВАЛИДАЦИЯ
+import { BuildingConfigSchema } from '../../lib/schemas';
+import { useValidation } from '../../hooks/useValidation';
 
 const PARKING_TYPE_LABELS = {
     capital: "Капитальный",
@@ -91,6 +94,10 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         engineering: { hvs: true, gvs: true, heating: true, electricity: true, gas: false, sewerage: true, ventilation: true, firefighting: true, lowcurrent: true } 
     };
 
+    // ПОДКЛЮЧЕНИЕ ВАЛИДАЦИИ
+    // Мы валидируем текущий блок. Если меняется вкладка, меняется и объект валидации.
+    const { errors, isValid } = useValidation(BuildingConfigSchema, details);
+
     /** @type {(key: string, val: any) => void} */
     const updateDetail = (key, val) => setBuildingDetails(prev => ({ ...prev, [detailsKey]: { ...details, [key]: val } }));
     
@@ -167,7 +174,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     /** @type {() => void} */
     const createBlockBasement = () => {
         if (!canAddBasement) return; 
-        // ИСПОЛЬЗУЕМ БЕЗОПАСНЫЙ UUID
         const newB = { id: crypto.randomUUID(), depth: 1, hasParking: false, parkingLevels: {}, blocks: [currentBlock.id] }; 
         // @ts-ignore
         updateFeatures({ basements: [...(features.basements || []), newB] }); 
@@ -228,13 +234,16 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     ];
     if (!isParking) engineeringSystems.splice(4, 0, { id: 'gas', label: 'Газ', icon: Flame, color: 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-100' });
 
-    // --- ВАЛИДАЦИЯ ---
+    // --- ВАЛИДАЦИЯ И ОШИБКИ ---
     const isCommercialValid = Validators.commercialPresence(building, buildingDetails, blocksList, mode);
     const hasElevatorIssue = Validators.elevatorRequirement(isParking, isInfrastructure, details.floorsTo, details.elevators || 0);
-    const hasCriticalErrors = hasElevatorIssue || !isCommercialValid;
+    const hasCriticalErrors = hasElevatorIssue || !isCommercialValid || !isValid; 
 
     const isFloorFromDisabled = currentBlock?.type === 'Ж' || currentBlock?.type === 'Н';
     const isStylobate = currentBlock?.type === 'Н' && (details.parentBlocks || []).length > 0;
+
+    // Хелпер для подсветки ошибки - ИСПРАВЛЕНО (принимает field как аргумент, а не пропс)
+    const ErrorBorder = (field) => errors[field] ? 'border-red-500 focus:border-red-500 bg-red-50' : '';
 
     return (
         <div className="animate-in slide-in-from-bottom duration-500 space-y-6 pb-20 max-w-7xl mx-auto w-full">
@@ -418,13 +427,13 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                     <SectionTitle icon={Maximize}>Параметры этажности</SectionTitle>
                                     <div className="grid grid-cols-2 gap-8 mb-6">
                                         <div className="space-y-1">
-                                            <Label>С этажа</Label>
-                                            <Input type="number" min="1" value={isFloorFromDisabled ? 1 : details.floorsFrom} onChange={(e) => { const val = e.target.value; if (val === '') { updateDetail('floorsFrom', ''); return; } let num = parseInt(val); if (num < 1) num = 1; updateDetail('floorsFrom', num); }} disabled={isFloorFromDisabled} className={isFloorFromDisabled ? "bg-slate-100 text-slate-500 cursor-not-allowed font-bold" : ""}/>
+                                            <Label>С этажа {errors.floorsFrom && <span className="text-red-500 text-[9px] ml-1">{errors.floorsFrom}</span>}</Label>
+                                            <Input type="number" min="1" value={isFloorFromDisabled ? 1 : details.floorsFrom} onChange={(e) => { const val = e.target.value; if (val === '') { updateDetail('floorsFrom', ''); return; } let num = parseInt(val); if (num < 1) num = 1; updateDetail('floorsFrom', num); }} disabled={isFloorFromDisabled} className={`${isFloorFromDisabled ? "bg-slate-100 text-slate-500 cursor-not-allowed font-bold" : ""} ${ErrorBorder('floorsFrom')}`}/>
                                             {isFloorFromDisabled && <span className="text-[10px] text-slate-400">Начинается всегда с 1-го этажа</span>}
                                         </div>
                                         <div className="space-y-1">
                                             <Label>По этаж (макс. 50)</Label>
-                                            <Input type="number" min="1" max="50" value={details.floorsTo} onChange={(e) => { const val = e.target.value; if (val === '') { updateDetail('floorsTo', ''); return; } let num = parseInt(val); if (num > 50) num = 50; updateDetail('floorsTo', num); }} />
+                                            <Input type="number" min="1" max="50" value={details.floorsTo} onChange={(e) => { const val = e.target.value; if (val === '') { updateDetail('floorsTo', ''); return; } let num = parseInt(val); if (num > 50) num = 50; updateDetail('floorsTo', num); }} className={ErrorBorder('floorsTo')}/>
                                         </div>
                                     </div>
                                     <div className="flex flex-wrap gap-4 mt-4 mb-6">
@@ -505,8 +514,8 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                 </Card>
                             </div>
                             <div className="space-y-6">
+                                <Card className="p-6 shadow-sm"><SectionTitle icon={Settings2}>Общие</SectionTitle><div className="space-y-4"><div className="space-y-1"><Label>{currentBlock?.type === 'Ж' ? 'Подъездов' : 'Входов'} (макс. 30)</Label><Input type="number" min="1" max="30" value={details.entrances || 1} onChange={(e) => { let val = parseInt(e.target.value); if (isNaN(val)) val = 1; if (val > 30) val = 30; if (val < 1) val = 1; updateDetail('entrances', val); }} className={ErrorBorder('entrances')}/></div><div className="space-y-1 relative"><Label>Лифтов (на блок)</Label><Input type="number" min="0" value={details.elevators || 0} onChange={(e)=> { let val = parseInt(e.target.value); if (val < 0) val = 0; updateDetail('elevators', val) }} className={hasElevatorIssue ? "border-red-500 focus:border-red-500 bg-red-50" : ""}/>{hasElevatorIssue && <div className="flex items-center gap-1 mt-1 text-[10px] text-red-500 font-bold animate-in fade-in"><AlertCircle size={10} /><span>Лифт обязателен &gt; 5 этажей</span></div>}</div></div></Card>
                                 <Card className="p-6 shadow-sm"><SectionTitle icon={Zap}>Инженерия</SectionTitle><div className="grid grid-cols-2 gap-2">{engineeringSystems.map(sys => { const Icon = sys.icon; const isActive = details.engineering?.[sys.id]; return (<button key={sys.id} onClick={()=>updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`p-3 rounded-xl border flex items-center gap-3 transition-all duration-200 ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 opacity-60 hover:opacity-100'}`}><Icon size={16} strokeWidth={isActive ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase">{sys.label}</span></button>)})}</div></Card>
-                                <Card className="p-6 shadow-sm"><SectionTitle icon={Settings2}>Общие</SectionTitle><div className="space-y-4"><div className="space-y-1"><Label>{currentBlock?.type === 'Ж' ? 'Подъездов' : 'Входов'} (макс. 30)</Label><Input type="number" min="1" max="30" value={details.entrances || 1} onChange={(e) => { let val = parseInt(e.target.value); if (isNaN(val)) val = 1; if (val > 30) val = 30; if (val < 1) val = 1; updateDetail('entrances', val); }}/></div><div className="space-y-1 relative"><Label>Лифтов (на блок)</Label><Input type="number" min="0" value={details.elevators || 0} onChange={(e)=> { let val = parseInt(e.target.value); if (val < 0) val = 0; updateDetail('elevators', val) }} className={hasElevatorIssue ? "border-red-500 focus:border-red-500 bg-red-50" : ""}/>{hasElevatorIssue && <div className="flex items-center gap-1 mt-1 text-[10px] text-red-500 font-bold animate-in fade-in"><AlertCircle size={10} /><span>Лифт обязателен &gt; 5 этажей</span></div>}</div></div></Card>
                                 
                                 <div className="flex flex-col gap-3">
                                      <Button onClick={() => { saveData(); onBack(); }} disabled={hasCriticalErrors} className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}><Save size={16}/> Готово</Button>

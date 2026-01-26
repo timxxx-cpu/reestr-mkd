@@ -1,8 +1,10 @@
 import React, { useMemo } from 'react';
-import { Save, Car, Building2, Store, Box, Lock, CheckCircle2 } from 'lucide-react';
+import { Save, Car, CheckCircle2 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, Button, DebouncedInput } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils';
+// ВАЛИДАЦИЯ
+import { ParkingLevelConfigSchema } from '../../lib/schemas';
 
 /**
  * @param {{ onSave?: () => void, buildingId: string }} props
@@ -50,7 +52,6 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                     const isUnderground = b.parkingType === 'underground';
                     
                     if (isUnderground) {
-                        // ИСПРАВЛЕНИЕ: Безопасное приведение к числу
                         const depth = parseInt(String(blockDetails.levelsDepth || 1), 10);
                         for(let i=1; i<=depth; i++) {
                             rows.push({
@@ -66,7 +67,6 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                         if (b.constructionType === 'light') groundTypeLabel = 'Легкие констр.';
                         if (b.constructionType === 'open') groundTypeLabel = 'Открытый';
 
-                        // ИСПРАВЛЕНИЕ: Безопасное приведение к числу
                         const floors = parseInt(String(blockDetails.floorsCount || 1), 10); 
                         for(let i=1; i<=floors; i++) {
                             rows.push({
@@ -185,6 +185,8 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
     };
 
     const updateCount = (lvl, value) => {
+        // Проверка через Zod, чтобы не сохранять мусор в стейт
+        // Хотя для текстового ввода в DebouncedInput мы разрешаем ввод, но валидируем
         const key = `${lvl.fullId}_${lvl.id}_meta`;
         setParkingPlaces(prev => ({
             ...prev,
@@ -229,10 +231,7 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
 
         setParkingPlaces(newPlaces);
         
-        // Сохраняем "тяжелые" данные в отдельный документ
         await saveBuildingData(building.id, 'parkingData', specificData);
-        
-        // Сохраняем общие данные (настройки)
         await saveData(); 
         
         if (onSave) onSave();
@@ -276,6 +275,10 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                                 const isEnabled = isParkingEnabled(lvl);
                                 const count = getPlacesCount(lvl);
                                 const uniqueKey = `${lvl.fullId}_${lvl.id}`;
+                                
+                                // ВАЛИДАЦИЯ ZOD
+                                const validationResult = ParkingLevelConfigSchema.safeParse({ count });
+                                const isInvalid = !validationResult.success && count !== '';
 
                                 return (
                                     <tr key={uniqueKey} className={`transition-colors ${isEnabled ? 'bg-white' : 'bg-slate-50/50'}`}>
@@ -302,7 +305,14 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                                             <div className={`flex items-center gap-3 transition-opacity duration-200 ${isEnabled ? 'opacity-100' : 'opacity-20 pointer-events-none'}`}>
                                                 <div className="relative max-w-xs w-32">
                                                     <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none"><Car size={14} className="text-slate-400" /></div>
-                                                    <DebouncedInput type="number" min="0" className="pl-8 pr-3 py-2 w-full border border-slate-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all" placeholder="0" value={count} onChange={(val) => updateCount(lvl, val)}/>
+                                                    <DebouncedInput 
+                                                        type="number" 
+                                                        min="0" 
+                                                        className={`pl-8 pr-3 py-2 w-full border rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all ${isInvalid ? 'border-red-500 bg-red-50' : 'border-slate-200'}`} 
+                                                        placeholder="0" 
+                                                        value={count} 
+                                                        onChange={(val) => updateCount(lvl, val)}
+                                                    />
                                                 </div>
                                                 <span className="text-xs text-slate-500 font-medium">мест</span>
                                             </div>

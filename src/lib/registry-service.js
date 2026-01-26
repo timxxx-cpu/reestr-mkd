@@ -1,6 +1,6 @@
 import { 
   doc, collection, setDoc, getDoc, deleteDoc, 
-  onSnapshot, writeBatch, arrayUnion 
+  onSnapshot, writeBatch, arrayUnion, getDocs 
 } from 'firebase/firestore';
 import { db, APP_ID } from './firebase';
 
@@ -11,7 +11,6 @@ import { db, APP_ID } from './firebase';
  * @typedef {import('firebase/firestore').Unsubscribe} Unsubscribe
  */
 
-// Генерируем пути
 const getUserRoot = (scope) => `artifacts/${APP_ID}/users/${scope}`;
 const getProjectRef = (scope, id) => doc(db, `${getUserRoot(scope)}/registry_data/project_${id}`);
 const getBuildingsRef = (scope, projectId) => collection(db, `${getUserRoot(scope)}/registry_data/project_${projectId}/buildings`);
@@ -20,15 +19,48 @@ const getMetaListRef = (scope) => doc(db, `${getUserRoot(scope)}/registry_data/p
 
 export const RegistryService = {
   
-  // --- ЧТЕНИЕ ---
+  // --- ЧТЕНИЕ (PROMISE-BASED / API STYLE) ---
 
-  /**
-   * Подписка на мета-данные проекта (основной файл)
-   * @param {string} scope - Область данных (userId или общий scope)
-   * @param {string} projectId - ID проекта
-   * @param {function(ProjectMeta|null): void} callback - Функция обновления стейта
-   * @returns {Unsubscribe} Функция отписки
-   */
+  getProjectsList: async (scope) => {
+    try {
+        const snap = await getDoc(getMetaListRef(scope));
+        // @ts-ignore
+        return snap.exists() ? snap.data().list || [] : [];
+    } catch (error) {
+        console.error("[RegistryService] Error fetching projects:", error);
+        throw error;
+    }
+  },
+
+  getProjectMeta: async (scope, projectId) => {
+    try {
+        const snap = await getDoc(getProjectRef(scope, projectId));
+        // @ts-ignore
+        return snap.exists() ? snap.data() : null;
+    } catch (error) {
+        console.error("[RegistryService] Error fetching project meta:", error);
+        throw error;
+    }
+  },
+
+  getBuildings: async (scope, projectId) => {
+    try {
+        const snapshot = await getDocs(getBuildingsRef(scope, projectId));
+        /** @type {Object.<string, BuildingData>} */
+        const buildings = {};
+        snapshot.forEach(doc => {
+            // @ts-ignore
+            buildings[doc.id] = doc.data();
+        });
+        return buildings;
+    } catch (error) {
+        console.error("[RegistryService] Error fetching buildings:", error);
+        throw error;
+    }
+  },
+
+  // --- ЧТЕНИЕ (LEGACY REALTIME - Оставляем для совместимости, если нужно) ---
+
   subscribeProjectMeta: (scope, projectId, callback) => {
     return onSnapshot(getProjectRef(scope, projectId), (snap) => {
       // @ts-ignore
@@ -36,16 +68,8 @@ export const RegistryService = {
     });
   },
 
-  /**
-   * Подписка на детальные данные зданий (коллекция 'buildings')
-   * @param {string} scope 
-   * @param {string} projectId 
-   * @param {function(Object.<string, BuildingData>): void} callback - Возвращает словарь { buildingId: data }
-   * @returns {Unsubscribe}
-   */
   subscribeBuildings: (scope, projectId, callback) => {
     return onSnapshot(getBuildingsRef(scope, projectId), (snapshot) => {
-      /** @type {Object.<string, BuildingData>} */
       const buildings = {};
       snapshot.forEach(doc => {
           // @ts-ignore
@@ -55,12 +79,6 @@ export const RegistryService = {
     });
   },
 
-  /**
-   * Подписка на список всех проектов (для дашборда)
-   * @param {string} scope 
-   * @param {function(ProjectMeta[]): void} callback 
-   * @returns {Unsubscribe}
-   */
   subscribeProjectsList: (scope, callback) => {
       return onSnapshot(getMetaListRef(scope), (snap) => {
           // @ts-ignore
@@ -70,81 +88,72 @@ export const RegistryService = {
 
   // --- ЗАПИСЬ ---
 
-  /**
-   * Универсальное сохранение данных
-   * @param {string} scope 
-   * @param {string} projectId 
-   * @param {Object} payload - Данные для записи
-   * @param {Object.<string, Object>} [payload.buildingSpecificData] - Данные для под-коллекций (тяжелые)
-   * @param {ProjectMeta} [payload.complexInfo] - Если нужно обновить список проектов
-   */
   saveData: async (scope, projectId, payload) => {
-    const batch = writeBatch(db);
-    const { buildingSpecificData, ...generalData } = payload;
-
-    // А. Мета-данные проекта (пишем в основной файл)
-    if (Object.keys(generalData).length > 0) {
-      batch.set(getProjectRef(scope, projectId), generalData, { merge: true });
-    }
-
-    // Б. Тяжелые данные (пишем в файлы зданий)
-    if (buildingSpecificData) {
-      Object.entries(buildingSpecificData).forEach(([bId, data]) => {
-        batch.set(getBuildingDocRef(scope, projectId, bId), data, { merge: true });
-      });
-    }
-
-    await batch.commit();
-
-    // В. Синхронизация названия в списке проектов
-    if (generalData.complexInfo) {
-        await RegistryService._syncDashboardItem(scope, projectId, generalData.complexInfo);
-    }
-  },
-
-  // --- СОЗДАНИЕ И УДАЛЕНИЕ ---
-
-  /**
-   * Создание нового проекта
-   * @param {string} scope 
-   * @param {ProjectMeta} projectMeta - Данные для списка
-   * @param {Object} initialContent - Начальное содержимое проекта
-   */
-  createProject: async (scope, projectMeta, initialContent) => {
+    try {
       const batch = writeBatch(db);
-      batch.set(getMetaListRef(scope), { list: arrayUnion(projectMeta) }, { merge: true });
-      batch.set(getProjectRef(scope, projectMeta.id), initialContent);
+      const { buildingSpecificData, ...generalData } = payload;
+
+      if (Object.keys(generalData).length > 0) {
+        batch.set(getProjectRef(scope, projectId), generalData, { merge: true });
+      }
+
+      if (buildingSpecificData) {
+        Object.entries(buildingSpecificData).forEach(([bId, data]) => {
+          batch.set(getBuildingDocRef(scope, projectId, bId), data, { merge: true });
+        });
+      }
+
       await batch.commit();
+
+      if (generalData.complexInfo) {
+          await RegistryService._syncDashboardItem(scope, projectId, generalData.complexInfo);
+      }
+    } catch (error) {
+      console.error("[RegistryService] Save failed:", error);
+      throw error;
+    }
   },
 
-  /**
-   * Удаление здания и очистка ссылок
-   * @param {string} scope 
-   * @param {string} projectId 
-   * @param {string} buildingId 
-   * @param {Object} generalUpdates - Обновленный список composition без этого здания
-   */
+  createProject: async (scope, projectMeta, initialContent) => {
+      try {
+        const batch = writeBatch(db);
+        batch.set(getMetaListRef(scope), { list: arrayUnion(projectMeta) }, { merge: true });
+        batch.set(getProjectRef(scope, projectMeta.id), initialContent);
+        await batch.commit();
+      } catch (error) {
+        console.error("[RegistryService] Create failed:", error);
+        throw error;
+      }
+  },
+
   deleteBuilding: async (scope, projectId, buildingId, generalUpdates) => {
-    const batch = writeBatch(db);
-    // Удаляем настройки здания из основного файла
-    batch.update(getProjectRef(scope, projectId), generalUpdates);
-    // Удаляем файл с данными здания
-    batch.delete(getBuildingDocRef(scope, projectId, buildingId));
-    await batch.commit();
+    try {
+      const batch = writeBatch(db);
+      batch.update(getProjectRef(scope, projectId), generalUpdates);
+      batch.delete(getBuildingDocRef(scope, projectId, buildingId));
+      await batch.commit();
+    } catch (error) {
+      console.error("[RegistryService] Delete building failed:", error);
+      throw error;
+    }
   },
 
   deleteProject: async (scope, projectId) => {
-      const listRef = getMetaListRef(scope);
-      const snap = await getDoc(listRef);
-      if (snap.exists()) {
-          const list = snap.data().list || [];
-          const newList = list.filter(p => p.id !== projectId);
-          await setDoc(listRef, { list: newList });
+      try {
+        const listRef = getMetaListRef(scope);
+        const snap = await getDoc(listRef);
+        if (snap.exists()) {
+            const list = snap.data().list || [];
+            const newList = list.filter(p => p.id !== projectId);
+            await setDoc(listRef, { list: newList });
+        }
+        await deleteDoc(getProjectRef(scope, projectId));
+      } catch (error) {
+        console.error("[RegistryService] Delete project failed:", error);
+        throw error;
       }
-      await deleteDoc(getProjectRef(scope, projectId));
   },
 
-  // Внутренний хелпер
   _syncDashboardItem: async (scope, projectId, info) => {
       const listRef = getMetaListRef(scope);
       const snap = await getDoc(listRef);

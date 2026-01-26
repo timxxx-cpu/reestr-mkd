@@ -1,21 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, User, FolderOpen, Plus, AlertTriangle } from 'lucide-react';
-import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { auth } from './lib/firebase';
+// ИСПРАВЛЕНИЕ 1: Добавлен LogOut
+import { Loader2, User, FolderOpen, Plus, KeyRound, LogOut } from 'lucide-react';
 import { Routes, Route, useNavigate, useParams, Navigate } from 'react-router-dom';
 
 // Services & Context
-import { RegistryService } from './lib/registry-service';
-import { ToastProvider } from './context/ToastContext';
+import { AuthService } from './lib/auth-service';
+import { ToastProvider, useToast } from './context/ToastContext'; 
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { STEPS_CONFIG } from './lib/constants';
 
-// UI
+// Hooks
+import { useProjects } from './hooks/useProjects';
+
+// UI & Editors
 import Sidebar from './components/Sidebar';
 import StepIndicator from './components/StepIndicator';
 import Breadcrumbs from './components/ui/Breadcrumbs';
-
-// Editors
 import PassportEditor from './components/editors/PassportEditor';
 import CompositionEditor from './components/editors/CompositionEditor';
 import BuildingSelector from './components/editors/BuildingSelector';
@@ -29,10 +29,6 @@ import SummaryDashboard from './components/editors/SummaryDashboard';
 import RegistryView from './components/editors/RegistryView'; 
 import ProjectsDashboard from './components/ProjectsDashboard';
 
-/**
- * @typedef {import('./lib/types').StepConfig} StepConfig
- */
-
 const DB_SCOPE = 'shared_dev_env'; 
 const TEST_USERS = [
     { id: 'u1', name: 'Тимур', role: 'admin' },
@@ -40,6 +36,37 @@ const TEST_USERS = [
     { id: 'u3', name: 'Вахит', role: 'architect' },
     { id: 'u4', name: 'Аббос', role: 'editor' },
 ];
+
+// --- LOGIN SCREEN (ЭКРАН ВХОДА) ---
+function LoginScreen({ onLogin, isLoading }) {
+    return (
+        <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center space-y-8 animate-in fade-in zoom-in duration-500">
+                <div className="space-y-2">
+                    <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-blue-600/30">
+                        <span className="text-3xl font-black text-white">Р</span>
+                    </div>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">
+                        Реестр <span className="text-blue-600">Многоквартирных домов</span>
+                    </h1>
+                    <p className="text-slate-500 text-sm">Система управления проектной документацией и ТЭП</p>
+                </div>
+
+                <div className="space-y-4">
+                    <button 
+                        onClick={onLogin} 
+                        disabled={isLoading}
+                        className="w-full py-3.5 bg-slate-900 hover:bg-black text-white rounded-xl font-bold flex items-center justify-center gap-3 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed"
+                    >
+                        {isLoading ? <Loader2 className="animate-spin" size={20}/> : <KeyRound size={20}/>}
+                        {isLoading ? 'Вход в систему...' : 'Войти в систему'}
+                    </button>
+                    <p className="text-xs text-slate-400">Доступ для сотрудников</p>
+                </div>
+            </div>
+        </div>
+    );
+}
 
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
@@ -63,7 +90,6 @@ function ProjectEditorRoute() {
     const onStepChange = (idx) => { setEditingBuildingId(null); saveData(); setCurrentStep(idx); };
     const handleBackToDashboard = () => { saveData(); navigate('/'); };
   
-    /** @type {StepConfig | undefined} */
     const stepConfig = STEPS_CONFIG?.[currentStep];
     const stepId = stepConfig?.id || 'unknown';
   
@@ -81,12 +107,8 @@ function ProjectEditorRoute() {
         case 'composition': return <CompositionEditor />;
         case 'parking_config': return <ParkingConfigurator onSave={handleNext} buildingId={null} />;
         case 'summary': return <SummaryDashboard />;
-        
-        // --- НОВЫЕ КЕЙСЫ ДЛЯ РЕЕСТРА ---
         case 'registry_res_view': return <RegistryView mode="res" />;
         case 'registry_nonres_view': return <RegistryView mode="nonres" />;
-        // -------------------------------
-
         case 'registry_res': 
         case 'registry_nonres':
         case 'floors':
@@ -106,12 +128,11 @@ function ProjectEditorRoute() {
                  <Breadcrumbs 
                     projectName={complexInfo?.name || "Загрузка..."} 
                     stepTitle={stepConfig?.title} 
-                    // ИСПРАВЛЕНО ЗДЕСЬ: === вместо =>
                     buildingName={editingBuildingId ? composition?.find(b => b.id === editingBuildingId)?.label : null} 
                     onBackToStep={() => setEditingBuildingId(null)}
                  />
             </div>
-            <div className="flex-1 overflow-y-auto px-8 pb-6 scroll-smooth">
+            <div className="flex-1 overflow-y-auto px-8 pb-6 scroll-smooth custom-scrollbar">
                 {!editingBuildingId && <StepIndicator currentStep={currentStep} />}
                 <React.Suspense fallback={<Loader2 className="animate-spin text-blue-600"/>}>{renderStepContent()}</React.Suspense>
             </div>
@@ -136,80 +157,104 @@ const ProjectProviderWrapper = ({ children, firebaseUser, dbScope }) => {
     );
 };
 
+// Новый компонент MainLayout для изоляции логики
+// ИСПРАВЛЕНИЕ 2: Убран onLogout из деструктуризации, так как он не передавался и не использовался
+const MainLayout = ({ firebaseUser, activePersona, setActivePersona }) => {
+    const navigate = useNavigate();
+    const toast = useToast();
+    
+    // ИСПОЛЬЗУЕМ REACT QUERY ХУК
+    const { projects, isLoading, createProject, deleteProject, isCreating } = useProjects(DB_SCOPE);
+
+    const handleCreate = async () => {
+        try {
+            const newId = crypto.randomUUID();
+            const newProjectMeta = { 
+                id: newId, 
+                name: 'Новый проект', 
+                status: 'Проектный', 
+                lastModified: new Date().toISOString(),
+                author: activePersona.name
+            };
+            const initialContent = { 
+                complexInfo: { name: 'Новый проект', status: 'Проектный' }, 
+                composition: [] 
+            };
+            
+            await createProject({ meta: newProjectMeta, content: initialContent });
+            toast.success("Проект создан!");
+            navigate(`/project/${newId}`);
+        } catch (e) {
+            console.error(e);
+            toast.error("Ошибка создания");
+        }
+    };
+
+    const handleDelete = async (id) => {
+        if (!confirm('Удалить проект навсегда?')) return;
+        try {
+            await deleteProject(id);
+            toast.success("Проект удален");
+        } catch (e) {
+             console.error(e);
+             toast.error("Ошибка удаления");
+        }
+    };
+
+    const handleLogout = async () => {
+        await AuthService.logout();
+        // Состояние firebaseUser в App обновится через подписку, и компонент перерендерится в LoginScreen
+    };
+
+    if (isLoading) return <div className="flex items-center justify-center h-screen bg-slate-50"><Loader2 className="animate-spin text-slate-400"/></div>;
+
+    return (
+        <div className="min-h-screen bg-slate-50">
+            <div className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-50 shadow-sm">
+                <div className="flex items-center gap-4"><div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-white"><FolderOpen size={20} /></div><h1 className="text-lg font-bold text-slate-800">Реестр МКД <span className="text-xs text-slate-400 font-normal ml-2">{DB_SCOPE}</span></h1></div>
+                <div className="flex gap-3">
+                    <div className="flex bg-slate-100 rounded-full p-1">{TEST_USERS.map(user => (<button key={user.id} onClick={() => setActivePersona(user)} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${activePersona.id === user.id ? 'bg-white shadow-sm' : 'text-slate-500'}`}><User size={12} className="inline mr-1"/> {user.name}</button>))}</div>
+                    <button onClick={handleCreate} disabled={isCreating} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold uppercase shadow-lg hover:bg-blue-500"><Plus size={14}/> Новый</button>
+                    <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg ml-2" title="Выйти"><LogOut size={20}/></button>
+                </div>
+            </div>
+            <div className="p-8"><ProjectsDashboard projects={projects} onSelect={(id) => navigate(`/project/${id}`)} onCreate={handleCreate} onDelete={handleDelete}/></div>
+        </div>
+    );
+};
+
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [activePersona, setActivePersona] = useState(TEST_USERS[0]);
-  const [projectsList, setProjectsList] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const navigate = useNavigate();
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
 
   useEffect(() => {
-    signInAnonymously(auth).catch(console.error);
-    const unsubscribe = onAuthStateChanged(auth, (u) => { setFirebaseUser(u); setLoading(false); });
+    // AuthService.signInDemo().catch(console.error); 
+    const unsubscribe = AuthService.subscribe((u) => { 
+        setFirebaseUser(u); 
+    });
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (!firebaseUser) return;
-    const unsubscribe = RegistryService.subscribeProjectsList(DB_SCOPE, setProjectsList);
-    return () => unsubscribe();
-  }, [firebaseUser]);
-
-  const createProject = async () => {
-      if (!firebaseUser || creating) return;
-      setCreating(true);
+  const handleLogin = async () => {
+      setIsAuthLoading(true);
       try {
-          // ИСПОЛЬЗУЕМ БЕЗОПАСНЫЙ UUID
-          const newId = crypto.randomUUID();
-          /** @type {import('./lib/types').ProjectMeta} */
-          const newProjectMeta = { 
-              id: newId, 
-              name: 'Новый проект', 
-              status: 'Проектный', 
-              lastModified: new Date().toISOString(),
-              author: activePersona.name
-          };
-          const initialContent = { 
-              complexInfo: { name: 'Новый проект', status: 'Проектный' }, 
-              composition: [] 
-          };
-          
-          await RegistryService.createProject(DB_SCOPE, newProjectMeta, initialContent);
-          
-          navigate(`/project/${newId}`);
-      } catch (e) { 
-          console.error("Ошибка создания:", e);
-          alert("Ошибка: " + e.message); 
-      } finally { 
-          setCreating(false); 
+          await AuthService.signInDemo();
+      } catch (error) {
+          console.error("Login failed", error);
+      } finally {
+          setIsAuthLoading(false);
       }
   };
 
-  const deleteProject = async (id) => {
-      if (!confirm('Удалить проект навсегда?')) return;
-      try {
-          await RegistryService.deleteProject(DB_SCOPE, id);
-      } catch (e) {
-          console.error("Ошибка удаления:", e);
-      }
-  };
-
-  if (loading) return <div className="flex items-center justify-center h-screen bg-slate-50"><Loader2 className="animate-spin text-slate-400"/></div>;
-  if (!firebaseUser) return <div className="p-8 text-center text-slate-400">Нет соединения</div>;
+  if (!firebaseUser) {
+      return <LoginScreen onLogin={handleLogin} isLoading={isAuthLoading} />;
+  }
 
   return (
     <ToastProvider>
         <Routes>
-            <Route path="/" element={
-                <div className="min-h-screen bg-slate-50">
-                    <div className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-50 shadow-sm">
-                        <div className="flex items-center gap-4"><div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-white"><FolderOpen size={20} /></div><h1 className="text-lg font-bold text-slate-800">Реестр МКД <span className="text-xs text-slate-400 font-normal ml-2">{DB_SCOPE}</span></h1></div>
-                        <div className="flex gap-3"><div className="flex bg-slate-100 rounded-full p-1">{TEST_USERS.map(user => (<button key={user.id} onClick={() => setActivePersona(user)} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${activePersona.id === user.id ? 'bg-white shadow-sm' : 'text-slate-500'}`}><User size={12} className="inline mr-1"/> {user.name}</button>))}</div><button onClick={createProject} disabled={creating} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold uppercase shadow-lg hover:bg-blue-500"><Plus size={14}/> Новый</button></div>
-                    </div>
-                    <div className="p-8"><ProjectsDashboard projects={projectsList} onSelect={(id) => navigate(`/project/${id}`)} onCreate={createProject} onDelete={deleteProject}/></div>
-                </div>
-            } />
+            <Route path="/" element={<MainLayout firebaseUser={firebaseUser} activePersona={activePersona} setActivePersona={setActivePersona} />} />
             <Route path="/project/:projectId" element={<ProjectProviderWrapper firebaseUser={firebaseUser} dbScope={DB_SCOPE}><ProjectEditorRoute /></ProjectProviderWrapper>} />
             <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

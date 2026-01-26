@@ -2,13 +2,15 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   ArrowLeft, Save, Wand2, ArrowDown, ArrowUp, 
   DoorOpen, ChevronLeft, ChevronsRight, Ban,
-  ArrowRight, MoreHorizontal, Copy, ChevronsDown, Trash2
+  MoreHorizontal, ChevronsDown
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 import { Validators } from '../../lib/validators';
+// ВАЛИДАЦИЯ
+import { EntranceDataSchema } from '../../lib/schemas';
 
 /**
  * @param {{ buildingId: string, onBack: () => void }} props
@@ -16,13 +18,8 @@ import { Validators } from '../../lib/validators';
 export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const { composition, buildingDetails, entrancesData, setEntrancesData, floorData, setFloorData, saveBuildingData, saveData } = useProject();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
-    
-    // Состояние для открытого меню (ID этажа)
     const [openMenuId, setOpenMenuId] = useState(null);
-    
-    // Рефы для навигации
     const inputsRef = useRef({});
-    // Реф для меню, чтобы закрывать при клике вовне
     const menuRef = useRef(null);
 
     const building = composition.find(c => c.id === buildingId);
@@ -30,13 +27,11 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     
     const { floorList, currentBlock, isUndergroundParking, isParking } = useBuildingFloors(buildingId, activeBlockIndex);
 
-    // Сброс при смене блока
     useEffect(() => {
         inputsRef.current = {};
         setOpenMenuId(null);
     }, [activeBlockIndex]);
 
-    // Закрытие меню при клике вне его
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -60,9 +55,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         
     const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
     
-    // --- DATA HANDLERS ---
-    
-    /** @type {(entIdx: number, floorId: string, field: string, val: any) => void} */
     const setEntData = (entIdx, floorId, field, val) => {
         if (val !== '' && (parseFloat(val) < 0 || String(val).includes('-'))) return;
         const key = `${currentBlock.fullId}_ent${entIdx}_${floorId}`;
@@ -70,14 +62,12 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         setEntrancesData(prev => ({ ...prev, [key]: { ...(prev[key]||{}), [field]: val } }));
     };
 
-    /** @type {(entIdx: number, floorId: string, field: string) => any} */
     const getEntData = (entIdx, floorId, field) => {
         const key = `${currentBlock.fullId}_ent${entIdx}_${floorId}`;
         // @ts-ignore
         return entrancesData[key]?.[field] || '';
     };
 
-    /** @type {(floorId: string) => void} */
     const toggleDuplex = (floorId) => { 
         const key = `${currentBlock.fullId}_${floorId}`; 
         // @ts-ignore
@@ -86,7 +76,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         setFloorData(p => ({...p, [key]: {...(p[key]||{}), isDuplex: !current}})); 
     };
 
-    // --- NAVIGATION LOGIC ---
     const isFieldEnabled = (floor, field) => {
         if (field === 'mopQty') return true; 
         if (isUndergroundParking) return false; 
@@ -152,8 +141,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         }
     };
 
-    // --- BULK ACTIONS ---
-
     const autoFill = () => { 
         const updates = {}; 
         entrancesList.forEach(ent => floorList.forEach(f => { 
@@ -169,7 +156,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         setEntrancesData(p => ({...p, ...updates})); 
     };
 
-    // @ts-ignore
     const copyFloorToNext = (idx) => { 
         if (idx >= floorList.length - 1) return; 
         const currentFloor = floorList[idx]; 
@@ -188,7 +174,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         setOpenMenuId(null);
     };
 
-    // @ts-ignore
     const fillFloorsAfter = (idx) => { 
         const sourceFloor = floorList[idx]; 
         const updates = {}; 
@@ -212,7 +197,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         setOpenMenuId(null);
     };
 
-    /** @type {(floorId: string, entIdx: number) => void} */
     const copyEntranceFromLeft = (floorId, entIdx) => { 
         if(entIdx <= 1) return; 
         const tgtKey = `${currentBlock.fullId}_ent${entIdx}_${floorId}`; 
@@ -223,7 +207,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         if(srcData) setEntrancesData(p => ({...p, [tgtKey]: {...srcData}})); 
     };
 
-    /** @type {(floorId: string, srcEntIdx: number) => void} */
     const fillEntrancesRow = (floorId, srcEntIdx) => { 
         const srcKey = `${currentBlock.fullId}_ent${srcEntIdx}_${floorId}`; 
         // @ts-ignore
@@ -236,7 +219,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         setEntrancesData(p => ({...p, ...updates})); 
     };
 
-    // @ts-ignore
     const renderBadge = (type) => {
         const map = {
             residential: { color: 'bg-blue-100 text-blue-700', label: 'Жилой' },
@@ -332,7 +314,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                         <tr key={f.id} className="hover:bg-blue-50/30 focus-within:bg-blue-50 transition-colors duration-200 group h-10">
                                             
                                             {/* ПЕРВАЯ КОЛОНКА: МЕНЮ ДЕЙСТВИЙ */}
-                                            {/* ИСПРАВЛЕНИЕ: Добавлен динамический Z-Index при открытом меню */}
                                             <td className={`p-1 w-[110px] min-w-[110px] sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 border-r border-slate-200 relative group/cell shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] ${openMenuId === f.id ? 'z-50' : 'z-20'}`}>
                                                 <div className="flex items-center justify-between h-full px-1">
                                                     <div className="flex items-center gap-1.5">
@@ -369,48 +350,29 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                             {entrancesList.map(e => (
                                                 <td key={e} className={`p-0 w-[180px] min-w-[180px] border-r border-slate-100 h-10 relative group/cell ${isDuplex ? 'bg-purple-50/10' : ''}`}>
                                                     <div className="grid grid-cols-3 h-full divide-x divide-slate-100">
-                                                        
-                                                        {/* КВАРТИРЫ */}
-                                                        <DebouncedInput 
-                                                            // @ts-ignore
-                                                            ref={el => inputsRef.current[`${idx}-${e}-apts`] = el}
-                                                            onKeyDown={(ev) => handleKeyDown(ev, idx, e, 'apts')}
-                                                            
-                                                            type="number" 
-                                                            min="0"
-                                                            disabled={!canHaveApts} 
-                                                            className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${!canHaveApts ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : 'text-emerald-700 bg-emerald-50/30'}`} 
-                                                            value={getEntData(e, f.id, 'apts')} 
-                                                            onChange={val => setEntData(e, f.id, 'apts', val)} 
-                                                            placeholder={canHaveApts ? "-" : ""}
-                                                        />
-                                                        
-                                                        {/* НЕЖИЛЫЕ */}
-                                                        <DebouncedInput 
-                                                            // @ts-ignore
-                                                            ref={el => inputsRef.current[`${idx}-${e}-units`] = el}
-                                                            onKeyDown={(ev) => handleKeyDown(ev, idx, e, 'units')}
+                                                        {['apts', 'units', 'mopQty'].map(field => {
+                                                            const canEdit = field === 'apts' ? canHaveApts : field === 'units' ? canHaveUnits : true;
+                                                            const val = getEntData(e, f.id, field);
+                                                            // ZOD Check
+                                                            const check = EntranceDataSchema.shape[field].safeParse(val);
+                                                            const isInvalid = val !== '' && !check.success;
 
-                                                            type="number" 
-                                                            min="0"
-                                                            disabled={!canHaveUnits} 
-                                                            className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${!canHaveUnits ? 'bg-slate-50 text-slate-200 cursor-not-allowed' : 'bg-blue-50/30 text-blue-700'}`} 
-                                                            value={getEntData(e, f.id, 'units')} 
-                                                            onChange={val => setEntData(e, f.id, 'units', val)} 
-                                                        />
-                                                        
-                                                        {/* МОП */}
-                                                        <DebouncedInput 
-                                                            // @ts-ignore
-                                                            ref={el => inputsRef.current[`${idx}-${e}-mopQty`] = el}
-                                                            onKeyDown={(ev) => handleKeyDown(ev, idx, e, 'mopQty')}
-
-                                                            type="number" 
-                                                            min="0"
-                                                            className="text-center text-xs font-bold outline-none h-full w-full bg-white text-slate-500 focus:text-slate-800 focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all" 
-                                                            value={getEntData(e, f.id, 'mopQty')} 
-                                                            onChange={val => setEntData(e, f.id, 'mopQty', val)} 
-                                                        />
+                                                            return (
+                                                                <DebouncedInput 
+                                                                    key={field}
+                                                                    // @ts-ignore
+                                                                    ref={el => inputsRef.current[`${idx}-${e}-${field}`] = el}
+                                                                    onKeyDown={(ev) => handleKeyDown(ev, idx, e, field)}
+                                                                    type="number" 
+                                                                    min="0"
+                                                                    disabled={!canEdit} 
+                                                                    className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${!canEdit ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : (isInvalid ? 'bg-red-50 text-red-600' : 'bg-white text-slate-700')}`} 
+                                                                    value={val} 
+                                                                    onChange={v => setEntData(e, f.id, field, v)} 
+                                                                    placeholder={canEdit ? "-" : ""}
+                                                                />
+                                                            );
+                                                        })}
                                                     </div>
                                                     
                                                     {/* Кнопки копирования (ховер) */}

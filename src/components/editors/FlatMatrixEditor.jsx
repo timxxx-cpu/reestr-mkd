@@ -7,6 +7,8 @@ import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
+// ВАЛИДАЦИЯ
+import { UnitSchema } from '../../lib/schemas';
 
 const TYPE_COLORS = {
     flat: 'bg-white border-slate-200 hover:border-blue-300',
@@ -82,7 +84,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     const duplicateSet = useMemo(() => {
         const counts = {};
         const dups = new Set();
-        // Проходимся по всей матрице текущего блока
         if (currentBlock) {
             Object.keys(flatMatrix).forEach(k => {
                 if (k.startsWith(currentBlock.fullId)) {
@@ -123,7 +124,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         }));
     };
 
-    // --- НАВИГАЦИЯ ---
     const handleKeyDown = (e, fIdx, ent, idx) => {
         if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
         e.preventDefault();
@@ -132,19 +132,15 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         let nextEnt = ent;
         let nextIdx = idx;
 
-        // ВВЕРХ / ВНИЗ (По стояку)
         if (e.key === 'ArrowUp') nextFIdx = Math.max(0, fIdx - 1);
         if (e.key === 'ArrowDown') nextFIdx = Math.min(floorList.length - 1, fIdx + 1);
 
-        // ВЛЕВО / ВПРАВО (По этажу)
         if (e.key === 'ArrowLeft') {
             if (nextIdx > 0) {
                 nextIdx--;
             } else {
-                // Переход к предыдущему подъезду
                 if (nextEnt > 1) {
                     nextEnt--;
-                    // Находим кол-во квартир в пред. подъезде чтобы встать в конец
                     // @ts-ignore
                     const prevCount = Number(entrancesData[`${currentBlock.fullId}_ent${nextEnt}_${floorList[nextFIdx].id}`]?.apts || 0);
                     nextIdx = Math.max(0, prevCount - 1);
@@ -157,7 +153,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
             if (nextIdx < currentCount - 1) {
                 nextIdx++;
             } else {
-                // Переход к следующему подъезду
                 if (nextEnt < entrances.length) {
                     nextEnt++;
                     nextIdx = 0;
@@ -165,7 +160,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
             }
         }
 
-        // Фокусировка
         const nextFloorId = floorList[nextFIdx].id;
         const refKey = `${nextEnt}-${nextFloorId}-${nextIdx}`;
         // @ts-ignore
@@ -175,7 +169,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         }
     };
 
-    // --- ВЫДЕЛЕНИЕ ---
     const toggleSelection = (key) => {
         const newSet = new Set(selectedIds);
         if (newSet.has(key)) newSet.delete(key);
@@ -221,10 +214,8 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                 for(let i=0; i<count; i++) {
                     const key = `${currentBlock.fullId}_e${e}_f${f.id}_i${i}`;
                     
-                    // ИСПРАВЛЕНИЕ: Явное приведение типа для устранения ошибки TS2339
                     const existing = /** @type {import('../../lib/types').UnitData} */ (flatMatrix[key] || {});
                     
-                    // Не нумеруем офисы и кладовки, если они явно заданы
                     if (existing.type === 'office' || existing.type === 'pantry') continue;
                     
                     updates[key] = { ...existing, num: String(n++), type: existing.type || 'flat' };
@@ -256,7 +247,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                     </div>
                     <button onClick={autoNumber} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors"><Wand2 size={14}/> Авто-нум.</button>
                     
-                    {/* Переключатель режима выделения */}
                     <button 
                         onClick={() => { setIsSelectionMode(!isSelectionMode); setSelectedIds(new Set()); }}
                         className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border ${isSelectionMode ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}
@@ -286,7 +276,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                  {blocksList.map((b,i) => (<TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>Блок {i+1}</TabButton>))}
             </div>
 
-            {/* ПАНЕЛЬ МАССОВЫХ ДЕЙСТВИЙ */}
             {selectedIds.size > 0 && (
                 <div className="sticky top-4 z-50 mb-4 mx-auto max-w-xl animate-in slide-in-from-top-4 fade-in duration-300">
                     <div className="bg-slate-900 text-white p-2 rounded-xl shadow-2xl flex items-center gap-3 border border-slate-700">
@@ -310,7 +299,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                     <table className="border-collapse bg-white" style={{ width: 'max-content' }}>
                         <thead className="bg-slate-50 border-b text-[10px] uppercase font-bold text-slate-500 sticky top-0 z-30 shadow-md">
                             <tr>
-                                {/* Sticky Floor Column Header */}
                                 <th className="p-4 sticky left-0 bg-slate-50 z-40 border-r border-slate-300 w-20 min-w-[80px] text-center shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
                                 {entrances.map(e => (
                                     <th key={e} className={`p-4 border-r border-slate-200 min-w-[220px] backdrop-blur ${e % 2 === 0 ? 'bg-slate-50/95' : 'bg-blue-50/50 text-blue-800'}`}>
@@ -327,7 +315,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
                                 return (
                                     <tr key={f.id} className={`${isDuplexFloor ? 'bg-purple-50/5' : ''} transition-colors h-14`}>
-                                        {/* Sticky Floor Cell */}
                                         <td className={`p-2 font-bold text-xs sticky left-0 border-r border-slate-300 text-center z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] ${!isValid ? 'bg-red-50 text-red-600' : 'bg-white text-slate-700'}`}>
                                             <div className="flex flex-col items-center gap-0.5">
                                                 {f.label}
@@ -354,7 +341,18 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                                                             const isSelected = selectedIds.has(cellKey);
                                                             // @ts-ignore
                                                             const isDuplicate = duplicateSet.has(a.num);
+                                                            
+                                                            // ZOD Check для отдельной ячейки
+                                                            const result = UnitSchema.safeParse(a);
+                                                            const isInvalidSchema = !result.success && a.num !== ''; // Пустой номер - это отдельная проверка ниже
                                                             const isMissingNum = !a.num || String(a.num).trim() === '';
+
+                                                            // Цвет границы
+                                                            let borderColorClass = '';
+                                                            if (isSelected) borderColorClass = 'border-blue-500 ring-2 ring-blue-200';
+                                                            else if (isDuplicate) borderColorClass = 'border-red-500 bg-red-50';
+                                                            else if (isInvalidSchema || isMissingNum) borderColorClass = 'border-red-300 border-dashed'; // Пунктир если невалидно
+                                                            else borderColorClass = TYPE_COLORS[a.type] || TYPE_COLORS.flat;
 
                                                             return (
                                                                 <div 
@@ -362,21 +360,17 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                                                                     onClick={() => isSelectionMode && toggleSelection(cellKey)}
                                                                     className={`
                                                                         flex flex-col gap-0.5 p-1.5 border-2 rounded-lg w-[64px] text-center transition-all shadow-sm relative group
-                                                                        ${isSelected ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200 z-10' : (TYPE_COLORS[a.type] || TYPE_COLORS.flat)}
-                                                                        ${(isDuplicate && !isSelected) ? 'border-red-500 bg-red-50' : ''}
+                                                                        ${borderColorClass}
                                                                         ${isSelectionMode ? 'cursor-pointer hover:border-blue-400' : ''}
                                                                     `}
                                                                 >
-                                                                    {/* Индикатор типа (цветная полоска) */}
                                                                     <div className={`h-1 w-full rounded-full mb-0.5 ${a.type === 'office' ? 'bg-emerald-400' : a.type.includes('duplex') ? 'bg-purple-400' : 'bg-slate-200'}`}></div>
                                                                     
                                                                     {isSelectionMode ? (
-                                                                        // В режиме выделения - просто текст
                                                                         <div className={`font-black text-xs py-1 ${isDuplicate ? 'text-red-600' : 'text-slate-700'}`}>
                                                                             {a.num || '-'}
                                                                         </div>
                                                                     ) : (
-                                                                        // В режиме редактирования - инпут
                                                                         <DebouncedInput 
                                                                             // @ts-ignore
                                                                             ref={el => inputsRef.current[`${e}-${f.id}-${i}`] = el}
@@ -389,10 +383,8 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                                                                         />
                                                                     )}
 
-                                                                    {/* Дубликат Warning */}
                                                                     {isDuplicate && <div className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 z-20 shadow-sm"><AlertCircle size={8}/></div>}
                                                                     
-                                                                    {/* Селект типа (только если дуплексный этаж) */}
                                                                     {isDuplexFloor && !isSelectionMode && (
                                                                         <select 
                                                                             className="w-full text-[8px] bg-transparent outline-none font-bold cursor-pointer text-center appearance-none border-t border-black/5 mt-0.5 pt-0.5 text-slate-500 hover:text-blue-600" 
