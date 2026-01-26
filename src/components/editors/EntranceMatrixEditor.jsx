@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   ArrowLeft, Save, Wand2, ArrowDown, ArrowUp, 
-  DoorOpen, ChevronLeft, ChevronsRight, Ban
+  DoorOpen, ChevronLeft, ChevronsRight, Ban,
+  ArrowRight, MoreHorizontal, Copy, ChevronsDown, Trash2
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
@@ -15,21 +16,40 @@ import { Validators } from '../../lib/validators';
 export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const { composition, buildingDetails, entrancesData, setEntrancesData, floorData, setFloorData, saveBuildingData, saveData } = useProject();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
+    
+    // Состояние для открытого меню (ID этажа)
+    const [openMenuId, setOpenMenuId] = useState(null);
+    
+    // Рефы для навигации
+    const inputsRef = useRef({});
+    // Реф для меню, чтобы закрывать при клике вовне
+    const menuRef = useRef(null);
 
     const building = composition.find(c => c.id === buildingId);
-    
     const blocksList = useMemo(() => getBlocksList(building), [building]);
     
-    // --- ИСПОЛЬЗОВАНИЕ ХУКА ---
-    const { floorList, currentBlock, isUndergroundParking, isParking, isInfrastructure } = useBuildingFloors(buildingId, activeBlockIndex);
+    const { floorList, currentBlock, isUndergroundParking, isParking } = useBuildingFloors(buildingId, activeBlockIndex);
+
+    // Сброс при смене блока
+    useEffect(() => {
+        inputsRef.current = {};
+        setOpenMenuId(null);
+    }, [activeBlockIndex]);
+
+    // Закрытие меню при клике вне его
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (menuRef.current && !menuRef.current.contains(event.target)) {
+                setOpenMenuId(null);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Данные не найдены</div>;
 
-    // --- ВОССТАНОВЛЕННАЯ ПЕРЕМЕННАЯ ---
     const isResidentialBlock = currentBlock.type === 'Ж';
-
-    // --- ПРОВЕРКИ ТИПА ---
-    // Редактор доступен для жилья и подземных паркингов. Недоступен для инфры и наземных паркингов.
     const showEditor = isResidentialBlock || isUndergroundParking;
 
     // @ts-ignore
@@ -44,6 +64,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     
     /** @type {(entIdx: number, floorId: string, field: string, val: any) => void} */
     const setEntData = (entIdx, floorId, field, val) => {
+        if (val !== '' && (parseFloat(val) < 0 || String(val).includes('-'))) return;
         const key = `${currentBlock.fullId}_ent${entIdx}_${floorId}`;
         // @ts-ignore
         setEntrancesData(prev => ({ ...prev, [key]: { ...(prev[key]||{}), [field]: val } }));
@@ -64,6 +85,74 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         // @ts-ignore
         setFloorData(p => ({...p, [key]: {...(p[key]||{}), isDuplex: !current}})); 
     };
+
+    // --- NAVIGATION LOGIC ---
+    const isFieldEnabled = (floor, field) => {
+        if (field === 'mopQty') return true; 
+        if (isUndergroundParking) return false; 
+        if (field === 'apts') return ['residential', 'mixed', 'basement', 'tsokol', 'attic'].includes(floor.type);
+        if (field === 'units') return floor.isComm;
+        return true;
+    };
+
+    const handleKeyDown = (e, floorIdx, entIdx, field) => {
+        if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+        e.preventDefault();
+
+        const fieldsOrder = ['apts', 'units', 'mopQty'];
+        let currFloorIdx = floorIdx;
+        let currEntIdx = entIdx;
+        let currFieldIdx = fieldsOrder.indexOf(field);
+
+        for (let i = 0; i < 10; i++) {
+            if (e.key === 'ArrowUp') currFloorIdx--;
+            if (e.key === 'ArrowDown') currFloorIdx++;
+            
+            if (e.key === 'ArrowLeft') {
+                currFieldIdx--;
+                if (currFieldIdx < 0) {
+                    if (currEntIdx > 1) {
+                        currEntIdx--;
+                        currFieldIdx = fieldsOrder.length - 1;
+                    } else {
+                        currFieldIdx = 0;
+                        break; 
+                    }
+                }
+            }
+            
+            if (e.key === 'ArrowRight') {
+                currFieldIdx++;
+                if (currFieldIdx >= fieldsOrder.length) {
+                    if (currEntIdx < entrancesCount) {
+                        currEntIdx++;
+                        currFieldIdx = 0;
+                    } else {
+                        currFieldIdx = fieldsOrder.length - 1;
+                        break;
+                    }
+                }
+            }
+
+            if (currFloorIdx < 0) { currFloorIdx = 0; break; }
+            if (currFloorIdx >= floorList.length) { currFloorIdx = floorList.length - 1; break; }
+
+            const targetFloor = floorList[currFloorIdx];
+            const targetField = fieldsOrder[currFieldIdx];
+            
+            if (isFieldEnabled(targetFloor, targetField)) {
+                const targetKey = `${currFloorIdx}-${currEntIdx}-${targetField}`;
+                // @ts-ignore
+                if (inputsRef.current[targetKey]) {
+                    // @ts-ignore
+                    inputsRef.current[targetKey].focus();
+                }
+                return;
+            }
+        }
+    };
+
+    // --- BULK ACTIONS ---
 
     const autoFill = () => { 
         const updates = {}; 
@@ -96,6 +185,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         }); 
         // @ts-ignore
         setEntrancesData(prev => ({ ...prev, ...updates })); 
+        setOpenMenuId(null);
     };
 
     // @ts-ignore
@@ -119,6 +209,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         } 
         // @ts-ignore
         setEntrancesData(prev => ({ ...prev, ...updates })); 
+        setOpenMenuId(null);
     };
 
     /** @type {(floorId: string, entIdx: number) => void} */
@@ -178,7 +269,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    {/* Кнопка "Заполнить типовыми" теперь корректно использует isResidentialBlock */}
                     <button onClick={autoFill} disabled={!isResidentialBlock && !isParking} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${!isResidentialBlock && !isParking ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-100'}`}><Wand2 size={14}/> Заполнить типовыми</button>
                     
                     <Button onClick={async () => { 
@@ -208,8 +298,9 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden flex flex-col">
                     <div className="flex-1 overflow-auto relative w-full max-w-[calc(100vw-64px)]" style={{ maxHeight: 'calc(100vh - 250px)' }}>
                         <table className="w-max border-collapse table-fixed">
-                            <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-30 shadow-sm">
+                            <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-30 shadow-md">
                                 <tr>
+                                    {/* Липкая колонка этажей с тенью */}
                                     <th className="p-2 text-left w-[110px] min-w-[110px] sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
                                     {entrancesList.map(e => (
                                         <th key={e} className="p-1 w-[180px] min-w-[180px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">
@@ -225,9 +316,10 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                 {floorList.map((f, idx) => {
                                     // @ts-ignore
                                     const isDuplex = floorData[`${currentBlock.fullId}_${f.id}`]?.isDuplex; 
-                                    const canHaveApts = ['residential', 'mixed', 'basement', 'tsokol', 'attic'].includes(f.type) && !isUndergroundParking;
+                                    const canHaveApts = isFieldEnabled(f, 'apts');
+                                    const canHaveUnits = isFieldEnabled(f, 'units');
                                     
-                                    // --- ЛОГИКА ДУПЛЕКСА ЧЕРЕЗ ВАЛИДАТОР ---
+                                    // Логика дуплекса
                                     let hasApts = false;
                                     for (const e of entrancesList) {
                                         const val = getEntData(e, f.id, 'apts');
@@ -238,26 +330,90 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
                                     return (
                                         <tr key={f.id} className="hover:bg-blue-50/30 focus-within:bg-blue-50 transition-colors duration-200 group h-10">
-                                            <td className="p-1 w-[110px] min-w-[110px] sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 z-20 border-r border-slate-200 relative group/cell shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                            
+                                            {/* ПЕРВАЯ КОЛОНКА: МЕНЮ ДЕЙСТВИЙ */}
+                                            {/* ИСПРАВЛЕНИЕ: Добавлен динамический Z-Index при открытом меню */}
+                                            <td className={`p-1 w-[110px] min-w-[110px] sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 border-r border-slate-200 relative group/cell shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] ${openMenuId === f.id ? 'z-50' : 'z-20'}`}>
                                                 <div className="flex items-center justify-between h-full px-1">
                                                     <div className="flex items-center gap-1.5">
+                                                        {/* Чекбокс дуплекса */}
                                                         {canHaveApts && (<input type="checkbox" title={duplexState.title + (duplexState.disabled ? " (недоступно)" : "")} checked={isDuplex || false} onChange={() => !duplexState.disabled && toggleDuplex(f.id)} disabled={duplexState.disabled} className={`rounded w-3 h-3 transition-all flex-shrink-0 ${duplexState.disabled ? 'cursor-not-allowed opacity-30 bg-slate-100' : 'cursor-pointer text-purple-600'}`}/>)}
                                                         <span className="text-xs font-bold text-slate-700">{f.label}</span>
                                                     </div>
                                                     {renderBadge(f.type)}
                                                 </div>
-                                                <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/cell:opacity-100 flex gap-1 z-30 bg-white/90 p-0.5 rounded shadow-sm border border-slate-200">
-                                                    <button onClick={() => fillFloorsAfter(idx)} title="Заполнить вниз" className="p-0.5 hover:text-blue-600"><ArrowDown size={10}/></button>
-                                                    <button onClick={() => copyFloorToNext(idx)} title="Копировать на следующий" className="p-0.5 hover:text-blue-600"><ArrowDown size={10} className="opacity-50"/></button>
+
+                                                {/* Кнопка "Три точки" */}
+                                                <div className={`absolute right-1 top-1/2 -translate-y-1/2 transition-opacity z-30 ${openMenuId === f.id ? 'opacity-100' : 'opacity-0 group-hover/cell:opacity-100'}`}>
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === f.id ? null : f.id); }}
+                                                        className={`p-1 rounded-md shadow-sm border border-slate-200 hover:text-blue-600 transition-colors ${openMenuId === f.id ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-white/90 text-slate-400'}`}
+                                                    >
+                                                        <MoreHorizontal size={14}/>
+                                                    </button>
                                                 </div>
+
+                                                {/* Само меню действий */}
+                                                {openMenuId === f.id && (
+                                                    <div ref={menuRef} className="absolute left-[90px] top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-200 z-[100] p-1 flex flex-col animate-in fade-in zoom-in-95 duration-200 origin-top-left">
+                                                        <button onClick={() => copyFloorToNext(idx)} className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 rounded-lg text-left">
+                                                            <ArrowDown size={14} className="text-slate-400"/> Скопировать вниз (1)
+                                                        </button>
+                                                        <button onClick={() => fillFloorsAfter(idx)} className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 rounded-lg text-left border-t border-slate-100">
+                                                            <ChevronsDown size={14} className="text-slate-400"/> Заполнить все ниже
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </td>
+
                                             {entrancesList.map(e => (
                                                 <td key={e} className={`p-0 w-[180px] min-w-[180px] border-r border-slate-100 h-10 relative group/cell ${isDuplex ? 'bg-purple-50/10' : ''}`}>
                                                     <div className="grid grid-cols-3 h-full divide-x divide-slate-100">
-                                                        <DebouncedInput type="number" disabled={!canHaveApts} className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${!canHaveApts ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : 'text-emerald-700 bg-emerald-50/30'}`} value={getEntData(e, f.id, 'apts')} onChange={val => setEntData(e, f.id, 'apts', val)} placeholder={canHaveApts ? "-" : ""}/>
-                                                        <DebouncedInput type="number" disabled={!f.isComm || isUndergroundParking} className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${(!f.isComm || isUndergroundParking) ? 'bg-slate-50 text-slate-200 cursor-not-allowed' : 'bg-blue-50/30 text-blue-700'}`} value={getEntData(e, f.id, 'units')} onChange={val => setEntData(e, f.id, 'units', val)} />
-                                                        <DebouncedInput type="number" className="text-center text-xs font-bold outline-none h-full w-full bg-white text-slate-500 focus:text-slate-800 focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all" value={getEntData(e, f.id, 'mopQty')} onChange={val => setEntData(e, f.id, 'mopQty', val)} />
+                                                        
+                                                        {/* КВАРТИРЫ */}
+                                                        <DebouncedInput 
+                                                            // @ts-ignore
+                                                            ref={el => inputsRef.current[`${idx}-${e}-apts`] = el}
+                                                            onKeyDown={(ev) => handleKeyDown(ev, idx, e, 'apts')}
+                                                            
+                                                            type="number" 
+                                                            min="0"
+                                                            disabled={!canHaveApts} 
+                                                            className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${!canHaveApts ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : 'text-emerald-700 bg-emerald-50/30'}`} 
+                                                            value={getEntData(e, f.id, 'apts')} 
+                                                            onChange={val => setEntData(e, f.id, 'apts', val)} 
+                                                            placeholder={canHaveApts ? "-" : ""}
+                                                        />
+                                                        
+                                                        {/* НЕЖИЛЫЕ */}
+                                                        <DebouncedInput 
+                                                            // @ts-ignore
+                                                            ref={el => inputsRef.current[`${idx}-${e}-units`] = el}
+                                                            onKeyDown={(ev) => handleKeyDown(ev, idx, e, 'units')}
+
+                                                            type="number" 
+                                                            min="0"
+                                                            disabled={!canHaveUnits} 
+                                                            className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${!canHaveUnits ? 'bg-slate-50 text-slate-200 cursor-not-allowed' : 'bg-blue-50/30 text-blue-700'}`} 
+                                                            value={getEntData(e, f.id, 'units')} 
+                                                            onChange={val => setEntData(e, f.id, 'units', val)} 
+                                                        />
+                                                        
+                                                        {/* МОП */}
+                                                        <DebouncedInput 
+                                                            // @ts-ignore
+                                                            ref={el => inputsRef.current[`${idx}-${e}-mopQty`] = el}
+                                                            onKeyDown={(ev) => handleKeyDown(ev, idx, e, 'mopQty')}
+
+                                                            type="number" 
+                                                            min="0"
+                                                            className="text-center text-xs font-bold outline-none h-full w-full bg-white text-slate-500 focus:text-slate-800 focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all" 
+                                                            value={getEntData(e, f.id, 'mopQty')} 
+                                                            onChange={val => setEntData(e, f.id, 'mopQty', val)} 
+                                                        />
                                                     </div>
+                                                    
+                                                    {/* Кнопки копирования (ховер) */}
                                                     <div className="absolute top-0 right-0 h-full flex items-center pr-0.5 opacity-0 group-hover/cell:opacity-100 transition-opacity z-10 pointer-events-none">
                                                         <div className="flex flex-col gap-0.5 pointer-events-auto bg-white/90 backdrop-blur-sm shadow-sm border border-slate-200 rounded p-0.5">
                                                             {e > 1 && <button onClick={()=>copyEntranceFromLeft(f.id, e)} title="Скопировать слева" className="p-0.5 hover:text-blue-600"><ChevronLeft size={10}/></button>}

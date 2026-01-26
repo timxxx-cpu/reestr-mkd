@@ -53,7 +53,7 @@ export const Select = React.forwardRef((/** @type {any} */ { className = "", chi
 ));
 
 // @ts-ignore
-export const DebouncedInput = React.memo((/** @type {any} */ { value: initialValue, onChange, delay = 300, className = "", ...props }) => {
+export const DebouncedInput = React.memo(React.forwardRef((/** @type {any} */ { value: initialValue, onChange, delay = 300, className = "", ...props }, ref) => {
   const [value, setValue] = useState(initialValue || '');
 
   useEffect(() => {
@@ -72,13 +72,14 @@ export const DebouncedInput = React.memo((/** @type {any} */ { value: initialVal
 
   return (
     <input
+      ref={ref}
       {...props}
       value={value}
       onChange={(e) => setValue(e.target.value)}
       className={className}
     />
   );
-});
+}));
 
 // --- Кнопки ---
 

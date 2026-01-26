@@ -1,12 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
-  ArrowLeft, Save, Wand2, AlertCircle, DoorOpen, Ban
+  ArrowLeft, Save, Wand2, AlertCircle, DoorOpen, Ban,
+  Plus, Trash2, Copy, ArrowDown
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
-import { Validators } from '../../lib/validators'; // <--- ИМПОРТ
+import { Validators } from '../../lib/validators';
 
 const MOP_TYPES = [
     'Лестничная клетка', 'Межквартирный коридор', 'Лифтовой холл', 'Тамбур', 'Вестибюль', 
@@ -22,12 +23,20 @@ const MOP_TYPES = [
 export default function MopEditor({ buildingId, onBack }) {
     const { composition, buildingDetails, entrancesData, mopData, setMopData, saveBuildingData, saveData } = useProject();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
+    
+    // Рефы для навигации
+    const inputsRef = useRef({});
 
     const building = composition.find(c => c.id === buildingId);
     
     const blocksList = useMemo(() => getBlocksList(building), [building]);
     
     const { floorList, currentBlock, isUndergroundParking } = useBuildingFloors(buildingId, activeBlockIndex);
+
+    // Сброс рефов при смене блока
+    useEffect(() => {
+        inputsRef.current = {};
+    }, [activeBlockIndex]);
 
     if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Данные не найдены</div>;
 
@@ -55,15 +64,101 @@ export default function MopEditor({ buildingId, onBack }) {
 
     /** @type {(ent: number, floorId: string, index: number, field: string, val: any) => void} */
     const updateMop = (ent, floorId, index, field, val) => {
+        // Валидация ввода
+        if (field === 'area' && val !== '' && (parseFloat(val) < 0 || String(val).includes('-'))) return;
+
         const key = `${currentBlock.fullId}_e${ent}_f${floorId}_mops`;
         // @ts-ignore
         const currentMops = [...(mopData[key] || [])];
         if (!currentMops[index]) {
-            currentMops[index] = { id: crypto.randomUUID(), type: '', area: '' }; // Используем безопасный ID
+            currentMops[index] = { id: crypto.randomUUID(), type: '', area: '' };
         }
         currentMops[index] = { ...currentMops[index], [field]: val };
         // @ts-ignore
         setMopData(prev => ({ ...prev, [key]: currentMops }));
+    };
+
+    // --- НОВОЕ: Умная навигация внутри списков ---
+    const handleKeyDown = (e, fIdx, eIdx, mIdx, field) => {
+        if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+        e.preventDefault();
+
+        // Порядок полей: type <-> area
+        const isType = field === 'type';
+        
+        let nextF = fIdx;
+        let nextE = eIdx;
+        let nextM = mIdx;
+        let nextField = field;
+
+        if (e.key === 'ArrowLeft') {
+            if (!isType) {
+                // Area -> Type (в той же строке)
+                nextField = 'type';
+            } else {
+                // Type -> Area (предыдущего подъезда, если есть)
+                if (nextE > 1) {
+                    nextE--;
+                    nextField = 'area';
+                    // Пытаемся сохранить индекс строки (mIdx), но если там меньше строк, берем последнюю
+                    const prevEntMopsCount = getTargetMopCount(nextE, floorList[nextF].id);
+                    if (nextM >= prevEntMopsCount) nextM = Math.max(0, prevEntMopsCount - 1);
+                }
+            }
+        }
+
+        if (e.key === 'ArrowRight') {
+            if (isType) {
+                // Type -> Area (в той же строке)
+                nextField = 'area';
+            } else {
+                // Area -> Type (следующего подъезда)
+                if (nextE < entrancesCount) {
+                    nextE++;
+                    nextField = 'type';
+                    // Корректируем индекс строки, если в следующем подъезде их меньше
+                    const nextEntMopsCount = getTargetMopCount(nextE, floorList[nextF].id);
+                    if (nextM >= nextEntMopsCount) nextM = Math.max(0, nextEntMopsCount - 1);
+                }
+            }
+        }
+
+        if (e.key === 'ArrowDown') {
+            const currentMopCount = getTargetMopCount(nextE, floorList[nextF].id);
+            if (nextM < currentMopCount - 1) {
+                // Вниз внутри текущей ячейки
+                nextM++;
+            } else {
+                // Вниз на следующий этаж (первая строка)
+                if (nextF < floorList.length - 1) {
+                    nextF++;
+                    nextM = 0;
+                }
+            }
+        }
+
+        if (e.key === 'ArrowUp') {
+            if (nextM > 0) {
+                // Вверх внутри текущей ячейки
+                nextM--;
+            } else {
+                // Вверх на предыдущий этаж (на последнюю строку)
+                if (nextF > 0) {
+                    nextF--;
+                    const prevFloorMopCount = getTargetMopCount(nextE, floorList[nextF].id);
+                    nextM = Math.max(0, prevFloorMopCount - 1);
+                }
+            }
+        }
+
+        // Фокус
+        const refKey = `${nextF}-${nextE}-${nextM}-${nextField}`;
+        // @ts-ignore
+        const target = inputsRef.current[refKey];
+        if (target) {
+            target.focus();
+            // Если это селект, можно открыть его (опционально)
+        }
     };
 
     const validationState = useMemo(() => {
@@ -76,7 +171,6 @@ export default function MopEditor({ buildingId, onBack }) {
                 if (targetQty > 0) {
                     const mops = getMops(e, f.id);
                     for (let i = 0; i < targetQty; i++) {
-                        // ИСПОЛЬЗОВАНИЕ ВАЛИДАТОРА
                         if (!Validators.isMopValid(mops[i])) { isValid = false; missingCount++; }
                     }
                 }
@@ -108,7 +202,7 @@ export default function MopEditor({ buildingId, onBack }) {
                             let type = defaultType;
                             if (!isUndergroundParking && i === 1) type = 'Лифтовой холл';
                             if (!isUndergroundParking && i === 2) type = 'Межквартирный коридор';
-                            newMops[i] = { id: crypto.randomUUID(), type: type, area: '15' }; // Безопасный ID
+                            newMops[i] = { id: crypto.randomUUID(), type: type, area: '15' };
                         }
                     }
                     updates[key] = newMops; 
@@ -189,8 +283,9 @@ export default function MopEditor({ buildingId, onBack }) {
                     <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden flex flex-col">
                         <div className="flex-1 overflow-auto relative w-full max-w-[calc(100vw-64px)]" style={{ maxHeight: 'calc(100vh - 250px)' }}>
                             <table className="w-max min-w-full border-collapse table-fixed">
-                                <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-30 shadow-sm">
+                                <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-30 shadow-md">
                                     <tr>
+                                        {/* Sticky Column: Floors */}
                                         <th className="p-4 w-36 min-w-[140px] sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
                                         {entrancesList.map(e => (
                                             <th key={e} className="p-4 w-[340px] min-w-[340px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">{isUndergroundParking ? `Вход ${e}` : `Подъезд ${e}`}</th>
@@ -198,31 +293,55 @@ export default function MopEditor({ buildingId, onBack }) {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 bg-white">
-                                    {floorList.map((f) => (
+                                    {floorList.map((f, fIdx) => (
                                         <tr key={f.id} className="group hover:bg-slate-50/50 focus-within:bg-blue-50/50 transition-colors duration-200">
+                                            {/* Sticky Row Title */}
                                             <td className="p-3 w-36 min-w-[140px] sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 border-r align-top relative z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
                                                 <div className="flex flex-col gap-1.5"><span className="font-bold text-sm text-slate-700">{f.label}</span>{renderBadge(f.type)}</div>
                                             </td>
-                                            {entrancesList.map(e => {
+                                            {entrancesList.map((e, eIdx) => {
                                                 const targetQty = getTargetMopCount(e, f.id);
                                                 const mops = getMops(e, f.id);
                                                 return (
                                                     <td key={e} className="p-3 w-[340px] min-w-[340px] align-top border-r relative group/cell">
                                                         {targetQty > 0 ? (
                                                             <div className="flex flex-col gap-2">
-                                                                {Array.from({ length: targetQty }).map((_, idx) => {
-                                                                    const mop = mops[idx] || {};
+                                                                {Array.from({ length: targetQty }).map((_, mIdx) => {
+                                                                    const mop = mops[mIdx] || {};
                                                                     const isValid = Validators.isMopValid(mop);
                                                                     return (
-                                                                        <div key={idx} className={`flex gap-1 items-center bg-white border rounded-lg p-1 shadow-sm transition-all focus-within:ring-2 focus-within:ring-blue-100 ${isValid ? 'border-slate-200' : 'border-red-300 bg-red-50/20'}`}>
-                                                                            <div className="w-6 h-6 flex items-center justify-center rounded bg-slate-100 text-[10px] font-bold text-slate-500 shrink-0">{idx + 1}</div>
-                                                                            <select className="bg-transparent text-[10px] font-bold w-full outline-none cursor-pointer hover:text-blue-600 focus:text-blue-700 truncate" value={mop.type || ''} onChange={ev=>updateMop(e, f.id, idx, 'type', ev.target.value)} title={mop.type}>
+                                                                        <div key={mIdx} className={`flex gap-1 items-center bg-white border rounded-lg p-1 shadow-sm transition-all focus-within:ring-2 focus-within:ring-blue-100 ${isValid ? 'border-slate-200' : 'border-red-300 bg-red-50/20'}`}>
+                                                                            <div className="w-6 h-6 flex items-center justify-center rounded bg-slate-100 text-[10px] font-bold text-slate-500 shrink-0">{mIdx + 1}</div>
+                                                                            
+                                                                            {/* TYPE SELECT */}
+                                                                            <select 
+                                                                                // @ts-ignore
+                                                                                ref={el => inputsRef.current[`${fIdx}-${e}-${mIdx}-type`] = el}
+                                                                                onKeyDown={(ev) => handleKeyDown(ev, fIdx, e, mIdx, 'type')}
+                                                                                className="bg-transparent text-[10px] font-bold w-full outline-none cursor-pointer hover:text-blue-600 focus:text-blue-700 truncate" 
+                                                                                value={mop.type || ''} 
+                                                                                onChange={ev=>updateMop(e, f.id, mIdx, 'type', ev.target.value)} 
+                                                                                title={mop.type}
+                                                                            >
                                                                                 <option value="" disabled>Выберите тип</option>
                                                                                 {MOP_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
                                                                             </select>
+                                                                            
                                                                             <div className="w-px h-4 bg-slate-200 shrink-0"/>
+                                                                            
+                                                                            {/* AREA INPUT */}
                                                                             <div className="relative w-16 shrink-0">
-                                                                                <DebouncedInput type="number" className={`w-full bg-slate-50 border rounded px-1 py-0.5 text-[10px] font-medium text-center focus:bg-white focus:border-blue-300 outline-none transition-all ${!mop.area ? 'border-red-200' : 'border-slate-100'}`} placeholder="м²" value={mop.area || ''} onChange={val=>updateMop(e, f.id, idx, 'area', val)} />
+                                                                                <DebouncedInput 
+                                                                                    // @ts-ignore
+                                                                                    ref={el => inputsRef.current[`${fIdx}-${e}-${mIdx}-area`] = el}
+                                                                                    onKeyDown={(ev) => handleKeyDown(ev, fIdx, e, mIdx, 'area')}
+                                                                                    type="number" 
+                                                                                    min="0"
+                                                                                    className={`w-full bg-slate-50 border rounded px-1 py-0.5 text-[10px] font-medium text-center focus:bg-white focus:border-blue-300 outline-none transition-all ${!mop.area ? 'border-red-200' : 'border-slate-100'}`} 
+                                                                                    placeholder="м²" 
+                                                                                    value={mop.area || ''} 
+                                                                                    onChange={val=>updateMop(e, f.id, mIdx, 'area', val)} 
+                                                                                />
                                                                             </div>
                                                                         </div>
                                                                     );
