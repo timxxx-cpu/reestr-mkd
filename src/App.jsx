@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-// ИСПРАВЛЕНИЕ 1: Добавлен LogOut
 import { Loader2, User, FolderOpen, Plus, KeyRound, LogOut } from 'lucide-react';
 import { Routes, Route, useNavigate, useParams, Navigate } from 'react-router-dom';
 
@@ -25,6 +24,7 @@ import FloorMatrixEditor from './components/editors/FloorMatrixEditor';
 import EntranceMatrixEditor from './components/editors/EntranceMatrixEditor';
 import MopEditor from './components/editors/MopEditor';
 import FlatMatrixEditor from './components/editors/FlatMatrixEditor';
+import UnitRegistry from './components/editors/UnitRegistry'; 
 import SummaryDashboard from './components/editors/SummaryDashboard';
 import RegistryView from './components/editors/RegistryView'; 
 import ProjectsDashboard from './components/ProjectsDashboard';
@@ -37,7 +37,6 @@ const TEST_USERS = [
     { id: 'u4', name: 'Аббос', role: 'editor' },
 ];
 
-// --- LOGIN SCREEN (ЭКРАН ВХОДА) ---
 function LoginScreen({ onLogin, isLoading }) {
     return (
         <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -106,6 +105,13 @@ function ProjectEditorRoute() {
         case 'passport': return <PassportEditor />;
         case 'composition': return <CompositionEditor />;
         case 'parking_config': return <ParkingConfigurator onSave={handleNext} buildingId={null} />;
+        
+        // --- ОБНОВЛЕННАЯ ЛОГИКА ДЛЯ 3-х РЕЕСТРОВ ---
+        case 'registry_apartments': return <UnitRegistry mode="apartments" />;
+        case 'registry_commercial': return <UnitRegistry mode="commercial" />;
+        case 'registry_parking': return <UnitRegistry mode="parking" />;
+        // ---------------------------------------------
+
         case 'summary': return <SummaryDashboard />;
         case 'registry_res_view': return <RegistryView mode="res" />;
         case 'registry_nonres_view': return <RegistryView mode="nonres" />;
@@ -157,13 +163,10 @@ const ProjectProviderWrapper = ({ children, firebaseUser, dbScope }) => {
     );
 };
 
-// Новый компонент MainLayout для изоляции логики
-// ИСПРАВЛЕНИЕ 2: Убран onLogout из деструктуризации, так как он не передавался и не использовался
 const MainLayout = ({ firebaseUser, activePersona, setActivePersona }) => {
     const navigate = useNavigate();
     const toast = useToast();
     
-    // ИСПОЛЬЗУЕМ REACT QUERY ХУК
     const { projects, isLoading, createProject, deleteProject, isCreating } = useProjects(DB_SCOPE);
 
     const handleCreate = async () => {
@@ -203,7 +206,6 @@ const MainLayout = ({ firebaseUser, activePersona, setActivePersona }) => {
 
     const handleLogout = async () => {
         await AuthService.logout();
-        // Состояние firebaseUser в App обновится через подписку, и компонент перерендерится в LoginScreen
     };
 
     if (isLoading) return <div className="flex items-center justify-center h-screen bg-slate-50"><Loader2 className="animate-spin text-slate-400"/></div>;
@@ -229,7 +231,6 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
   useEffect(() => {
-    // AuthService.signInDemo().catch(console.error); 
     const unsubscribe = AuthService.subscribe((u) => { 
         setFirebaseUser(u); 
     });

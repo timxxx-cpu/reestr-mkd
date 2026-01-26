@@ -1,7 +1,8 @@
 import { 
   FileText, Layout, Warehouse, 
   Ruler, DoorOpen, Grid3X3, BarChart3, 
-  Table2, Car, PaintBucket, Building2
+  Table2, Car, PaintBucket, Building2,
+  Home, Briefcase
 } from 'lucide-react';
 
 export const STEPS_CONFIG = [
@@ -67,7 +68,27 @@ export const STEPS_CONFIG = [
         icon: Car
     },
 
-    // --- 5. ОТЧЕТНОСТЬ ---
+    // --- 5. ФОРМИРОВАНИЕ РЕЕСТРОВ (РАЗДЕЛЕНО НА 3 ШАГА) ---
+    {
+        id: 'registry_apartments',
+        title: 'Реестр квартир',
+        description: 'Жилой фонд для регистрации',
+        icon: Home
+    },
+    {
+        id: 'registry_commercial',
+        title: 'Реестр нежилых помещений',
+        description: 'Коммерция и офисы',
+        icon: Briefcase
+    },
+    {
+        id: 'registry_parking',
+        title: 'Реестр машиномест',
+        description: 'Парковочные места',
+        icon: Car
+    },
+
+    // --- 6. ОТЧЕТНОСТЬ ---
     { 
         id: 'registry_nonres_view', 
         title: 'Сводная по нежилым блокам и инфраструктуре', 
