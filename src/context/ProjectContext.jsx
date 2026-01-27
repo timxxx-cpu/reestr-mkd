@@ -4,12 +4,6 @@ import { RegistryService } from '../lib/registry-service';
 import { useProjectData } from '../hooks/useProjectData';
 import { ROLES, APP_STATUS } from '../lib/constants';
 
-/**
- * Импорт типов
- * @typedef {import('../lib/types').ProjectMeta} ProjectMeta
- * @typedef {import('../lib/types').BuildingData} BuildingData
- */
-
 const ProjectContext = createContext(null);
 
 export const useProject = () => {
@@ -36,9 +30,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       refetch 
   } = useProjectData(dbScope, projectId);
   
-  // ИСПРАВЛЕНО: Добавлено приведение типа для начального состояния
-  const [projectMeta, setProjectMeta] = useState(/** @type {ProjectMeta} */ ({})); 
-  
+  const [projectMeta, setProjectMeta] = useState({}); 
   const [buildingsState, setBuildingsState] = useState({});
   const [isSyncing, setIsSyncing] = useState(false);
   const saveTimeoutRef = useRef(null);
@@ -57,22 +49,32 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   }, [serverBuildings]);
 
   const mergedState = useMemo(() => {
+    // Приводим к any, чтобы избежать ошибок TS
+    const meta = /** @type {any} */ (projectMeta);
+    
+    // Значения по умолчанию для applicationInfo, чтобы кнопки не пропадали
+    const defaultAppInfo = {
+        status: APP_STATUS.DRAFT,
+        currentStage: 1,
+        verifiedSteps: [],
+        ...meta.applicationInfo
+    };
+
     /** @type {any} */
     const combined = {
-      complexInfo: projectMeta.complexInfo || {},
-      participants: projectMeta.participants || {},
-      cadastre: projectMeta.cadastre || {},
-      documents: projectMeta.documents || [],
-      composition: projectMeta.composition || [],
-      // @ts-ignore
-      applicationInfo: projectMeta.applicationInfo || {},
+      complexInfo: meta.complexInfo || {},
+      participants: meta.participants || {},
+      cadastre: meta.cadastre || {},
+      documents: meta.documents || [],
+      composition: meta.composition || [],
+      applicationInfo: defaultAppInfo, // Используем объект с дефолтами
       
-      buildingDetails: { ...(projectMeta.buildingDetails || {}) },
-      floorData: { ...(projectMeta.floorData || {}) },
-      entrancesData: { ...(projectMeta.entrancesData || {}) },
-      mopData: { ...(projectMeta.mopData || {}) }, 
-      flatMatrix: { ...(projectMeta.flatMatrix || {}) },
-      parkingPlaces: { ...(projectMeta.parkingPlaces || {}) }
+      buildingDetails: { ...(meta.buildingDetails || {}) },
+      floorData: { ...(meta.floorData || {}) },
+      entrancesData: { ...(meta.entrancesData || {}) },
+      mopData: { ...(meta.mopData || {}) }, 
+      flatMatrix: { ...(meta.flatMatrix || {}) },
+      parkingPlaces: { ...(meta.parkingPlaces || {}) }
     };
 
     Object.values(buildingsState).forEach(b => {
@@ -95,7 +97,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       if (!userProfile) return true;
       const role = userProfile.role;
       // @ts-ignore
-      const status = mergedState.applicationInfo?.status || APP_STATUS.DRAFT;
+      const status = mergedState.applicationInfo.status; // Теперь статус точно есть
 
       if (role === ROLES.ADMIN) return false;
       if (role === ROLES.CONTROLLER) return true;
@@ -109,10 +111,12 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       return true;
   }, [userProfile, mergedState.applicationInfo]);
 
-  // --- ВЕРИФИКАЦИЯ ШАГА ---
+  // --- МЕТОДЫ УПРАВЛЕНИЯ ---
+
+  // 1. Верификация шага
   const setStepVerified = useCallback(async (stepIndex, isVerified) => {
       // @ts-ignore
-      const currentVerified = mergedState.applicationInfo?.verifiedSteps || [];
+      const currentVerified = mergedState.applicationInfo.verifiedSteps || [];
       let newVerified = [];
       
       if (isVerified) {
@@ -131,6 +135,22 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       
       await RegistryService.saveData(dbScope, projectId, { applicationInfo: newAppInfo });
       
+  }, [dbScope, projectId, mergedState.applicationInfo]);
+
+  // 2. Смена статуса
+  const updateStatus = useCallback(async (newStatus, newStage = null, comment = '') => {
+      // @ts-ignore
+      const currentAppInfo = mergedState.applicationInfo;
+      const updatedAppInfo = {
+          ...currentAppInfo,
+          status: newStatus,
+          ...(newStage && { currentStage: newStage }),
+      };
+
+      // @ts-ignore
+      setProjectMeta(prev => ({ ...prev, applicationInfo: updatedAppInfo }));
+      
+      await RegistryService.saveData(dbScope, projectId, { applicationInfo: updatedAppInfo });
   }, [dbScope, projectId, mergedState.applicationInfo]);
 
   // --- СОХРАНЕНИЕ ---
@@ -250,7 +270,9 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     // @ts-ignore
     ...mergedState,
     isReadOnly,
+    
     setStepVerified,
+    updateStatus,
     
     setComplexInfo: createSetter('complexInfo'),
     setParticipants: createSetter('participants'),
@@ -258,6 +280,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     setComposition: createSetter('composition'),
     setDocuments: createSetter('documents'),
     setBuildingDetails: createSetter('buildingDetails'),
+    setApplicationInfo: createSetter('applicationInfo'),
     
     setFloorData: createSetter('floorData'),
     setEntrancesData: createSetter('entrancesData'),

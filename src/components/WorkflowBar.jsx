@@ -1,86 +1,81 @@
 import React from 'react';
-import { CheckCircle2, AlertCircle, Clock, ArrowRight, XCircle, FileText, CheckSquare, Square, Check } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { CheckCircle2, Clock, XCircle, FileText, CheckSquare, Square, Check, Lock, ArrowRight } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
-import { APP_STATUS, ROLES, WORKFLOW_STAGES } from '../lib/constants'; 
+import { APP_STATUS, ROLES, WORKFLOW_STAGES, STEPS_CONFIG } from '../lib/constants'; 
 import { Button } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
-import { RegistryService } from '../lib/registry-service'; // Импортируем сервис
 
 export default function WorkflowBar({ user, currentStep }) {
-  // Достаем dbScope (customScope) из контекста, если он там есть, или хардкодим константу
-  const { applicationInfo, updateStatus, project, setProject, customScope } = useProject(); 
+  const { applicationInfo, updateStatus, setStepVerified } = useProject(); 
   const toast = useToast();
-
-  // Если customScope не прокинут в хук, используем значение по умолчанию
-  const DB_SCOPE = customScope || 'shared_dev_env';
+  const navigate = useNavigate();
 
   if (!applicationInfo) return null;
 
-  const { status, currentStage } = applicationInfo;
-  // Гарантируем, что массив существует
-  const verifiedSteps = applicationInfo.verifiedSteps || [];
+  const { status, currentStage, verifiedSteps = [] } = applicationInfo;
   
+  // --- АВТОМАТИЧЕСКИЙ РАСЧЕТ ГРАНИЦ ТЕКУЩЕГО ЭТАПА ---
+  // Это работает для 1, 2, 3 и любых последующих этапов
+  const currentStageConfig = WORKFLOW_STAGES[currentStage];
+  const prevStageConfig = WORKFLOW_STAGES[currentStage - 1];
+  
+  // Вычисляем первый и последний шаг текущего этапа
+  const startStepIndex = prevStageConfig ? prevStageConfig.lastStepIndex + 1 : 0;
+  const endStepIndex = currentStageConfig ? currentStageConfig.lastStepIndex : STEPS_CONFIG.length - 1;
+
+  // Собираем массив индексов всех шагов этого этапа
+  const stepsInStage = [];
+  for (let i = startStepIndex; i <= endStepIndex; i++) stepsInStage.push(i);
+  
+  // Проверяем, какие из них еще не завершены
+  const unverifiedSteps = stepsInStage.filter(stepIdx => !verifiedSteps.includes(stepIdx));
+  const isStageFullyComplete = unverifiedSteps.length === 0;
+
+  // Является ли текущий открытый шаг ПОСЛЕДНИМ в этом этапе?
+  const isLastStepOfStage = currentStep === endStepIndex;
+
+  // --- ОПРЕДЕЛЕНИЕ ЭТАПА ТЕКУЩЕГО ШАГА ---
   const getStepStage = (stepIdx) => {
       for (const [stageNum, config] of Object.entries(WORKFLOW_STAGES)) {
           if (stepIdx <= config.lastStepIndex) return parseInt(stageNum);
       }
       return 1;
   };
-  
   const stepStage = getStepStage(currentStep);
+  // Показывать кнопки только если мы находимся на шаге, соответствующем текущему активному этапу
   const isStepInCurrentStage = stepStage === currentStage;
   const isStepVerified = verifiedSteps.includes(currentStep);
 
-  // --- ИСПРАВЛЕННАЯ ФУНКЦИЯ ---
+  // --- ДЕЙСТВИЯ ---
+
   const handleToggleStepVerify = async () => {
-      let newVerifiedSteps;
-      
-      // 1. Вычисляем новый массив
-      if (isStepVerified) {
-          newVerifiedSteps = verifiedSteps.filter(s => s !== currentStep);
-      } else {
-          newVerifiedSteps = [...verifiedSteps, currentStep];
-      }
-
-      // 2. Создаем ПОЛНУЮ копию объекта проекта с обновленными данными
-      const updatedProject = {
-          ...project,
-          applicationInfo: {
-              ...project.applicationInfo,
-              verifiedSteps: newVerifiedSteps
-          }
-      };
-
-      try {
-          // 3. Обновляем UI мгновенно
-          setProject(updatedProject); 
-
-          // 4. Сохраняем в базу ЯВНО передавая обновленный объект
-          // Это решает проблему "ничего не происходит", так как мы не зависим от асинхронности React state
-          await RegistryService.updateProject(DB_SCOPE, project.id, updatedProject);
-          
-          // Уведомление
-          if (!isStepVerified) {
-              toast.success('Шаг принят');
-          } else {
-              toast.info('Отметка снята');
-          }
-      } catch (error) {
-          console.error(error);
-          toast.error("Ошибка сохранения");
-      }
+      const newValue = !isStepVerified;
+      await setStepVerified(currentStep, newValue);
+      if (newValue) toast.success('Шаг отмечен как завершенный');
+      else toast.info('Отметка снята');
   };
 
   const handleSendToReview = async () => {
+    if (!isStageFullyComplete) {
+        toast.error(`Нельзя отправить на проверку. Завершите все шаги этапа (осталось: ${unverifiedSteps.length})`);
+        return;
+    }
+
     if (confirm('Вы уверены, что хотите отправить этап на проверку? Редактирование будет заблокировано.')) {
         await updateStatus(APP_STATUS.REVIEW);
         toast.success('Отправлено на проверку Бригадиру');
+        // Возвращаем техника на рабочий стол, чтобы он мог взять следующую задачу
+        navigate('/');
     }
   };
 
   const handleApproveStage = async () => {
-    // Проверяем, все ли шаги текущего этапа приняты
-    // (логика упрощена для демо)
+    if (!isStageFullyComplete) {
+        toast.error(`Нельзя одобрить этап! Не все шаги приняты. Осталось: ${unverifiedSteps.length}`);
+        return;
+    }
+
     if (confirm(`Вы подтверждаете завершение Этапа ${currentStage}?`)) {
         const nextStage = currentStage + 1;
         const totalStages = Object.keys(WORKFLOW_STAGES).length;
@@ -107,6 +102,7 @@ export default function WorkflowBar({ user, currentStep }) {
 
   // 1. ПАНЕЛЬ ТЕХНИКА
   if (user.role === ROLES.TECHNICIAN) {
+      // Статусы, когда техник может работать
       if (status === APP_STATUS.NEW || status === APP_STATUS.DRAFT || status === APP_STATUS.REJECTED) {
           return (
             <div className="bg-white border-b border-slate-200 px-8 py-3 flex items-center justify-between sticky top-0 z-30 shadow-sm animate-in slide-in-from-top-2">
@@ -123,13 +119,53 @@ export default function WorkflowBar({ user, currentStep }) {
                     </div>
                 </div>
                 
-                <Button onClick={handleSendToReview} variant="primary" className="bg-blue-600 hover:bg-blue-700 shadow-blue-200">
-                    <Clock size={16} className="mr-2"/> Отправить на проверку
-                </Button>
+                <div className="flex items-center gap-3">
+                    {/* КНОПКА ЗАВЕРШЕНИЯ ШАГА (Видна на любом шаге текущего этапа) */}
+                    {isStepInCurrentStage && (
+                        <div className="flex items-center animate-in fade-in">
+                            <button 
+                                onClick={handleToggleStepVerify}
+                                className={`
+                                    flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold border shadow-sm transition-all h-9 select-none active:scale-95
+                                    ${isStepVerified 
+                                        ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-emerald-200' 
+                                        : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400 hover:text-blue-600'
+                                    }
+                                `}
+                            >
+                                {isStepVerified ? <Check size={14} strokeWidth={3}/> : <Square size={14}/>}
+                                {isStepVerified ? 'Шаг закончен' : 'Закончить шаг'}
+                            </button>
+                        </div>
+                    )}
+
+                    <div className="h-6 w-px bg-slate-200 mx-1"></div>
+
+                    {/* КНОПКА ОТПРАВКИ (Видна ТОЛЬКО на последнем шаге этапа) */}
+                    {isLastStepOfStage ? (
+                        <Button 
+                            onClick={handleSendToReview} 
+                            variant="primary" 
+                            // Блокируем, если не все шаги этапа завершены
+                            disabled={!isStageFullyComplete}
+                            className={`animate-in zoom-in ${!isStageFullyComplete ? 'opacity-50 cursor-not-allowed bg-slate-400 shadow-none' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'}`}
+                            title={!isStageFullyComplete ? `Завершите еще ${unverifiedSteps.length} шагов` : "Отправить на проверку"}
+                        >
+                            <Clock size={16} className="mr-2"/> Отправить на проверку
+                        </Button>
+                    ) : (
+                        // Подсказка, если это не последний шаг
+                        <div className="flex items-center gap-2 text-xs font-medium text-slate-400 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 cursor-default">
+                            <span>Продолжайте заполнение</span>
+                            <ArrowRight size={14}/>
+                        </div>
+                    )}
+                </div>
             </div>
           );
       }
       
+      // Если на проверке - режим ожидания
       if (status === APP_STATUS.REVIEW) {
           return (
             <div className="bg-amber-50 border-b border-amber-100 px-8 py-3 flex items-center justify-between sticky top-0 z-30 animate-in slide-in-from-top-2">
@@ -166,22 +202,26 @@ export default function WorkflowBar({ user, currentStep }) {
                 </div>
 
                 <div className="flex items-center gap-3">
-                    {/* КНОПКА ПРОВЕРКИ ТЕКУЩЕГО ШАГА */}
-                    {isStepInCurrentStage && (
+                    {/* КНОПКА ПРИНЯТИЯ ШАГА БРИГАДИРОМ */}
+                    {isStepInCurrentStage ? (
                         <div className="mr-2 flex items-center animate-in fade-in">
                             <button 
                                 onClick={handleToggleStepVerify}
                                 className={`
                                     flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold border shadow-sm transition-all h-9 select-none active:scale-95
                                     ${isStepVerified 
-                                        ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-emerald-200' // Активна
-                                        : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400 hover:text-blue-600' // Не активна
+                                        ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-emerald-200' 
+                                        : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400 hover:text-blue-600'
                                     }
                                 `}
                             >
                                 {isStepVerified ? <Check size={14} strokeWidth={3}/> : <Square size={14}/>}
                                 {isStepVerified ? 'Шаг принят' : 'Принять шаг'}
                             </button>
+                        </div>
+                    ) : (
+                        <div className="mr-2 text-xs text-slate-400 italic">
+                            Шаг другого этапа
                         </div>
                     )}
                     
@@ -190,8 +230,16 @@ export default function WorkflowBar({ user, currentStep }) {
                     <Button onClick={handleRejectStage} variant="destructive" className="bg-white border-red-200 text-red-600 hover:bg-red-50 h-9 px-3">
                         <XCircle size={16} className="mr-2"/> Вернуть
                     </Button>
-                    <Button onClick={handleApproveStage} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200 h-9 px-4">
-                        <CheckCircle2 size={16} className="mr-2"/> Одобрить этап
+                    
+                    <Button 
+                        onClick={handleApproveStage} 
+                        disabled={!isStageFullyComplete}
+                        className={`h-9 px-4 transition-all ${!isStageFullyComplete ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200'}`}
+                        title={!isStageFullyComplete ? `Осталось проверить шагов: ${unverifiedSteps.length}` : "Одобрить этап"}
+                    >
+                        {!isStageFullyComplete && <Lock size={14} className="mr-2"/>}
+                        {isStageFullyComplete && <CheckCircle2 size={16} className="mr-2"/>}
+                        Одобрить этап
                     </Button>
                 </div>
             </div>

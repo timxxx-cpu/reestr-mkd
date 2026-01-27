@@ -50,10 +50,7 @@ export const RegistryService = {
     }
   },
 
-  // --- ИНТЕГРАЦИЯ С ВНЕШНИМИ СИСТЕМАМИ (MOCK) ---
-
   getExternalApplications: async () => {
-      // Возвращаем пустой список, так как генерируем кнопкой "Эмуляция"
       return []; 
   },
 
@@ -78,8 +75,9 @@ export const RegistryService = {
               status: APP_STATUS.DRAFT, 
               assignee: user.id,
               assigneeName: user.name,
-              currentStage: 1, // Начало с 1 этапа
-              verifiedSteps: [],
+              currentStage: 1, 
+              completedSteps: [], // НОВОЕ ПОЛЕ: Для техника
+              verifiedSteps: [],  // Для бригадира
               history: [
                   { 
                       date: now, 
@@ -104,14 +102,12 @@ export const RegistryService = {
       const initialContent = {
           complexInfo: projectMeta.complexInfo,
           composition: [],
-          applicationInfo: projectMeta.applicationInfo // Важно: дублируем сюда для полноценного документа
+          applicationInfo: projectMeta.applicationInfo
       };
 
       await RegistryService.createProject(scope, projectMeta, initialContent);
       return projectId;
   },
-
-  // --- ЧТЕНИЕ (LEGACY REALTIME) ---
 
   subscribeProjectMeta: (scope, projectId, callback) => {
     return onSnapshot(getProjectRef(scope, projectId), (snap) => {
@@ -138,9 +134,6 @@ export const RegistryService = {
       });
   },
 
-  // --- ЗАПИСЬ ---
-
-  // Универсальный метод сохранения (используется редакторами)
   saveData: async (scope, projectId, payload) => {
     try {
       const batch = writeBatch(db);
@@ -167,25 +160,8 @@ export const RegistryService = {
     }
   },
 
-  // НОВЫЙ МЕТОД: Специально для WorkflowBar (быстрое обновление статусов и шагов)
   updateProject: async (scope, projectId, data) => {
-    try {
-        const projectRef = getProjectRef(scope, projectId);
-        
-        // 1. Обновляем документ самого проекта
-        await setDoc(projectRef, data, { merge: true });
-
-        // 2. Синхронизируем с общим списком (мета-данными), 
-        // чтобы в таблице реестра обновился статус/этап
-        if (data.applicationInfo || data.complexInfo) {
-            await RegistryService._syncDashboardItem(scope, projectId, data);
-        }
-        
-        console.log("[RegistryService] Project updated successfully");
-    } catch (error) {
-        console.error("[RegistryService] Error updating project:", error);
-        throw error;
-    }
+      return RegistryService.saveData(scope, projectId, data);
   },
 
   createProject: async (scope, projectMeta, initialContent) => {
@@ -228,7 +204,6 @@ export const RegistryService = {
       }
   },
 
-  // Внутренний метод синхронизации списка проектов
   _syncDashboardItem: async (scope, projectId, data) => {
       const listRef = getMetaListRef(scope);
       const snap = await getDoc(listRef);
@@ -238,7 +213,6 @@ export const RegistryService = {
           if (idx !== -1) {
               const item = list[idx];
               let changed = false;
-              // Обновляем дату модификации
               const newItem = { ...item, lastModified: new Date().toISOString() };
               
               if (data.complexInfo) {
@@ -248,10 +222,7 @@ export const RegistryService = {
                   if (info.street && info.street !== item.address) { newItem.address = info.street; changed = true; }
               }
 
-              // Важно для WorkflowBar: обновляем статус и assignee
               if (data.applicationInfo) {
-                  // Здесь мы обновляем вложенный объект applicationInfo внутри элемента списка
-                  // Чтобы не потерять другие поля, мержим
                   newItem.applicationInfo = {
                       ...item.applicationInfo,
                       ...data.applicationInfo
