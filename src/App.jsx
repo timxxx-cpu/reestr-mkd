@@ -54,7 +54,6 @@ const TEST_USERS = [
 ];
 
 // --- КОМПОНЕНТ: ПЛАВАЮЩИЙ ПЕРЕКЛЮЧАТЕЛЬ РОЛЕЙ ---
-// Теперь использует Context, а не window
 const DevRoleSwitcher = () => {
     const { activePersona, setActivePersona } = useContext(PersonaContext);
     const [isOpen, setIsOpen] = useState(false);
@@ -329,13 +328,6 @@ function ProjectEditorRoute({ user }) {
                     {!editingBuildingId && <StepIndicator currentStep={currentStep} />}
                     <React.Suspense fallback={<Loader2 className="animate-spin text-blue-600"/>}>{renderStepContent()}</React.Suspense>
                 </div>
-                {!editingBuildingId && (
-                    <footer className="bg-white border-t border-slate-200 px-8 py-5 flex justify-between items-center shadow-sm z-20">
-                        <button onClick={handlePrev} disabled={currentStep === 0} className="px-6 py-2.5 rounded-xl text-xs font-bold uppercase text-slate-600 hover:bg-slate-50 disabled:opacity-50">Назад</button>
-                        <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.3em]">Шаг {currentStep + 1} / {STEPS_CONFIG?.length}</div>
-                        <button onClick={handleNext} disabled={currentStep === (STEPS_CONFIG?.length || 1) - 1} className="px-8 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase shadow-lg hover:bg-black transition-all">Далее</button>
-                    </footer>
-                )}
             </main>
         </div>
       </ReadOnlyProvider>

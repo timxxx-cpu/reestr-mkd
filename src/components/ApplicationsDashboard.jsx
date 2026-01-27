@@ -3,13 +3,31 @@ import {
   Inbox, Briefcase, Search, Filter, RefreshCw, 
   MapPin, Calendar, ArrowRight, Building, User,
   FileText, CheckCircle2, Clock, AlertCircle, Hash, Zap, Database, Trash2, Lock, 
-  ListTodo, ShieldCheck
+  ListTodo, ShieldCheck, HardHat, Archive // Добавлены иконки
 } from 'lucide-react';
 import { RegistryService } from '../lib/registry-service';
 import { ROLES, APP_STATUS, EXTERNAL_SYSTEMS, APP_STATUS_LABELS } from '../lib/constants';
 import { Button, Input, Badge, Card, SectionTitle } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
 import { getStageColor } from '../lib/utils';
+
+// --- КОМПОНЕНТ КАРТОЧКИ МЕТРИКИ ---
+function MetricCard({ label, value, icon: Icon, color }) {
+    return (
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between h-24 relative overflow-hidden group hover:border-blue-300 transition-colors">
+            <div className={`absolute top-0 right-0 p-3 opacity-10 ${color} transform scale-125 group-hover:scale-110 transition-transform`}>
+                <Icon size={48} />
+            </div>
+            <div className={`text-slate-400 mb-1 ${color}`}>
+                <Icon size={20} />
+            </div>
+            <div>
+                <div className="text-2xl font-black text-slate-800">{value}</div>
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</div>
+            </div>
+        </div>
+    );
+}
 
 export default function ApplicationsDashboard({ user, projects, dbScope, onSelectProject }) {
     const [activeTab, setActiveTab] = useState('my_tasks'); 
@@ -90,16 +108,12 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
         }
     };
 
-    // Удаление ВХОДЯЩЕЙ заявки (еще не проекта)
     const handleDeleteApplication = (appId) => {
         if (!window.confirm('Вы уверены, что хотите удалить эту входящую заявку?')) return;
-        
-        // Так как это локальный стейт (или мок), удаляем локально
         setIncomingApps(prev => prev.filter(a => a.id !== appId));
         toast.success("Заявка удалена из списка");
     };
 
-    // Удаление ПРОЕКТА (из реестра)
     const handleDeleteProject = async (projectId) => {
         if (!window.confirm('Вы уверены, что хотите безвозвратно удалить этот проект и все данные?')) return;
         const toastId = toast.loading("Удаление...");
@@ -112,6 +126,16 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
             toast.error("Ошибка удаления");
         }
     };
+
+    // --- СТАТИСТИКА (KPI) ---
+    const stats = useMemo(() => {
+        return {
+            total: projects.length,
+            inProgress: projects.filter(p => ['Строящийся', 'Проектный'].includes(p.status)).length,
+            review: projects.filter(p => p.applicationInfo?.status === APP_STATUS.REVIEW).length,
+            done: projects.filter(p => ['Введенный', 'Архив'].includes(p.status) || p.applicationInfo?.status === APP_STATUS.COMPLETED).length
+        };
+    }, [projects]);
 
     // --- ФИЛЬТРЫ ---
 
@@ -139,7 +163,7 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
         return filtered.sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime());
     }, [projects, user, searchTerm, taskFilter]);
 
-    // Подсчет количества
+    // Подсчет количества для табов
     const counts = useMemo(() => {
         const workCount = projects.filter(p => 
             [APP_STATUS.NEW, APP_STATUS.DRAFT, APP_STATUS.REJECTED].includes(p.applicationInfo?.status)
@@ -167,10 +191,11 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
     const canSeeReviewTab = user.role === ROLES.CONTROLLER || user.role === ROLES.ADMIN;
 
     return (
-        <div className="max-w-[1600px] mx-auto px-6 py-8 animate-in fade-in duration-500">
+        // ИЗМЕНЕНО: w-full для растягивания
+        <div className="w-full px-6 py-8 animate-in fade-in duration-500">
             
             {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800">Рабочий стол</h1>
                     <div className="flex items-center gap-2 mt-1 text-sm text-slate-500">
@@ -214,6 +239,14 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                 </div>
             </div>
 
+            {/* НОВЫЙ БЛОК: Метрики (показываем всегда или только в реестре/задачах) */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <MetricCard label="Всего объектов" value={stats.total} icon={Building} color="text-slate-600" />
+                <MetricCard label="В работе" value={stats.inProgress} icon={HardHat} color="text-blue-600" />
+                <MetricCard label="На проверке" value={stats.review} icon={ShieldCheck} color="text-orange-600" />
+                <MetricCard label="Сдано / Архив" value={stats.done} icon={Archive} color="text-emerald-600" />
+            </div>
+
             {/* Content: ВХОДЯЩИЕ */}
             {activeTab === 'inbox' && (
                 <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
@@ -242,7 +275,8 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                         ) : (
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left text-sm border-collapse">
-                                    <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                    {/* sticky top-0 позволяет заголовку прилипать */}
+                                    <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10 shadow-sm">
                                         <tr>
                                             <th className="px-6 py-4">Источник</th>
                                             <th className="px-6 py-4">ID</th>
@@ -295,7 +329,6 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                         <div className="flex items-center gap-4">
                             <SectionTitle icon={Briefcase} className="mb-0">Текущие задачи</SectionTitle>
                             
-                            {/* КНОПКИ ПЕРЕКЛЮЧЕНИЯ СТАТУСОВ (ФИЛЬТРЫ) */}
                             <div className="flex bg-slate-100 p-1 rounded-lg">
                                 {canSeeWorkTab && (
                                     <button
@@ -399,7 +432,8 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
 const ProjectsTable = ({ projects, onSelectProject, onDeleteProject = undefined }) => (
     <div className="overflow-x-auto">
         <table className="w-full text-left text-sm border-collapse">
-            <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
+            {/* top-[64px] нужен, чтобы не перекрывать основной хедер приложения, который тоже sticky */}
+            <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10 shadow-sm">
                 <tr>
                     <th className="px-6 py-4 w-32">Статус</th>
                     <th className="px-6 py-4 w-32">Вн. Номер</th>
@@ -415,7 +449,6 @@ const ProjectsTable = ({ projects, onSelectProject, onDeleteProject = undefined 
                     const appInfo = project.applicationInfo || {};
                     const statusConfig = APP_STATUS_LABELS[appInfo.status] || { label: project.status, color: getStageColor(project.status) };
                     
-                    // Блокировку сняли полностью, теперь если передана функция удаления (в Реестре), удалять можно все
                     const canDelete = !!onDeleteProject;
 
                     return (

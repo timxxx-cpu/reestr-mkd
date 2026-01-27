@@ -33,7 +33,9 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   const [projectMeta, setProjectMeta] = useState({}); 
   const [buildingsState, setBuildingsState] = useState({});
   const [isSyncing, setIsSyncing] = useState(false);
+  
   const saveTimeoutRef = useRef(null);
+  const pendingUpdatesRef = useRef({});
 
   useEffect(() => {
       if (serverMeta && Object.keys(serverMeta).length > 0) {
@@ -56,7 +58,8 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         currentStage: 1,
         verifiedSteps: [],
         completedSteps: [],
-        rejectionReason: null, // Поле для причины возврата
+        rejectionReason: null,
+        history: [], // Гарантируем наличие массива истории
         ...meta.applicationInfo
     };
 
@@ -142,20 +145,33 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       await RegistryService.saveData(dbScope, projectId, { applicationInfo: newAppInfo });
   }, [dbScope, projectId, mergedState.applicationInfo]);
 
-  // ОБНОВЛЕННАЯ ФУНКЦИЯ СМЕНЫ СТАТУСА (С ЛОГИКОЙ СБРОСА ШАГОВ)
+  // ОБНОВЛЕННЫЙ МЕТОД СМЕНЫ СТАТУСА (С ЗАПИСЬЮ ИСТОРИИ)
   const updateStatus = useCallback(async (newStatus, newStage = null, comment = null) => {
       // @ts-ignore
       const currentAppInfo = mergedState.applicationInfo;
       const currentStageNum = currentAppInfo.currentStage;
 
+      // 1. Формируем запись истории
+      const historyEntry = {
+          date: new Date().toISOString(),
+          user: userProfile?.name || 'Система',
+          role: userProfile?.role || 'system',
+          action: newStatus,
+          prevStatus: currentAppInfo.status,
+          comment: comment || ''
+      };
+
+      // 2. Обновляем данные
       const updatedAppInfo = {
           ...currentAppInfo,
           status: newStatus,
+          // Добавляем запись в начало массива истории
+          history: [historyEntry, ...(currentAppInfo.history || [])],
           ...(newStage && { currentStage: newStage }),
-          rejectionReason: newStatus === APP_STATUS.REJECTED ? comment : null // Сохраняем или очищаем причину
+          rejectionReason: newStatus === APP_STATUS.REJECTED ? comment : null 
       };
 
-      // Если ВОЗВРАТ НА ДОРАБОТКУ -> Сбрасываем галочки текущего этапа
+      // 3. Логика сброса шагов при возврате
       if (newStatus === APP_STATUS.REJECTED) {
           const currentStageConfig = WORKFLOW_STAGES[currentStageNum];
           const prevStageConfig = WORKFLOW_STAGES[currentStageNum - 1];
@@ -166,14 +182,13 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           const stepsInStage = [];
           for (let i = startStepIndex; i <= endStepIndex; i++) stepsInStage.push(i);
 
-          // Фильтруем массивы, убирая из них шаги текущего этапа
           updatedAppInfo.completedSteps = (currentAppInfo.completedSteps || []).filter(s => !stepsInStage.includes(s));
           updatedAppInfo.verifiedSteps = (currentAppInfo.verifiedSteps || []).filter(s => !stepsInStage.includes(s));
       }
 
       setProjectMeta(prev => ({ ...prev, applicationInfo: updatedAppInfo }));
       await RegistryService.saveData(dbScope, projectId, { applicationInfo: updatedAppInfo });
-  }, [dbScope, projectId, mergedState.applicationInfo]);
+  }, [dbScope, projectId, mergedState.applicationInfo, userProfile]);
 
   const saveData = useCallback((updates = {}, showNotification = false, bypassReadOnly = false) => {
     if (!dbScope || !projectId) return;
@@ -181,16 +196,27 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         if (showNotification) toast.error("Редактирование запрещено");
         return;
     }
+    
     if (updates && (updates.nativeEvent || updates.type === 'click')) { updates = {}; showNotification = true; }
+    
     const safeUpdates = { ...updates };
     HEAVY_KEYS.forEach(k => delete safeUpdates[k]);
+    
     if (Object.keys(safeUpdates).length === 0 && !showNotification) return;
+
+    pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...safeUpdates };
 
     setIsSyncing(true);
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    
     saveTimeoutRef.current = setTimeout(async () => {
+      const payload = { ...pendingUpdatesRef.current };
+      pendingUpdatesRef.current = {};
+
       try {
-        await RegistryService.saveData(dbScope, projectId, safeUpdates);
+        if (Object.keys(payload).length > 0) {
+            await RegistryService.saveData(dbScope, projectId, payload);
+        }
         if (showNotification) toast.success("Сохранено!");
       } catch (e) {
         console.error("SAVE ERROR:", e);
@@ -200,6 +226,25 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       }
     }, 500);
   }, [dbScope, projectId, toast, isReadOnly]);
+
+  const saveProjectImmediate = useCallback(async () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      
+      const payload = { ...pendingUpdatesRef.current };
+      pendingUpdatesRef.current = {}; 
+      
+      if (Object.keys(payload).length > 0) {
+          setIsSyncing(true);
+          try {
+              await RegistryService.saveData(dbScope, projectId, payload);
+          } catch(e) {
+              console.error("Force Save Error", e);
+              throw e;
+          } finally {
+              setIsSyncing(false);
+          }
+      }
+  }, [dbScope, projectId]);
 
   const saveBuildingData = useCallback(async (buildingId, dataKey, dataVal) => {
       if (isReadOnly) { toast.error("Редактирование запрещено"); return; }
@@ -257,7 +302,11 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     setFlatMatrix: createSetter('flatMatrix'),
     setParkingPlaces: createSetter('parkingPlaces'),
 
-    saveData, saveBuildingData, deleteProjectBuilding, isSyncing
+    saveData,
+    saveProjectImmediate, 
+    saveBuildingData, 
+    deleteProjectBuilding, 
+    isSyncing
   };
 
   if (isLoading && Object.keys(projectMeta).length === 0) return <div className="h-screen w-full flex items-center justify-center text-slate-400">Загрузка проекта...</div>;
