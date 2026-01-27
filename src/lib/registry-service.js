@@ -51,6 +51,7 @@ export const RegistryService = {
   },
 
   getExternalApplications: async () => {
+      // Возвращаем пустой список, так как генерируем кнопкой "Эмуляция"
       return []; 
   },
 
@@ -76,8 +77,8 @@ export const RegistryService = {
               assignee: user.id,
               assigneeName: user.name,
               currentStage: 1, 
-              completedSteps: [], // НОВОЕ ПОЛЕ: Для техника
-              verifiedSteps: [],  // Для бригадира
+              completedSteps: [], // Массив выполненных шагов (Техник)
+              verifiedSteps: [],  // Массив проверенных шагов (Бригадир)
               history: [
                   { 
                       date: now, 
@@ -160,6 +161,7 @@ export const RegistryService = {
     }
   },
 
+  // Алиас для удобства вызова из UI
   updateProject: async (scope, projectId, data) => {
       return RegistryService.saveData(scope, projectId, data);
   },
