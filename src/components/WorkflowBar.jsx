@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Clock, XCircle, FileText, CheckSquare, Square, Check, Lock, ArrowRight, Flag } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, FileText, CheckSquare, Square, Check, Lock, ArrowRight, Flag, AlertTriangle } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { APP_STATUS, ROLES, WORKFLOW_STAGES, STEPS_CONFIG } from '../lib/constants'; 
 import { Button } from './ui/UIKit';
@@ -13,9 +13,9 @@ export default function WorkflowBar({ user, currentStep }) {
 
   if (!applicationInfo) return null;
 
-  const { status, currentStage, verifiedSteps = [], completedSteps = [] } = applicationInfo;
+  const { status, currentStage, verifiedSteps = [], completedSteps = [], rejectionReason } = applicationInfo;
   
-  // --- РАСЧЕТ ЭТАПА ---
+  // --- РАСЧЕТ ГРАНИЦ ЭТАПА ---
   const currentStageConfig = WORKFLOW_STAGES[currentStage];
   const prevStageConfig = WORKFLOW_STAGES[currentStage - 1];
   
@@ -30,7 +30,6 @@ export default function WorkflowBar({ user, currentStep }) {
   const totalStages = Object.keys(WORKFLOW_STAGES).length;
   const isFinalStage = currentStage === totalStages;
 
-  // Определяем, к какому этапу относится ТЕКУЩИЙ открытый шаг
   const getStepStage = (stepIdx) => {
       for (const [stageNum, config] of Object.entries(WORKFLOW_STAGES)) {
           if (stepIdx <= config.lastStepIndex) return parseInt(stageNum);
@@ -38,7 +37,6 @@ export default function WorkflowBar({ user, currentStep }) {
       return 1;
   };
   const stepStage = getStepStage(currentStep);
-  // Флаг: мы находимся на шаге, который нужно проверять сейчас?
   const isStepInCurrentStage = stepStage === currentStage;
 
   // --- ЛОГИКА ТЕХНИКА (completedSteps) ---
@@ -71,7 +69,7 @@ export default function WorkflowBar({ user, currentStep }) {
     if (confirm('Отправить на проверку? Проект станет доступен только для чтения.')) {
         await updateStatus(APP_STATUS.REVIEW);
         toast.success('Отправлено');
-        navigate('/'); // Возврат на рабочий стол
+        navigate('/'); 
     }
   };
 
@@ -89,22 +87,23 @@ export default function WorkflowBar({ user, currentStep }) {
             await updateStatus(APP_STATUS.COMPLETED);
             toast.success('Проект завершен!');
         } else {
-            // Если следующий этап последний (финал), то сразу ставим REVIEW, чтобы вернулось бригадиру
-            // Иначе NEW для техника
             const nextStatus = nextStage === totalStages ? APP_STATUS.REVIEW : APP_STATUS.NEW;
             await updateStatus(nextStatus, nextStage);
             toast.success(`Этап ${currentStage} принят.`);
         }
-        navigate('/'); // Возврат на рабочий стол
+        navigate('/'); 
     }
   };
 
   const handleRejectStage = async () => {
-    const reason = prompt('Причина возврата:');
-    if (reason) {
-        await updateStatus(APP_STATUS.REJECTED, currentStage); 
+    const reason = prompt('Укажите причину возврата (обязательно):');
+    if (reason && reason.trim()) {
+        // Передаем причину в updateStatus
+        await updateStatus(APP_STATUS.REJECTED, currentStage, reason); 
         toast.error('Возвращено на доработку');
-        navigate('/'); // Возврат на рабочий стол
+        navigate('/');
+    } else if (reason !== null) {
+        toast.error('Необходимо указать причину!');
     }
   };
 
@@ -114,30 +113,37 @@ export default function WorkflowBar({ user, currentStep }) {
   if (user.role === ROLES.TECHNICIAN) {
       if (status === APP_STATUS.NEW || status === APP_STATUS.DRAFT || status === APP_STATUS.REJECTED) {
           return (
-            <div className="bg-white border-b border-slate-200 px-8 py-3 flex items-center justify-between sticky top-0 z-30 shadow-sm animate-in slide-in-from-top-2">
-                <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center"><FileText size={16} /></div>
-                    <div><div className="text-xs font-bold text-slate-500 uppercase">Текущий статус</div><div className="text-sm font-bold text-blue-600">В работе (Этап {currentStage})</div></div>
-                </div>
-                <div className="flex items-center gap-3">
-                    {/* Кнопка "Закончить шаг" (видна всегда на текущем этапе) */}
-                    {isStepInCurrentStage && (
-                        <div className="flex items-center animate-in fade-in">
-                            <button onClick={handleTechToggle} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold border shadow-sm transition-all h-9 ${isCompletedByTech ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'}`}>
-                                {isCompletedByTech ? <Check size={14} strokeWidth={3}/> : <Square size={14}/>} {isCompletedByTech ? 'Шаг закончен' : 'Закончить шаг'}
-                            </button>
-                        </div>
-                    )}
-                    <div className="h-6 w-px bg-slate-200 mx-1"></div>
-                    
-                    {/* Кнопка "Отправить" (только на последнем шаге) */}
-                    {isLastStepOfStage ? (
-                        <Button onClick={handleSendToReview} variant="primary" disabled={!isStageFullyCompletedByTech} className={`animate-in zoom-in ${!isStageFullyCompletedByTech ? 'opacity-50 cursor-not-allowed bg-slate-400 shadow-none' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'}`}>
-                            <Clock size={16} className="mr-2"/> Отправить на проверку
-                        </Button>
-                    ) : (
-                        <div className="flex items-center gap-2 text-xs font-medium text-slate-400 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 cursor-default"><span>Далее</span><ArrowRight size={14}/></div>
-                    )}
+            <div className="flex flex-col sticky top-0 z-30 shadow-sm animate-in slide-in-from-top-2">
+                {/* Блок с причиной возврата (если есть) */}
+                {status === APP_STATUS.REJECTED && rejectionReason && (
+                    <div className="bg-red-50 px-8 py-2 border-b border-red-100 flex items-center gap-2 text-red-700 text-sm font-bold">
+                        <AlertTriangle size={16} />
+                        <span>Причина возврата: {rejectionReason}</span>
+                    </div>
+                )}
+
+                <div className="bg-white border-b border-slate-200 px-8 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center"><FileText size={16} /></div>
+                        <div><div className="text-xs font-bold text-slate-500 uppercase">Текущий статус</div><div className="text-sm font-bold text-blue-600">В работе (Этап {currentStage})</div></div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        {isStepInCurrentStage && (
+                            <div className="flex items-center animate-in fade-in">
+                                <button onClick={handleTechToggle} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold border shadow-sm transition-all h-9 ${isCompletedByTech ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'}`}>
+                                    {isCompletedByTech ? <Check size={14} strokeWidth={3}/> : <Square size={14}/>} {isCompletedByTech ? 'Шаг закончен' : 'Закончить шаг'}
+                                </button>
+                            </div>
+                        )}
+                        <div className="h-6 w-px bg-slate-200 mx-1"></div>
+                        {isLastStepOfStage ? (
+                            <Button onClick={handleSendToReview} variant="primary" disabled={!isStageFullyCompletedByTech} className={`animate-in zoom-in ${!isStageFullyCompletedByTech ? 'opacity-50 cursor-not-allowed bg-slate-400 shadow-none' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'}`}>
+                                <Clock size={16} className="mr-2"/> Отправить на проверку
+                            </Button>
+                        ) : (
+                            <div className="flex items-center gap-2 text-xs font-medium text-slate-400 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 cursor-default"><span>Далее</span><ArrowRight size={14}/></div>
+                        )}
+                    </div>
                 </div>
             </div>
           );
@@ -147,7 +153,7 @@ export default function WorkflowBar({ user, currentStep }) {
       }
   }
 
-  // 2. БРИГАДИР
+  // 2. БРИГАДИР / АДМИН
   if (user.role === ROLES.CONTROLLER || user.role === ROLES.ADMIN) {
       if (status === APP_STATUS.REVIEW) {
           return (
@@ -162,7 +168,6 @@ export default function WorkflowBar({ user, currentStep }) {
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
-                    {/* Кнопка "Принять шаг" (только если шаг относится к текущему этапу) */}
                     {isStepInCurrentStage ? (
                         <div className="mr-2 flex items-center animate-in fade-in">
                             <button onClick={handleControllerToggle} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold border shadow-sm transition-all h-9 ${isVerifiedByController ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'}`}>
@@ -173,7 +178,6 @@ export default function WorkflowBar({ user, currentStep }) {
                     
                     <div className="h-6 w-px bg-indigo-200 mx-1"></div>
                     
-                    {/* Кнопка "Вернуть" (АКТИВНА ТОЛЬКО НА ТЕКУЩЕМ ЭТАПЕ) */}
                     <Button 
                         onClick={handleRejectStage} 
                         variant="destructive" 

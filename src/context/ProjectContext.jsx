@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { useToast } from './ToastContext';
 import { RegistryService } from '../lib/registry-service';
 import { useProjectData } from '../hooks/useProjectData';
-import { ROLES, APP_STATUS } from '../lib/constants';
+import { ROLES, APP_STATUS, WORKFLOW_STAGES, STEPS_CONFIG } from '../lib/constants';
 
 const ProjectContext = createContext(null);
 
@@ -54,8 +54,9 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     const defaultAppInfo = {
         status: APP_STATUS.DRAFT,
         currentStage: 1,
-        verifiedSteps: [],  // Для Бригадира
-        completedSteps: [], // Для Техника
+        verifiedSteps: [],
+        completedSteps: [],
+        rejectionReason: null, // Поле для причины возврата
         ...meta.applicationInfo
     };
 
@@ -109,7 +110,8 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       return true;
   }, [userProfile, mergedState.applicationInfo]);
 
-  // --- 1. ТЕХНИК: Завершить шаг ---
+  // --- МЕТОДЫ ---
+
   const setStepCompleted = useCallback(async (stepIndex, isCompleted) => {
       // @ts-ignore
       const currentList = mergedState.applicationInfo.completedSteps || [];
@@ -125,7 +127,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       await RegistryService.saveData(dbScope, projectId, { applicationInfo: newAppInfo });
   }, [dbScope, projectId, mergedState.applicationInfo]);
 
-  // --- 2. БРИГАДИР: Принять шаг ---
   const setStepVerified = useCallback(async (stepIndex, isVerified) => {
       // @ts-ignore
       const currentList = mergedState.applicationInfo.verifiedSteps || [];
@@ -141,14 +142,35 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       await RegistryService.saveData(dbScope, projectId, { applicationInfo: newAppInfo });
   }, [dbScope, projectId, mergedState.applicationInfo]);
 
-  const updateStatus = useCallback(async (newStatus, newStage = null) => {
+  // ОБНОВЛЕННАЯ ФУНКЦИЯ СМЕНЫ СТАТУСА (С ЛОГИКОЙ СБРОСА ШАГОВ)
+  const updateStatus = useCallback(async (newStatus, newStage = null, comment = null) => {
       // @ts-ignore
       const currentAppInfo = mergedState.applicationInfo;
+      const currentStageNum = currentAppInfo.currentStage;
+
       const updatedAppInfo = {
           ...currentAppInfo,
           status: newStatus,
           ...(newStage && { currentStage: newStage }),
+          rejectionReason: newStatus === APP_STATUS.REJECTED ? comment : null // Сохраняем или очищаем причину
       };
+
+      // Если ВОЗВРАТ НА ДОРАБОТКУ -> Сбрасываем галочки текущего этапа
+      if (newStatus === APP_STATUS.REJECTED) {
+          const currentStageConfig = WORKFLOW_STAGES[currentStageNum];
+          const prevStageConfig = WORKFLOW_STAGES[currentStageNum - 1];
+          
+          const startStepIndex = prevStageConfig ? prevStageConfig.lastStepIndex + 1 : 0;
+          const endStepIndex = currentStageConfig ? currentStageConfig.lastStepIndex : STEPS_CONFIG.length - 1;
+
+          const stepsInStage = [];
+          for (let i = startStepIndex; i <= endStepIndex; i++) stepsInStage.push(i);
+
+          // Фильтруем массивы, убирая из них шаги текущего этапа
+          updatedAppInfo.completedSteps = (currentAppInfo.completedSteps || []).filter(s => !stepsInStage.includes(s));
+          updatedAppInfo.verifiedSteps = (currentAppInfo.verifiedSteps || []).filter(s => !stepsInStage.includes(s));
+      }
+
       setProjectMeta(prev => ({ ...prev, applicationInfo: updatedAppInfo }));
       await RegistryService.saveData(dbScope, projectId, { applicationInfo: updatedAppInfo });
   }, [dbScope, projectId, mergedState.applicationInfo]);
@@ -215,10 +237,10 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   const value = {
     ...mergedState,
     isReadOnly,
-    userProfile, 
+    userProfile,
     
     setStepVerified,
-    setStepCompleted, // Функция для техника
+    setStepCompleted,
     updateStatus,
     
     setComplexInfo: createSetter('complexInfo'),
