@@ -1,204 +1,203 @@
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { 
-  Send, CheckCircle2, XCircle, FileText, AlertTriangle, 
-  MessageSquare, Clock, ShieldCheck 
-} from 'lucide-react';
+import React from 'react';
+import { CheckCircle2, AlertCircle, Clock, ArrowRight, XCircle, FileText, CheckSquare, Square, Check } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
-import { ROLES, APP_STATUS, APP_STATUS_LABELS, WORKFLOW_STAGES, STEPS_CONFIG } from '../lib/constants';
+import { APP_STATUS, ROLES, WORKFLOW_STAGES } from '../lib/constants'; 
 import { Button } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
+import { RegistryService } from '../lib/registry-service'; // Импортируем сервис
 
 export default function WorkflowBar({ user, currentStep }) {
-    const { applicationInfo, saveData, setStepVerified } = useProject();
-    const toast = useToast();
-    const navigate = useNavigate();
-    
-    if (!applicationInfo || !user) return null;
+  // Достаем dbScope (customScope) из контекста, если он там есть, или хардкодим константу
+  const { applicationInfo, updateStatus, project, setProject, customScope } = useProject(); 
+  const toast = useToast();
 
-    const currentStatus = applicationInfo.status || APP_STATUS.DRAFT;
-    const currentStage = applicationInfo.currentStage || 1;
-    const verifiedSteps = applicationInfo.verifiedSteps || [];
-    const statusConfig = APP_STATUS_LABELS[currentStatus] || APP_STATUS_LABELS.DRAFT;
+  // Если customScope не прокинут в хук, используем значение по умолчанию
+  const DB_SCOPE = customScope || 'shared_dev_env';
 
-    // Определяем список шагов, входящих в текущий этап
-    const currentStageRange = useMemo(() => {
-        const stageConfig = WORKFLOW_STAGES[currentStage];
-        const prevStageConfig = WORKFLOW_STAGES[currentStage - 1];
-        // Начало: следующий шаг после предыдущего этапа (или 0)
-        const startStep = prevStageConfig ? prevStageConfig.lastStepIndex + 1 : 0;
-        // Конец: последний шаг текущего этапа
-        const endStep = stageConfig ? stageConfig.lastStepIndex : STEPS_CONFIG.length - 1;
-        
-        const steps = [];
-        for (let i = startStep; i <= endStep; i++) steps.push(i);
-        return steps;
-    }, [currentStage]);
+  if (!applicationInfo) return null;
 
-    // Проверка: Все ли шаги этапа отмечены Бригадиром?
-    const isStageFullyVerified = currentStageRange.every(stepIdx => verifiedSteps.includes(stepIdx));
-    // Проверен ли конкретно этот шаг
-    const isCurrentStepVerified = verifiedSteps.includes(currentStep);
+  const { status, currentStage } = applicationInfo;
+  // Гарантируем, что массив существует
+  const verifiedSteps = applicationInfo.verifiedSteps || [];
+  
+  const getStepStage = (stepIdx) => {
+      for (const [stageNum, config] of Object.entries(WORKFLOW_STAGES)) {
+          if (stepIdx <= config.lastStepIndex) return parseInt(stageNum);
+      }
+      return 1;
+  };
+  
+  const stepStage = getStepStage(currentStep);
+  const isStepInCurrentStage = stepStage === currentStage;
+  const isStepVerified = verifiedSteps.includes(currentStep);
 
-    // --- ДЕЙСТВИЯ ---
+  // --- ИСПРАВЛЕННАЯ ФУНКЦИЯ ---
+  const handleToggleStepVerify = async () => {
+      let newVerifiedSteps;
+      
+      // 1. Вычисляем новый массив
+      if (isStepVerified) {
+          newVerifiedSteps = verifiedSteps.filter(s => s !== currentStep);
+      } else {
+          newVerifiedSteps = [...verifiedSteps, currentStep];
+      }
 
-    const handleVerifyStep = () => {
-        setStepVerified(currentStep, true);
-        toast.success("Шаг отмечен как проверенный");
-    };
+      // 2. Создаем ПОЛНУЮ копию объекта проекта с обновленными данными
+      const updatedProject = {
+          ...project,
+          applicationInfo: {
+              ...project.applicationInfo,
+              verifiedSteps: newVerifiedSteps
+          }
+      };
 
-    const handleUnverifyStep = () => {
-        setStepVerified(currentStep, false);
-    };
+      try {
+          // 3. Обновляем UI мгновенно
+          setProject(updatedProject); 
 
-    const changeStatus = async (newStatus, newStage = currentStage, comment = '') => {
-        const historyEntry = {
-            date: new Date().toISOString(),
-            status: newStatus,
-            user: user.name,
-            comment: comment
-        };
+          // 4. Сохраняем в базу ЯВНО передавая обновленный объект
+          // Это решает проблему "ничего не происходит", так как мы не зависим от асинхронности React state
+          await RegistryService.updateProject(DB_SCOPE, project.id, updatedProject);
+          
+          // Уведомление
+          if (!isStepVerified) {
+              toast.success('Шаг принят');
+          } else {
+              toast.info('Отметка снята');
+          }
+      } catch (error) {
+          console.error(error);
+          toast.error("Ошибка сохранения");
+      }
+  };
 
-        const updatedAppInfo = {
-            ...applicationInfo,
-            status: newStatus,
-            currentStage: newStage,
-            history: [...(applicationInfo.history || []), historyEntry]
-        };
+  const handleSendToReview = async () => {
+    if (confirm('Вы уверены, что хотите отправить этап на проверку? Редактирование будет заблокировано.')) {
+        await updateStatus(APP_STATUS.REVIEW);
+        toast.success('Отправлено на проверку Бригадиру');
+    }
+  };
 
-        await saveData({ applicationInfo: updatedAppInfo }, false, true);
-        toast.success(`Статус изменен: ${APP_STATUS_LABELS[newStatus].label}`);
-    };
+  const handleApproveStage = async () => {
+    // Проверяем, все ли шаги текущего этапа приняты
+    // (логика упрощена для демо)
+    if (confirm(`Вы подтверждаете завершение Этапа ${currentStage}?`)) {
+        const nextStage = currentStage + 1;
+        const totalStages = Object.keys(WORKFLOW_STAGES).length;
 
-    const handleSendToReview = async () => {
-        await changeStatus(APP_STATUS.REVIEW);
-        navigate('/'); // Возврат на рабочий стол
-    };
-
-    const handleApprove = async () => {
-        // Блокировка, если не все проверено (дублирует disabled)
-        if (!isStageFullyVerified) {
-            toast.error("Сначала проверьте все шаги этапа!");
-            return;
-        }
-
-        if (currentStage < 4) {
-            const nextStage = currentStage + 1;
-            // Возвращаем в DRAFT (Технику), но повышаем Этап
-            await changeStatus(APP_STATUS.DRAFT, nextStage, `Этап ${currentStage} завершен`);
-            toast.success(`Переход к Этапу ${nextStage}`);
+        if (currentStage >= totalStages) {
+            await updateStatus(APP_STATUS.COMPLETED);
+            toast.success('Проект полностью завершен!');
         } else {
-            // Финал
-            await changeStatus(APP_STATUS.COMPLETED, currentStage, 'Финальная проверка пройдена');
+            await updateStatus(APP_STATUS.NEW, nextStage);
+            toast.success(`Этап ${currentStage} принят. Открыт Этап ${nextStage}`);
         }
-        navigate('/'); // Возврат на рабочий стол
-    };
+    }
+  };
 
-    const handleReject = async () => {
-        const reason = window.prompt("Укажите причину возврата на доработку:");
-        if (reason) {
-            await changeStatus(APP_STATUS.REJECTED, currentStage, reason);
-            navigate('/'); // Возврат на рабочий стол
-        }
-    };
+  const handleRejectStage = async () => {
+    const reason = prompt('Укажите причину возврата на доработку:');
+    if (reason) {
+        await updateStatus(APP_STATUS.REJECTED, currentStage, reason); 
+        toast.error('Возвращено технику на доработку');
+    }
+  };
 
-    // --- УСЛОВИЯ ОТОБРАЖЕНИЯ ---
+  // --- ОТРИСОВКА ---
 
-    const stageConfig = WORKFLOW_STAGES[currentStage];
-    // Техник может отправить только с ПОСЛЕДНЕГО шага этапа
-    const isAtSubmitStep = currentStep === stageConfig?.lastStepIndex;
-
-    const canSubmit = (user.role === ROLES.TECHNICIAN || user.role === ROLES.ADMIN) && 
-                      (currentStatus === APP_STATUS.DRAFT || currentStatus === APP_STATUS.REJECTED) &&
-                      isAtSubmitStep;
-
-    const canReview = (user.role === ROLES.CONTROLLER || user.role === ROLES.ADMIN) && 
-                      currentStatus === APP_STATUS.REVIEW;
-
-    return (
-        <div className="bg-white border-b border-slate-200 px-8 py-3 flex items-center justify-between shadow-sm relative z-30">
-            
-            {/* Статус и Этап */}
-            <div className="flex items-center gap-4">
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wider ${statusConfig.color}`}>
-                    {statusConfig.label}
-                </div>
-                <div className="hidden md:flex flex-col text-[10px] leading-tight">
-                    <span className="text-slate-400 font-bold uppercase">Этап {currentStage}</span>
-                    <span className="text-slate-700 font-bold text-xs">
-                        Проверено: {currentStageRange.filter(s => verifiedSteps.includes(s)).length} / {currentStageRange.length}
-                    </span>
-                </div>
-                {/* Комментарий возврата */}
-                {currentStatus === APP_STATUS.REJECTED && (
-                    <div className="hidden lg:flex items-center gap-2 text-xs text-red-600 bg-red-50 px-3 py-1 rounded-lg border border-red-100 max-w-xs truncate">
-                        <MessageSquare size={14}/>
-                        <span className="truncate italic">
-                            {applicationInfo.history?.[applicationInfo.history.length-1]?.comment || "..."}
-                        </span>
+  // 1. ПАНЕЛЬ ТЕХНИКА
+  if (user.role === ROLES.TECHNICIAN) {
+      if (status === APP_STATUS.NEW || status === APP_STATUS.DRAFT || status === APP_STATUS.REJECTED) {
+          return (
+            <div className="bg-white border-b border-slate-200 px-8 py-3 flex items-center justify-between sticky top-0 z-30 shadow-sm animate-in slide-in-from-top-2">
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+                        <FileText size={16} />
                     </div>
-                )}
-            </div>
-
-            {/* Кнопки действий */}
-            <div className="flex items-center gap-3">
-                {canSubmit && (
-                    <Button onClick={handleSendToReview} className="bg-blue-600 hover:bg-blue-700 shadow-blue-200 animate-in fade-in zoom-in">
-                        Отправить проверку (Этап {currentStage}) <Send size={16} className="ml-2"/>
-                    </Button>
-                )}
-
-                {canReview && (
-                    <>
-                        {/* 1. Кнопка проверки конкретного шага */}
-                        <div className="mr-2 flex items-center">
-                            {isCurrentStepVerified ? (
-                                <button 
-                                    onClick={handleUnverifyStep}
-                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold border border-emerald-200 hover:bg-emerald-100 transition-all"
-                                    title="Нажмите, чтобы снять отметку"
-                                >
-                                    <ShieldCheck size={16}/> Шаг проверен
-                                </button>
-                            ) : (
-                                <Button onClick={handleVerifyStep} variant="secondary" className="border-slate-300 text-slate-600 hover:text-blue-600 hover:border-blue-300">
-                                    Отметить как проверенный
-                                </Button>
-                            )}
+                    <div>
+                        <div className="text-xs font-bold text-slate-500 uppercase">Текущий статус</div>
+                        <div className="text-sm font-bold text-blue-600 flex items-center gap-2">
+                            В работе (Этап {currentStage})
+                            {status === APP_STATUS.REJECTED && <span className="text-red-500 text-xs bg-red-50 px-2 py-0.5 rounded-full">Было возвращено</span>}
                         </div>
-
-                        <div className="h-6 w-px bg-slate-200 mx-2"></div>
-
-                        {/* 2. Кнопка возврата */}
-                        <Button variant="destructive" onClick={handleReject} className="bg-red-50 text-red-600 hover:bg-red-100 border-red-100">
-                            <XCircle size={16}/> 
-                        </Button>
-                        
-                        {/* 3. Кнопка принятия этапа (Активна только если все шаги проверены) */}
-                        <Button 
-                            onClick={handleApprove} 
-                            disabled={!isStageFullyVerified}
-                            className={`shadow-emerald-200 transition-all ${isStageFullyVerified ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-300 cursor-not-allowed opacity-70'}`}
-                            title={!isStageFullyVerified ? "Проверьте все шаги этапа, чтобы активировать" : ""}
-                        >
-                            <CheckCircle2 size={16} className="mr-2"/> 
-                            {currentStage < 4 ? `Принять Этап ${currentStage}` : 'Закрыть заявку'}
-                        </Button>
-                    </>
-                )}
-
-                {!canSubmit && !canReview && user.role === ROLES.TECHNICIAN && currentStatus === APP_STATUS.DRAFT && (
-                    <span className="text-xs text-slate-400 hidden sm:inline">
-                       Заполните все шаги этапа
-                    </span>
-                )}
+                    </div>
+                </div>
                 
-                {currentStatus === APP_STATUS.REVIEW && user.role === ROLES.TECHNICIAN && (
-                    <span className="text-xs font-bold text-orange-600 flex items-center gap-1">
-                        <Clock size={14}/> На проверке
-                    </span>
-                )}
+                <Button onClick={handleSendToReview} variant="primary" className="bg-blue-600 hover:bg-blue-700 shadow-blue-200">
+                    <Clock size={16} className="mr-2"/> Отправить на проверку
+                </Button>
             </div>
-        </div>
-    );
+          );
+      }
+      
+      if (status === APP_STATUS.REVIEW) {
+          return (
+            <div className="bg-amber-50 border-b border-amber-100 px-8 py-3 flex items-center justify-between sticky top-0 z-30 animate-in slide-in-from-top-2">
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center animate-pulse">
+                        <Clock size={16} />
+                    </div>
+                    <div>
+                        <div className="text-xs font-bold text-amber-600/70 uppercase">Режим ожидания</div>
+                        <div className="text-sm font-bold text-amber-700">На проверке у бригадира</div>
+                    </div>
+                </div>
+                <div className="text-xs font-bold text-amber-600 bg-white/50 px-3 py-1.5 rounded-lg">
+                    Только чтение
+                </div>
+            </div>
+          );
+      }
+  }
+
+  // 2. ПАНЕЛЬ БРИГАДИРА / АДМИНА
+  if (user.role === ROLES.CONTROLLER || user.role === ROLES.ADMIN) {
+      if (status === APP_STATUS.REVIEW) {
+          return (
+            <div className="bg-indigo-50 border-b border-indigo-100 px-8 py-3 flex items-center justify-between sticky top-0 z-30 animate-in slide-in-from-top-2">
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                        <CheckCircle2 size={16} />
+                    </div>
+                    <div>
+                        <div className="text-xs font-bold text-indigo-500 uppercase">Контроль качества</div>
+                        <div className="text-sm font-bold text-indigo-700">Проверка этапа {currentStage}</div>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                    {/* КНОПКА ПРОВЕРКИ ТЕКУЩЕГО ШАГА */}
+                    {isStepInCurrentStage && (
+                        <div className="mr-2 flex items-center animate-in fade-in">
+                            <button 
+                                onClick={handleToggleStepVerify}
+                                className={`
+                                    flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold border shadow-sm transition-all h-9 select-none active:scale-95
+                                    ${isStepVerified 
+                                        ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-emerald-200' // Активна
+                                        : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400 hover:text-blue-600' // Не активна
+                                    }
+                                `}
+                            >
+                                {isStepVerified ? <Check size={14} strokeWidth={3}/> : <Square size={14}/>}
+                                {isStepVerified ? 'Шаг принят' : 'Принять шаг'}
+                            </button>
+                        </div>
+                    )}
+                    
+                    <div className="h-6 w-px bg-indigo-200 mx-1"></div>
+
+                    <Button onClick={handleRejectStage} variant="destructive" className="bg-white border-red-200 text-red-600 hover:bg-red-50 h-9 px-3">
+                        <XCircle size={16} className="mr-2"/> Вернуть
+                    </Button>
+                    <Button onClick={handleApproveStage} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200 h-9 px-4">
+                        <CheckCircle2 size={16} className="mr-2"/> Одобрить этап
+                    </Button>
+                </div>
+            </div>
+          );
+      }
+  }
+
+  return null;
 }

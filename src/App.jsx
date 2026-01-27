@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Loader2, User, FolderOpen, KeyRound, LogOut, Shield } from 'lucide-react';
+import React, { useState, useEffect, useRef, useContext, createContext } from 'react';
+import { Loader2, User, FolderOpen, KeyRound, LogOut, Shield, Users, X, Settings } from 'lucide-react';
 import { Routes, Route, useNavigate, useParams, Navigate } from 'react-router-dom';
 
 import { AuthService } from './lib/auth-service';
@@ -31,24 +31,116 @@ import ApplicationsDashboard from './components/ApplicationsDashboard';
 
 const DB_SCOPE = 'shared_dev_env'; 
 
-// --- СПИСОК ПОЛЬЗОВАТЕЛЕЙ (4 x 3) ---
+// Контекст для активной персоны (Тестовый пользователь)
+const PersonaContext = createContext(null);
+
+// --- СПИСОК ПОЛЬЗОВАТЕЛЕЙ ---
 const TEST_USERS = [
-    { id: 'timur_admin', name: 'Тимур (Адм)', role: ROLES.ADMIN },
-    { id: 'timur_contr', name: 'Тимур (Бриг)', role: ROLES.CONTROLLER },
-    { id: 'timur_tech',  name: 'Тимур (Тех)', role: ROLES.TECHNICIAN },
+    { id: 'timur_admin', name: 'Тимур', role: ROLES.ADMIN, group: 'Тимур' },
+    { id: 'timur_contr', name: 'Тимур', role: ROLES.CONTROLLER, group: 'Тимур' },
+    { id: 'timur_tech',  name: 'Тимур', role: ROLES.TECHNICIAN, group: 'Тимур' },
 
-    { id: 'abdu_admin', name: 'Абдурашид (Адм)', role: ROLES.ADMIN },
-    { id: 'abdu_contr', name: 'Абдурашид (Бриг)', role: ROLES.CONTROLLER },
-    { id: 'abdu_tech',  name: 'Абдурашид (Тех)', role: ROLES.TECHNICIAN },
+    { id: 'abdu_admin', name: 'Абдурашид', role: ROLES.ADMIN, group: 'Абдурашид' },
+    { id: 'abdu_contr', name: 'Абдурашид', role: ROLES.CONTROLLER, group: 'Абдурашид' },
+    { id: 'abdu_tech',  name: 'Абдурашид', role: ROLES.TECHNICIAN, group: 'Абдурашид' },
 
-    { id: 'vakhit_admin', name: 'Вахит (Адм)', role: ROLES.ADMIN },
-    { id: 'vakhit_contr', name: 'Вахит (Бриг)', role: ROLES.CONTROLLER },
-    { id: 'vakhit_tech',  name: 'Вахит (Тех)', role: ROLES.TECHNICIAN },
+    { id: 'vakhit_admin', name: 'Вахит', role: ROLES.ADMIN, group: 'Вахит' },
+    { id: 'vakhit_contr', name: 'Вахит', role: ROLES.CONTROLLER, group: 'Вахит' },
+    { id: 'vakhit_tech',  name: 'Вахит', role: ROLES.TECHNICIAN, group: 'Вахит' },
 
-    { id: 'abbos_admin', name: 'Аббос (Адм)', role: ROLES.ADMIN },
-    { id: 'abbos_contr', name: 'Аббос (Бриг)', role: ROLES.CONTROLLER },
-    { id: 'abbos_tech',  name: 'Аббос (Тех)', role: ROLES.TECHNICIAN },
+    { id: 'abbos_admin', name: 'Аббос', role: ROLES.ADMIN, group: 'Аббос' },
+    { id: 'abbos_contr', name: 'Аббос', role: ROLES.CONTROLLER, group: 'Аббос' },
+    { id: 'abbos_tech',  name: 'Аббос', role: ROLES.TECHNICIAN, group: 'Аббос' },
 ];
+
+// --- КОМПОНЕНТ: ПЛАВАЮЩИЙ ПЕРЕКЛЮЧАТЕЛЬ РОЛЕЙ ---
+// Теперь использует Context, а не window
+const DevRoleSwitcher = () => {
+    const { activePersona, setActivePersona } = useContext(PersonaContext);
+    const [isOpen, setIsOpen] = useState(false);
+
+    // Группируем пользователей по имени
+    const groups = TEST_USERS.reduce((acc, user) => {
+        if (!acc[user.group]) acc[user.group] = [];
+        acc[user.group].push(user);
+        return acc;
+    }, {});
+
+    if (!activePersona) return null;
+
+    return (
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none">
+            {/* Панель выбора */}
+            <div className={`
+                bg-slate-900 border border-slate-700 shadow-2xl rounded-2xl p-4 mb-4 w-72 pointer-events-auto
+                transition-all duration-300 origin-bottom-right
+                ${isOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-10 invisible'}
+            `}>
+                <div className="flex justify-between items-center mb-3 pb-3 border-b border-slate-700">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                        <Settings size={14} /> Тестовые роли
+                    </h3>
+                    <button onClick={() => setIsOpen(false)} className="text-slate-500 hover:text-white">
+                        <X size={16} />
+                    </button>
+                </div>
+                
+                <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
+                    {Object.entries(groups).map(([groupName, users]) => (
+                        <div key={groupName}>
+                            <div className="text-[10px] font-bold text-slate-500 mb-1.5 ml-1">{groupName}</div>
+                            <div className="grid grid-cols-3 gap-1">
+                                {users.map(user => {
+                                    const isActive = activePersona.id === user.id;
+                                    let roleLabel = 'Тех';
+                                    let roleColor = 'text-blue-400 bg-blue-400/10 border-blue-400/20';
+                                    
+                                    if (user.role === ROLES.ADMIN) { 
+                                        roleLabel = 'Адм'; 
+                                        roleColor = 'text-purple-400 bg-purple-400/10 border-purple-400/20';
+                                    }
+                                    if (user.role === ROLES.CONTROLLER) { 
+                                        roleLabel = 'Бриг'; 
+                                        roleColor = 'text-orange-400 bg-orange-400/10 border-orange-400/20';
+                                    }
+
+                                    return (
+                                        <button
+                                            key={user.id}
+                                            onClick={() => { setActivePersona(user); setIsOpen(false); }}
+                                            className={`
+                                                px-1 py-1.5 rounded-lg text-[10px] font-bold border transition-all
+                                                ${isActive 
+                                                    ? 'bg-slate-100 border-slate-100 text-slate-900 shadow-sm' 
+                                                    : `${roleColor} hover:bg-slate-800`
+                                                }
+                                            `}
+                                        >
+                                            {roleLabel}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Кнопка открытия */}
+            <button 
+                onClick={() => setIsOpen(!isOpen)}
+                className={`
+                    w-12 h-12 rounded-full shadow-xl flex items-center justify-center transition-all pointer-events-auto
+                    ${isOpen ? 'bg-slate-700 text-white rotate-90' : 'bg-slate-900 text-blue-400 hover:bg-blue-600 hover:text-white hover:scale-110'}
+                `}
+                title="Сменить пользователя"
+            >
+                <Users size={20} />
+            </button>
+        </div>
+    );
+};
+
 
 function LoginScreen({ onLogin, isLoading }) {
     return (
@@ -131,14 +223,11 @@ function ProjectEditorRoute({ user }) {
     const effectiveReadOnly = isReadOnly || isStepLocked;
 
     // --- ЛОГИКА ОГРАНИЧЕНИЯ НАВИГАЦИИ (ВПЕРЕД) ---
-    // Вычисляем максимально доступный шаг для текущей роли
-    let maxAllowedStep = STEPS_CONFIG.length - 1; // По умолчанию все доступно
+    let maxAllowedStep = STEPS_CONFIG.length - 1; 
 
     if (user.role === ROLES.TECHNICIAN) {
-        // Для техника ограничено текущим этапом
         maxAllowedStep = WORKFLOW_STAGES[currentStage]?.lastStepIndex ?? 0;
     } 
-    // Для Админа и Бригадира - ограничений нет (они видят все шаги)
 
     const canGoToStep = (stepIdx) => {
         if (stepIdx > maxAllowedStep) {
@@ -219,11 +308,14 @@ function ProjectEditorRoute({ user }) {
                 isOpen={sidebarOpen} 
                 onToggle={() => setSidebarOpen(!sidebarOpen)} 
                 onBackToDashboard={handleBackToDashboard}
-                maxAllowedStep={maxAllowedStep} // Передаем лимит в Sidebar
+                maxAllowedStep={maxAllowedStep} 
             />
             <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
                 
                 <WorkflowBar user={user} currentStep={currentStep} />
+                
+                {/* Теперь виджет сам берет setActivePersona из контекста */}
+                <DevRoleSwitcher />
 
                 <div className="px-8 pt-6 pb-2">
                     <Breadcrumbs 
@@ -259,7 +351,7 @@ const ProjectProviderWrapper = ({ children, firebaseUser, dbScope, activePersona
     );
 };
 
-const MainLayout = ({ firebaseUser, activePersona, setActivePersona }) => {
+const MainLayout = ({ firebaseUser, activePersona }) => { // setActivePersona больше не нужен здесь
     const navigate = useNavigate();
     const { projects, isLoading } = useProjects(DB_SCOPE);
 
@@ -281,21 +373,13 @@ const MainLayout = ({ firebaseUser, activePersona, setActivePersona }) => {
                 </div>
                 
                 <div className="flex items-center gap-4">
-                    <div className="flex bg-slate-100 rounded-full p-1 border border-slate-200 overflow-x-auto max-w-[500px] no-scrollbar">
-                        {TEST_USERS.map(user => {
-                            const isSelected = activePersona.id === user.id;
-                            const displayName = user.name.split(' ')[0]; 
-                            return (
-                                <button 
-                                    key={user.id} 
-                                    onClick={() => setActivePersona(user)} 
-                                    className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${isSelected ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
-                                >
-                                    {isSelected && <Shield size={10} className="text-blue-500"/>}
-                                    {user.name}
-                                </button>
-                            );
-                        })}
+                    {/* Инфо о текущем пользователе */}
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-full border border-slate-200">
+                        <User size={14} className="text-slate-500"/>
+                        <span className="text-xs font-bold text-slate-700">{activePersona.name}</span>
+                        <span className="text-[10px] text-slate-400 font-medium px-1.5 py-0.5 bg-white rounded border border-slate-200 ml-1">
+                            {activePersona.role === ROLES.ADMIN ? 'ADM' : activePersona.role === ROLES.CONTROLLER ? 'CTRL' : 'TECH'}
+                        </span>
                     </div>
 
                     <div className="h-6 w-px bg-slate-200"></div>
@@ -312,6 +396,9 @@ const MainLayout = ({ firebaseUser, activePersona, setActivePersona }) => {
                 dbScope={DB_SCOPE}
                 onSelectProject={(id) => navigate(`/project/${id}`)}
             />
+            
+            {/* Плавающий переключатель */}
+            <DevRoleSwitcher />
         </div>
     );
 };
@@ -344,16 +431,19 @@ export default function App() {
   }
 
   return (
-    <ToastProvider>
-        <Routes>
-            <Route path="/" element={<MainLayout firebaseUser={firebaseUser} activePersona={activePersona} setActivePersona={setActivePersona} />} />
-            <Route path="/project/:projectId" element={
-                <ProjectProviderWrapper firebaseUser={firebaseUser} dbScope={DB_SCOPE} activePersona={activePersona}>
-                    <ProjectEditorRoute user={activePersona} />
-                </ProjectProviderWrapper>
-            } />
-            <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-    </ToastProvider>
+    // Оборачиваем всё приложение в контекст, чтобы DevRoleSwitcher работал везде
+    <PersonaContext.Provider value={{ activePersona, setActivePersona }}>
+        <ToastProvider>
+            <Routes>
+                <Route path="/" element={<MainLayout firebaseUser={firebaseUser} activePersona={activePersona} />} />
+                <Route path="/project/:projectId" element={
+                    <ProjectProviderWrapper firebaseUser={firebaseUser} dbScope={DB_SCOPE} activePersona={activePersona}>
+                        <ProjectEditorRoute user={activePersona} />
+                    </ProjectProviderWrapper>
+                } />
+                <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+        </ToastProvider>
+    </PersonaContext.Provider>
   );
 }

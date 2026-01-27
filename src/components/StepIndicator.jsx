@@ -1,101 +1,86 @@
-import React from 'react';
-import { Check, Circle, AlertCircle, ShieldCheck } from 'lucide-react';
-import { STEPS_CONFIG } from '../lib/constants';
+import React, { useRef, useEffect } from 'react';
+import { Check } from 'lucide-react';
+import { STEPS_CONFIG, WORKFLOW_STAGES, APP_STATUS } from '../lib/constants';
 import { useProject } from '../context/ProjectContext';
 
-export default function StepIndicator({ currentStep = 0 }) {
+export default function StepIndicator({ currentStep }) {
   const { applicationInfo } = useProject();
-  
-  const verifiedSteps = applicationInfo?.verifiedSteps || [];
+  const scrollRef = useRef(null);
 
-  if (!STEPS_CONFIG || !Array.isArray(STEPS_CONFIG)) return null;
+  // Авто-скролл к активному шагу
+  useEffect(() => {
+    if (scrollRef.current) {
+      const activeElement = scrollRef.current.children[currentStep];
+      if (activeElement) {
+        activeElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+    }
+  }, [currentStep]);
 
-  const safeIndex = Math.min(Math.max(0, currentStep), STEPS_CONFIG.length - 1);
-  const currentConfig = STEPS_CONFIG[safeIndex];
+  const getStepStage = (stepIdx) => {
+      for (const [stageNum, config] of Object.entries(WORKFLOW_STAGES)) {
+          if (stepIdx <= config.lastStepIndex) return parseInt(stageNum);
+      }
+      return 1;
+  };
 
-  if (!currentConfig) return null;
-
-  const TitleIcon = currentConfig.icon || AlertCircle;
-  const totalSteps = Math.max(STEPS_CONFIG.length - 1, 1);
-  const progressPercent = (safeIndex / totalSteps) * 100;
+  const currentStage = applicationInfo?.currentStage || 1;
+  const isProjectCompleted = applicationInfo?.status === APP_STATUS.COMPLETED;
 
   return (
-      <div className="w-full mb-8 select-none animate-in fade-in duration-500">
-        
-        <div className="flex justify-between items-end mb-4 px-1">
-            <div>
-                <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                        Шаг {safeIndex + 1} из {STEPS_CONFIG.length}
-                    </span>
-                    {verifiedSteps.includes(currentStep) && (
-                        <span className="flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[9px] font-bold uppercase">
-                            <ShieldCheck size={10}/> Проверен
-                        </span>
-                    )}
-                </div>
-                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                    <div className={`p-1.5 rounded-lg ${verifiedSteps.includes(currentStep) ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>
-                        <TitleIcon size={20} />
-                    </div>
-                    {currentConfig.title}
-                </h2>
-            </div>
-            
-            <div className="text-right hidden sm:block">
-                <span className="text-xs font-bold text-slate-500">
-                    Прогресс: <span className="text-blue-600">{Math.round(progressPercent)}%</span>
-                </span>
-            </div>
-        </div>
+    <div className="mb-6">
+      <div 
+        ref={scrollRef}
+        className="flex items-center gap-1.5 overflow-x-auto pb-2 no-scrollbar"
+      >
+        {STEPS_CONFIG.map((step, idx) => {
+          const isActive = idx === currentStep;
+          const stepStage = getStepStage(idx);
+          
+          // Логика "Проверено" (Зеленый цвет)
+          const isVerified = isProjectCompleted || (stepStage < currentStage);
 
-        <div className="relative h-10 flex items-center w-full">
-            <div className="absolute left-0 right-0 h-1 bg-slate-100 rounded-full -z-10" />
+          const Icon = step.icon;
+
+          return (
             <div 
-                className="absolute left-0 h-1 bg-blue-600 rounded-full -z-10 transition-all duration-500 ease-out" 
-                style={{ width: `${progressPercent}%` }}
-            />
-
-            <div className="flex justify-between w-full relative px-0.5">
-                {STEPS_CONFIG.map((step, idx) => {
-                    const isCompleted = idx < safeIndex;
-                    const isActive = idx === safeIndex;
-                    const isVerified = verifiedSteps.includes(idx);
-                    
-                    const StepIcon = step.icon || Circle;
-
-                    let circleClass = 'bg-white border-slate-300';
-                    if (isVerified) circleClass = 'bg-emerald-500 border-emerald-500 text-white';
-                    else if (isActive) circleClass = 'bg-white border-blue-600 text-blue-600 shadow-blue-200 shadow-md';
-                    else if (isCompleted) circleClass = 'bg-blue-600 border-blue-600 text-white';
-
-                    return (
-                        <div 
-                            key={step.id || idx} 
-                            className={`flex flex-col items-center justify-center transition-all duration-500 relative group ${isActive ? 'scale-110' : 'scale-100'}`}
-                        >
-                            <div 
-                                className={`
-                                    flex items-center justify-center transition-all duration-300 shadow-sm border-2 rounded-full z-10
-                                    ${isActive ? 'w-8 h-8 z-20' : 'w-5 h-5'}
-                                    ${circleClass}
-                                `}
-                            >
-                                {isVerified ? <Check size={12} strokeWidth={4}/> : (isActive ? <StepIcon size={14} /> : (isCompleted && <Check size={10} strokeWidth={4} />))}
-                            </div>
-
-                            <div className="absolute top-full mt-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                                <div className="bg-slate-800 text-white text-[10px] py-1 px-2 rounded font-medium whitespace-nowrap shadow-xl flex items-center gap-1">
-                                    {step.title}
-                                    {isVerified && <ShieldCheck size={10} className="text-emerald-400"/>}
-                                </div>
-                                <div className="w-2 h-2 bg-slate-800 rotate-45 absolute -top-1 left-1/2 -translate-x-1/2"></div>
-                            </div>
-                        </div>
-                    )
-                })}
+              key={step.id} 
+              title={step.title} // При наведении видно название
+              className={`
+                flex-shrink-0 flex items-center justify-center rounded-lg border transition-all duration-300 cursor-default
+                ${isActive 
+                    ? 'bg-slate-900 text-white border-slate-900 px-4 py-2 gap-2 shadow-lg shadow-slate-200' // Активный: Широкий с текстом
+                    : isVerified
+                        ? 'w-9 h-9 bg-emerald-100 text-emerald-600 border-emerald-200' // Проверенный: Зеленый квадрат
+                        : 'w-9 h-9 bg-white text-slate-300 border-slate-200' // Будущий: Серый квадрат
+                }
+              `}
+            >
+              {/* Если проверено и не активно - показываем галочку, иначе иконку шага */}
+              {isVerified && !isActive ? (
+                  <Check size={16} strokeWidth={3} />
+              ) : (
+                  <Icon size={16} />
+              )}
+              
+              {/* Текст показываем ТОЛЬКО если шаг активен */}
+              {isActive && (
+                <span className="text-xs font-bold whitespace-nowrap animate-in fade-in slide-in-from-left-2">
+                  {step.title}
+                </span>
+              )}
             </div>
-        </div>
+          );
+        })}
       </div>
+      
+      {/* Тонкая полоска прогресса снизу */}
+      <div className="h-0.5 w-full bg-slate-100 rounded-full overflow-hidden mt-1">
+         <div 
+            className="h-full bg-slate-900 transition-all duration-500 ease-out"
+            style={{ width: `${((currentStep + 1) / STEPS_CONFIG.length) * 100}%` }}
+         ></div>
+      </div>
+    </div>
   );
 }
