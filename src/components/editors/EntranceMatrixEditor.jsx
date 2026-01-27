@@ -2,11 +2,12 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   ArrowLeft, Wand2, ArrowDown, ArrowUp, 
   DoorOpen, ChevronLeft, ChevronsRight, Ban,
-  MoreHorizontal, ChevronsDown
+  MoreHorizontal, ChevronsDown, LayoutTemplate,
+  Home, Briefcase, PaintBucket, AlertCircle
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
-import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
+import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 import { Validators } from '../../lib/validators';
@@ -27,11 +28,13 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     
     const { floorList, currentBlock, isUndergroundParking, isParking } = useBuildingFloors(buildingId, activeBlockIndex);
 
+    // Сброс при смене блока
     useEffect(() => {
         inputsRef.current = {};
         setOpenMenuId(null);
     }, [activeBlockIndex]);
 
+    // Закрытие меню при клике вне
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -55,6 +58,8 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         
     const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
     
+    // --- ЛОГИКА ДАННЫХ ---
+
     const setEntData = (entIdx, floorId, field, val) => {
         if (val !== '' && (parseFloat(val) < 0 || String(val).includes('-'))) return;
         const key = `${currentBlock.fullId}_ent${entIdx}_${floorId}`;
@@ -86,6 +91,8 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
     const handleKeyDown = (e, floorIdx, entIdx, field) => {
         if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+        
+        // Если это не цифры, предотвращаем дефолтное поведение для навигации
         e.preventDefault();
 
         const fieldsOrder = ['apts', 'units', 'mopQty'];
@@ -93,7 +100,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         let currEntIdx = entIdx;
         let currFieldIdx = fieldsOrder.indexOf(field);
 
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 10; i++) { // Защита от бесконечного цикла
             if (e.key === 'ArrowUp') currFloorIdx--;
             if (e.key === 'ArrowDown') currFloorIdx++;
             
@@ -140,6 +147,8 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             }
         }
     };
+
+    // --- ФУНКЦИИ АВТОМАТИЗАЦИИ ---
 
     const autoFill = () => { 
         const updates = {}; 
@@ -236,7 +245,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         return <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${style.color}`}>{style.label}</span>
     }
 
-    // [NEW] Функция сохранения
     const handleSave = async () => { 
         const specificData = {};
         Object.keys(entrancesData).forEach(k => {
@@ -247,49 +255,76 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         });
 
         await saveBuildingData(building.id, 'entrancesData', specificData);
-        await saveData({}, true); // true = toast
+        await saveData({}, true);
     };
 
     return (
-        <div className="space-y-6 pb-20 w-full animate-in fade-in duration-500">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-4">
-                <div className="flex gap-4 items-center">
-                    <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><ArrowLeft size={24}/></button>
-                    <div>
-                        <h2 className="text-2xl font-bold text-slate-800 leading-tight">{building.label}</h2>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 items-center">
-                             <p className="text-slate-400 text-xs font-bold uppercase tracking-wider">Матрица подъездов</p>
-                             <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-0.5 rounded text-xs text-slate-600"><span className="font-bold text-slate-400 uppercase text-[9px]">Дом</span><span className="font-bold">{building.houseNumber}</span></div>
-                             <div className="flex items-center gap-1.5 text-xs text-slate-600 pl-2 border-l border-slate-200"><span className="font-bold text-slate-400 uppercase text-[9px]">Тип</span><span className="font-medium">{building.type}</span></div>
-                        </div>
-                    </div>
-                </div>
-                <div className="flex gap-2">
-                    <button onClick={autoFill} disabled={!isResidentialBlock && !isParking} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${!isResidentialBlock && !isParking ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-100'}`}><Wand2 size={14}/> Заполнить типовыми</button>
-                    {/* [CHANGED] Заменили кнопку Готово на Закрыть */}
-                    <Button variant="secondary" onClick={onBack}>Закрыть</Button>
-                </div>
-            </div>
+        <div className="space-y-6 pb-24 max-w-7xl mx-auto animate-in fade-in duration-500 relative">
+            
+            {/* --- HEADER --- */}
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 flex flex-col md:flex-row justify-between items-center gap-4">
+                 <div className="flex items-center gap-4 w-full md:w-auto">
+                     <button onClick={onBack} className="p-2.5 hover:bg-slate-100 rounded-xl text-slate-500 hover:text-slate-800 transition-colors">
+                         <ArrowLeft size={20}/>
+                     </button>
+                     <div>
+                         <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                             <LayoutTemplate size={20} className="text-blue-600"/>
+                             {building.label}
+                         </h2>
+                         <div className="flex items-center gap-3 mt-1.5">
+                             <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">Дом №</span>
+                                <span className="text-xs font-bold text-slate-700">{building.houseNumber}</span>
+                             </div>
+                             <div className="w-px h-4 bg-slate-200"></div>
+                             <span className="text-xs font-medium text-slate-500">{building.type}</span>
+                         </div>
+                     </div>
+                 </div>
+                 
+                 <div className="flex items-center gap-3 w-full md:w-auto">
+                     <button 
+                        onClick={autoFill} 
+                        disabled={!isResidentialBlock && !isParking} 
+                        className={`flex-1 md:flex-none h-10 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors border ${!isResidentialBlock && !isParking ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border-indigo-100'}`}
+                     >
+                        <Wand2 size={14}/> Заполнить типовыми
+                     </button>
+                     <Button variant="secondary" onClick={onBack} className="h-10">Закрыть</Button>
+                 </div>
+             </div>
 
-            <div className="flex gap-2 p-1 bg-slate-200/50 rounded-xl w-max overflow-x-auto max-w-full mb-6 scrollbar-none">
+            {/* --- TABS --- */}
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                 {blocksList.map((b,i) => (
-                    <TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>{b.icon && <b.icon size={14} className="mr-1.5 opacity-70"/>}{b.tabLabel}</TabButton>
+                    <TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)} className="shadow-sm border border-slate-200">
+                        {b.icon && <b.icon size={14} className="mr-1.5 opacity-70"/>}{b.tabLabel}
+                    </TabButton>
                 ))}
             </div>
 
             {showEditor ? (
-                <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden flex flex-col">
-                    <div className="flex-1 overflow-auto relative w-full max-w-[calc(100vw-64px)]" style={{ maxHeight: 'calc(100vh - 250px)' }}>
+                <Card className="overflow-hidden shadow-sm border border-slate-200 rounded-2xl bg-white">
+                    <div className="overflow-x-auto max-h-[70vh] scrollbar-thin">
                         <table className="w-max border-collapse table-fixed">
-                            <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-30 shadow-md">
-                                <tr>
-                                    {/* Липкая колонка этажей с тенью */}
-                                    <th className="p-2 text-left w-[110px] min-w-[110px] sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
+                            <thead className="sticky top-0 z-30 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+                                <tr className="bg-slate-50/90 backdrop-blur border-b border-slate-200">
+                                    {/* Липкая колонка этажей */}
+                                    <th className="p-3 text-left w-[120px] min-w-[120px] sticky left-0 z-40 bg-slate-50 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
+                                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">Этаж</span>
+                                    </th>
                                     {entrancesList.map(e => (
-                                        <th key={e} className="p-1 w-[180px] min-w-[180px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">
+                                        <th key={e} className="p-2 w-[180px] min-w-[180px] border-r border-slate-200/60 bg-slate-50/50">
                                             <div className="flex flex-col items-center">
-                                                <span className="text-blue-600 mb-1 font-bold text-xs">{isUndergroundParking ? `Вход ${e}` : `Подъезд ${e}`}</span>
-                                                <div className="grid grid-cols-3 gap-1 w-full text-center opacity-60 text-[9px]"><span>Квартир</span><span>Нежилых</span><span>МОП</span></div>
+                                                <span className="text-blue-600 mb-1.5 font-bold text-xs bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
+                                                    {isUndergroundParking ? `Вход ${e}` : `Подъезд ${e}`}
+                                                </span>
+                                                <div className="grid grid-cols-3 gap-0.5 w-full text-center">
+                                                    <div className="flex flex-col items-center gap-0.5" title="Квартир"><Home size={10} className="text-slate-400"/><span className="text-[8px] font-bold text-slate-400 uppercase">Кв</span></div>
+                                                    <div className="flex flex-col items-center gap-0.5" title="Нежилых"><Briefcase size={10} className="text-slate-400"/><span className="text-[8px] font-bold text-slate-400 uppercase">Оф</span></div>
+                                                    <div className="flex flex-col items-center gap-0.5" title="МОП"><PaintBucket size={10} className="text-slate-400"/><span className="text-[8px] font-bold text-slate-400 uppercase">МОП</span></div>
+                                                </div>
                                             </div>
                                         </th>
                                     ))}
@@ -311,15 +346,26 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                     }
                                     const duplexState = Validators.checkDuplexAvailability(f, floorList[idx + 1], hasApts);
 
+                                    // Зебра
+                                    const rowBg = idx % 2 === 0 ? "bg-slate-50/30" : "bg-white";
+
                                     return (
-                                        <tr key={f.id} className="hover:bg-blue-50/30 focus-within:bg-blue-50 transition-colors duration-200 group h-10">
+                                        <tr key={f.id} className={`${rowBg} hover:bg-slate-50 transition-colors group h-11`}>
                                             
-                                            {/* ПЕРВАЯ КОЛОНКА: МЕНЮ ДЕЙСТВИЙ */}
-                                            <td className={`p-1 w-[110px] min-w-[110px] sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 border-r border-slate-200 relative group/cell shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] ${openMenuId === f.id ? 'z-50' : 'z-20'}`}>
+                                            {/* КОЛОНКА ЭТАЖА */}
+                                            <td className="p-3 w-[120px] min-w-[120px] sticky left-0 z-20 bg-inherit border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] relative group/cell">
                                                 <div className="flex items-center justify-between h-full px-1">
-                                                    <div className="flex items-center gap-1.5">
-                                                        {/* Чекбокс дуплекса */}
-                                                        {canHaveApts && (<input type="checkbox" title={duplexState.title + (duplexState.disabled ? " (недоступно)" : "")} checked={isDuplex || false} onChange={() => !duplexState.disabled && toggleDuplex(f.id)} disabled={duplexState.disabled} className={`rounded w-3 h-3 transition-all flex-shrink-0 ${duplexState.disabled ? 'cursor-not-allowed opacity-30 bg-slate-100' : 'cursor-pointer text-purple-600'}`}/>)}
+                                                    <div className="flex items-center gap-2">
+                                                        {canHaveApts && (
+                                                            <input 
+                                                                type="checkbox" 
+                                                                title={duplexState.title + (duplexState.disabled ? " (недоступно)" : "")} 
+                                                                checked={isDuplex || false} 
+                                                                onChange={() => !duplexState.disabled && toggleDuplex(f.id)} 
+                                                                disabled={duplexState.disabled} 
+                                                                className={`rounded w-3.5 h-3.5 transition-all flex-shrink-0 border-slate-300 ${duplexState.disabled ? 'cursor-not-allowed opacity-30 bg-slate-100' : 'cursor-pointer text-purple-600 focus:ring-purple-500'}`}
+                                                            />
+                                                        )}
                                                         <span className="text-xs font-bold text-slate-700">{f.label}</span>
                                                     </div>
                                                     {renderBadge(f.type)}
@@ -335,7 +381,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                     </button>
                                                 </div>
 
-                                                {/* Само меню действий */}
+                                                {/* Меню действий */}
                                                 {openMenuId === f.id && (
                                                     <div ref={menuRef} className="absolute left-[90px] top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-200 z-[100] p-1 flex flex-col animate-in fade-in zoom-in-95 duration-200 origin-top-left">
                                                         <button onClick={() => copyFloorToNext(idx)} className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 rounded-lg text-left">
@@ -348,30 +394,54 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                 )}
                                             </td>
 
+                                            {/* ЯЧЕЙКИ ПОДЪЕЗДОВ */}
                                             {entrancesList.map(e => (
-                                                <td key={e} className={`p-0 w-[180px] min-w-[180px] border-r border-slate-100 h-10 relative group/cell ${isDuplex ? 'bg-purple-50/10' : ''}`}>
+                                                <td key={e} className={`p-0 w-[180px] min-w-[180px] border-r border-slate-100 h-11 relative group/cell ${isDuplex ? 'bg-purple-50/5' : ''}`}>
                                                     <div className="grid grid-cols-3 h-full divide-x divide-slate-100">
                                                         {['apts', 'units', 'mopQty'].map(field => {
                                                             const canEdit = field === 'apts' ? canHaveApts : field === 'units' ? canHaveUnits : true;
                                                             const val = getEntData(e, f.id, field);
-                                                            // ZOD Check
+                                                            
+                                                            // Validation
                                                             const check = EntranceDataSchema.shape[field].safeParse(val);
                                                             const isInvalid = val !== '' && !check.success;
 
+                                                            // Styling
+                                                            let bgClass = "bg-transparent";
+                                                            let textClass = "text-slate-800";
+                                                            
+                                                            if (!canEdit) {
+                                                                bgClass = "bg-slate-50";
+                                                                textClass = "text-slate-300 cursor-not-allowed";
+                                                            } else if (isInvalid) {
+                                                                bgClass = "bg-red-50";
+                                                                textClass = "text-red-600";
+                                                            } else if (val !== '' && val !== '0') {
+                                                                textClass = "text-slate-900 font-bold"; 
+                                                            } else {
+                                                                textClass = "text-slate-400";
+                                                            }
+
                                                             return (
-                                                                <DebouncedInput 
-                                                                    key={field}
-                                                                    // @ts-ignore
-                                                                    ref={el => inputsRef.current[`${idx}-${e}-${field}`] = el}
-                                                                    onKeyDown={(ev) => handleKeyDown(ev, idx, e, field)}
-                                                                    type="number" 
-                                                                    min="0"
-                                                                    disabled={!canEdit} 
-                                                                    className={`text-center text-xs font-bold outline-none h-full w-full focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${!canEdit ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : (isInvalid ? 'bg-red-50 text-red-600' : 'bg-white text-slate-700')}`} 
-                                                                    value={val} 
-                                                                    onChange={v => setEntData(e, f.id, field, v)} 
-                                                                    placeholder={canEdit ? "-" : ""}
-                                                                />
+                                                                <div key={field} className="relative w-full h-full">
+                                                                    <DebouncedInput 
+                                                                        // @ts-ignore
+                                                                        ref={el => inputsRef.current[`${idx}-${e}-${field}`] = el}
+                                                                        onKeyDown={(ev) => handleKeyDown(ev, idx, e, field)}
+                                                                        type="number" 
+                                                                        min="0"
+                                                                        disabled={!canEdit} 
+                                                                        className={`w-full h-full text-center text-xs outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${bgClass} ${textClass}`} 
+                                                                        value={val} 
+                                                                        onChange={v => setEntData(e, f.id, field, v)} 
+                                                                        placeholder={canEdit ? "-" : ""}
+                                                                    />
+                                                                    {isInvalid && (
+                                                                        <div className="absolute top-0.5 right-0.5 pointer-events-none">
+                                                                            <AlertCircle size={8} className="text-red-500"/>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
                                                             );
                                                         })}
                                                     </div>
@@ -379,8 +449,8 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                     {/* Кнопки копирования (ховер) */}
                                                     <div className="absolute top-0 right-0 h-full flex items-center pr-0.5 opacity-0 group-hover/cell:opacity-100 transition-opacity z-10 pointer-events-none">
                                                         <div className="flex flex-col gap-0.5 pointer-events-auto bg-white/90 backdrop-blur-sm shadow-sm border border-slate-200 rounded p-0.5">
-                                                            {e > 1 && <button onClick={()=>copyEntranceFromLeft(f.id, e)} title="Скопировать слева" className="p-0.5 hover:text-blue-600"><ChevronLeft size={10}/></button>}
-                                                            <button onClick={()=>fillEntrancesRow(f.id, e)} title="Заполнить ряд вправо" className="p-0.5 hover:text-blue-600"><ChevronsRight size={10}/></button>
+                                                            {e > 1 && <button onClick={()=>copyEntranceFromLeft(f.id, e)} title="Скопировать слева" className="p-0.5 hover:text-blue-600 hover:bg-blue-50 rounded"><ChevronLeft size={10}/></button>}
+                                                            <button onClick={()=>fillEntrancesRow(f.id, e)} title="Заполнить ряд вправо" className="p-0.5 hover:text-blue-600 hover:bg-blue-50 rounded"><ChevronsRight size={10}/></button>
                                                         </div>
                                                     </div>
                                                 </td>
@@ -400,7 +470,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 </div>
             )}
 
-            {/* [NEW] Новая панель сохранения */}
             <SaveFloatingBar onSave={handleSave} />
         </div>
     );

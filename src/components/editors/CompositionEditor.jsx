@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Home, Layout, Car, Box, Pencil, Trash2, X, Sparkles, Building2, 
-  Calendar, Hash, Clock, ArrowRight, Plus, Layers
+  Calendar, Hash, Clock, ArrowRight, Plus, Layers, AlertCircle
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Button, Input, Select, Label, SectionTitle } from '../ui/UIKit';
-import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
+import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { calculateProgress, getStageColor } from '../../lib/utils';
 // ВАЛИДАЦИЯ
 import { BuildingModalSchema } from '../../lib/schemas';
@@ -62,6 +62,9 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
         parkingConstruction: modal.parkingConstruction,
         infraType: modal.infraType
     });
+
+    // Логическая проверка для многоблочного дома
+    const isMultiblockError = modal.category === 'residential_multiblock' && (modal.resBlocks < 1 || modal.nonResBlocks < 1);
 
     const ErrorMsg = ({ field }) => errors[field] ? <span className="text-[9px] text-red-500 font-bold ml-1 animate-in fade-in">{errors[field]}</span> : null;
 
@@ -128,15 +131,23 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
 
                         {/* ДИНАМИЧЕСКИЕ ПОЛЯ */}
                         {modal.category === 'residential_multiblock' && (
-                            <div className="grid grid-cols-2 gap-3 p-3 bg-indigo-50 rounded-xl border border-indigo-100 animate-in fade-in">
-                                <div className="space-y-1">
-                                    <Label>Жилых блоков</Label>
-                                    <Input type="number" min="0" value={modal.resBlocks} onChange={(e) => setModal(m => ({...m, resBlocks: Math.max(0, parseInt(e.target.value)||0)}))} />
+                            <div className={`flex flex-col gap-3 p-3 rounded-xl border transition-colors animate-in fade-in ${isMultiblockError ? 'bg-red-50 border-red-200' : 'bg-indigo-50 border-indigo-100'}`}>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1">
+                                        <Label>Жилых блоков</Label>
+                                        <Input type="number" min="0" value={modal.resBlocks} onChange={(e) => setModal(m => ({...m, resBlocks: Math.max(0, parseInt(e.target.value)||0)}))} />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <Label>Нежилых</Label>
+                                        <Input type="number" min="0" value={modal.nonResBlocks} onChange={(e) => setModal(m => ({...m, nonResBlocks: Math.max(0, parseInt(e.target.value)||0)}))} />
+                                    </div>
                                 </div>
-                                <div className="space-y-1">
-                                    <Label>Нежилых</Label>
-                                    <Input type="number" min="0" value={modal.nonResBlocks} onChange={(e) => setModal(m => ({...m, nonResBlocks: Math.max(0, parseInt(e.target.value)||0)}))} />
-                                </div>
+                                {isMultiblockError && (
+                                    <div className="flex items-start gap-2 text-[10px] text-red-600 font-bold leading-tight">
+                                        <AlertCircle size={14} className="shrink-0 mt-0.5"/>
+                                        <span>Необходимо минимум: 1 жилой и 1 нежилой блок.</span>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -212,7 +223,7 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
 
                 <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
                     <Button variant="ghost" onClick={() => setModal(m => ({...m, isOpen: false}))}>Отмена</Button>
-                    <Button onClick={onCommit} disabled={!isValid} className={`shadow-xl shadow-blue-200/50 px-8 ${isValid ? '' : 'opacity-50 cursor-not-allowed bg-slate-400'}`}>
+                    <Button onClick={onCommit} disabled={!isValid || isMultiblockError} className={`shadow-xl shadow-blue-200/50 px-8 ${(!isValid || isMultiblockError) ? 'opacity-50 cursor-not-allowed bg-slate-400' : ''}`}>
                         <ArrowRight size={18} /> Применить
                     </Button>
                 </div>
@@ -242,6 +253,11 @@ export default function CompositionEditor() {
         parkingConstruction: 'capital', 
         infraType: 'Котельная' 
     });
+
+    // [FIX] Проверка наличия жилых объектов в составе комплекса
+    const hasResidential = useMemo(() => {
+        return composition.some(c => c.category.includes('residential'));
+    }, [composition]);
 
     // --- ЛОГИКА ---
     
@@ -304,8 +320,8 @@ export default function CompositionEditor() {
             isOpen: true, 
             category, 
             quantity: 1, 
-            resBlocks: category.includes('multiblock') ? 2 : (category.includes('residential') ? 1 : 0), 
-            nonResBlocks: 0, 
+            resBlocks: category.includes('multiblock') ? 1 : (category.includes('residential') ? 1 : 0), 
+            nonResBlocks: category.includes('multiblock') ? 1 : 0, 
             hasNonResPart: false, 
             baseName: defaultName,
             houseNumber: "",
@@ -433,6 +449,19 @@ export default function CompositionEditor() {
                 </div>
             </div>
 
+            {/* --- ПРЕДУПРЕЖДЕНИЕ ОБ ОТСУТСТВИИ ЖИЛЬЯ --- */}
+            {!hasResidential && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-600 animate-in fade-in">
+                    <div className="p-2 bg-white rounded-full shadow-sm border border-red-100 text-red-500">
+                        <AlertCircle size={20} />
+                    </div>
+                    <div>
+                        <h4 className="text-sm font-bold">Необходимо добавить жилой дом</h4>
+                        <p className="text-xs opacity-80 mt-0.5">В проекте должен быть минимум один жилой или многоблочный дом для продолжения работы.</p>
+                    </div>
+                </div>
+            )}
+
             {/* --- ТАБЛИЦА ОБЪЕКТОВ --- */}
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-h-[400px]">
                 {/* Header Таблицы - Темный фон для контраста */}
@@ -542,7 +571,7 @@ export default function CompositionEditor() {
             {modal.isOpen && <BuildingModal modal={modal} setModal={setModal} onCommit={commitPlanning} />}
 
             {/* [NEW] НОВАЯ ПАНЕЛЬ СОХРАНЕНИЯ ВНИЗУ */}
-            <SaveFloatingBar onSave={handleSave} />
+            <SaveFloatingBar onSave={handleSave} disabled={!hasResidential} />
         </div>
     );
 }
