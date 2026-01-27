@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Select, Button, TabButton } from '../ui/UIKit';
+import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
 import { getBlocksList, calculateProgress, getStageColor } from '../../lib/utils';
 import { Validators } from '../../lib/validators'; 
 // ВАЛИДАЦИЯ
@@ -95,7 +96,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     };
 
     // ПОДКЛЮЧЕНИЕ ВАЛИДАЦИИ
-    // Мы валидируем текущий блок. Если меняется вкладка, меняется и объект валидации.
     const { errors, isValid } = useValidation(BuildingConfigSchema, details);
 
     /** @type {(key: string, val: any) => void} */
@@ -242,8 +242,12 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     const isFloorFromDisabled = currentBlock?.type === 'Ж' || currentBlock?.type === 'Н';
     const isStylobate = currentBlock?.type === 'Н' && (details.parentBlocks || []).length > 0;
 
-    // Хелпер для подсветки ошибки - ИСПРАВЛЕНО (принимает field как аргумент, а не пропс)
     const ErrorBorder = (field) => errors[field] ? 'border-red-500 focus:border-red-500 bg-red-50' : '';
+
+    // [NEW] Функция сохранения
+    const handleSave = async () => {
+        await saveData({}, true); 
+    };
 
     return (
         <div className="animate-in slide-in-from-bottom duration-500 space-y-6 pb-20 max-w-7xl mx-auto w-full">
@@ -272,18 +276,10 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                             </div>
                         </div>
                     </div>
-                    <div className="w-full md:w-64 bg-slate-50 rounded-xl p-4 border border-slate-100">
-                        <div className="flex justify-between items-end mb-2">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase">Прогресс</span>
-                            <span className="text-xs font-bold text-blue-600">{Math.round(progress)}%</span>
-                        </div>
-                        <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden mb-3">
-                            <div className="h-full bg-blue-500 rounded-full" style={{width: `${progress}%`}}/>
-                        </div>
-                        <div className="flex justify-between text-[10px] font-mono text-slate-500">
-                            <div>{building.dateStart}</div>
-                            <div>{building.dateEnd}</div>
-                        </div>
+                    
+                    {/* [CHANGED] Заменили кнопку Save на Закрыть */}
+                    <div className="flex gap-2">
+                        <Button variant="secondary" onClick={onBack}>Закрыть</Button>
                     </div>
                 </div>
             </div>
@@ -358,7 +354,8 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                     <div className="space-y-6">
                         {isCapitalStructure && (<Card className="p-5 shadow-sm"><SectionTitle icon={Hammer}>Конструктив</SectionTitle><div className="space-y-4"><div className="grid grid-cols-1 gap-3">{['foundation:Фундамент:Монолитная плита,Свайный', 'walls:Стены:Монолитный ж/б,Кирпич,Блок', 'slabs:Перекрытия:Монолитные ж/б,Сборные плиты', 'roof:Крыша:Плоская рулонная,Скатная,Эксплуатируемая'].map(field => { const [key, label, opts] = field.split(':'); return <div key={key} className="space-y-1"><Label>{label}</Label><Select className="text-xs py-1.5" value={details[key]} onChange={(e)=>updateDetail(key, e.target.value)}>{opts.split(',').map(o=><option key={o}>{o}</option>)}</Select></div>; })}</div><div className="pt-4 border-t border-slate-100"><Label>Лифтов</Label><div className="flex items-center gap-3 mt-1"><button onClick={() => updateDetail('elevators', Math.max(0, (details.elevators||0) - 1))} className="w-8 h-8 bg-white rounded border border-slate-200 font-bold hover:bg-slate-100">-</button><span className="font-bold text-lg w-8 text-center">{details.elevators || 0}</span><button onClick={() => updateDetail('elevators', (details.elevators||0) + 1)} className="w-8 h-8 bg-white rounded border border-slate-200 font-bold hover:bg-slate-100">+</button></div></div></div></Card>)}
                         {(!isGroundOpen) && (<Card className="p-6 shadow-sm"><SectionTitle icon={Zap}>Инженерия</SectionTitle><div className="space-y-2 mt-4">{engineeringSystems.map(sys => { if (['gas', 'lowcurrent'].includes(sys.id)) return null; if (isGroundLight && !['electricity', 'firefighting'].includes(sys.id)) return null; const isActive = details.engineering?.[sys.id]; const Icon = sys.icon; return (<button key={sys.id} onClick={() => updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'}`}><div className="flex items-center gap-3"><Icon size={18} /><span className="text-xs font-bold uppercase">{sys.label}</span></div><div className={`w-4 h-4 rounded border flex items-center justify-center ${isActive ? 'bg-white border-transparent' : 'border-slate-300'}`}>{isActive && <div className="w-2 h-2 rounded-full bg-current"/>}</div></button>) })}</div></Card>)}
-                        <Button onClick={() => { saveData(); onBack(); }} className="w-full py-4 text-sm shadow-xl shadow-blue-200/50"><Save size={18} /> Сохранить паркинг</Button>
+                        
+                        {/* [REMOVED] Кнопка сохранения удалена отсюда */}
                     </div>
                 </div>
             ) : isInfrastructure ? (
@@ -385,7 +382,8 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                     <div className="space-y-6">
                         <Card className="p-5 shadow-sm"><SectionTitle icon={Hammer}>Конструктив</SectionTitle><div className="space-y-4"><div className="grid grid-cols-1 gap-3">{['foundation:Фундамент:Монолитная плита,Свайный', 'walls:Стены:Монолитный ж/б,Кирпич,Блок', 'slabs:Перекрытия:Монолитные ж/б,Сборные плиты', 'roof:Крыша:Плоская рулонная,Скатная'].map(field => { const [key, label, opts] = field.split(':'); return <div key={key} className="space-y-1"><Label>{label}</Label><Select className="text-xs py-1.5" value={details[key]} onChange={(e)=>updateDetail(key, e.target.value)}>{opts.split(',').map(o=><option key={o}>{o}</option>)}</Select></div>; })}</div></div></Card>
                         <Card className="p-6 shadow-sm"><SectionTitle icon={Zap}>Инженерия</SectionTitle><div className="space-y-2 mt-4">{engineeringSystems.map(sys => { const isActive = details.engineering?.[sys.id]; const Icon = sys.icon; return (<button key={sys.id} onClick={() => updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'}`}><div className="flex items-center gap-3"><Icon size={18} /><span className="text-xs font-bold uppercase">{sys.label}</span></div><div className={`w-4 h-4 rounded border flex items-center justify-center ${isActive ? 'bg-white border-transparent' : 'border-slate-300'}`}>{isActive && <div className="w-2 h-2 rounded-full bg-current"/>}</div></button>) })}</div></Card>
-                        <Button onClick={() => { saveData(); onBack(); }} className="w-full py-4 text-sm shadow-xl shadow-blue-200/50"><Save size={18} /> Сохранить объект</Button>
+                        
+                        {/* [REMOVED] Кнопка сохранения удалена отсюда */}
                     </div>
                 </div>
             ) : (
@@ -518,7 +516,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                 <Card className="p-6 shadow-sm"><SectionTitle icon={Zap}>Инженерия</SectionTitle><div className="grid grid-cols-2 gap-2">{engineeringSystems.map(sys => { const Icon = sys.icon; const isActive = details.engineering?.[sys.id]; return (<button key={sys.id} onClick={()=>updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`p-3 rounded-xl border flex items-center gap-3 transition-all duration-200 ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 opacity-60 hover:opacity-100'}`}><Icon size={16} strokeWidth={isActive ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase">{sys.label}</span></button>)})}</div></Card>
                                 
                                 <div className="flex flex-col gap-3">
-                                     <Button onClick={() => { saveData(); onBack(); }} disabled={hasCriticalErrors} className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}><Save size={16}/> Готово</Button>
+                                    {/* [REMOVED] Кнопка сохранения удалена отсюда */}
                                     {!isCommercialValid && (<div className="text-[10px] text-red-500 bg-red-50 p-2 rounded text-center border border-red-100">Укажите коммерческие этажи хотя бы в одном жилом блоке</div>)}
                                     <Button onClick={autoFillConfig} variant="secondary" className="bg-purple-50 text-purple-600 border-purple-100"><Wand2 size={14}/> Авто-заполнение</Button>
                                 </div>
@@ -541,6 +539,9 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                     </Card>)}
                 </>
             )}
+
+            {/* [NEW] НОВАЯ ПАНЕЛЬ СОХРАНЕНИЯ ВНИЗУ */}
+            <SaveFloatingBar onSave={handleSave} disabled={hasCriticalErrors} />
         </div>
     );
 }

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Button } from '../ui/UIKit';
+import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
 import { calculateProgress } from '../../lib/utils';
 // ИМПОРТЫ ДЛЯ ВАЛИДАЦИИ
 import { ComplexInfoSchema } from '../../lib/schemas';
@@ -94,12 +95,15 @@ export default function PassportEditor() {
         setCadastre({ number: '11:05:04:02:0077', address: 'г. Ташкент, Мирзо-Улугбекский р-н, пр. Мустакиллик, 88', area: '1.85 га' });
     };
 
-    const handleSaveClick = () => {
-        if (!isValid) {
-            alert("Пожалуйста, исправьте ошибки перед сохранением");
-            return;
-        }
-        saveData({}, true);
+    // [NEW] Функция сохранения
+    const handleSave = async () => {
+        // Мы просто вызываем сохранение легких данных (которые теперь стали "тяжелыми" в плане флага)
+        await saveData({ 
+            complexInfo, 
+            participants, 
+            cadastre, 
+            documents 
+        }, true);
     };
 
     const progress = calculateProgress(complexInfo.dateStartProject, complexInfo.dateEndProject);
@@ -141,9 +145,7 @@ export default function PassportEditor() {
                                 <Button variant="secondary" onClick={autoFill} className="bg-white/10 border-white/10 text-white hover:bg-white/20 text-xs h-9">
                                     <Wand2 size={14}/> Демо
                                 </Button>
-                                <Button onClick={handleSaveClick} disabled={!isValid} className={`h-9 text-white shadow-lg shadow-blue-900/50 transition-all ${isValid ? 'bg-blue-600 hover:bg-blue-50' : 'bg-slate-700 opacity-50 cursor-not-allowed'}`}>
-                                    <Save size={14}/> {isValid ? 'Сохранить' : 'Ошибка'}
-                                </Button>
+                                {/* [REMOVED] Кнопка сохранения удалена из хедера */}
                             </div>
                         </div>
                     </div>
@@ -407,6 +409,9 @@ export default function PassportEditor() {
 
                 </div>
             </div>
+
+            {/* [NEW] ПАНЕЛЬ СОХРАНЕНИЯ */}
+            <SaveFloatingBar onSave={handleSave} disabled={!isValid} />
         </div>
     );
 }

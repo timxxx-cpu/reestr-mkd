@@ -1,13 +1,13 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   ArrowLeft, Save, Wand2, AlertCircle, DoorOpen, Ban,
-  Copy, ArrowDown, Trash2 // Добавил Trash2
+  Copy, ArrowDown, Trash2
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
+import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
-// ВАЛИДАЦИЯ
 import { MopItemSchema } from '../../lib/schemas';
 
 const MOP_TYPES = [
@@ -212,7 +212,6 @@ export default function MopEditor({ buildingId, onBack }) {
         setMopData(p => ({...p, ...updates}));
     };
 
-    // НОВАЯ ФУНКЦИЯ: Очистка
     const clearAllMops = () => {
         if (!confirm('Вы уверены? Все введенные данные МОП для этого блока будут очищены.')) return;
         
@@ -220,7 +219,7 @@ export default function MopEditor({ buildingId, onBack }) {
         floorList.forEach(f => {
             entrancesList.forEach(e => {
                 const key = `${currentBlock.fullId}_e${e}_f${f.id}_mops`;
-                updates[key] = []; // Записываем пустой массив
+                updates[key] = []; 
             });
         });
         
@@ -242,6 +241,14 @@ export default function MopEditor({ buildingId, onBack }) {
         const style = map[type] || map.residential;
         return <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${style.color}`}>{style.label}</span>
     }
+
+    // [NEW] Функция сохранения
+    const handleSave = async () => { 
+        const specificData = {};
+        Object.keys(mopData).forEach(k => { if (k.startsWith(building.id)) specificData[k] = mopData[k]; });
+        await saveBuildingData(building.id, 'commonAreasData', specificData);
+        await saveData({}, true); 
+    };
 
     return (
         <div className="space-y-6 pb-20 w-full animate-in fade-in duration-500">
@@ -268,19 +275,9 @@ export default function MopEditor({ buildingId, onBack }) {
                     <button onClick={autoFillMops} disabled={!showEditor} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${showEditor ? 'hover:bg-purple-100' : 'opacity-50 cursor-not-allowed'}`}>
                         <Wand2 size={14}/> Авто-генерация
                     </button>
-                    <Button 
-                        onClick={async () => { 
-                            const specificData = {};
-                            Object.keys(mopData).forEach(k => { if (k.startsWith(building.id)) specificData[k] = mopData[k]; });
-                            await saveBuildingData(building.id, 'commonAreasData', specificData);
-                            await saveData(); 
-                            onBack(); 
-                        }} 
-                        disabled={!validationState.isValid} 
-                        className={`shadow-lg ${!validationState.isValid ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}
-                    >
-                        <Save size={14}/> {validationState.isValid ? 'Готово' : 'Исправьте ошибки'}
-                    </Button>
+                    
+                    {/* [CHANGED] Заменили кнопку Готово на Закрыть */}
+                    <Button variant="secondary" onClick={onBack}>Закрыть</Button>
                 </div>
             </div>
 
@@ -377,6 +374,9 @@ export default function MopEditor({ buildingId, onBack }) {
                     <p className="text-slate-500 max-w-md">Инвентаризация МОП производится только для жилых блоков и подземных паркингов.</p>
                 </div>
             )}
+
+            {/* [NEW] НОВАЯ ПАНЕЛЬ СОХРАНЕНИЯ ВНИЗУ */}
+            <SaveFloatingBar onSave={handleSave} disabled={!validationState.isValid} />
         </div>
     );
 }

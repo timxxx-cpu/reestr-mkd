@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { Save, Car, CheckCircle2 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, Button, DebouncedInput } from '../ui/UIKit';
+import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
 import { getBlocksList } from '../../lib/utils';
 // ВАЛИДАЦИЯ
 import { ParkingLevelConfigSchema } from '../../lib/schemas';
@@ -198,6 +199,7 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
         }));
     };
 
+    // [NEW] Обновленная функция сохранения
     const handleSave = async () => {
         const newPlaces = { ...parkingPlaces };
         allRows.forEach(lvl => {
@@ -220,21 +222,24 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
             }
         });
 
-        // Фильтруем данные только для текущего здания
+        // Фильтруем данные только для текущего здания (если редактируем конкретное)
         const specificData = {};
-        Object.keys(newPlaces).forEach(k => {
-            if (k.startsWith(building.id)) {
-                // @ts-ignore
-                specificData[k] = newPlaces[k];
-            }
-        });
-
-        setParkingPlaces(newPlaces);
+        if (buildingId) {
+            Object.keys(newPlaces).forEach(k => {
+                if (k.startsWith(buildingId)) {
+                    // @ts-ignore
+                    specificData[k] = newPlaces[k];
+                }
+            });
+            await saveBuildingData(building.id, 'parkingData', specificData);
+        } else {
+            // Если режим конфигурации всего проекта - сохраняем всё
+            await saveData({ parkingPlaces: newPlaces });
+        }
         
-        await saveBuildingData(building.id, 'parkingData', specificData);
-        await saveData(); 
+        await saveData({}, true); // true для уведомления и сброса флага
         
-        if (onSave) onSave();
+        // onSave() больше не вызываем, навигация отдельно
     };
 
     const getBadgeStyle = (type) => {
@@ -251,9 +256,7 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                     <h2 className="text-2xl font-bold text-slate-800 leading-tight">Конфигурация паркингов</h2>
                     <p className="text-slate-500 text-sm mt-1">Отметьте уровни, где размещаются машиноместа, и укажите их количество</p>
                 </div>
-                <div className="flex gap-2">
-                    <Button onClick={handleSave}><Save size={14}/> Сохранить и продолжить</Button>
-                </div>
+                {/* [CHANGED] Кнопка сохранения убрана из хедера */}
             </div>
 
             {allRows.length > 0 ? (
@@ -330,6 +333,9 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                     <p className="text-xs mt-2 max-w-sm mx-auto">В проекте нет зданий типа "Паркинг" и жилых домов с подвалами.</p>
                 </div>
             )}
+
+            {/* [NEW] Панель сохранения */}
+            <SaveFloatingBar onSave={handleSave} />
         </div>
     );
 }

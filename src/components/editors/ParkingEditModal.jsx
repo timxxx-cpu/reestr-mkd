@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Save, Car, Ruler, Hash } from 'lucide-react';
+import { X, Check, Car, Ruler, Hash } from 'lucide-react';
 import { Button, Input, Label } from '../ui/UIKit';
 
 export default function ParkingEditModal({ unit, buildingLabel, onClose, onSave }) {
@@ -70,8 +70,9 @@ export default function ParkingEditModal({ unit, buildingLabel, onClose, onSave 
                 {/* Footer */}
                 <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
                     <Button variant="ghost" onClick={onClose}>Отмена</Button>
+                    {/* [CHANGED] Кнопка переименована в Применить */}
                     <Button onClick={handleSave} className="px-8 shadow-lg shadow-indigo-200 bg-indigo-600 hover:bg-indigo-700">
-                        <Save size={16} /> Сохранить
+                        <Check size={16} className="mr-2"/> Применить
                     </Button>
                 </div>
             </div>

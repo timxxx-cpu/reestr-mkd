@@ -1,14 +1,14 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { 
-  ArrowLeft, Save, Wand2, ArrowUp, ChevronsDown, 
+  ArrowLeft, Wand2, ArrowUp, ChevronsDown, 
   Ruler, Maximize2, FileText, ArrowUpFromLine, AlertCircle,
   CheckSquare, Square, MoreHorizontal, X
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button, Input } from '../ui/UIKit';
+import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
-// ВАЛИДАЦИЯ
 import { FloorDataSchema } from '../../lib/schemas';
 
 const PARKING_TYPE_LABELS = {
@@ -182,6 +182,14 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         // @ts-ignore
         return <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${styles[type] || styles.residential}`}>{labels[type] || type}</span>;
     };
+
+    // [NEW] ФУНКЦИЯ СОХРАНЕНИЯ
+    const handleSave = async () => { 
+        const specificData = {};
+        Object.keys(floorData).forEach(k => { if (k.startsWith(building.id)) specificData[k] = floorData[k]; });
+        await saveBuildingData(building.id, 'floorData', specificData);
+        await saveData({}, true); 
+    };
     
     return (
         <div className="space-y-6 pb-20 max-w-7xl mx-auto animate-in fade-in duration-500 relative">
@@ -200,19 +208,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                  </div>
                  <div className="flex gap-2">
                      <button onClick={autoFill} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors shadow-sm"><Wand2 size={14}/> Автозаполнение</button>
-                     <Button 
-                        onClick={async () => { 
-                            const specificData = {};
-                            Object.keys(floorData).forEach(k => { if (k.startsWith(building.id)) specificData[k] = floorData[k]; });
-                            await saveBuildingData(building.id, 'floorData', specificData);
-                            await saveData(); 
-                            onBack(); 
-                        }} 
-                        disabled={hasCriticalErrors} 
-                        className={`shadow-lg ${hasCriticalErrors ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'shadow-blue-200'}`}
-                     >
-                        <Save size={14}/> {hasCriticalErrors ? 'Заполните поля' : 'Готово'}
-                     </Button>
+                     {/* [CHANGED] Кнопка Закрыть вместо Готово */}
+                     <Button variant="secondary" onClick={onBack}>Закрыть</Button>
                  </div>
              </div>
 
@@ -358,6 +355,9 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                     </table>
                 </div>
             </Card>
+
+            {/* [NEW] НОВАЯ ПАНЕЛЬ СОХРАНЕНИЯ ВНИЗУ */}
+            <SaveFloatingBar onSave={handleSave} disabled={hasCriticalErrors} />
         </div>
     );
 }

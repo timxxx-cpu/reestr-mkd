@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { X, Plus, Trash2, Save, Home, Utensils, Bath, BedDouble, Sofa, Box, Layers, Calculator, Sun, Copy, Briefcase, Warehouse } from 'lucide-react';
+import { X, Plus, Trash2, Check, Home, Utensils, Bath, BedDouble, Sofa, Box, Layers, Calculator, Sun, Copy, Briefcase, Warehouse } from 'lucide-react';
 import { Button, Input, Select } from '../ui/UIKit';
 import { useToast } from '../../context/ToastContext';
 import { useProject } from '../../context/ProjectContext';
@@ -343,8 +343,9 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                     </div>
                     <div className="flex gap-3">
                         <Button variant="ghost" onClick={onClose}>Отмена</Button>
+                        {/* [CHANGED] Кнопка переименована в Применить */}
                         <Button onClick={handleSave} className="px-8 shadow-lg shadow-blue-200">
-                            <Save size={16} /> Сохранить
+                            <Check size={16} className="mr-2"/> Применить
                         </Button>
                     </div>
                 </div>

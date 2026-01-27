@@ -14,9 +14,11 @@ export const useProject = () => {
     return context;
 };
 
+// Эти данные не сохраняются автоматически при вводе, а ждут нажатия кнопки "Сохранить"
 const HEAVY_KEYS = [
     'floorData', 'entrancesData', 'mopData', 'flatMatrix', 
-    'parkingPlaces', 'commonAreasData', 'apartmentsData', 'parkingData'
+    'parkingPlaces', 'commonAreasData', 'apartmentsData', 'parkingData',
+    'complexInfo', 'participants', 'cadastre', 'documents', 'buildingDetails', 'composition'
 ];
 
 export const ProjectProvider = ({ children, projectId, user, customScope, userProfile }) => {
@@ -33,6 +35,8 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   const [projectMeta, setProjectMeta] = useState({}); 
   const [buildingsState, setBuildingsState] = useState({});
   const [isSyncing, setIsSyncing] = useState(false);
+  
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   
   const saveTimeoutRef = useRef(null);
   const pendingUpdatesRef = useRef({});
@@ -59,7 +63,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         verifiedSteps: [],
         completedSteps: [],
         rejectionReason: null,
-        history: [], // Гарантируем наличие массива истории
+        history: [], 
         ...meta.applicationInfo
     };
 
@@ -145,13 +149,11 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       await RegistryService.saveData(dbScope, projectId, { applicationInfo: newAppInfo });
   }, [dbScope, projectId, mergedState.applicationInfo]);
 
-  // ОБНОВЛЕННЫЙ МЕТОД СМЕНЫ СТАТУСА (С ЗАПИСЬЮ ИСТОРИИ)
   const updateStatus = useCallback(async (newStatus, newStage = null, comment = null) => {
       // @ts-ignore
       const currentAppInfo = mergedState.applicationInfo;
       const currentStageNum = currentAppInfo.currentStage;
 
-      // 1. Формируем запись истории
       const historyEntry = {
           date: new Date().toISOString(),
           user: userProfile?.name || 'Система',
@@ -161,17 +163,14 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           comment: comment || ''
       };
 
-      // 2. Обновляем данные
       const updatedAppInfo = {
           ...currentAppInfo,
           status: newStatus,
-          // Добавляем запись в начало массива истории
           history: [historyEntry, ...(currentAppInfo.history || [])],
           ...(newStage && { currentStage: newStage }),
           rejectionReason: newStatus === APP_STATUS.REJECTED ? comment : null 
       };
 
-      // 3. Логика сброса шагов при возврате
       if (newStatus === APP_STATUS.REJECTED) {
           const currentStageConfig = WORKFLOW_STAGES[currentStageNum];
           const prevStageConfig = WORKFLOW_STAGES[currentStageNum - 1];
@@ -202,22 +201,30 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     const safeUpdates = { ...updates };
     HEAVY_KEYS.forEach(k => delete safeUpdates[k]);
     
-    if (Object.keys(safeUpdates).length === 0 && !showNotification) return;
-
+    // Сливаем переданные обновления с уже накопленными
     pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...safeUpdates };
+
+    // Если нечего сохранять (пустой вызов и пустая очередь), выходим
+    if (Object.keys(pendingUpdatesRef.current).length === 0 && !showNotification) return;
 
     setIsSyncing(true);
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     
     saveTimeoutRef.current = setTimeout(async () => {
+      // Забираем всё из очереди
       const payload = { ...pendingUpdatesRef.current };
-      pendingUpdatesRef.current = {};
+      pendingUpdatesRef.current = {}; // Очищаем очередь
 
       try {
         if (Object.keys(payload).length > 0) {
             await RegistryService.saveData(dbScope, projectId, payload);
         }
         if (showNotification) toast.success("Сохранено!");
+        
+        if (showNotification) {
+            setHasUnsavedChanges(false);
+        }
+
       } catch (e) {
         console.error("SAVE ERROR:", e);
         toast.error("Ошибка: " + e.message);
@@ -249,14 +256,15 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   const saveBuildingData = useCallback(async (buildingId, dataKey, dataVal) => {
       if (isReadOnly) { toast.error("Редактирование запрещено"); return; }
       setIsSyncing(true);
-      const toastId = toast.loading("Запись данных здания...");
       try {
           const payload = { buildingSpecificData: { [buildingId]: { [dataKey]: dataVal } } };
           await RegistryService.saveData(dbScope, projectId, payload);
           setBuildingsState(prev => ({ ...prev, [buildingId]: { ...(prev[buildingId] || {}), [dataKey]: { ...((prev[buildingId] || {})[dataKey] || {}), ...dataVal } } }));
-          toast.dismiss(toastId); toast.success("Данные здания сохранены");
+          
+          setHasUnsavedChanges(false); 
+          
       } catch(e) {
-          console.error(e); toast.dismiss(toastId); toast.error("Ошибка сохранения здания");
+          console.error(e); toast.error("Ошибка сохранения здания");
       } finally { setIsSyncing(false); }
   }, [dbScope, projectId, toast, isReadOnly]);
 
@@ -276,7 +284,14 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       if (isReadOnly) return; 
       const newValue = typeof value === 'function' ? value(mergedState[key]) : value;
       setProjectMeta(prev => ({ ...prev, [key]: newValue }));
-      if (!HEAVY_KEYS.includes(key)) saveData({ [key]: newValue });
+      
+      if (HEAVY_KEYS.includes(key)) {
+          setHasUnsavedChanges(true);
+          // [FIX] Добавляем данные в очередь, но НЕ вызываем saveData (таймер не стартует)
+          pendingUpdatesRef.current = { ...pendingUpdatesRef.current, [key]: newValue };
+      } else {
+          saveData({ [key]: newValue });
+      }
   };
 
   const value = {
@@ -284,6 +299,9 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     isReadOnly,
     userProfile,
     
+    hasUnsavedChanges,
+    setHasUnsavedChanges,
+
     setStepVerified,
     setStepCompleted,
     updateStatus,

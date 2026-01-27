@@ -5,9 +5,9 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
+import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
-// ВАЛИДАЦИЯ
 import { UnitSchema } from '../../lib/schemas';
 
 const TYPE_COLORS = {
@@ -16,13 +16,6 @@ const TYPE_COLORS = {
     pantry: 'bg-slate-50 border-slate-200 text-slate-500',
     duplex_up: 'bg-purple-50 border-purple-200 text-purple-700',
     duplex_down: 'bg-orange-50 border-orange-200 text-orange-700'
-};
-
-const TYPE_LABELS = {
-    flat: 'Квартира',
-    office: 'Офис',
-    duplex_up: 'Дуплекс (Верх)',
-    duplex_down: 'Дуплекс (Низ)'
 };
 
 /**
@@ -226,6 +219,20 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         setFlatMatrix(p => ({...p, ...updates})); 
     };
 
+    // [NEW] Функция сохранения
+    const handleSave = async () => { 
+        const specificData = {};
+        Object.keys(flatMatrix).forEach(k => {
+            if (k.startsWith(building.id)) {
+                // @ts-ignore
+                specificData[k] = flatMatrix[k];
+            }
+        });
+
+        await saveBuildingData(building.id, 'apartmentsData', specificData);
+        await saveData({}, true); 
+    };
+
     if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Загрузка данных...</div>;
 
     const hasBasement = rawFloorList?.some(f => f.type === 'basement');
@@ -255,20 +262,8 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                         {isSelectionMode ? 'Режим выделения' : 'Выделение'}
                     </button>
 
-                    <Button onClick={async () => { 
-                        const specificData = {};
-                        Object.keys(flatMatrix).forEach(k => {
-                            if (k.startsWith(building.id)) {
-                                // @ts-ignore
-                                specificData[k] = flatMatrix[k];
-                            }
-                        });
-
-                        await saveBuildingData(building.id, 'apartmentsData', specificData);
-                        await saveData(); 
-                        
-                        onBack(); 
-                    }}><Save size={14}/> Готово</Button>
+                    {/* [CHANGED] Кнопка Закрыть вместо Готово */}
+                    <Button variant="secondary" onClick={onBack}>Закрыть</Button>
                 </div>
             </div>
 
@@ -410,6 +405,9 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                     </table>
                 </div>
             </Card>
+
+            {/* [NEW] Новая панель сохранения */}
+            <SaveFloatingBar onSave={handleSave} />
         </div>
     );
 }

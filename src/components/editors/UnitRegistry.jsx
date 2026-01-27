@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, Input, Select } from '../ui/UIKit';
+import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
 import { getBlocksList } from '../../lib/utils';
 import UnitInventoryModal from './UnitInventoryModal'; 
 import ParkingEditModal from './ParkingEditModal'; 
@@ -68,7 +69,7 @@ const StatCard = ({ label, value, icon: Icon, colorClass }) => (
 );
 
 export default function UnitRegistry({ mode = 'apartments' }) {
-    const { composition, flatMatrix, setFlatMatrix, floorData, parkingPlaces, setParkingPlaces, entrancesData, complexInfo, saveBuildingData } = useProject();
+    const { composition, flatMatrix, setFlatMatrix, floorData, parkingPlaces, setParkingPlaces, entrancesData, complexInfo, saveBuildingData, saveData } = useProject();
     
     const [searchTerm, setSearchTerm] = useState('');
     const [filterBuilding, setFilterBuilding] = useState('all');
@@ -311,83 +312,83 @@ export default function UnitRegistry({ mode = 'apartments' }) {
         return { total, totalArea };
     }, [filteredData]);
 
+    // [CHANGED] Только локальное обновление стейта
     const handleSaveUnit = async (updatedUnit) => {
         if (!updatedUnit.id) return;
-        setIsSaving(true);
-        const buildingId = updatedUnit.buildingId;
-
-        try {
-            // А. Сохранение КВАРТИР и ЛЮБОЙ КОММЕРЦИИ (из flatMatrix)
-            if (mode !== 'parking') {
-                const existingData = flatMatrix[updatedUnit.id] || {};
-                
-                // ИСПРАВЛЕНИЕ: Гарантируем отсутствие undefined в полях
-                const payload = {
-                    ...existingData,
-                    
-                    // Основные поля
-                    id: updatedUnit.id,
-                    buildingId: updatedUnit.buildingId,
-                    num: updatedUnit.number,
-                    type: updatedUnit.type,
-                    
-                    // Площади (защита от undefined - ставим '0')
-                    area: updatedUnit.area || '0',
-                    livingArea: updatedUnit.livingArea || '0',
-                    usefulArea: updatedUnit.usefulArea || '0',
-                    mainArea: updatedUnit.mainArea || '0',
-                    auxArea: updatedUnit.auxArea || '0',
-                    
-                    // Структура
-                    rooms: updatedUnit.rooms || 0,
-                    roomsList: updatedUnit.roomsList || [],
-                    
-                    // Метаданные (чтобы виртуальные объекты не теряли лейблы после сохранения)
-                    blockLabel: updatedUnit.blockLabel || '',
-                    floorLabel: updatedUnit.floorLabel || '',
-                    entrance: updatedUnit.entrance || '-'
-                };
-
-                setFlatMatrix(prev => ({ ...prev, [updatedUnit.id]: payload }));
-
-                const buildingApartments = {};
-                // Собираем существующие
-                Object.keys(flatMatrix).forEach(k => {
-                    if (k.startsWith(buildingId)) {
-                        buildingApartments[k] = flatMatrix[k];
-                    }
-                });
-                // Перезаписываем или добавляем новый
-                buildingApartments[updatedUnit.id] = payload;
-
-                await saveBuildingData(buildingId, 'apartmentsData', buildingApartments);
-            }
+        
+        // А. Сохранение КВАРТИР и ЛЮБОЙ КОММЕРЦИИ (из flatMatrix)
+        if (mode !== 'parking') {
+            const existingData = flatMatrix[updatedUnit.id] || {};
+            const payload = {
+                ...existingData,
+                id: updatedUnit.id,
+                buildingId: updatedUnit.buildingId,
+                num: updatedUnit.number,
+                type: updatedUnit.type,
+                area: updatedUnit.area || '0',
+                livingArea: updatedUnit.livingArea || '0',
+                usefulArea: updatedUnit.usefulArea || '0',
+                mainArea: updatedUnit.mainArea || '0',
+                auxArea: updatedUnit.auxArea || '0',
+                rooms: updatedUnit.rooms || 0,
+                roomsList: updatedUnit.roomsList || [],
+                blockLabel: updatedUnit.blockLabel || '',
+                floorLabel: updatedUnit.floorLabel || '',
+                entrance: updatedUnit.entrance || '-'
+            };
             
-            // Б. Сохранение ПАРКИНГА
-            else {
-                const payload = {
-                    ...parkingPlaces[updatedUnit.id],
-                    number: updatedUnit.number,
-                    area: updatedUnit.area || '0'
-                };
+            // Просто обновляем контекст (это ставит флаг Dirty)
+            setFlatMatrix(prev => ({ ...prev, [updatedUnit.id]: payload }));
+        }
+        
+        // Б. Сохранение ПАРКИНГА
+        else {
+            const payload = {
+                ...parkingPlaces[updatedUnit.id],
+                number: updatedUnit.number,
+                area: updatedUnit.area || '0'
+            };
+            
+            setParkingPlaces(prev => ({ ...prev, [updatedUnit.id]: payload }));
+        }
 
-                setParkingPlaces(prev => ({ ...prev, [updatedUnit.id]: payload }));
+        // Закрываем модалку сразу
+        setEditingUnit(null);
+    };
 
-                const buildingParking = {};
-                Object.keys(parkingPlaces).forEach(k => {
-                    if (k.startsWith(buildingId)) {
-                        buildingParking[k] = (k === updatedUnit.id) ? payload : parkingPlaces[k];
-                    }
+    // [NEW] Глобальное сохранение
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            // Чтобы гарантированно сохранить всё, мы проходим по всем зданиям и сохраняем их данные
+            // Это может быть избыточно, но надежно при мульти-эдитинге
+            for (const building of composition) {
+                const bId = building.id;
+                const bApartments = {};
+                const bParking = {};
+                
+                Object.keys(flatMatrix).forEach(k => {
+                     if (k.startsWith(bId)) bApartments[k] = flatMatrix[k];
                 });
-                await saveBuildingData(buildingId, 'parkingData', buildingParking);
+                
+                Object.keys(parkingPlaces).forEach(k => {
+                     if (k.startsWith(bId)) bParking[k] = parkingPlaces[k];
+                });
+                
+                if (Object.keys(bApartments).length > 0) {
+                    await saveBuildingData(bId, 'apartmentsData', bApartments);
+                }
+                if (Object.keys(bParking).length > 0) {
+                    await saveBuildingData(bId, 'parkingData', bParking);
+                }
             }
-
-        } catch (error) {
-            console.error("Ошибка сохранения:", error);
-            alert("Ошибка сохранения! Проверьте консоль.");
+            // Сбрасываем флаг и уведомляем
+            await saveData({}, true);
+        } catch (e) {
+            console.error(e);
+            alert("Ошибка сохранения");
         } finally {
             setIsSaving(false);
-            setEditingUnit(null);
         }
     };
 
@@ -515,6 +516,9 @@ export default function UnitRegistry({ mode = 'apartments' }) {
                     onSave={handleSaveUnit}
                 />
             )}
+
+            {/* [NEW] Глобальная панель сохранения */}
+            <SaveFloatingBar onSave={handleSave} />
         </div>
     );
 }

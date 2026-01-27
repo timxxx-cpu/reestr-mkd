@@ -31,10 +31,8 @@ import ApplicationsDashboard from './components/ApplicationsDashboard';
 
 const DB_SCOPE = 'shared_dev_env'; 
 
-// Контекст для активной персоны (Тестовый пользователь)
 const PersonaContext = createContext(null);
 
-// --- СПИСОК ПОЛЬЗОВАТЕЛЕЙ ---
 const TEST_USERS = [
     { id: 'timur_admin', name: 'Тимур', role: ROLES.ADMIN, group: 'Тимур' },
     { id: 'timur_contr', name: 'Тимур', role: ROLES.CONTROLLER, group: 'Тимур' },
@@ -53,12 +51,10 @@ const TEST_USERS = [
     { id: 'abbos_tech',  name: 'Аббос', role: ROLES.TECHNICIAN, group: 'Аббос' },
 ];
 
-// --- КОМПОНЕНТ: ПЛАВАЮЩИЙ ПЕРЕКЛЮЧАТЕЛЬ РОЛЕЙ ---
 const DevRoleSwitcher = () => {
     const { activePersona, setActivePersona } = useContext(PersonaContext);
     const [isOpen, setIsOpen] = useState(false);
 
-    // Группируем пользователей по имени
     const groups = TEST_USERS.reduce((acc, user) => {
         if (!acc[user.group]) acc[user.group] = [];
         acc[user.group].push(user);
@@ -69,7 +65,6 @@ const DevRoleSwitcher = () => {
 
     return (
         <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none">
-            {/* Панель выбора */}
             <div className={`
                 bg-slate-900 border border-slate-700 shadow-2xl rounded-2xl p-4 mb-4 w-72 pointer-events-auto
                 transition-all duration-300 origin-bottom-right
@@ -125,7 +120,6 @@ const DevRoleSwitcher = () => {
                 </div>
             </div>
 
-            {/* Кнопка открытия */}
             <button 
                 onClick={() => setIsOpen(!isOpen)}
                 className={`
@@ -186,13 +180,12 @@ function ProjectEditorRoute({ user }) {
     const [currentStep, setCurrentStep] = useState(0);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [editingBuildingId, setEditingBuildingId] = useState(null);
-    const { complexInfo, composition, saveData, isReadOnly, applicationInfo } = useProject();
+    const { complexInfo, composition, saveData, isReadOnly, applicationInfo, hasUnsavedChanges, setHasUnsavedChanges } = useProject();
     const toast = useToast();
     const initialRedirectDone = useRef(false);
   
     const currentStage = applicationInfo?.currentStage || 1;
     
-    // --- АВТО-ПЕРЕХОД НА ТЕКУЩИЙ ЭТАП ---
     useEffect(() => {
         if (applicationInfo?.currentStage && !initialRedirectDone.current) {
             const stage = applicationInfo.currentStage;
@@ -209,7 +202,6 @@ function ProjectEditorRoute({ user }) {
         }
     }, [applicationInfo]);
 
-    // --- ЛОГИКА БЛОКИРОВКИ ПРОШЛЫХ ШАГОВ ---
     const getStepStage = (stepIdx) => {
         for (const [stageNum, config] of Object.entries(WORKFLOW_STAGES)) {
             if (stepIdx <= config.lastStepIndex) return parseInt(stageNum);
@@ -221,7 +213,6 @@ function ProjectEditorRoute({ user }) {
     const isStepLocked = user.role === ROLES.TECHNICIAN && stepStage < currentStage;
     const effectiveReadOnly = isReadOnly || isStepLocked;
 
-    // --- ЛОГИКА ОГРАНИЧЕНИЯ НАВИГАЦИИ (ВПЕРЕД) ---
     let maxAllowedStep = STEPS_CONFIG.length - 1; 
 
     if (user.role === ROLES.TECHNICIAN) {
@@ -240,28 +231,48 @@ function ProjectEditorRoute({ user }) {
         const nextStep = currentStep + 1;
         if (nextStep >= STEPS_CONFIG.length) return;
 
+        // ПРОВЕРКА СОХРАНЕНИЯ
+        if (hasUnsavedChanges) {
+            if (!window.confirm("Есть несохраненные изменения! При переходе они пропадут. Продолжить?")) return;
+            setHasUnsavedChanges(false);
+        }
+
         if (canGoToStep(nextStep)) {
             setEditingBuildingId(null); 
-            saveData(); 
+            // saveData(); // Убрали авто-сохранение легких данных при переходе, чтобы не путать
             setCurrentStep(nextStep);
         }
     };
 
     const handlePrev = () => { 
+        if (hasUnsavedChanges) {
+            if (!window.confirm("Есть несохраненные изменения! При переходе они пропадут. Продолжить?")) return;
+            setHasUnsavedChanges(false);
+        }
+
         setEditingBuildingId(null); 
-        saveData(); 
         setCurrentStep(prev => Math.max(prev - 1, 0)); 
     };
 
     const onStepChange = (idx) => { 
+        if (hasUnsavedChanges) {
+            if (!window.confirm("Есть несохраненные изменения! При переходе они пропадут. Продолжить?")) return;
+            setHasUnsavedChanges(false);
+        }
+
         if (canGoToStep(idx)) {
             setEditingBuildingId(null); 
-            saveData(); 
             setCurrentStep(idx);
         }
     };
 
-    const handleBackToDashboard = () => { saveData(); navigate('/'); };
+    const handleBackToDashboard = () => { 
+        if (hasUnsavedChanges) {
+            if (!window.confirm("Есть несохраненные изменения! Выйти без сохранения?")) return;
+            setHasUnsavedChanges(false);
+        }
+        navigate('/'); 
+    };
   
     const stepConfig = STEPS_CONFIG?.[currentStep];
     const stepId = stepConfig?.id || 'unknown';
@@ -313,7 +324,6 @@ function ProjectEditorRoute({ user }) {
                 
                 <WorkflowBar user={user} currentStep={currentStep} />
                 
-                {/* Теперь виджет сам берет setActivePersona из контекста */}
                 <DevRoleSwitcher />
 
                 <div className="px-8 pt-6 pb-2">
@@ -343,7 +353,7 @@ const ProjectProviderWrapper = ({ children, firebaseUser, dbScope, activePersona
     );
 };
 
-const MainLayout = ({ firebaseUser, activePersona }) => { // setActivePersona больше не нужен здесь
+const MainLayout = ({ firebaseUser, activePersona }) => { 
     const navigate = useNavigate();
     const { projects, isLoading } = useProjects(DB_SCOPE);
 
@@ -365,7 +375,6 @@ const MainLayout = ({ firebaseUser, activePersona }) => { // setActivePersona б
                 </div>
                 
                 <div className="flex items-center gap-4">
-                    {/* Инфо о текущем пользователе */}
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-full border border-slate-200">
                         <User size={14} className="text-slate-500"/>
                         <span className="text-xs font-bold text-slate-700">{activePersona.name}</span>
@@ -389,7 +398,6 @@ const MainLayout = ({ firebaseUser, activePersona }) => { // setActivePersona б
                 onSelectProject={(id) => navigate(`/project/${id}`)}
             />
             
-            {/* Плавающий переключатель */}
             <DevRoleSwitcher />
         </div>
     );
@@ -423,7 +431,6 @@ export default function App() {
   }
 
   return (
-    // Оборачиваем всё приложение в контекст, чтобы DevRoleSwitcher работал везде
     <PersonaContext.Provider value={{ activePersona, setActivePersona }}>
         <ToastProvider>
             <Routes>

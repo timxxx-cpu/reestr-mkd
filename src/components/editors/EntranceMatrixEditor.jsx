@@ -1,15 +1,15 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
-  ArrowLeft, Save, Wand2, ArrowDown, ArrowUp, 
+  ArrowLeft, Wand2, ArrowDown, ArrowUp, 
   DoorOpen, ChevronLeft, ChevronsRight, Ban,
   MoreHorizontal, ChevronsDown
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
+import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 import { Validators } from '../../lib/validators';
-// ВАЛИДАЦИЯ
 import { EntranceDataSchema } from '../../lib/schemas';
 
 /**
@@ -236,6 +236,20 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         return <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${style.color}`}>{style.label}</span>
     }
 
+    // [NEW] Функция сохранения
+    const handleSave = async () => { 
+        const specificData = {};
+        Object.keys(entrancesData).forEach(k => {
+            if (k.startsWith(building.id)) {
+                // @ts-ignore
+                specificData[k] = entrancesData[k];
+            }
+        });
+
+        await saveBuildingData(building.id, 'entrancesData', specificData);
+        await saveData({}, true); // true = toast
+    };
+
     return (
         <div className="space-y-6 pb-20 w-full animate-in fade-in duration-500">
             <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-4">
@@ -252,21 +266,8 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 </div>
                 <div className="flex gap-2">
                     <button onClick={autoFill} disabled={!isResidentialBlock && !isParking} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${!isResidentialBlock && !isParking ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-100'}`}><Wand2 size={14}/> Заполнить типовыми</button>
-                    
-                    <Button onClick={async () => { 
-                        const specificData = {};
-                        Object.keys(entrancesData).forEach(k => {
-                            if (k.startsWith(building.id)) {
-                                // @ts-ignore
-                                specificData[k] = entrancesData[k];
-                            }
-                        });
-
-                        await saveBuildingData(building.id, 'entrancesData', specificData);
-                        await saveData(); 
-                        
-                        onBack(); 
-                    }}><Save size={14}/> Готово</Button>
+                    {/* [CHANGED] Заменили кнопку Готово на Закрыть */}
+                    <Button variant="secondary" onClick={onBack}>Закрыть</Button>
                 </div>
             </div>
 
@@ -398,6 +399,9 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                     <p className="text-slate-500 max-w-md">Матрица подъездов и квартир заполняется только для жилых блоков и подземных паркингов.<br/>Для нежилых блоков и инфраструктуры это не требуется.</p>
                 </div>
             )}
+
+            {/* [NEW] Новая панель сохранения */}
+            <SaveFloatingBar onSave={handleSave} />
         </div>
     );
 }

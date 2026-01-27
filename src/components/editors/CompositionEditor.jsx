@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Button, Input, Select, Label, SectionTitle } from '../ui/UIKit';
+import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
 import { calculateProgress, getStageColor } from '../../lib/utils';
 // ВАЛИДАЦИЯ
 import { BuildingModalSchema } from '../../lib/schemas';
@@ -212,7 +213,7 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                 <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
                     <Button variant="ghost" onClick={() => setModal(m => ({...m, isOpen: false}))}>Отмена</Button>
                     <Button onClick={onCommit} disabled={!isValid} className={`shadow-xl shadow-blue-200/50 px-8 ${isValid ? '' : 'opacity-50 cursor-not-allowed bg-slate-400'}`}>
-                        <ArrowRight size={18} /> Сохранить объект
+                        <ArrowRight size={18} /> Применить
                     </Button>
                 </div>
             </div>
@@ -243,6 +244,12 @@ export default function CompositionEditor() {
     });
 
     // --- ЛОГИКА ---
+    
+    // [NEW] Функция сохранения
+    const handleSave = async () => {
+        await saveData({}, true); 
+    };
+
     const generateDemoComplex = () => {
         if (!window.confirm("Создать демо-данные? Текущий список будет дополнен.")) return;
         
@@ -281,13 +288,12 @@ export default function CompositionEditor() {
         });
 
         const newComposition = [...composition, ...demoBuildings];
+        
+        // [CHANGED] Только обновляем стейт, не сохраняем
         // @ts-ignore
         setComposition(newComposition);
         // @ts-ignore
         setBuildingDetails(prev => ({ ...prev, ...demoDetails }));
-        
-        // Сохраняем с уведомлением
-        saveData({ composition: newComposition }, true); 
     };
 
     /** @param {string} category */
@@ -361,8 +367,9 @@ export default function CompositionEditor() {
 
          if (modal.editingId) {
              const updated = composition.map(c => c.id === modal.editingId ? { ...c, ...newItemData } : c);
+             
+             // [CHANGED] Только обновляем стейт, не сохраняем в БД сразу
              setComposition(updated);
-             saveData({ composition: updated }, true);
          } else {
              const newItems = Array.from({length: modal.quantity}).map((_, i) => ({
                  id: crypto.randomUUID(), 
@@ -370,14 +377,16 @@ export default function CompositionEditor() {
                  label: modal.quantity > 1 ? `${modal.baseName} ${i+1}` : modal.baseName, 
              }));
              const newList = [...composition, ...newItems];
+             
+             // [CHANGED] Только обновляем стейт
              setComposition(newList);
-             saveData({ composition: newList }, true);
          }
          setModal(prev => ({...prev, isOpen: false}));
     };
     
     /** @param {string} id */
     const deleteItem = (id) => {
+        // Удаление остается немедленным, так как это деструктивное действие
         deleteProjectBuilding(id);
     };
 
@@ -529,8 +538,11 @@ export default function CompositionEditor() {
                 </div>
             </div>
 
-            {/* --- МОДАЛЬНОЕ ОКНО (Теперь вынесено в отдельный компонент) --- */}
+            {/* --- МОДАЛЬНОЕ ОКНО --- */}
             {modal.isOpen && <BuildingModal modal={modal} setModal={setModal} onCommit={commitPlanning} />}
+
+            {/* [NEW] НОВАЯ ПАНЕЛЬ СОХРАНЕНИЯ ВНИЗУ */}
+            <SaveFloatingBar onSave={handleSave} />
         </div>
     );
 }
