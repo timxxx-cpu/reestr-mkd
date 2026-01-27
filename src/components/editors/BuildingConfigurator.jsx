@@ -80,8 +80,8 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     /** @type {any} */
     const features = buildingDetails[featuresKey] || { basements: [], exploitableRoofs: [] };
     
-    /** @type {import('../../lib/types').BuildingConfig} */
-    const details = buildingDetails[detailsKey] || { 
+    // [FIX] Явное определение дефолтных значений для гарантии валидности формы при первом открытии
+    const defaultDetails = { 
         foundation: 'Монолитная плита', walls: 'Кирпич', slabs: 'Монолитные ж/б', roof: 'Плоская рулонная', 
         floorsFrom: 1, floorsTo: 1, entrances: 1, inputs: 1, vehicleEntries: 1, elevators: 0, 
         commercialFloors: [], hasBasementFloor: false, hasAttic: false, hasLoft: false, 
@@ -93,6 +93,10 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         lightStructureType: 'canopy', 
         engineering: { hvs: true, gvs: true, heating: true, electricity: true, gas: false, sewerage: true, ventilation: true, firefighting: true, lowcurrent: true } 
     };
+
+    /** @type {import('../../lib/types').BuildingConfig} */
+    // Сливаем дефолтные значения с сохраненными данными
+    const details = { ...defaultDetails, ...(buildingDetails[detailsKey] || {}) };
 
     // ПОДКЛЮЧЕНИЕ ВАЛИДАЦИИ
     const { errors, isValid } = useValidation(BuildingConfigSchema, details);
@@ -237,11 +241,16 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     const isCommercialValid = Validators.commercialPresence(building, buildingDetails, blocksList, mode);
     const hasElevatorIssue = Validators.elevatorRequirement(isParking, isInfrastructure, details.floorsTo, details.elevators || 0);
     
-    // Определяем, является ли текущий блок жилым
     const isResidentialBlock = currentBlock?.type === 'Ж';
 
-    // [FIX] Логика валидации: коммерция проверяется ТОЛЬКО если редактируем жилой блок
-    const hasCriticalErrors = hasElevatorIssue || !isValid || (isResidentialBlock && !isCommercialValid); 
+    // [FIX] Валидация: 
+    // 1. isValid (базовые типы и лимиты из схемы)
+    // 2. hasElevatorIssue (бизнес-логика лифтов)
+    // 3. isCommercialValid (наличие коммерции в ЖК)
+    // Для нежилых блоков игнорируем бизнес-логику жилья (лифты и общую коммерцию ЖК)
+    const hasCriticalErrors = isResidentialBlock 
+        ? (!isValid || hasElevatorIssue || !isCommercialValid)
+        : !isValid;
 
     const isFloorFromDisabled = currentBlock?.type === 'Ж' || currentBlock?.type === 'Н';
     const isStylobate = currentBlock?.type === 'Н' && (details.parentBlocks || []).length > 0;
@@ -515,7 +524,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                 <Card className="p-6 shadow-sm"><SectionTitle icon={Zap}>Инженерия</SectionTitle><div className="grid grid-cols-2 gap-2">{engineeringSystems.map(sys => { const Icon = sys.icon; const isActive = details.engineering?.[sys.id]; return (<button key={sys.id} onClick={()=>updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`p-3 rounded-xl border flex items-center gap-3 transition-all duration-200 ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 opacity-60 hover:opacity-100'}`}><Icon size={16} strokeWidth={isActive ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase">{sys.label}</span></button>)})}</div></Card>
                                 
                                 <div className="flex flex-col gap-3">
-                                    {(!isCommercialValid && isResidentialBlock) && (<div className="text-[10px] text-red-500 bg-red-50 p-2 rounded text-center border border-red-100">Укажите коммерческие этажи хотя бы в одном жилом блоке</div>)}
+                                    {(isResidentialBlock && !isCommercialValid) && (<div className="text-[10px] text-red-500 bg-red-50 p-2 rounded text-center border border-red-100">Укажите коммерческие этажи хотя бы в одном жилом блоке</div>)}
                                     <Button onClick={autoFillConfig} variant="secondary" className="bg-purple-50 text-purple-600 border-purple-100"><Wand2 size={14}/> Авто-заполнение</Button>
                                 </div>
                             </div>
