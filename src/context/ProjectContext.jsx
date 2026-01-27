@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { useToast } from './ToastContext';
 import { RegistryService } from '../lib/registry-service';
 import { useProjectData } from '../hooks/useProjectData';
+import { ROLES, APP_STATUS } from '../lib/constants';
 
 /**
  * Импорт типов
@@ -24,11 +25,10 @@ const HEAVY_KEYS = [
     'parkingPlaces', 'commonAreasData', 'apartmentsData', 'parkingData'
 ];
 
-export const ProjectProvider = ({ children, projectId, user, customScope }) => {
+export const ProjectProvider = ({ children, projectId, user, customScope, userProfile }) => {
   const toast = useToast();
   const dbScope = customScope || user?.uid;
 
-  // --- REACT QUERY FETCHING ---
   const { 
       projectMeta: serverMeta, 
       buildingsState: serverBuildings, 
@@ -36,17 +36,13 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
       refetch 
   } = useProjectData(dbScope, projectId);
   
-  // -- LOCAL STATE (Для редактирования) --
-  
-  // ИСПРАВЛЕНИЕ: Явное приведение типа для начального значения
+  // ИСПРАВЛЕНО: Добавлено приведение типа для начального состояния
   const [projectMeta, setProjectMeta] = useState(/** @type {ProjectMeta} */ ({})); 
   
   const [buildingsState, setBuildingsState] = useState({});
-  
   const [isSyncing, setIsSyncing] = useState(false);
   const saveTimeoutRef = useRef(null);
 
-  // Синхронизация Server Data -> Local State
   useEffect(() => {
       if (serverMeta && Object.keys(serverMeta).length > 0) {
           // @ts-ignore
@@ -60,18 +56,18 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
       }
   }, [serverBuildings]);
 
-  // --- СЛИЯНИЕ ДАННЫХ ---
   const mergedState = useMemo(() => {
-    // 1. Основа - локальный стейт.
-    /** @type {ProjectMeta} */
+    /** @type {any} */
     const combined = {
       complexInfo: projectMeta.complexInfo || {},
       participants: projectMeta.participants || {},
       cadastre: projectMeta.cadastre || {},
       documents: projectMeta.documents || [],
       composition: projectMeta.composition || [],
-      buildingDetails: { ...(projectMeta.buildingDetails || {}) },
+      // @ts-ignore
+      applicationInfo: projectMeta.applicationInfo || {},
       
+      buildingDetails: { ...(projectMeta.buildingDetails || {}) },
       floorData: { ...(projectMeta.floorData || {}) },
       entrancesData: { ...(projectMeta.entrancesData || {}) },
       mopData: { ...(projectMeta.mopData || {}) }, 
@@ -79,7 +75,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
       parkingPlaces: { ...(projectMeta.parkingPlaces || {}) }
     };
 
-    // 2. Заполняем пробелы данными из базы
     Object.values(buildingsState).forEach(b => {
        if (b.buildingDetails) {
            // @ts-ignore
@@ -95,9 +90,58 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
     return combined;
   }, [projectMeta, buildingsState]);
 
+  // --- ЛОГИКА READ-ONLY ---
+  const isReadOnly = useMemo(() => {
+      if (!userProfile) return true;
+      const role = userProfile.role;
+      // @ts-ignore
+      const status = mergedState.applicationInfo?.status || APP_STATUS.DRAFT;
+
+      if (role === ROLES.ADMIN) return false;
+      if (role === ROLES.CONTROLLER) return true;
+
+      if (role === ROLES.TECHNICIAN) {
+          if ([APP_STATUS.DRAFT, APP_STATUS.NEW, APP_STATUS.REJECTED].includes(status)) {
+              return false;
+          }
+          return true;
+      }
+      return true;
+  }, [userProfile, mergedState.applicationInfo]);
+
+  // --- ВЕРИФИКАЦИЯ ШАГА ---
+  const setStepVerified = useCallback(async (stepIndex, isVerified) => {
+      // @ts-ignore
+      const currentVerified = mergedState.applicationInfo?.verifiedSteps || [];
+      let newVerified = [];
+      
+      if (isVerified) {
+          if (!currentVerified.includes(stepIndex)) {
+              newVerified = [...currentVerified, stepIndex];
+          } else return;
+      } else {
+          newVerified = currentVerified.filter(i => i !== stepIndex);
+      }
+
+      // @ts-ignore
+      const newAppInfo = { ...mergedState.applicationInfo, verifiedSteps: newVerified };
+      
+      // @ts-ignore
+      setProjectMeta(prev => ({ ...prev, applicationInfo: newAppInfo }));
+      
+      await RegistryService.saveData(dbScope, projectId, { applicationInfo: newAppInfo });
+      
+  }, [dbScope, projectId, mergedState.applicationInfo]);
+
   // --- СОХРАНЕНИЕ ---
-  const saveData = useCallback((updates = {}, showNotification = false) => {
+  const saveData = useCallback((updates = {}, showNotification = false, bypassReadOnly = false) => {
     if (!dbScope || !projectId) return;
+    
+    if (isReadOnly && !bypassReadOnly) {
+        if (showNotification) toast.error("Редактирование запрещено");
+        return;
+    }
+
     if (updates && (updates.nativeEvent || updates.type === 'click')) { updates = {}; showNotification = true; }
 
     const safeUpdates = { ...updates };
@@ -113,7 +157,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
       try {
         if (showNotification) toastId = toast.loading("Сохранение...");
         await RegistryService.saveData(dbScope, projectId, safeUpdates);
-        // refetch(); // Опционально: обновить данные с сервера
         if (showNotification && toastId) { toast.dismiss(toastId); toast.success("Сохранено!"); }
       } catch (e) {
         console.error("SAVE ERROR:", e);
@@ -123,9 +166,14 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
         setIsSyncing(false);
       }
     }, 500);
-  }, [dbScope, projectId, toast, refetch]);
+  }, [dbScope, projectId, toast, isReadOnly]);
 
   const saveBuildingData = useCallback(async (buildingId, dataKey, dataVal) => {
+      if (isReadOnly) {
+          toast.error("Редактирование запрещено");
+          return;
+      }
+
       setIsSyncing(true);
       const toastId = toast.loading("Запись данных здания...");
       try {
@@ -152,9 +200,13 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
       } finally {
           setIsSyncing(false);
       }
-  }, [dbScope, projectId, toast]);
+  }, [dbScope, projectId, toast, isReadOnly]);
 
   const deleteProjectBuilding = useCallback(async (buildingId) => {
+      if (isReadOnly) {
+          toast.error("Удаление запрещено");
+          return;
+      }
       if (!confirm('Удалить объект и все связанные данные?')) return;
       try {
           // @ts-ignore
@@ -181,9 +233,10 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
           console.error(e);
           toast.error("Ошибка удаления");
       }
-  }, [dbScope, projectId, mergedState, toast]);
+  }, [dbScope, projectId, mergedState, toast, isReadOnly]);
 
   const createSetter = (key) => (value) => {
+      if (isReadOnly) return; 
       // @ts-ignore
       const newValue = typeof value === 'function' ? value(mergedState[key]) : value;
       // @ts-ignore
@@ -196,6 +249,9 @@ export const ProjectProvider = ({ children, projectId, user, customScope }) => {
   const value = {
     // @ts-ignore
     ...mergedState,
+    isReadOnly,
+    setStepVerified,
+    
     setComplexInfo: createSetter('complexInfo'),
     setParticipants: createSetter('participants'),
     setCadastre: createSetter('cadastre'),

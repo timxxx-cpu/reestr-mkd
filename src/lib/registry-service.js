@@ -3,13 +3,7 @@ import {
   onSnapshot, writeBatch, arrayUnion, getDocs 
 } from 'firebase/firestore';
 import { db, APP_ID } from './firebase';
-
-/**
- * Импорт типов для JSDoc
- * @typedef {import('./types').ProjectMeta} ProjectMeta
- * @typedef {import('./types').BuildingData} BuildingData
- * @typedef {import('firebase/firestore').Unsubscribe} Unsubscribe
- */
+import { APP_STATUS } from './constants';
 
 const getUserRoot = (scope) => `artifacts/${APP_ID}/users/${scope}`;
 const getProjectRef = (scope, id) => doc(db, `${getUserRoot(scope)}/registry_data/project_${id}`);
@@ -19,8 +13,6 @@ const getMetaListRef = (scope) => doc(db, `${getUserRoot(scope)}/registry_data/p
 
 export const RegistryService = {
   
-  // --- ЧТЕНИЕ (PROMISE-BASED / API STYLE) ---
-
   getProjectsList: async (scope) => {
     try {
         const snap = await getDoc(getMetaListRef(scope));
@@ -46,7 +38,6 @@ export const RegistryService = {
   getBuildings: async (scope, projectId) => {
     try {
         const snapshot = await getDocs(getBuildingsRef(scope, projectId));
-        /** @type {Object.<string, BuildingData>} */
         const buildings = {};
         snapshot.forEach(doc => {
             // @ts-ignore
@@ -59,7 +50,67 @@ export const RegistryService = {
     }
   },
 
-  // --- ЧТЕНИЕ (LEGACY REALTIME - Оставляем для совместимости, если нужно) ---
+  // --- ИНТЕГРАЦИЯ С ВНЕШНИМИ СИСТЕМАМИ (MOCK) ---
+
+  getExternalApplications: async () => {
+      // Возвращаем пустой список, так как генерируем кнопкой "Эмулировать"
+      return []; 
+  },
+
+  createProjectFromApplication: async (scope, application, user) => {
+      const projectId = crypto.randomUUID();
+      const now = new Date().toISOString();
+
+      const projectMeta = {
+          id: projectId,
+          name: `ЖК по заявке ${application.externalId}`,
+          status: 'Проектный',
+          author: user.name,
+          lastModified: now,
+          
+          applicationInfo: {
+              internalNumber: application.id,
+              externalSource: application.source,
+              externalId: application.externalId,
+              applicant: application.applicant,
+              landCadastre: application.cadastre,
+              submissionDate: application.submissionDate,
+              status: APP_STATUS.DRAFT, 
+              assignee: user.id,
+              assigneeName: user.name,
+              currentStage: 1, // Начало с 1 этапа
+              verifiedSteps: [],
+              history: [
+                  { 
+                      date: now, 
+                      status: APP_STATUS.DRAFT, 
+                      user: user.name, 
+                      comment: 'Заявление принято в работу (Этап 1)' 
+                  }
+              ]
+          },
+
+          complexInfo: {
+              name: `Объект на участке ${application.cadastre}`,
+              status: 'Проектный',
+              street: application.address,
+              region: 'Ташкент',
+              district: 'Не определен',
+              dateStartProject: new Date().toISOString().split('T')[0]
+          },
+          composition: []
+      };
+
+      const initialContent = {
+          complexInfo: projectMeta.complexInfo,
+          composition: []
+      };
+
+      await RegistryService.createProject(scope, projectMeta, initialContent);
+      return projectId;
+  },
+
+  // --- ЧТЕНИЕ (LEGACY REALTIME) ---
 
   subscribeProjectMeta: (scope, projectId, callback) => {
     return onSnapshot(getProjectRef(scope, projectId), (snap) => {
@@ -105,8 +156,8 @@ export const RegistryService = {
 
       await batch.commit();
 
-      if (generalData.complexInfo) {
-          await RegistryService._syncDashboardItem(scope, projectId, generalData.complexInfo);
+      if (generalData.complexInfo || generalData.applicationInfo) {
+          await RegistryService._syncDashboardItem(scope, projectId, generalData);
       }
     } catch (error) {
       console.error("[RegistryService] Save failed:", error);
@@ -154,7 +205,7 @@ export const RegistryService = {
       }
   },
 
-  _syncDashboardItem: async (scope, projectId, info) => {
+  _syncDashboardItem: async (scope, projectId, data) => {
       const listRef = getMetaListRef(scope);
       const snap = await getDoc(listRef);
       if (snap.exists()) {
@@ -165,9 +216,17 @@ export const RegistryService = {
               let changed = false;
               const newItem = { ...item, lastModified: new Date().toISOString() };
               
-              if (info.name && info.name !== item.name) { newItem.name = info.name; changed = true; }
-              if (info.status && info.status !== item.status) { newItem.status = info.status; changed = true; }
-              if (info.street && info.street !== item.address) { newItem.address = info.street; changed = true; }
+              if (data.complexInfo) {
+                  const info = data.complexInfo;
+                  if (info.name && info.name !== item.name) { newItem.name = info.name; changed = true; }
+                  if (info.status && info.status !== item.status) { newItem.status = info.status; changed = true; }
+                  if (info.street && info.street !== item.address) { newItem.address = info.street; changed = true; }
+              }
+
+              if (data.applicationInfo) {
+                  newItem.applicationInfo = data.applicationInfo;
+                  changed = true;
+              }
 
               if (changed) {
                   list[idx] = newItem;

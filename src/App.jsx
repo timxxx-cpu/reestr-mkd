@@ -1,20 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { Loader2, User, FolderOpen, Plus, KeyRound, LogOut } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Loader2, User, FolderOpen, KeyRound, LogOut, Shield } from 'lucide-react';
 import { Routes, Route, useNavigate, useParams, Navigate } from 'react-router-dom';
 
-// Services & Context
 import { AuthService } from './lib/auth-service';
 import { ToastProvider, useToast } from './context/ToastContext'; 
 import { ProjectProvider, useProject } from './context/ProjectContext';
-import { STEPS_CONFIG } from './lib/constants';
+import { STEPS_CONFIG, ROLES, WORKFLOW_STAGES } from './lib/constants';
 
-// Hooks
 import { useProjects } from './hooks/useProjects';
 
-// UI & Editors
 import Sidebar from './components/Sidebar';
 import StepIndicator from './components/StepIndicator';
 import Breadcrumbs from './components/ui/Breadcrumbs';
+import { ReadOnlyProvider } from './components/ui/UIKit'; 
+import WorkflowBar from './components/WorkflowBar'; 
+
 import PassportEditor from './components/editors/PassportEditor';
 import CompositionEditor from './components/editors/CompositionEditor';
 import BuildingSelector from './components/editors/BuildingSelector';
@@ -27,14 +27,15 @@ import FlatMatrixEditor from './components/editors/FlatMatrixEditor';
 import UnitRegistry from './components/editors/UnitRegistry'; 
 import SummaryDashboard from './components/editors/SummaryDashboard';
 import RegistryView from './components/editors/RegistryView'; 
-import ProjectsDashboard from './components/ProjectsDashboard';
+import ApplicationsDashboard from './components/ApplicationsDashboard';
 
 const DB_SCOPE = 'shared_dev_env'; 
+
 const TEST_USERS = [
-    { id: 'u1', name: 'Тимур', role: 'admin' },
-    { id: 'u2', name: 'Абдурашид', role: 'manager' },
-    { id: 'u3', name: 'Вахит', role: 'architect' },
-    { id: 'u4', name: 'Аббос', role: 'editor' },
+    { id: 'u1', name: 'Тимур (Админ)', role: ROLES.ADMIN },
+    { id: 'u2', name: 'Абдурашид (Бригадир)', role: ROLES.CONTROLLER },
+    { id: 'u3', name: 'Вахит (Техник)', role: ROLES.TECHNICIAN },
+    { id: 'u4', name: 'Аббос (Техник)', role: ROLES.TECHNICIAN },
 ];
 
 function LoginScreen({ onLogin, isLoading }) {
@@ -48,7 +49,7 @@ function LoginScreen({ onLogin, isLoading }) {
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight">
                         Реестр <span className="text-blue-600">Многоквартирных домов</span>
                     </h1>
-                    <p className="text-slate-500 text-sm">Система управления проектной документацией и ТЭП</p>
+                    <p className="text-slate-500 text-sm">Система обработки заявлений и инвентаризации</p>
                 </div>
 
                 <div className="space-y-4">
@@ -60,7 +61,7 @@ function LoginScreen({ onLogin, isLoading }) {
                         {isLoading ? <Loader2 className="animate-spin" size={20}/> : <KeyRound size={20}/>}
                         {isLoading ? 'Вход в систему...' : 'Войти в систему'}
                     </button>
-                    <p className="text-xs text-slate-400">Доступ для сотрудников</p>
+                    <p className="text-xs text-slate-400">Доступ для сотрудников (БТИ)</p>
                 </div>
             </div>
         </div>
@@ -76,17 +77,93 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-function ProjectEditorRoute() {
+function ProjectEditorRoute({ user }) {
     const { projectId } = useParams();
     const navigate = useNavigate();
     const [currentStep, setCurrentStep] = useState(0);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [editingBuildingId, setEditingBuildingId] = useState(null);
-    const { complexInfo, composition, saveData } = useProject();
+    const { complexInfo, composition, saveData, isReadOnly, applicationInfo } = useProject();
+    const toast = useToast();
+    const initialRedirectDone = useRef(false);
   
-    const handleNext = () => { setEditingBuildingId(null); saveData(); setCurrentStep(prev => Math.min(prev + 1, (STEPS_CONFIG?.length || 1) - 1)); };
-    const handlePrev = () => { setEditingBuildingId(null); saveData(); setCurrentStep(prev => Math.max(prev - 1, 0)); };
-    const onStepChange = (idx) => { setEditingBuildingId(null); saveData(); setCurrentStep(idx); };
+    const currentStage = applicationInfo?.currentStage || 1;
+    
+    // --- АВТО-ПЕРЕХОД НА ТЕКУЩИЙ ЭТАП ---
+    // При загрузке проекта перекидываем техника на начало его текущего этапа
+    useEffect(() => {
+        if (applicationInfo?.currentStage && !initialRedirectDone.current) {
+            const stage = applicationInfo.currentStage;
+            // Если этап > 1, ищем последний шаг ПРЕДЫДУЩЕГО этапа и прибавляем 1
+            if (stage > 1) {
+                const prevStageConfig = WORKFLOW_STAGES[stage - 1];
+                if (prevStageConfig) {
+                    const startStep = prevStageConfig.lastStepIndex + 1;
+                    // Проверяем, чтобы не улететь за границы массива
+                    if (startStep < STEPS_CONFIG.length) {
+                        setCurrentStep(startStep);
+                    }
+                }
+            }
+            initialRedirectDone.current = true;
+        }
+    }, [applicationInfo]);
+
+    // --- ЛОГИКА БЛОКИРОВКИ ПРОШЛЫХ ШАГОВ ---
+    // Определяем, к какому этапу относится текущий шаг
+    const getStepStage = (stepIdx) => {
+        for (const [stageNum, config] of Object.entries(WORKFLOW_STAGES)) {
+            if (stepIdx <= config.lastStepIndex) return parseInt(stageNum);
+        }
+        return 4; // Финал
+    };
+
+    const stepStage = getStepStage(currentStep);
+    
+    // Блокируем редактирование, если:
+    // 1. Глобальный режим ReadOnly (статус REVIEW/APPROVED или роль Бригадира)
+    // 2. ИЛИ (для Техника) текущий шаг относится к этапу, который МЕНЬШЕ текущего этапа заявки
+    const isStepLocked = user.role === ROLES.TECHNICIAN && stepStage < currentStage;
+    const effectiveReadOnly = isReadOnly || isStepLocked;
+
+    // --- ЛОГИКА ОГРАНИЧЕНИЯ НАВИГАЦИИ (ВПЕРЕД) ---
+    const maxAllowedStep = WORKFLOW_STAGES[currentStage]?.lastStepIndex ?? 0;
+
+    const canGoToStep = (stepIdx) => {
+        if (user.role === ROLES.ADMIN || user.role === ROLES.CONTROLLER) return true;
+        
+        if (stepIdx > maxAllowedStep) {
+            toast.error(`Этап ${currentStage} не завершен. Заполните данные и отправьте на проверку.`);
+            return false;
+        }
+        return true;
+    };
+
+    const handleNext = () => { 
+        const nextStep = currentStep + 1;
+        if (nextStep >= STEPS_CONFIG.length) return;
+
+        if (canGoToStep(nextStep)) {
+            setEditingBuildingId(null); 
+            saveData(); 
+            setCurrentStep(nextStep);
+        }
+    };
+
+    const handlePrev = () => { 
+        setEditingBuildingId(null); 
+        saveData(); 
+        setCurrentStep(prev => Math.max(prev - 1, 0)); 
+    };
+
+    const onStepChange = (idx) => { 
+        if (canGoToStep(idx)) {
+            setEditingBuildingId(null); 
+            saveData(); 
+            setCurrentStep(idx);
+        }
+    };
+
     const handleBackToDashboard = () => { saveData(); navigate('/'); };
   
     const stepConfig = STEPS_CONFIG?.[currentStep];
@@ -106,11 +183,9 @@ function ProjectEditorRoute() {
         case 'composition': return <CompositionEditor />;
         case 'parking_config': return <ParkingConfigurator onSave={handleNext} buildingId={null} />;
         
-        // --- ОБНОВЛЕННАЯ ЛОГИКА ДЛЯ 3-х РЕЕСТРОВ ---
         case 'registry_apartments': return <UnitRegistry mode="apartments" />;
         case 'registry_commercial': return <UnitRegistry mode="commercial" />;
         case 'registry_parking': return <UnitRegistry mode="parking" />;
-        // ---------------------------------------------
 
         case 'summary': return <SummaryDashboard />;
         case 'registry_res_view': return <RegistryView mode="res" />;
@@ -127,37 +202,43 @@ function ProjectEditorRoute() {
     };
   
     return (
-      <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
-        <Sidebar currentStep={currentStep} onStepChange={onStepChange} isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} onBackToDashboard={handleBackToDashboard} />
-        <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
-            <div className="px-8 pt-6 pb-2">
-                 <Breadcrumbs 
-                    projectName={complexInfo?.name || "Загрузка..."} 
-                    stepTitle={stepConfig?.title} 
-                    buildingName={editingBuildingId ? composition?.find(b => b.id === editingBuildingId)?.label : null} 
-                    onBackToStep={() => setEditingBuildingId(null)}
-                 />
-            </div>
-            <div className="flex-1 overflow-y-auto px-8 pb-6 scroll-smooth custom-scrollbar">
-                {!editingBuildingId && <StepIndicator currentStep={currentStep} />}
-                <React.Suspense fallback={<Loader2 className="animate-spin text-blue-600"/>}>{renderStepContent()}</React.Suspense>
-            </div>
-            {!editingBuildingId && (
-                <footer className="bg-white border-t border-slate-200 px-8 py-5 flex justify-between items-center shadow-sm z-20">
-                    <button onClick={handlePrev} disabled={currentStep === 0} className="px-6 py-2.5 rounded-xl text-xs font-bold uppercase text-slate-600 hover:bg-slate-50 disabled:opacity-50">Назад</button>
-                    <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.3em]">Шаг {currentStep + 1} / {STEPS_CONFIG?.length}</div>
-                    <button onClick={handleNext} disabled={currentStep === (STEPS_CONFIG?.length || 1) - 1} className="px-8 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase shadow-lg hover:bg-black transition-all">Далее</button>
-                </footer>
-            )}
-        </main>
-      </div>
+      // ВАЖНО: Передаем effectiveReadOnly вместо простого isReadOnly
+      <ReadOnlyProvider value={effectiveReadOnly}>
+        <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+            <Sidebar currentStep={currentStep} onStepChange={onStepChange} isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} onBackToDashboard={handleBackToDashboard} />
+            <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
+                
+                <WorkflowBar user={user} currentStep={currentStep} />
+
+                <div className="px-8 pt-6 pb-2">
+                    <Breadcrumbs 
+                        projectName={complexInfo?.name || "Загрузка..."} 
+                        stepTitle={stepConfig?.title} 
+                        buildingName={editingBuildingId ? composition?.find(b => b.id === editingBuildingId)?.label : null} 
+                        onBackToStep={() => setEditingBuildingId(null)}
+                    />
+                </div>
+                <div className="flex-1 overflow-y-auto px-8 pb-6 scroll-smooth custom-scrollbar">
+                    {!editingBuildingId && <StepIndicator currentStep={currentStep} />}
+                    <React.Suspense fallback={<Loader2 className="animate-spin text-blue-600"/>}>{renderStepContent()}</React.Suspense>
+                </div>
+                {!editingBuildingId && (
+                    <footer className="bg-white border-t border-slate-200 px-8 py-5 flex justify-between items-center shadow-sm z-20">
+                        <button onClick={handlePrev} disabled={currentStep === 0} className="px-6 py-2.5 rounded-xl text-xs font-bold uppercase text-slate-600 hover:bg-slate-50 disabled:opacity-50">Назад</button>
+                        <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.3em]">Шаг {currentStep + 1} / {STEPS_CONFIG?.length}</div>
+                        <button onClick={handleNext} disabled={currentStep === (STEPS_CONFIG?.length || 1) - 1} className="px-8 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase shadow-lg hover:bg-black transition-all">Далее</button>
+                    </footer>
+                )}
+            </main>
+        </div>
+      </ReadOnlyProvider>
     );
 }
 
-const ProjectProviderWrapper = ({ children, firebaseUser, dbScope }) => {
+const ProjectProviderWrapper = ({ children, firebaseUser, dbScope, activePersona }) => {
     const { projectId } = useParams();
     return (
-        <ProjectProvider key={projectId} projectId={projectId} user={firebaseUser} customScope={dbScope}>
+        <ProjectProvider key={projectId} projectId={projectId} user={firebaseUser} customScope={dbScope} userProfile={activePersona}>
             <ErrorBoundary onReset={() => window.location.href = '/'}>{children}</ErrorBoundary>
         </ProjectProvider>
     );
@@ -165,44 +246,7 @@ const ProjectProviderWrapper = ({ children, firebaseUser, dbScope }) => {
 
 const MainLayout = ({ firebaseUser, activePersona, setActivePersona }) => {
     const navigate = useNavigate();
-    const toast = useToast();
-    
-    const { projects, isLoading, createProject, deleteProject, isCreating } = useProjects(DB_SCOPE);
-
-    const handleCreate = async () => {
-        try {
-            const newId = crypto.randomUUID();
-            const newProjectMeta = { 
-                id: newId, 
-                name: 'Новый проект', 
-                status: 'Проектный', 
-                lastModified: new Date().toISOString(),
-                author: activePersona.name
-            };
-            const initialContent = { 
-                complexInfo: { name: 'Новый проект', status: 'Проектный' }, 
-                composition: [] 
-            };
-            
-            await createProject({ meta: newProjectMeta, content: initialContent });
-            toast.success("Проект создан!");
-            navigate(`/project/${newId}`);
-        } catch (e) {
-            console.error(e);
-            toast.error("Ошибка создания");
-        }
-    };
-
-    const handleDelete = async (id) => {
-        if (!confirm('Удалить проект навсегда?')) return;
-        try {
-            await deleteProject(id);
-            toast.success("Проект удален");
-        } catch (e) {
-             console.error(e);
-             toast.error("Ошибка удаления");
-        }
-    };
+    const { projects, isLoading } = useProjects(DB_SCOPE);
 
     const handleLogout = async () => {
         await AuthService.logout();
@@ -212,15 +256,46 @@ const MainLayout = ({ firebaseUser, activePersona, setActivePersona }) => {
 
     return (
         <div className="min-h-screen bg-slate-50">
-            <div className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-50 shadow-sm">
-                <div className="flex items-center gap-4"><div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-white"><FolderOpen size={20} /></div><h1 className="text-lg font-bold text-slate-800">Реестр МКД <span className="text-xs text-slate-400 font-normal ml-2">{DB_SCOPE}</span></h1></div>
-                <div className="flex gap-3">
-                    <div className="flex bg-slate-100 rounded-full p-1">{TEST_USERS.map(user => (<button key={user.id} onClick={() => setActivePersona(user)} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${activePersona.id === user.id ? 'bg-white shadow-sm' : 'text-slate-500'}`}><User size={12} className="inline mr-1"/> {user.name}</button>))}</div>
-                    <button onClick={handleCreate} disabled={isCreating} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold uppercase shadow-lg hover:bg-blue-500"><Plus size={14}/> Новый</button>
-                    <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg ml-2" title="Выйти"><LogOut size={20}/></button>
+            <div className="bg-white border-b border-slate-200 px-6 py-3 flex justify-between items-center sticky top-0 z-50 shadow-sm">
+                <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-white"><FolderOpen size={20} /></div>
+                    <div>
+                        <h1 className="text-lg font-bold text-slate-800 leading-none">Реестр МКД</h1>
+                        <span className="text-xs text-slate-400 font-normal">{DB_SCOPE}</span>
+                    </div>
+                </div>
+                
+                <div className="flex items-center gap-4">
+                    <div className="flex bg-slate-100 rounded-full p-1 border border-slate-200">
+                        {TEST_USERS.map(user => {
+                            const isSelected = activePersona.id === user.id;
+                            return (
+                                <button 
+                                    key={user.id} 
+                                    onClick={() => setActivePersona(user)} 
+                                    className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all flex items-center gap-1.5 ${isSelected ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+                                >
+                                    {isSelected && <Shield size={10} className="text-blue-500"/>}
+                                    {user.name.split(' ')[0]}
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <div className="h-6 w-px bg-slate-200"></div>
+
+                    <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Выйти">
+                        <LogOut size={20}/>
+                    </button>
                 </div>
             </div>
-            <div className="p-8"><ProjectsDashboard projects={projects} onSelect={(id) => navigate(`/project/${id}`)} onCreate={handleCreate} onDelete={handleDelete}/></div>
+            
+            <ApplicationsDashboard 
+                user={activePersona} 
+                projects={projects} 
+                dbScope={DB_SCOPE}
+                onSelectProject={(id) => navigate(`/project/${id}`)}
+            />
         </div>
     );
 };
@@ -256,7 +331,11 @@ export default function App() {
     <ToastProvider>
         <Routes>
             <Route path="/" element={<MainLayout firebaseUser={firebaseUser} activePersona={activePersona} setActivePersona={setActivePersona} />} />
-            <Route path="/project/:projectId" element={<ProjectProviderWrapper firebaseUser={firebaseUser} dbScope={DB_SCOPE}><ProjectEditorRoute /></ProjectProviderWrapper>} />
+            <Route path="/project/:projectId" element={
+                <ProjectProviderWrapper firebaseUser={firebaseUser} dbScope={DB_SCOPE} activePersona={activePersona}>
+                    <ProjectEditorRoute user={activePersona} />
+                </ProjectProviderWrapper>
+            } />
             <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     </ToastProvider>

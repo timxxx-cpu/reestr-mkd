@@ -11,20 +11,34 @@
  * @property {string} [status] - Статус (Проектный, Строящийся, Введенный, Архив)
  * @property {string} [lastModified] - ISO дата последнего изменения
  * @property {string} [author] - Имя автора
- * * // Основные данные
+ * * // --- НОВОЕ ПОЛЕ: Данные заявления (Процесс) ---
+ * @property {Object} [applicationInfo] - Информация о заявке и процессе обработки
+ * @property {string} [applicationInfo.internalNumber] - Внутренний номер заявки
+ * @property {string} [applicationInfo.externalSource] - Источник (ЕПИГУ, ДХМ...)
+ * @property {string} [applicationInfo.externalId] - Номер во внешней системе
+ * @property {string} [applicationInfo.applicant] - Заявитель
+ * @property {string} [applicationInfo.landCadastre] - Кадастр участка
+ * @property {string} [applicationInfo.submissionDate] - Дата подачи
+ * @property {string} [applicationInfo.status] - Текущий статус (NEW, DRAFT, REVIEW...)
+ * @property {string} [applicationInfo.assignee] - ID исполнителя (Техника)
+ * @property {string} [applicationInfo.assigneeName] - Имя исполнителя
+ * @property {number} [applicationInfo.currentStage] - Текущий этап проверки
+ * @property {Array<number>} [applicationInfo.verifiedSteps] - Список проверенных шагов
+ * @property {Array<{date: string, status: string, user: string, comment?: string}>} [applicationInfo.history] - История изменений
+ * * // --- Основные данные ---
  * @property {Object} [complexInfo] - Паспортные данные (адрес, район и т.д.)
  * @property {Object} [participants] - Участники строительства
  * @property {Object} [cadastre] - Кадастровая информация
  * @property {Array} [documents] - Список документов
  * @property {Array<BuildingMeta>} [composition] - Список зданий (краткий)
  * @property {Object.<string, any>} [buildingDetails] - Конфигурация (этажность, стены, фичи, фото). Any, т.к. структура динамическая.
- * * // Временные поля для локального стейта (могут быть, но не пишутся в основной файл)
+ * * // --- Временные поля для локального стейта (могут быть, но не пишутся в основной файл) ---
  * @property {Object.<string, FloorData>} [floorData]
  * @property {Object.<string, EntranceData>} [entrancesData]
  * @property {Object.<string, Array<MopItem>>} [mopData]
  * @property {Object.<string, UnitData>} [flatMatrix]
  * @property {Object.<string, ParkingPlace>} [parkingPlaces]
- * * // Поля совместимости (маппинг имен из базы)
+ * * // --- Поля совместимости (маппинг имен из базы) ---
  * @property {Object.<string, Array<MopItem>>} [commonAreasData]
  * @property {Object.<string, UnitData>} [apartmentsData]
  * @property {Object.<string, ParkingPlace>} [parkingData]

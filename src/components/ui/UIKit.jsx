@@ -1,5 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, createContext, useContext } from 'react';
 import { Loader2 } from 'lucide-react';
+
+const ReadOnlyContext = createContext(false);
+
+export const useReadOnly = () => useContext(ReadOnlyContext);
+
+export const ReadOnlyProvider = ({ value, children }) => (
+  <ReadOnlyContext.Provider value={value}>{children}</ReadOnlyContext.Provider>
+);
 
 // --- Контейнеры и Текст ---
 
@@ -41,20 +49,41 @@ export const Badge = ({ children, className = "" }) => (
 
 // --- Элементы ввода ---
 
-// Используем inline-типизацию для forwardRef, чтобы TS понимал пропсы
-export const Input = React.forwardRef((/** @type {any} */ { className = "", ...props }, ref) => (
-  <input ref={ref} className={`w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all placeholder:text-slate-300 disabled:opacity-60 disabled:cursor-not-allowed ${className}`} {...props} />
-));
+// Используем @type {any}, чтобы разрешить любые HTML-атрибуты (placeholder, type, min, max и т.д.)
+export const Input = React.forwardRef((/** @type {any} */ { className = "", ...props }, ref) => {
+  const isReadOnly = useReadOnly();
+  const isDisabled = props.disabled || isReadOnly;
+  
+  return (
+    <input 
+      ref={ref} 
+      disabled={isDisabled}
+      className={`w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all placeholder:text-slate-300 disabled:opacity-60 disabled:cursor-not-allowed ${className}`} 
+      {...props} 
+    />
+  );
+});
 
-export const Select = React.forwardRef((/** @type {any} */ { className = "", children, ...props }, ref) => (
-  <select ref={ref} className={`w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all appearance-none cursor-pointer disabled:opacity-60 ${className}`} {...props}>
-    {children}
-  </select>
-));
+export const Select = React.forwardRef((/** @type {any} */ { className = "", children, ...props }, ref) => {
+  const isReadOnly = useReadOnly();
+  const isDisabled = props.disabled || isReadOnly;
 
-// @ts-ignore
+  return (
+    <select 
+      ref={ref} 
+      disabled={isDisabled}
+      className={`w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all appearance-none cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${className}`} 
+      {...props}
+    >
+      {children}
+    </select>
+  );
+});
+
 export const DebouncedInput = React.memo(React.forwardRef((/** @type {any} */ { value: initialValue, onChange, delay = 300, className = "", ...props }, ref) => {
   const [value, setValue] = useState(initialValue || '');
+  const isReadOnly = useReadOnly();
+  const isDisabled = props.disabled || isReadOnly;
 
   useEffect(() => {
     setValue(initialValue || '');
@@ -74,9 +103,10 @@ export const DebouncedInput = React.memo(React.forwardRef((/** @type {any} */ { 
     <input
       ref={ref}
       {...props}
+      disabled={isDisabled}
       value={value}
       onChange={(e) => setValue(e.target.value)}
-      className={className}
+      className={`${className} disabled:opacity-60 disabled:cursor-not-allowed`}
     />
   );
 }));
@@ -84,9 +114,18 @@ export const DebouncedInput = React.memo(React.forwardRef((/** @type {any} */ { 
 // --- Кнопки ---
 
 /**
- * @param {{ children: React.ReactNode, variant?: 'primary'|'secondary'|'destructive'|'ghost', loading?: boolean, className?: string, disabled?: boolean, onClick?: React.MouseEventHandler<HTMLButtonElement>, type?: "button" | "submit" | "reset" }} props
+ * @param {{ 
+ * children: React.ReactNode, 
+ * variant?: 'primary'|'secondary'|'destructive'|'ghost', 
+ * loading?: boolean, 
+ * className?: string, 
+ * disabled?: boolean, 
+ * onClick?: React.MouseEventHandler<HTMLButtonElement>, 
+ * type?: "button" | "submit" | "reset",
+ * [x: string]: any 
+ * }} props
  */
-export const Button = ({ children, variant = 'primary', loading, className = "", ...props }) => {
+export const Button = ({ children, variant = 'primary', loading = false, className = "", ...props }) => {
   const variants = {
     primary: "bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200",
     secondary: "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300",
@@ -106,9 +145,6 @@ export const Button = ({ children, variant = 'primary', loading, className = "",
   );
 };
 
-/**
- * @param {{ active?: boolean, children: React.ReactNode, onClick: React.MouseEventHandler<HTMLButtonElement>, className?: string }} props
- */
 export const TabButton = ({ active, children, onClick, className = "" }) => (
   <button 
     onClick={onClick}
