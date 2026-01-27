@@ -1,12 +1,14 @@
 import React from 'react';
-import { CheckCircle2, Lock, ChevronRight, LayoutDashboard, PieChart } from 'lucide-react';
+import { CheckCircle2, Lock, ChevronRight, LayoutDashboard, PieChart, Sun, Moon } from 'lucide-react';
 import { STEPS_CONFIG, WORKFLOW_STAGES, APP_STATUS, ROLES } from '../lib/constants';
 import { useProject } from '../context/ProjectContext';
+import { useTheme } from '../context/ThemeContext'; // [NEW] Импорт темы
 
 export default function Sidebar({ 
     currentStep, onStepChange, isOpen, onToggle, onBackToDashboard, maxAllowedStep 
 }) {
   const { complexInfo, applicationInfo, userProfile } = useProject();
+  const { theme, setTheme } = useTheme(); // [NEW] Хук темы
   
   const getStepStage = (stepIdx) => {
       for (const [stageNum, config] of Object.entries(WORKFLOW_STAGES)) {
@@ -87,7 +89,9 @@ export default function Sidebar({
         })}
       </nav>
 
-      <div className="p-4 border-t border-slate-800 bg-slate-900">
+      {/* ФУТЕР С ТЕМОЙ И ПРОГРЕССОМ */}
+      <div className="p-4 border-t border-slate-800 bg-slate-900 space-y-4">
+         {/* Прогресс-бар (показываем только если открыт) */}
          <div className={`transition-opacity duration-300 ${!isOpen ? 'opacity-0 hidden' : 'opacity-100'}`}>
              <div className="flex items-center justify-between mb-2">
                  <div className="flex items-center gap-2 text-xs font-bold text-slate-400"><PieChart size={14} /><span>Прогресс</span></div>
@@ -103,7 +107,18 @@ export default function Sidebar({
                 <div className="text-[10px] font-bold text-slate-500">{completedStepsCount} / {totalSteps}</div>
              </div>
          </div>
-         {!isOpen && <div className="text-[9px] text-center text-slate-700">v1.0</div>}
+
+         {/* Переключатель темы (Кнопка на всю ширину или иконка если свернуто) */}
+         <button 
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 hover:bg-slate-800 text-slate-400 hover:text-white ${!isOpen && 'justify-center'}`}
+            title="Сменить тему"
+         >
+            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+            <span className={`text-xs font-bold transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
+                {theme === 'dark' ? 'Светлая тема' : 'Темная тема'}
+            </span>
+         </button>
       </div>
     </aside>
   );

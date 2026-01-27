@@ -3,6 +3,7 @@ import { useToast } from './ToastContext';
 import { RegistryService } from '../lib/registry-service';
 import { useProjectData } from '../hooks/useProjectData';
 import { ROLES, APP_STATUS, WORKFLOW_STAGES, STEPS_CONFIG } from '../lib/constants';
+import { Skeleton } from '../components/ui/Skeleton'; // [NEW] Импорт скелетона
 
 const ProjectContext = createContext(null);
 
@@ -327,7 +328,50 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     isSyncing
   };
 
-  if (isLoading && Object.keys(projectMeta).length === 0) return <div className="h-screen w-full flex items-center justify-center text-slate-400">Загрузка проекта...</div>;
+  // [NEW] КРАСИВЫЙ СКЕЛЕТОН ЗАГРУЗКИ ВМЕСТО ПРОСТОГО ТЕКСТА
+  if (isLoading && Object.keys(projectMeta).length === 0) {
+      return (
+          <div className="flex h-screen w-full bg-slate-50 dark:bg-slate-900">
+              {/* Sidebar Skeleton */}
+              <div className="w-20 border-r border-border bg-card h-full flex flex-col items-center py-6 gap-6">
+                  <Skeleton className="w-10 h-10 rounded-xl" />
+                  <div className="flex flex-col gap-4 mt-4">
+                      {[1, 2, 3, 4, 5].map(i => (
+                          <Skeleton key={i} className="w-10 h-10 rounded-xl" />
+                      ))}
+                  </div>
+              </div>
+
+              {/* Content Skeleton */}
+              <div className="flex-1 flex flex-col">
+                  {/* Header Skeleton */}
+                  <div className="h-16 border-b border-border bg-card px-8 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                          <Skeleton className="w-8 h-8 rounded-full" />
+                          <div className="space-y-2">
+                              <Skeleton className="h-4 w-48" />
+                          </div>
+                      </div>
+                      <Skeleton className="h-9 w-32 rounded-lg" />
+                  </div>
+
+                  {/* Body Skeleton */}
+                  <div className="p-8 space-y-6">
+                      <div className="flex justify-between items-center">
+                          <Skeleton className="h-8 w-64" />
+                          <Skeleton className="h-10 w-32" />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          <Skeleton className="h-32 w-full rounded-2xl" />
+                          <Skeleton className="h-32 w-full rounded-2xl" />
+                          <Skeleton className="h-32 w-full rounded-2xl" />
+                      </div>
+                      <Skeleton className="h-[400px] w-full rounded-2xl" />
+                  </div>
+              </div>
+          </div>
+      );
+  }
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
 };
