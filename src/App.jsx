@@ -31,11 +31,23 @@ import ApplicationsDashboard from './components/ApplicationsDashboard';
 
 const DB_SCOPE = 'shared_dev_env'; 
 
+// --- СПИСОК ПОЛЬЗОВАТЕЛЕЙ (4 x 3) ---
 const TEST_USERS = [
-    { id: 'u1', name: 'Тимур (Админ)', role: ROLES.ADMIN },
-    { id: 'u2', name: 'Абдурашид (Бригадир)', role: ROLES.CONTROLLER },
-    { id: 'u3', name: 'Вахит (Техник)', role: ROLES.TECHNICIAN },
-    { id: 'u4', name: 'Аббос (Техник)', role: ROLES.TECHNICIAN },
+    { id: 'timur_admin', name: 'Тимур (Адм)', role: ROLES.ADMIN },
+    { id: 'timur_contr', name: 'Тимур (Бриг)', role: ROLES.CONTROLLER },
+    { id: 'timur_tech',  name: 'Тимур (Тех)', role: ROLES.TECHNICIAN },
+
+    { id: 'abdu_admin', name: 'Абдурашид (Адм)', role: ROLES.ADMIN },
+    { id: 'abdu_contr', name: 'Абдурашид (Бриг)', role: ROLES.CONTROLLER },
+    { id: 'abdu_tech',  name: 'Абдурашид (Тех)', role: ROLES.TECHNICIAN },
+
+    { id: 'vakhit_admin', name: 'Вахит (Адм)', role: ROLES.ADMIN },
+    { id: 'vakhit_contr', name: 'Вахит (Бриг)', role: ROLES.CONTROLLER },
+    { id: 'vakhit_tech',  name: 'Вахит (Тех)', role: ROLES.TECHNICIAN },
+
+    { id: 'abbos_admin', name: 'Аббос (Адм)', role: ROLES.ADMIN },
+    { id: 'abbos_contr', name: 'Аббос (Бриг)', role: ROLES.CONTROLLER },
+    { id: 'abbos_tech',  name: 'Аббос (Тех)', role: ROLES.TECHNICIAN },
 ];
 
 function LoginScreen({ onLogin, isLoading }) {
@@ -90,16 +102,13 @@ function ProjectEditorRoute({ user }) {
     const currentStage = applicationInfo?.currentStage || 1;
     
     // --- АВТО-ПЕРЕХОД НА ТЕКУЩИЙ ЭТАП ---
-    // При загрузке проекта перекидываем техника на начало его текущего этапа
     useEffect(() => {
         if (applicationInfo?.currentStage && !initialRedirectDone.current) {
             const stage = applicationInfo.currentStage;
-            // Если этап > 1, ищем последний шаг ПРЕДЫДУЩЕГО этапа и прибавляем 1
             if (stage > 1) {
                 const prevStageConfig = WORKFLOW_STAGES[stage - 1];
                 if (prevStageConfig) {
                     const startStep = prevStageConfig.lastStepIndex + 1;
-                    // Проверяем, чтобы не улететь за границы массива
                     if (startStep < STEPS_CONFIG.length) {
                         setCurrentStep(startStep);
                     }
@@ -110,30 +119,30 @@ function ProjectEditorRoute({ user }) {
     }, [applicationInfo]);
 
     // --- ЛОГИКА БЛОКИРОВКИ ПРОШЛЫХ ШАГОВ ---
-    // Определяем, к какому этапу относится текущий шаг
     const getStepStage = (stepIdx) => {
         for (const [stageNum, config] of Object.entries(WORKFLOW_STAGES)) {
             if (stepIdx <= config.lastStepIndex) return parseInt(stageNum);
         }
-        return 4; // Финал
+        return 4; 
     };
 
     const stepStage = getStepStage(currentStep);
-    
-    // Блокируем редактирование, если:
-    // 1. Глобальный режим ReadOnly (статус REVIEW/APPROVED или роль Бригадира)
-    // 2. ИЛИ (для Техника) текущий шаг относится к этапу, который МЕНЬШЕ текущего этапа заявки
     const isStepLocked = user.role === ROLES.TECHNICIAN && stepStage < currentStage;
     const effectiveReadOnly = isReadOnly || isStepLocked;
 
     // --- ЛОГИКА ОГРАНИЧЕНИЯ НАВИГАЦИИ (ВПЕРЕД) ---
-    const maxAllowedStep = WORKFLOW_STAGES[currentStage]?.lastStepIndex ?? 0;
+    // Вычисляем максимально доступный шаг для текущей роли
+    let maxAllowedStep = STEPS_CONFIG.length - 1; // По умолчанию все доступно
+
+    if (user.role === ROLES.TECHNICIAN) {
+        // Для техника ограничено текущим этапом
+        maxAllowedStep = WORKFLOW_STAGES[currentStage]?.lastStepIndex ?? 0;
+    } 
+    // Для Админа и Бригадира - ограничений нет (они видят все шаги)
 
     const canGoToStep = (stepIdx) => {
-        if (user.role === ROLES.ADMIN || user.role === ROLES.CONTROLLER) return true;
-        
         if (stepIdx > maxAllowedStep) {
-            toast.error(`Этап ${currentStage} не завершен. Заполните данные и отправьте на проверку.`);
+            toast.error(`Этап ${currentStage} не завершен. Доступ закрыт до утверждения.`);
             return false;
         }
         return true;
@@ -202,10 +211,16 @@ function ProjectEditorRoute({ user }) {
     };
   
     return (
-      // ВАЖНО: Передаем effectiveReadOnly вместо простого isReadOnly
       <ReadOnlyProvider value={effectiveReadOnly}>
         <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
-            <Sidebar currentStep={currentStep} onStepChange={onStepChange} isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} onBackToDashboard={handleBackToDashboard} />
+            <Sidebar 
+                currentStep={currentStep} 
+                onStepChange={onStepChange} 
+                isOpen={sidebarOpen} 
+                onToggle={() => setSidebarOpen(!sidebarOpen)} 
+                onBackToDashboard={handleBackToDashboard}
+                maxAllowedStep={maxAllowedStep} // Передаем лимит в Sidebar
+            />
             <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
                 
                 <WorkflowBar user={user} currentStep={currentStep} />
@@ -266,17 +281,18 @@ const MainLayout = ({ firebaseUser, activePersona, setActivePersona }) => {
                 </div>
                 
                 <div className="flex items-center gap-4">
-                    <div className="flex bg-slate-100 rounded-full p-1 border border-slate-200">
+                    <div className="flex bg-slate-100 rounded-full p-1 border border-slate-200 overflow-x-auto max-w-[500px] no-scrollbar">
                         {TEST_USERS.map(user => {
                             const isSelected = activePersona.id === user.id;
+                            const displayName = user.name.split(' ')[0]; 
                             return (
                                 <button 
                                     key={user.id} 
                                     onClick={() => setActivePersona(user)} 
-                                    className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all flex items-center gap-1.5 ${isSelected ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+                                    className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${isSelected ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
                                 >
                                     {isSelected && <Shield size={10} className="text-blue-500"/>}
-                                    {user.name.split(' ')[0]}
+                                    {user.name}
                                 </button>
                             );
                         })}
