@@ -8,10 +8,9 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Select, Button, TabButton } from '../ui/UIKit';
-import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
+import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { getBlocksList, calculateProgress, getStageColor } from '../../lib/utils';
 import { Validators } from '../../lib/validators'; 
-// ВАЛИДАЦИЯ
 import { BuildingConfigSchema } from '../../lib/schemas';
 import { useValidation } from '../../hooks/useValidation';
 
@@ -237,14 +236,19 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     // --- ВАЛИДАЦИЯ И ОШИБКИ ---
     const isCommercialValid = Validators.commercialPresence(building, buildingDetails, blocksList, mode);
     const hasElevatorIssue = Validators.elevatorRequirement(isParking, isInfrastructure, details.floorsTo, details.elevators || 0);
-    const hasCriticalErrors = hasElevatorIssue || !isCommercialValid || !isValid; 
+    
+    // Определяем, является ли текущий блок жилым
+    const isResidentialBlock = currentBlock?.type === 'Ж';
+
+    // [FIX] Логика валидации: коммерция проверяется ТОЛЬКО если редактируем жилой блок
+    const hasCriticalErrors = hasElevatorIssue || !isValid || (isResidentialBlock && !isCommercialValid); 
 
     const isFloorFromDisabled = currentBlock?.type === 'Ж' || currentBlock?.type === 'Н';
     const isStylobate = currentBlock?.type === 'Н' && (details.parentBlocks || []).length > 0;
 
     const ErrorBorder = (field) => errors[field] ? 'border-red-500 focus:border-red-500 bg-red-50' : '';
 
-    // [NEW] Функция сохранения
+    // Функция сохранения
     const handleSave = async () => {
         await saveData({}, true); 
     };
@@ -277,7 +281,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                         </div>
                     </div>
                     
-                    {/* [CHANGED] Заменили кнопку Save на Закрыть */}
                     <div className="flex gap-2">
                         <Button variant="secondary" onClick={onBack}>Закрыть</Button>
                     </div>
@@ -354,8 +357,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                     <div className="space-y-6">
                         {isCapitalStructure && (<Card className="p-5 shadow-sm"><SectionTitle icon={Hammer}>Конструктив</SectionTitle><div className="space-y-4"><div className="grid grid-cols-1 gap-3">{['foundation:Фундамент:Монолитная плита,Свайный', 'walls:Стены:Монолитный ж/б,Кирпич,Блок', 'slabs:Перекрытия:Монолитные ж/б,Сборные плиты', 'roof:Крыша:Плоская рулонная,Скатная,Эксплуатируемая'].map(field => { const [key, label, opts] = field.split(':'); return <div key={key} className="space-y-1"><Label>{label}</Label><Select className="text-xs py-1.5" value={details[key]} onChange={(e)=>updateDetail(key, e.target.value)}>{opts.split(',').map(o=><option key={o}>{o}</option>)}</Select></div>; })}</div><div className="pt-4 border-t border-slate-100"><Label>Лифтов</Label><div className="flex items-center gap-3 mt-1"><button onClick={() => updateDetail('elevators', Math.max(0, (details.elevators||0) - 1))} className="w-8 h-8 bg-white rounded border border-slate-200 font-bold hover:bg-slate-100">-</button><span className="font-bold text-lg w-8 text-center">{details.elevators || 0}</span><button onClick={() => updateDetail('elevators', (details.elevators||0) + 1)} className="w-8 h-8 bg-white rounded border border-slate-200 font-bold hover:bg-slate-100">+</button></div></div></div></Card>)}
                         {(!isGroundOpen) && (<Card className="p-6 shadow-sm"><SectionTitle icon={Zap}>Инженерия</SectionTitle><div className="space-y-2 mt-4">{engineeringSystems.map(sys => { if (['gas', 'lowcurrent'].includes(sys.id)) return null; if (isGroundLight && !['electricity', 'firefighting'].includes(sys.id)) return null; const isActive = details.engineering?.[sys.id]; const Icon = sys.icon; return (<button key={sys.id} onClick={() => updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'}`}><div className="flex items-center gap-3"><Icon size={18} /><span className="text-xs font-bold uppercase">{sys.label}</span></div><div className={`w-4 h-4 rounded border flex items-center justify-center ${isActive ? 'bg-white border-transparent' : 'border-slate-300'}`}>{isActive && <div className="w-2 h-2 rounded-full bg-current"/>}</div></button>) })}</div></Card>)}
-                        
-                        {/* [REMOVED] Кнопка сохранения удалена отсюда */}
                     </div>
                 </div>
             ) : isInfrastructure ? (
@@ -374,7 +375,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                  </div>
                                  <div className="pt-4 border-t border-slate-100">
                                     <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-4"><SectionTitle icon={ArrowDownToLine} className="mb-0">Подвал</SectionTitle><button onClick={createBlockBasement} disabled={!canAddBasement} className={`px-2 py-1 rounded text-[10px] font-bold border transition-all ${ canAddBasement ? 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200' : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed opacity-60'}`}>{canAddBasement ? '+ Добавить' : 'Макс. 3'}</button></div>
-                                    {blockBasements.length === 0 ? (<div className="text-center py-4 text-slate-400 text-xs bg-slate-50 rounded-lg border border-dashed border-slate-200">Подвальные помещения отсутствуют</div>) : (<div className="space-y-2">{blockBasements.map((base, idx) => (<div key={base.id} className="p-3 bg-slate-800 rounded-lg border border-slate-700 relative group text-white shadow-inner"><button onClick={() => removeBasement(base.id)} className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 text-slate-400 hover:text-white hover:bg-slate-700 p-0.5 rounded transition-all"><X size={12}/></button><div className="flex gap-3 items-center"><div className="w-8 h-8 flex items-center justify-center bg-slate-700 border border-slate-600 rounded font-bold text-slate-300 text-xs">P-{idx+1}</div><div className="flex flex-col"><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Уровень {idx+1}</span><div className="flex items-center gap-2"><span className="text-[10px] font-medium text-slate-300">Глубина:</span><input type="number" value={-base.depth} onChange={(e) => { let val = parseInt(e.target.value); if (isNaN(val)) val = -1; if (val > 0) val = -val; if (val > -1) val = -1; if (val < -4) val = -4; updateBasement(base.id, 'depth', Math.abs(val)); }} className="w-10 text-center bg-slate-900 border border-slate-600 rounded text-[10px] font-bold text-white outline-none py-0.5"/></div></div></div></div>))}</div>)}
+                                    {blockBasements.length === 0 ? (<div className="text-center py-4 text-slate-400 text-xs bg-slate-50 rounded-lg border border-dashed border-slate-200">Подвальные помещения отсутствуют</div>) : (<div className="space-y-2">{blockBasements.map((base, idx) => (<div key={base.id} className="p-3 bg-slate-800 rounded-lg border border-slate-700 relative group text-white shadow-inner"><button onClick={() => removeBasement(base.id)} className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 text-slate-400 hover:text-white hover:bg-slate-700 p-0.5 rounded transition-all"><X size={12}/></button><div className="flex gap-3 items-center"><div className="w-8 h-8 flex items-center justify-center bg-slate-700 border border-slate-600 rounded font-bold text-slate-300 text-xs">P-{idx+1}</div><div className="flex flex-col"><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Уровень {idx+1}</span><div className="flex items-center gap-2"><span className="text-[10px] font-medium text-slate-300">Глубина:</span><input type="number" value={-base.depth} onChange={(e) => { let val = parseInt(e.target.value); if (isNaN(val)) val = -1; if (val > 0) val = -val; if (val > -1) val = -1; if (val < -4) val = -4; updateBasement(base.id, 'depth', Math.abs(val)); }} className="w-10 text-center bg-slate-900 border border-slate-600 rounded text-sm font-bold text-white outline-none py-0.5"/></div></div></div></div>))}</div>)}
                                  </div>
                              </div>
                         </Card>
@@ -382,12 +383,10 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                     <div className="space-y-6">
                         <Card className="p-5 shadow-sm"><SectionTitle icon={Hammer}>Конструктив</SectionTitle><div className="space-y-4"><div className="grid grid-cols-1 gap-3">{['foundation:Фундамент:Монолитная плита,Свайный', 'walls:Стены:Монолитный ж/б,Кирпич,Блок', 'slabs:Перекрытия:Монолитные ж/б,Сборные плиты', 'roof:Крыша:Плоская рулонная,Скатная'].map(field => { const [key, label, opts] = field.split(':'); return <div key={key} className="space-y-1"><Label>{label}</Label><Select className="text-xs py-1.5" value={details[key]} onChange={(e)=>updateDetail(key, e.target.value)}>{opts.split(',').map(o=><option key={o}>{o}</option>)}</Select></div>; })}</div></div></Card>
                         <Card className="p-6 shadow-sm"><SectionTitle icon={Zap}>Инженерия</SectionTitle><div className="space-y-2 mt-4">{engineeringSystems.map(sys => { const isActive = details.engineering?.[sys.id]; const Icon = sys.icon; return (<button key={sys.id} onClick={() => updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'}`}><div className="flex items-center gap-3"><Icon size={18} /><span className="text-xs font-bold uppercase">{sys.label}</span></div><div className={`w-4 h-4 rounded border flex items-center justify-center ${isActive ? 'bg-white border-transparent' : 'border-slate-300'}`}>{isActive && <div className="w-2 h-2 rounded-full bg-current"/>}</div></button>) })}</div></Card>
-                        
-                        {/* [REMOVED] Кнопка сохранения удалена отсюда */}
                     </div>
                 </div>
             ) : (
-                // --- СТАНДАРТНЫЙ ИНТЕРФЕЙС (ЖИЛЬЕ) ---
+                // --- СТАНДАРТНЫЙ ИНТЕРФЕЙС (ЖИЛЬЕ / НЕЖИЛЫЕ БЛОКИ) ---
                 <>
                     <div className="flex gap-2 p-1 bg-slate-200/50 rounded-xl w-max overflow-x-auto max-w-full mb-6 scrollbar-none">
                         {visibleBlocks.map((block) => (
@@ -455,9 +454,9 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                         <div className="mt-6 p-4 bg-blue-50/50 border border-blue-100 rounded-xl animate-in fade-in slide-in-from-top-2">
                                             <div className="flex items-center gap-2 mb-4"><div className="p-1.5 bg-blue-100 text-blue-600 rounded-lg"><Store size={16}/></div><div><Label className="text-blue-900">Нежилые объекты (Коммерция)</Label><p className="text-[10px] text-blue-500/80 leading-tight">Отметьте этажи с нежилыми помещениями.</p></div></div>
                                             <div className="flex flex-wrap gap-1.5 mb-4">
-                                                {/* Кнопки Подвалов (P-1, P-2...) - используем уникальные ID */}
+                                                {/* Кнопки Подвалов */}
                                                 {blockBasements.map((b, idx) => {
-                                                    const val = `basement_${b.id}`; // Используем уникальный ID подвала
+                                                    const val = `basement_${b.id}`; 
                                                     // @ts-ignore
                                                     const isActive = details.commercialFloors?.includes(val);
                                                     return (
@@ -471,7 +470,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                                     )
                                                 })}
 
-                                                {/* Кнопка Цоколь (если включен) */}
+                                                {/* Кнопка Цоколь */}
                                                 {details.hasBasementFloor && (
                                                     // @ts-ignore
                                                     <button onClick={() => toggleFloorAttribute('commercialFloors', 'tsokol')} className={`px-2 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${details.commercialFloors?.includes('tsokol') ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'}`}>Цоколь</button>
@@ -489,7 +488,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                                     })
                                                 }
 
-                                                {/* Кнопки спецэтажей (если включены) */}
+                                                {/* Кнопки спецэтажей */}
                                                 {details.hasAttic && (
                                                     // @ts-ignore
                                                     <button onClick={() => toggleFloorAttribute('commercialFloors', 'attic')} className={`px-2 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${details.commercialFloors?.includes('attic') ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'}`}>Мансарда</button>
@@ -516,8 +515,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                 <Card className="p-6 shadow-sm"><SectionTitle icon={Zap}>Инженерия</SectionTitle><div className="grid grid-cols-2 gap-2">{engineeringSystems.map(sys => { const Icon = sys.icon; const isActive = details.engineering?.[sys.id]; return (<button key={sys.id} onClick={()=>updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`p-3 rounded-xl border flex items-center gap-3 transition-all duration-200 ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 opacity-60 hover:opacity-100'}`}><Icon size={16} strokeWidth={isActive ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase">{sys.label}</span></button>)})}</div></Card>
                                 
                                 <div className="flex flex-col gap-3">
-                                    {/* [REMOVED] Кнопка сохранения удалена отсюда */}
-                                    {!isCommercialValid && (<div className="text-[10px] text-red-500 bg-red-50 p-2 rounded text-center border border-red-100">Укажите коммерческие этажи хотя бы в одном жилом блоке</div>)}
+                                    {(!isCommercialValid && isResidentialBlock) && (<div className="text-[10px] text-red-500 bg-red-50 p-2 rounded text-center border border-red-100">Укажите коммерческие этажи хотя бы в одном жилом блоке</div>)}
                                     <Button onClick={autoFillConfig} variant="secondary" className="bg-purple-50 text-purple-600 border-purple-100"><Wand2 size={14}/> Авто-заполнение</Button>
                                 </div>
                             </div>
