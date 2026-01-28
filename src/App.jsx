@@ -6,6 +6,8 @@ import { AuthService } from './lib/auth-service';
 import { ToastProvider, useToast } from './context/ToastContext'; 
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { STEPS_CONFIG, ROLES, WORKFLOW_STAGES } from './lib/constants';
+// [NEW] Импорт утилиты
+import { getStepStage } from './lib/workflow-utils';
 
 import { useProjects } from './hooks/useProjects';
 
@@ -202,14 +204,9 @@ function ProjectEditorRoute({ user }) {
         }
     }, [applicationInfo]);
 
-    const getStepStage = (stepIdx) => {
-        for (const [stageNum, config] of Object.entries(WORKFLOW_STAGES)) {
-            if (stepIdx <= config.lastStepIndex) return parseInt(stageNum);
-        }
-        return 4; 
-    };
-
+    // [CHANGED] Используем импортированную утилиту вместо локальной функции
     const stepStage = getStepStage(currentStep);
+    
     const isStepLocked = user.role === ROLES.TECHNICIAN && stepStage < currentStage;
     const effectiveReadOnly = isReadOnly || isStepLocked;
 

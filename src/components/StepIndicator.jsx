@@ -2,6 +2,8 @@ import React, { useRef, useEffect } from 'react';
 import { Check } from 'lucide-react';
 import { STEPS_CONFIG, WORKFLOW_STAGES, APP_STATUS, ROLES } from '../lib/constants';
 import { useProject } from '../context/ProjectContext';
+// [NEW] Импорт утилиты
+import { getStepStage } from '../lib/workflow-utils';
 
 export default function StepIndicator({ currentStep }) {
   const { applicationInfo, userProfile } = useProject();
@@ -16,12 +18,7 @@ export default function StepIndicator({ currentStep }) {
     }
   }, [currentStep]);
 
-  const getStepStage = (stepIdx) => {
-      for (const [stageNum, config] of Object.entries(WORKFLOW_STAGES)) {
-          if (stepIdx <= config.lastStepIndex) return parseInt(stageNum);
-      }
-      return 1;
-  };
+  // [REMOVED] Локальная функция getStepStage удалена
 
   const currentStage = applicationInfo?.currentStage || 1;
   const isProjectCompleted = applicationInfo?.status === APP_STATUS.COMPLETED;

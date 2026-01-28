@@ -5,10 +5,12 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
-import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
+import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 import { MopItemSchema } from '../../lib/schemas';
+// [NEW] Импорт хука типов
+import { useBuildingType } from '../../hooks/useBuildingType';
 
 const MOP_TYPES = [
     'Лестничная клетка', 'Межквартирный коридор', 'Лифтовой холл', 'Тамбур', 'Вестибюль', 
@@ -29,8 +31,13 @@ export default function MopEditor({ buildingId, onBack }) {
     const inputsRef = useRef({});
 
     const building = composition.find(c => c.id === buildingId);
+    
+    // [NEW] Использование хука для определения типа здания
+    const { isUnderground } = useBuildingType(building);
+
     const blocksList = useMemo(() => getBlocksList(building), [building]);
-    const { floorList, currentBlock, isUndergroundParking } = useBuildingFloors(buildingId, activeBlockIndex);
+    // В useBuildingFloors передаем buildingId и индекс
+    const { floorList, currentBlock } = useBuildingFloors(buildingId, activeBlockIndex);
 
     useEffect(() => {
         inputsRef.current = {};
@@ -77,11 +84,12 @@ export default function MopEditor({ buildingId, onBack }) {
 
     if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Данные не найдены</div>;
 
-    const showEditor = (currentBlock.type === 'Ж') || isUndergroundParking;
+    // [CHANGED] Используем флаг isUnderground из хука
+    const showEditor = (currentBlock.type === 'Ж') || isUnderground;
 
     // @ts-ignore
     const blockDetails = buildingDetails[`${building.id}_${currentBlock.id}`] || {};
-    const entrancesCount = isUndergroundParking ? (blockDetails.inputs || 1) : (blockDetails.entrances || 1);
+    const entrancesCount = isUnderground ? (blockDetails.inputs || 1) : (blockDetails.entrances || 1);
     const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
 
     // Helpers
@@ -117,7 +125,6 @@ export default function MopEditor({ buildingId, onBack }) {
 
     const handleKeyDown = (e, fIdx, eIdx, mIdx, field) => {
         if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
-        // Навигация (упрощена)
     };
 
     // --- ВАЛИДАЦИЯ ---
@@ -160,7 +167,7 @@ export default function MopEditor({ buildingId, onBack }) {
                     const newMops = [...existing];
                     
                     let defaultType = 'Лестничная клетка';
-                    if (isUndergroundParking) defaultType = 'Паркинг (зона проезда)';
+                    if (isUnderground) defaultType = 'Паркинг (зона проезда)';
                     else if (f.type === 'basement') defaultType = 'Техническое подполье';
                     // @ts-ignore
                     else if (f.type === 'roof') defaultType = 'Кровля';
@@ -168,8 +175,8 @@ export default function MopEditor({ buildingId, onBack }) {
                     for (let i = 0; i < targetQty; i++) {
                         if (!newMops[i] || !newMops[i].type) {
                             let type = defaultType;
-                            if (!isUndergroundParking && i === 1) type = 'Лифтовой холл';
-                            if (!isUndergroundParking && i === 2) type = 'Межквартирный коридор';
+                            if (!isUnderground && i === 1) type = 'Лифтовой холл';
+                            if (!isUnderground && i === 2) type = 'Межквартирный коридор';
                             
                             newMops[i] = { 
                                 id: newMops[i]?.id || crypto.randomUUID(), 
@@ -242,7 +249,6 @@ export default function MopEditor({ buildingId, onBack }) {
         return <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${style.color}`}>{style.label}</span>
     }
 
-    // [NEW] Функция сохранения
     const handleSave = async () => { 
         const specificData = {};
         Object.keys(mopData).forEach(k => { if (k.startsWith(building.id)) specificData[k] = mopData[k]; });
@@ -276,7 +282,6 @@ export default function MopEditor({ buildingId, onBack }) {
                         <Wand2 size={14}/> Авто-генерация
                     </button>
                     
-                    {/* [CHANGED] Заменили кнопку Готово на Закрыть */}
                     <Button variant="secondary" onClick={onBack}>Закрыть</Button>
                 </div>
             </div>
@@ -303,7 +308,7 @@ export default function MopEditor({ buildingId, onBack }) {
                                     <tr>
                                         <th className="p-4 w-36 min-w-[140px] sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
                                         {entrancesList.map(e => (
-                                            <th key={e} className="p-4 w-[340px] min-w-[340px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">{isUndergroundParking ? `Вход ${e}` : `Подъезд ${e}`}</th>
+                                            <th key={e} className="p-4 w-[340px] min-w-[340px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">{isUnderground ? `Вход ${e}` : `Подъезд ${e}`}</th>
                                         ))}
                                     </tr>
                                 </thead>
@@ -375,7 +380,6 @@ export default function MopEditor({ buildingId, onBack }) {
                 </div>
             )}
 
-            {/* [NEW] НОВАЯ ПАНЕЛЬ СОХРАНЕНИЯ ВНИЗУ */}
             <SaveFloatingBar onSave={handleSave} disabled={!validationState.isValid} />
         </div>
     );

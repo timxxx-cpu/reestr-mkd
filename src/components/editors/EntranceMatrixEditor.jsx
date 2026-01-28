@@ -12,6 +12,7 @@ import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 import { Validators } from '../../lib/validators';
 import { EntranceDataSchema } from '../../lib/schemas';
+import { useBuildingType } from '../../hooks/useBuildingType';
 
 /**
  * @param {{ buildingId: string, onBack: () => void }} props
@@ -28,17 +29,18 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const menuRef = useRef(null);
 
     const building = composition.find(c => c.id === buildingId);
+    
+    const { isUnderground, isParking } = useBuildingType(building);
+
     const blocksList = useMemo(() => getBlocksList(building), [building]);
     
-    const { floorList, currentBlock, isUndergroundParking, isParking } = useBuildingFloors(buildingId, activeBlockIndex);
+    const { floorList, currentBlock } = useBuildingFloors(buildingId, activeBlockIndex);
 
-    // Сброс при смене блока
     useEffect(() => {
         inputsRef.current = {};
         setOpenMenuId(null);
     }, [activeBlockIndex]);
 
-    // Закрытие меню при клике вне
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -59,20 +61,18 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Данные не найдены</div>;
 
     const isResidentialBlock = currentBlock.type === 'Ж';
-    const showEditor = isResidentialBlock || isUndergroundParking;
+    const showEditor = isResidentialBlock || isUnderground;
 
+    // @ts-ignore
     const blockDetails = buildingDetails[`${building.id}_${currentBlock.id}`] || {};
-    const entrancesCount = isUndergroundParking 
+    const entrancesCount = isUnderground 
         ? (blockDetails.inputs || 1) 
         : (blockDetails.entrances || 1);
         
     const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
     
-    // --- ХЕЛПЕРЫ ДАННЫХ ---
-
     const setEntData = (entIdx, floorId, field, val) => {
         let safeVal = val;
-        // Запрет минусов
         if (val !== '' && val !== '-') {
             const num = parseFloat(val);
             if (!isNaN(num) && num < 0) {
@@ -96,42 +96,28 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         setFloorData(p => ({...p, [key]: {...(p[key]||{}), isDuplex: !current}})); 
     };
 
+    // [CHANGED] Используем валидатор вместо локальной функции
     const isFieldEnabled = (floor, field) => {
-        if (field === 'mopQty') return true; 
-        if (isUndergroundParking) return false; 
-        if (field === 'apts') return ['residential', 'mixed', 'basement', 'tsokol', 'attic'].includes(floor.type);
-        if (field === 'units') return floor.isComm;
-        return true;
+        return Validators.checkFieldAvailability(floor, field, isUnderground);
     };
 
-    // --- ВАЛИДАЦИЯ ---
-
     const getCellError = (floor, floorIdx, ent, field, val) => {
-        // 1. Базовая проверка (число, не отрицательное)
         const check = EntranceDataSchema.shape[field].safeParse(val);
         if (val !== '' && !check.success) return true;
 
         const num = parseFloat(val);
         const isZeroOrEmpty = val === '' || num === 0;
 
-        // 2. Правила для Квартир (apts)
         if (field === 'apts') {
             if (isZeroOrEmpty) {
-                // А. Разрешаем 0 для спец. этажей
                 if (['basement', 'tsokol', 'attic'].includes(floor.type)) return false;
-
-                // Б. Разрешаем 0, если этаж НИЖЕ (предыдущий) помечен как дуплекс
-                // (значит текущий этаж — это второй уровень дуплекса)
                 if (floorIdx > 0) {
                      const prevFloor = floorList[floorIdx - 1];
                      const prevKey = `${currentBlock.fullId}_${prevFloor.id}`;
                      const isPrevDuplex = floorData[prevKey]?.isDuplex;
                      if (isPrevDuplex) return false;
                 }
-
-                // В. Разрешаем 0 на смешанном этаже, ЕСЛИ там есть офисы
                 if (floor.type === 'mixed') {
-                    // Проверяем, есть ли хоть один офис на всем этаже
                     let hasAnyOffice = false;
                     for (const e of entrancesList) {
                          const uVal = getEntData(e, floor.id, 'units');
@@ -142,13 +128,10 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                     }
                     if (hasAnyOffice) return false;
                 }
-
-                // Иначе 0 недопустим
                 return true; 
             }
         }
 
-        // 3. Правила для Офисов (units) на смешанном этаже
         if (field === 'units' && floor.type === 'mixed') {
             let totalUnitsOnFloor = 0;
             for (const e of entrancesList) {
@@ -161,7 +144,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         return false;
     };
 
-    // Блокировка сохранения
     const hasCriticalErrors = useMemo(() => {
         for (let i = 0; i < floorList.length; i++) {
             const f = floorList[i];
@@ -231,8 +213,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         }
     };
 
-    // --- ФУНКЦИИ АВТОМАТИЗАЦИИ ---
-
     const handleMenuOpen = (e, floorId) => {
         e.stopPropagation();
         const rect = e.currentTarget.getBoundingClientRect();
@@ -240,28 +220,19 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         setOpenMenuId(openMenuId === floorId ? null : floorId);
     };
 
-    // [NEW] Заполнение колонки вниз (из шапки)
     const fillColumnBelow = (ent, field) => {
         if (floorList.length < 2) return;
-        
-        // Источник - первый этаж (индекс 0)
         const sourceFloor = floorList[0];
         const sourceVal = getEntData(ent, sourceFloor.id, field);
-        
         const updates = {};
-        
-        // Проходим по всем этажам начиная со второго
         for (let i = 1; i < floorList.length; i++) {
             const targetFloor = floorList[i];
-            
-            // Копируем только если поле разрешено на целевом этаже
             if (isFieldEnabled(targetFloor, field)) {
                 const key = `${currentBlock.fullId}_ent${ent}_${targetFloor.id}`;
                 const currentData = entrancesData[key] || {};
                 updates[key] = { ...currentData, [field]: sourceVal };
             }
         }
-        
         if (Object.keys(updates).length > 0) {
             setEntrancesData(prev => ({ ...prev, ...updates }));
         }
@@ -437,10 +408,9 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                     {entrancesList.map(e => (
                                         <th key={e} className="p-2 w-[180px] min-w-[180px] border-r border-slate-200/60 bg-slate-50/50">
                                             <div className="flex flex-col items-center">
-                                                <span className="text-blue-600 mb-1.5 font-bold text-xs bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">{isUndergroundParking ? `Вход ${e}` : `Подъезд ${e}`}</span>
+                                                <span className="text-blue-600 mb-1.5 font-bold text-xs bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">{isUnderground ? `Вход ${e}` : `Подъезд ${e}`}</span>
                                                 <div className="grid grid-cols-3 gap-0.5 w-full text-center">
                                                     
-                                                    {/* [NEW] Интерактивные заголовки колонок */}
                                                     <div 
                                                         className="group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg cursor-pointer hover:bg-slate-100 relative transition-colors"
                                                         onClick={() => fillColumnBelow(e, 'apts')}
@@ -528,7 +498,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                 <td key={e} className={`p-0 w-[180px] min-w-[180px] border-r border-slate-100 h-11 relative group/cell ${isDuplex ? 'bg-purple-50/5' : ''}`}>
                                                     <div className="grid grid-cols-3 h-full divide-x divide-slate-100">
                                                         {['apts', 'units', 'mopQty'].map(field => {
-                                                            const canEdit = field === 'apts' ? canHaveApts : field === 'units' ? canHaveUnits : true;
+                                                            const canEdit = isFieldEnabled(f, field);
                                                             const val = getEntData(e, f.id, field);
                                                             const isInvalid = getCellError(f, idx, e, field, val);
 

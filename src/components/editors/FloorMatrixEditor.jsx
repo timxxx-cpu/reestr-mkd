@@ -11,6 +11,8 @@ import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 import { FloorDataSchema } from '../../lib/schemas';
 import { Validators } from '../../lib/validators';
+// [NEW] Импорт хука типов
+import { useBuildingType } from '../../hooks/useBuildingType';
 
 /**
  * @param {{ buildingId: string, onBack: () => void }} props
@@ -19,7 +21,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     const { composition, floorData, setFloorData, saveBuildingData, saveData } = useProject();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
     
-    // Состояние выделения и меню
     const [selectedRows, setSelectedRows] = useState(new Set());
     const [bulkValue, setBulkValue] = useState('');
     const [openMenuId, setOpenMenuId] = useState(null); 
@@ -27,8 +28,11 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     const inputsRef = useRef({});
 
     const building = composition.find(c => c.id === buildingId);
-    const isParking = building?.category === 'parking_separate';
-    const isExcludedType = isParking && (building.constructionType === 'open' || building.constructionType === 'light');
+    
+    // [NEW] Использование хука
+    const { isGroundOpen, isGroundLight } = useBuildingType(building);
+    // Логика: Внешняя инвентаризация не нужна для открытых или легких паркингов
+    const isExcludedType = isGroundOpen || isGroundLight;
 
     const blocksList = useMemo(() => getBlocksList(building), [building]);
     const { floorList, currentBlock } = useBuildingFloors(buildingId, activeBlockIndex);
@@ -73,7 +77,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         setFloorData(p => ({...p, [key]: { ...(p[key]||{}), [field]: value } })); 
     }, [currentBlock.fullId, setFloorData]);
 
-    // Копирование строки
     const copyRowFromPrev = (idx) => {
         if (idx <= 0) return;
         const prevId = floorList[idx - 1].id;
@@ -96,7 +99,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         setOpenMenuId(null);
     };
 
-    // Заполнение вниз
     const fillRowsBelow = (idx) => {
         const sourceId = floorList[idx].id;
         const sourceKey = `${currentBlock.fullId}_${sourceId}`;
@@ -121,7 +123,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         setOpenMenuId(null);
     };
 
-    // Копирование поля
     const copyFieldFromPrev = (idx, field) => {
         if (idx <= 0) return;
         const prevId = floorList[idx - 1].id;
@@ -150,7 +151,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         setFloorData(p => ({ ...p, ...updates }));
     };
 
-    // Валидация
     const hasCriticalErrors = useMemo(() => {
         for (const f of floorList) {
             const key = `${currentBlock.fullId}_${f.id}`;
@@ -171,12 +171,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         return false;
     }, [floorList, floorData, currentBlock.fullId]);
 
-    // Навигация
     const handleKeyDown = (e, rowIndex, colKey) => {
         if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
-        
-        // Если это не цифры и не управляющие клавиши, не прерываем, 
-        // но здесь мы обрабатываем именно навигацию
         
         const colOrder = ['height', 'areaProj', 'areaFact'];
         let colIndex = colOrder.indexOf(colKey);
@@ -196,7 +192,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         }
     };
 
-    // Выделение
     const toggleRow = (id) => {
         const newSet = new Set(selectedRows);
         if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
@@ -208,7 +203,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         else setSelectedRows(new Set(floorList.map(f => f.id)));
     };
 
-    // Массовые
     const applyBulk = (field) => {
         if (!bulkValue) return;
         const updates = {};
@@ -245,7 +239,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         setFloorData(p => ({...p, ...updates})); 
     };
 
-    // UI Helpers
     // @ts-ignore
     const renderTypeBadge = (type) => {
         const styles = {

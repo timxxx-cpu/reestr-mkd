@@ -109,5 +109,26 @@ export const Validators = {
             return { disabled: true, title: 'Нельзя объединить с техническим этажом' };
         }
         return { disabled: false, title: 'Объединить с этажом выше' };
+    },
+
+    /**
+     * [NEW] Проверка доступности поля ввода (квартиры/офисы) на этаже
+     * @param {Object} floor - Объект этажа из floorList
+     * @param {string} field - Поле ('apts' | 'units' | 'mopQty')
+     * @param {boolean} isUnderground - Флаг подземного сооружения
+     */
+    checkFieldAvailability: (floor, field, isUnderground) => {
+        if (field === 'mopQty') return true; 
+        if (isUnderground) return false; 
+        
+        if (field === 'apts') {
+            return ['residential', 'mixed', 'basement', 'tsokol', 'attic'].includes(floor.type);
+        }
+        
+        if (field === 'units') {
+            return floor.isComm; // Флаг, который проставляет useBuildingFloors
+        }
+        
+        return true;
     }
 };

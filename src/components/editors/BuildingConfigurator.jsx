@@ -13,6 +13,8 @@ import { getBlocksList, calculateProgress, getStageColor } from '../../lib/utils
 import { Validators } from '../../lib/validators'; 
 import { BuildingConfigSchema } from '../../lib/schemas';
 import { useValidation } from '../../hooks/useValidation';
+// [NEW] Импорт нового хука
+import { useBuildingType } from '../../hooks/useBuildingType';
 
 const PARKING_TYPE_LABELS = {
     capital: "Капитальный",
@@ -27,22 +29,18 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     const { composition, buildingDetails, setBuildingDetails, saveData } = useProject();
     
     const building = useMemo(() => composition.find(c => c.id === buildingId), [composition, buildingId]);
+    
+    // [NEW] Использование хука для определения типов
+    const { 
+        isParking, isInfrastructure, isUnderground, 
+        isGroundLight, isGroundOpen, isCapitalStructure 
+    } = useBuildingType(building);
+
     const [activeTabId, setActiveTabId] = useState('photo'); 
     const [photoUrlInput, setPhotoUrlInput] = useState('');
 
     const blocksList = useMemo(() => getBlocksList(building), [building]);
   
-    // --- ОПРЕДЕЛЕНИЕ ТИПА ОБЪЕКТА ---
-    const isParking = building?.category === 'parking_separate';
-    const isInfrastructure = building?.category === 'infrastructure';
-    
-    const isUnderground = isParking && building?.parkingType === 'underground';
-    const constructionType = building?.constructionType || 'capital';
-    const isGroundCapital = isParking && !isUnderground && constructionType === 'capital';
-    const isGroundLight = isParking && !isUnderground && constructionType === 'light';
-    const isGroundOpen = isParking && !isUnderground && constructionType === 'open';
-    const isCapitalStructure = isUnderground || isGroundCapital;
-
     // Доступные блоки (пятно застройки) для подземного паркинга
     const availableParents = useMemo(() => {
         if (!isUnderground) return [];
@@ -80,7 +78,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     /** @type {any} */
     const features = buildingDetails[featuresKey] || { basements: [], exploitableRoofs: [] };
     
-    // [FIX] Явное определение дефолтных значений для гарантии валидности формы при первом открытии
+    // Дефолтные значения
     const defaultDetails = { 
         foundation: 'Монолитная плита', walls: 'Кирпич', slabs: 'Монолитные ж/б', roof: 'Плоская рулонная', 
         floorsFrom: 1, floorsTo: 1, entrances: 1, inputs: 1, vehicleEntries: 1, elevators: 0, 
@@ -95,7 +93,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     };
 
     /** @type {import('../../lib/types').BuildingConfig} */
-    // Сливаем дефолтные значения с сохраненными данными
     const details = { ...defaultDetails, ...(buildingDetails[detailsKey] || {}) };
 
     // ПОДКЛЮЧЕНИЕ ВАЛИДАЦИИ
@@ -107,8 +104,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     /** @type {(updates: any) => void} */
     const updateFeatures = (updates) => setBuildingDetails(prev => ({ ...prev, [featuresKey]: { ...features, ...updates } }));
     
-    const progress = calculateProgress(building.dateStart, building.dateEnd);
-
     // --- РАСЧЕТЫ ДЛЯ СТИЛОБАТА ---
     const stylobateHeightUnderCurrentBlock = useMemo(() => {
         if (currentBlock?.type !== 'Ж') return 0;
@@ -243,11 +238,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     
     const isResidentialBlock = currentBlock?.type === 'Ж';
 
-    // [FIX] Валидация: 
-    // 1. isValid (базовые типы и лимиты из схемы)
-    // 2. hasElevatorIssue (бизнес-логика лифтов)
-    // 3. isCommercialValid (наличие коммерции в ЖК)
-    // Для нежилых блоков игнорируем бизнес-логику жилья (лифты и общую коммерцию ЖК)
     const hasCriticalErrors = isResidentialBlock 
         ? (!isValid || hasElevatorIssue || !isCommercialValid)
         : !isValid;
@@ -257,7 +247,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
 
     const ErrorBorder = (field) => errors[field] ? 'border-red-500 focus:border-red-500 bg-red-50' : '';
 
-    // Функция сохранения
     const handleSave = async () => {
         await saveData({}, true); 
     };
@@ -521,7 +510,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                             </div>
                             <div className="space-y-6">
                                 <Card className="p-6 shadow-sm"><SectionTitle icon={Settings2}>Общие</SectionTitle><div className="space-y-4"><div className="space-y-1"><Label>{currentBlock?.type === 'Ж' ? 'Подъездов' : 'Входов'} (макс. 30)</Label><Input type="number" min="1" max="30" value={details.entrances || 1} onChange={(e) => { let val = parseInt(e.target.value); if (isNaN(val)) val = 1; if (val > 30) val = 30; if (val < 1) val = 1; updateDetail('entrances', val); }} className={ErrorBorder('entrances')}/></div><div className="space-y-1 relative"><Label>Лифтов (на блок)</Label><Input type="number" min="0" value={details.elevators || 0} onChange={(e)=> { let val = parseInt(e.target.value); if (val < 0) val = 0; updateDetail('elevators', val) }} className={hasElevatorIssue ? "border-red-500 focus:border-red-500 bg-red-50" : ""}/>{hasElevatorIssue && <div className="flex items-center gap-1 mt-1 text-[10px] text-red-500 font-bold animate-in fade-in"><AlertCircle size={10} /><span>Лифт обязателен &gt; 5 этажей</span></div>}</div></div></Card>
-                                <Card className="p-6 shadow-sm"><SectionTitle icon={Zap}>Инженерия</SectionTitle><div className="grid grid-cols-2 gap-2">{engineeringSystems.map(sys => { const Icon = sys.icon; const isActive = details.engineering?.[sys.id]; return (<button key={sys.id} onClick={()=>updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`p-3 rounded-xl border flex items-center gap-3 transition-all duration-200 ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 opacity-60 hover:opacity-100'}`}><Icon size={16} strokeWidth={isActive ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase">{sys.label}</span></button>)})}</div></Card>
+                                <Card className="p-6 shadow-sm"><SectionTitle icon={Zap}>Инженерия</SectionTitle><div className="grid grid-cols-2 gap-2">{engineeringSystems.map(sys => { const isActive = details.engineering?.[sys.id]; const Icon = sys.icon; return (<button key={sys.id} onClick={()=>updateDetail('engineering', {...details.engineering, [sys.id]: !isActive})} className={`p-3 rounded-xl border flex items-center gap-3 transition-all duration-200 ${isActive ? sys.color + ' shadow-sm' : 'bg-white border-slate-100 text-slate-400 opacity-60 hover:opacity-100'}`}><Icon size={16} strokeWidth={isActive ? 2.5 : 2} /><span className="text-[10px] font-bold uppercase">{sys.label}</span></button>)})}</div></Card>
                                 
                                 <div className="flex flex-col gap-3">
                                     {(isResidentialBlock && !isCommercialValid) && (<div className="text-[10px] text-red-500 bg-red-50 p-2 rounded text-center border border-red-100">Укажите коммерческие этажи хотя бы в одном жилом блоке</div>)}

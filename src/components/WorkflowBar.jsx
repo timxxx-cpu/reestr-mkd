@@ -5,7 +5,9 @@ import { useProject } from '../context/ProjectContext';
 import { APP_STATUS, ROLES, WORKFLOW_STAGES, STEPS_CONFIG } from '../lib/constants'; 
 import { Button } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
-import HistoryModal from './HistoryModal'; // Импорт нового компонента
+import HistoryModal from './HistoryModal';
+// [NEW] Импорт утилиты
+import { getStepStage } from '../lib/workflow-utils';
 
 // Компонент блокирующего окна сохранения
 const SavingOverlay = () => (
@@ -26,7 +28,7 @@ export default function WorkflowBar({ user, currentStep }) {
   const navigate = useNavigate();
   
   const [isSavingStep, setIsSavingStep] = useState(false);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false); // Состояние модалки истории
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   if (!applicationInfo) return null;
 
@@ -47,12 +49,8 @@ export default function WorkflowBar({ user, currentStep }) {
   const totalStages = Object.keys(WORKFLOW_STAGES).length;
   const isFinalStage = currentStage === totalStages;
 
-  const getStepStage = (stepIdx) => {
-      for (const [stageNum, config] of Object.entries(WORKFLOW_STAGES)) {
-          if (stepIdx <= config.lastStepIndex) return parseInt(stageNum);
-      }
-      return 1;
-  };
+  // [REMOVED] Локальная функция getStepStage удалена
+
   const stepStage = getStepStage(currentStep);
   const isStepInCurrentStage = stepStage === currentStage;
 

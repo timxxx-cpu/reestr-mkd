@@ -2,20 +2,17 @@ import React from 'react';
 import { CheckCircle2, Lock, ChevronRight, LayoutDashboard, PieChart, Sun, Moon } from 'lucide-react';
 import { STEPS_CONFIG, WORKFLOW_STAGES, APP_STATUS, ROLES } from '../lib/constants';
 import { useProject } from '../context/ProjectContext';
-import { useTheme } from '../context/ThemeContext'; // [NEW] Импорт темы
+import { useTheme } from '../context/ThemeContext';
+// [NEW] Импорт утилиты
+import { getStepStage } from '../lib/workflow-utils';
 
 export default function Sidebar({ 
     currentStep, onStepChange, isOpen, onToggle, onBackToDashboard, maxAllowedStep 
 }) {
   const { complexInfo, applicationInfo, userProfile } = useProject();
-  const { theme, setTheme } = useTheme(); // [NEW] Хук темы
+  const { theme, setTheme } = useTheme();
   
-  const getStepStage = (stepIdx) => {
-      for (const [stageNum, config] of Object.entries(WORKFLOW_STAGES)) {
-          if (stepIdx <= config.lastStepIndex) return parseInt(stageNum);
-      }
-      return 1;
-  };
+  // [REMOVED] Локальная функция getStepStage удалена, используется импортированная
 
   const currentStage = applicationInfo?.currentStage || 1;
   const isProjectCompleted = applicationInfo?.status === APP_STATUS.COMPLETED;
