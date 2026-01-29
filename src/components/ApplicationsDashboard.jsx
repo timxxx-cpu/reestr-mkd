@@ -3,10 +3,10 @@ import {
   Inbox, Briefcase, Search, Filter, RefreshCw, 
   MapPin, Calendar, ArrowRight, Building, User,
   FileText, CheckCircle2, Clock, AlertCircle, Hash, Zap, Database, Trash2, Lock, 
-  ListTodo, ShieldCheck, HardHat, Archive // Добавлены иконки
+  ListTodo, ShieldCheck, HardHat, Archive, Eye, PlayCircle // [NEW] Icons
 } from 'lucide-react';
 import { RegistryService } from '../lib/registry-service';
-import { ROLES, APP_STATUS, EXTERNAL_SYSTEMS, APP_STATUS_LABELS } from '../lib/constants';
+import { ROLES, APP_STATUS, EXTERNAL_SYSTEMS, APP_STATUS_LABELS, STEPS_CONFIG } from '../lib/constants';
 import { Button, Input, Badge, Card, SectionTitle } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
 import { getStageColor } from '../lib/utils';
@@ -139,15 +139,12 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
 
     // --- ФИЛЬТРЫ ---
 
-    // 1. ЛОГИКА "МОИ ЗАДАЧИ"
     const myTasks = useMemo(() => {
         let filtered = projects;
 
         if (taskFilter === 'work') {
-            // В РАБОТЕ: New, Draft, Rejected (видят все техники и админы)
             filtered = filtered.filter(p => [APP_STATUS.NEW, APP_STATUS.DRAFT, APP_STATUS.REJECTED].includes(p.applicationInfo?.status));
         } else {
-            // НА ПРОВЕРКЕ: Review
             filtered = filtered.filter(p => p.applicationInfo?.status === APP_STATUS.REVIEW);
         }
 
@@ -163,7 +160,6 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
         return filtered.sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime());
     }, [projects, user, searchTerm, taskFilter]);
 
-    // Подсчет количества для табов
     const counts = useMemo(() => {
         const workCount = projects.filter(p => 
             [APP_STATUS.NEW, APP_STATUS.DRAFT, APP_STATUS.REJECTED].includes(p.applicationInfo?.status)
@@ -176,7 +172,6 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
         return { work: workCount, review: reviewCount };
     }, [projects]);
 
-    // 2. Все проекты (Реестр)
     const allProjects = useMemo(() => {
         let filtered = projects;
         if (searchTerm) {
@@ -191,7 +186,6 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
     const canSeeReviewTab = user.role === ROLES.CONTROLLER || user.role === ROLES.ADMIN;
 
     return (
-        // ИЗМЕНЕНО: w-full для растягивания
         <div className="w-full px-6 py-8 animate-in fade-in duration-500">
             
             {/* Header */}
@@ -239,7 +233,7 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                 </div>
             </div>
 
-            {/* НОВЫЙ БЛОК: Метрики (показываем всегда или только в реестре/задачах) */}
+            {/* Метрики */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 <MetricCard label="Всего объектов" value={stats.total} icon={Building} color="text-slate-600" />
                 <MetricCard label="В работе" value={stats.inProgress} icon={HardHat} color="text-blue-600" />
@@ -275,7 +269,6 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                         ) : (
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left text-sm border-collapse">
-                                    {/* sticky top-0 позволяет заголовку прилипать */}
                                     <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10 shadow-sm">
                                         <tr>
                                             <th className="px-6 py-4">Источник</th>
@@ -432,16 +425,16 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
 const ProjectsTable = ({ projects, onSelectProject, onDeleteProject = undefined }) => (
     <div className="overflow-x-auto">
         <table className="w-full text-left text-sm border-collapse">
-            {/* top-[64px] нужен, чтобы не перекрывать основной хедер приложения, который тоже sticky */}
             <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10 shadow-sm">
                 <tr>
                     <th className="px-6 py-4 w-32">Статус</th>
+                    <th className="px-6 py-4 w-40">Текущая задача</th> 
                     <th className="px-6 py-4 w-32">Вн. Номер</th>
                     <th className="px-6 py-4">Объект / Адрес</th>
                     <th className="px-6 py-4">Заявитель</th>
                     <th className="px-6 py-4 w-40">Обновлено</th>
                     <th className="px-6 py-4 w-48">Исполнитель</th>
-                    <th className="px-6 py-4 w-20"></th>
+                    <th className="px-6 py-4 w-28 text-right">Действия</th> {/* Увеличили ширину и переименовали */}
                 </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -450,30 +443,42 @@ const ProjectsTable = ({ projects, onSelectProject, onDeleteProject = undefined 
                     const statusConfig = APP_STATUS_LABELS[appInfo.status] || { label: project.status, color: getStageColor(project.status) };
                     
                     const canDelete = !!onDeleteProject;
+                    
+                    const currentStepIdx = appInfo.currentStepIndex || 0;
+                    const isCompleted = appInfo.status === APP_STATUS.COMPLETED;
+                    const stepTitle = STEPS_CONFIG[currentStepIdx]?.title || 'Завершено';
 
                     return (
                         <tr 
                             key={project.id} 
-                            onClick={() => onSelectProject(project.id)}
-                            className="hover:bg-indigo-50/30 cursor-pointer transition-colors group"
+                            // Убираем глобальный onClick, чтобы действия были только по кнопкам
+                            className="hover:bg-indigo-50/30 transition-colors group"
                         >
                             <td className="px-6 py-4">
                                 <div className="flex flex-col gap-1 items-start">
                                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${statusConfig.color}`}>
                                         {statusConfig.label}
                                     </span>
-                                    {appInfo.currentStage && (
-                                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide px-1">
-                                            Этап {appInfo.currentStage}
-                                        </span>
-                                    )}
                                 </div>
                             </td>
+                            <td className="px-6 py-4">
+                                {isCompleted ? (
+                                    <span className="text-xs font-bold text-emerald-600 flex items-center gap-1">
+                                        <CheckCircle2 size={12}/> Все выполнено
+                                    </span>
+                                ) : (
+                                    <div className="flex flex-col">
+                                       <span className="text-xs font-bold text-slate-700">{stepTitle}</span>
+                                       <span className="text-[10px] text-slate-400">Шаг {currentStepIdx + 1} из {STEPS_CONFIG.length}</span>
+                                    </div>
+                                )}
+                            </td>
+                            
                             <td className="px-6 py-4 font-mono text-xs text-slate-500">
                                 {appInfo.internalNumber || '—'}
                             </td>
                             <td className="px-6 py-4">
-                                <div className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{project.name}</div>
+                                <div className="font-bold text-slate-800">{project.name}</div>
                                 <div className="flex items-center gap-1 text-xs text-slate-500 mt-1">
                                     <MapPin size={12}/>
                                     <span className="truncate max-w-xs">{project.complexInfo?.street || 'Адрес не указан'}</span>
@@ -495,21 +500,48 @@ const ProjectsTable = ({ projects, onSelectProject, onDeleteProject = undefined 
                                     </div>
                                 ) : <span className="text-slate-300 text-xs">—</span>}
                             </td>
+                            
+                            {/* [NEW] КОЛОНКА ДЕЙСТВИЙ */}
                             <td className="px-6 py-4 text-right">
                                 <div className="flex items-center justify-end gap-2">
+                                    {/* Кнопка ПРОСМОТР */}
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onSelectProject(project.id, 'view');
+                                        }}
+                                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100"
+                                        title="Открыть на просмотр"
+                                    >
+                                        <Eye size={18}/>
+                                    </button>
+
+                                    {/* Кнопка ЗАДАЧА (только если не завершено) */}
+                                    {!isCompleted && (
+                                        <button 
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onSelectProject(project.id, 'edit');
+                                            }}
+                                            className="p-2 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors border border-transparent hover:border-indigo-100"
+                                            title="Взять задачу"
+                                        >
+                                            <PlayCircle size={18}/>
+                                        </button>
+                                    )}
+                                    
                                     {canDelete && (
                                         <button 
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 onDeleteProject(project.id);
                                             }}
-                                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors z-10 relative"
+                                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors z-10 relative border border-transparent hover:border-red-100"
                                             title="Удалить проект"
                                         >
-                                            <Trash2 size={16}/>
+                                            <Trash2 size={18}/>
                                         </button>
                                     )}
-                                    <ArrowRight size={16} className={`text-indigo-400 transition-opacity ${canDelete ? 'hidden group-hover:block' : 'opacity-0 group-hover:opacity-100'}`}/>
                                 </div>
                             </td>
                         </tr>

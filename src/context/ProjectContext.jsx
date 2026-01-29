@@ -3,7 +3,7 @@ import { useToast } from './ToastContext';
 import { RegistryService } from '../lib/registry-service';
 import { useProjectData } from '../hooks/useProjectData';
 import { ROLES, APP_STATUS, WORKFLOW_STAGES, STEPS_CONFIG } from '../lib/constants';
-import { Skeleton } from '../components/ui/Skeleton'; // [NEW] Импорт скелетона
+import { Skeleton } from '../components/ui/Skeleton';
 
 const ProjectContext = createContext(null);
 
@@ -15,12 +15,20 @@ export const useProject = () => {
     return context;
 };
 
-// Эти данные не сохраняются автоматически при вводе, а ждут нажатия кнопки "Сохранить"
 const HEAVY_KEYS = [
     'floorData', 'entrancesData', 'mopData', 'flatMatrix', 
     'parkingPlaces', 'commonAreasData', 'apartmentsData', 'parkingData',
     'complexInfo', 'participants', 'cadastre', 'documents', 'buildingDetails', 'composition'
 ];
+
+// Хелпер для создания записи истории
+const createHistoryEntry = (user, action, comment) => ({
+    date: new Date().toISOString(),
+    user: user.name || 'Unknown',
+    role: user.role || 'system',
+    action,
+    comment
+});
 
 export const ProjectProvider = ({ children, projectId, user, customScope, userProfile }) => {
   const toast = useToast();
@@ -61,6 +69,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     const defaultAppInfo = {
         status: APP_STATUS.DRAFT,
         currentStage: 1,
+        currentStepIndex: 0,
         verifiedSteps: [],
         completedSteps: [],
         rejectionReason: null,
@@ -120,76 +129,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
   // --- МЕТОДЫ ---
 
-  const setStepCompleted = useCallback(async (stepIndex, isCompleted) => {
-      // @ts-ignore
-      const currentList = mergedState.applicationInfo.completedSteps || [];
-      let newList = [];
-      if (isCompleted) {
-          if (!currentList.includes(stepIndex)) newList = [...currentList, stepIndex]; else return;
-      } else {
-          newList = currentList.filter(i => i !== stepIndex);
-      }
-      // @ts-ignore
-      const newAppInfo = { ...mergedState.applicationInfo, completedSteps: newList };
-      setProjectMeta(prev => ({ ...prev, applicationInfo: newAppInfo }));
-      await RegistryService.saveData(dbScope, projectId, { applicationInfo: newAppInfo });
-  }, [dbScope, projectId, mergedState.applicationInfo]);
-
-  const setStepVerified = useCallback(async (stepIndex, isVerified) => {
-      // @ts-ignore
-      const currentList = mergedState.applicationInfo.verifiedSteps || [];
-      let newList = [];
-      if (isVerified) {
-          if (!currentList.includes(stepIndex)) newList = [...currentList, stepIndex]; else return;
-      } else {
-          newList = currentList.filter(i => i !== stepIndex);
-      }
-      // @ts-ignore
-      const newAppInfo = { ...mergedState.applicationInfo, verifiedSteps: newList };
-      setProjectMeta(prev => ({ ...prev, applicationInfo: newAppInfo }));
-      await RegistryService.saveData(dbScope, projectId, { applicationInfo: newAppInfo });
-  }, [dbScope, projectId, mergedState.applicationInfo]);
-
-  const updateStatus = useCallback(async (newStatus, newStage = null, comment = null) => {
-      // @ts-ignore
-      const currentAppInfo = mergedState.applicationInfo;
-      const currentStageNum = currentAppInfo.currentStage;
-
-      const historyEntry = {
-          date: new Date().toISOString(),
-          user: userProfile?.name || 'Система',
-          role: userProfile?.role || 'system',
-          action: newStatus,
-          prevStatus: currentAppInfo.status,
-          comment: comment || ''
-      };
-
-      const updatedAppInfo = {
-          ...currentAppInfo,
-          status: newStatus,
-          history: [historyEntry, ...(currentAppInfo.history || [])],
-          ...(newStage && { currentStage: newStage }),
-          rejectionReason: newStatus === APP_STATUS.REJECTED ? comment : null 
-      };
-
-      if (newStatus === APP_STATUS.REJECTED) {
-          const currentStageConfig = WORKFLOW_STAGES[currentStageNum];
-          const prevStageConfig = WORKFLOW_STAGES[currentStageNum - 1];
-          
-          const startStepIndex = prevStageConfig ? prevStageConfig.lastStepIndex + 1 : 0;
-          const endStepIndex = currentStageConfig ? currentStageConfig.lastStepIndex : STEPS_CONFIG.length - 1;
-
-          const stepsInStage = [];
-          for (let i = startStepIndex; i <= endStepIndex; i++) stepsInStage.push(i);
-
-          updatedAppInfo.completedSteps = (currentAppInfo.completedSteps || []).filter(s => !stepsInStage.includes(s));
-          updatedAppInfo.verifiedSteps = (currentAppInfo.verifiedSteps || []).filter(s => !stepsInStage.includes(s));
-      }
-
-      setProjectMeta(prev => ({ ...prev, applicationInfo: updatedAppInfo }));
-      await RegistryService.saveData(dbScope, projectId, { applicationInfo: updatedAppInfo });
-  }, [dbScope, projectId, mergedState.applicationInfo, userProfile]);
-
   const saveData = useCallback((updates = {}, showNotification = false, bypassReadOnly = false) => {
     if (!dbScope || !projectId) return;
     if (isReadOnly && !bypassReadOnly) {
@@ -202,19 +141,16 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     const safeUpdates = { ...updates };
     HEAVY_KEYS.forEach(k => delete safeUpdates[k]);
     
-    // Сливаем переданные обновления с уже накопленными
     pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...safeUpdates };
 
-    // Если нечего сохранять (пустой вызов и пустая очередь), выходим
     if (Object.keys(pendingUpdatesRef.current).length === 0 && !showNotification) return;
 
     setIsSyncing(true);
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     
     saveTimeoutRef.current = setTimeout(async () => {
-      // Забираем всё из очереди
       const payload = { ...pendingUpdatesRef.current };
-      pendingUpdatesRef.current = {}; // Очищаем очередь
+      pendingUpdatesRef.current = {}; 
 
       try {
         if (Object.keys(payload).length > 0) {
@@ -241,18 +177,96 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       const payload = { ...pendingUpdatesRef.current };
       pendingUpdatesRef.current = {}; 
       
-      if (Object.keys(payload).length > 0) {
-          setIsSyncing(true);
-          try {
+      setIsSyncing(true);
+      try {
+          if (Object.keys(payload).length > 0) {
               await RegistryService.saveData(dbScope, projectId, payload);
-          } catch(e) {
-              console.error("Force Save Error", e);
-              throw e;
-          } finally {
-              setIsSyncing(false);
           }
+      } catch(e) {
+          console.error("Force Save Error", e);
+          throw e;
+      } finally {
+          setIsSyncing(false);
+          setHasUnsavedChanges(false);
       }
   }, [dbScope, projectId]);
+
+  // [UPDATED] Завершение задачи с записью в историю
+  const completeTask = useCallback(async (currentIndex) => {
+      await saveProjectImmediate();
+
+      // @ts-ignore
+      const currentAppInfo = mergedState.applicationInfo;
+      const nextStepIndex = currentIndex + 1;
+      
+      const newCompleted = [...(currentAppInfo.completedSteps || [])];
+      if (!newCompleted.includes(currentIndex)) {
+          newCompleted.push(currentIndex);
+      }
+
+      // Создаем запись в истории
+      const historyItem = createHistoryEntry(
+          userProfile, 
+          'Завершение задачи', 
+          `Шаг "${STEPS_CONFIG[currentIndex]?.title}" выполнен.`
+      );
+      const newHistory = [historyItem, ...(currentAppInfo.history || [])];
+
+      const isFinished = nextStepIndex >= STEPS_CONFIG.length;
+      const newStatus = isFinished ? APP_STATUS.COMPLETED : currentAppInfo.status;
+
+      const updates = {
+          applicationInfo: {
+              ...currentAppInfo,
+              completedSteps: newCompleted,
+              currentStepIndex: nextStepIndex,
+              status: newStatus,
+              history: newHistory
+          }
+      };
+
+      setProjectMeta(prev => ({ ...prev, ...updates }));
+      await RegistryService.saveData(dbScope, projectId, updates);
+      
+      return nextStepIndex;
+  }, [dbScope, projectId, mergedState, saveProjectImmediate, userProfile]);
+
+  // [UPDATED] Откат задачи с записью в историю
+  const rollbackTask = useCallback(async () => {
+      await saveProjectImmediate();
+
+      // @ts-ignore
+      const currentAppInfo = mergedState.applicationInfo;
+      const currentIndex = currentAppInfo.currentStepIndex || 0;
+
+      if (currentIndex <= 0) return 0;
+
+      const prevIndex = currentIndex - 1;
+      const newCompleted = (currentAppInfo.completedSteps || []).filter(s => s < prevIndex);
+
+      // Создаем запись в истории
+      const historyItem = createHistoryEntry(
+          userProfile, 
+          'Возврат задачи', 
+          `Возврат с шага "${STEPS_CONFIG[currentIndex]?.title}" на "${STEPS_CONFIG[prevIndex]?.title}".`
+      );
+      const newHistory = [historyItem, ...(currentAppInfo.history || [])];
+
+      const updates = {
+          applicationInfo: {
+              ...currentAppInfo,
+              completedSteps: newCompleted,
+              currentStepIndex: prevIndex,
+              status: currentAppInfo.status === APP_STATUS.COMPLETED ? APP_STATUS.DRAFT : currentAppInfo.status,
+              history: newHistory
+          }
+      };
+
+      setProjectMeta(prev => ({ ...prev, ...updates }));
+      await RegistryService.saveData(dbScope, projectId, updates);
+
+      return prevIndex;
+  }, [dbScope, projectId, mergedState, saveProjectImmediate, userProfile]);
 
   const saveBuildingData = useCallback(async (buildingId, dataKey, dataVal) => {
       if (isReadOnly) { toast.error("Редактирование запрещено"); return; }
@@ -281,6 +295,8 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       } catch (e) { toast.error("Ошибка удаления"); }
   }, [dbScope, projectId, mergedState, toast, isReadOnly]);
 
+  const updateStatus = useCallback(async (newStatus, newStage = null, comment = null) => { /* Legacy */ }, []);
+
   const createSetter = (key) => (value) => {
       if (isReadOnly) return; 
       const newValue = typeof value === 'function' ? value(mergedState[key]) : value;
@@ -288,7 +304,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       
       if (HEAVY_KEYS.includes(key)) {
           setHasUnsavedChanges(true);
-          // [FIX] Добавляем данные в очередь, но НЕ вызываем saveData (таймер не стартует)
           pendingUpdatesRef.current = { ...pendingUpdatesRef.current, [key]: newValue };
       } else {
           saveData({ [key]: newValue });
@@ -303,9 +318,12 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     hasUnsavedChanges,
     setHasUnsavedChanges,
 
-    setStepVerified,
-    setStepCompleted,
-    updateStatus,
+    completeTask,
+    rollbackTask,
+    saveProjectImmediate,
+    saveData,
+    saveBuildingData, 
+    deleteProjectBuilding, 
     
     setComplexInfo: createSetter('complexInfo'),
     setParticipants: createSetter('participants'),
@@ -321,50 +339,28 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     setFlatMatrix: createSetter('flatMatrix'),
     setParkingPlaces: createSetter('parkingPlaces'),
 
-    saveData,
-    saveProjectImmediate, 
-    saveBuildingData, 
-    deleteProjectBuilding, 
+    updateStatus, 
     isSyncing
   };
 
-  // [NEW] КРАСИВЫЙ СКЕЛЕТОН ЗАГРУЗКИ ВМЕСТО ПРОСТОГО ТЕКСТА
   if (isLoading && Object.keys(projectMeta).length === 0) {
       return (
           <div className="flex h-screen w-full bg-slate-50 dark:bg-slate-900">
-              {/* Sidebar Skeleton */}
               <div className="w-20 border-r border-border bg-card h-full flex flex-col items-center py-6 gap-6">
                   <Skeleton className="w-10 h-10 rounded-xl" />
                   <div className="flex flex-col gap-4 mt-4">
-                      {[1, 2, 3, 4, 5].map(i => (
-                          <Skeleton key={i} className="w-10 h-10 rounded-xl" />
-                      ))}
+                      {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="w-10 h-10 rounded-xl" />)}
                   </div>
               </div>
-
-              {/* Content Skeleton */}
               <div className="flex-1 flex flex-col">
-                  {/* Header Skeleton */}
                   <div className="h-16 border-b border-border bg-card px-8 flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                          <Skeleton className="w-8 h-8 rounded-full" />
-                          <div className="space-y-2">
-                              <Skeleton className="h-4 w-48" />
-                          </div>
-                      </div>
+                      <div className="flex items-center gap-4"><Skeleton className="w-8 h-8 rounded-full" /><Skeleton className="h-4 w-48" /></div>
                       <Skeleton className="h-9 w-32 rounded-lg" />
                   </div>
-
-                  {/* Body Skeleton */}
                   <div className="p-8 space-y-6">
-                      <div className="flex justify-between items-center">
-                          <Skeleton className="h-8 w-64" />
-                          <Skeleton className="h-10 w-32" />
-                      </div>
+                      <div className="flex justify-between items-center"><Skeleton className="h-8 w-64" /><Skeleton className="h-10 w-32" /></div>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                          <Skeleton className="h-32 w-full rounded-2xl" />
-                          <Skeleton className="h-32 w-full rounded-2xl" />
-                          <Skeleton className="h-32 w-full rounded-2xl" />
+                          <Skeleton className="h-32 w-full rounded-2xl" /><Skeleton className="h-32 w-full rounded-2xl" /><Skeleton className="h-32 w-full rounded-2xl" />
                       </div>
                       <Skeleton className="h-[400px] w-full rounded-2xl" />
                   </div>

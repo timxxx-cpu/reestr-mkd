@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef, useContext, createContext } from 'react';
-import { Loader2, User, FolderOpen, KeyRound, LogOut, Shield, Users, X, Settings } from 'lucide-react';
-import { Routes, Route, useNavigate, useParams, Navigate } from 'react-router-dom';
+import { Loader2, User, FolderOpen, KeyRound, LogOut, Shield, Users, X, Settings, Eye } from 'lucide-react';
+import { Routes, Route, useNavigate, useParams, Navigate, useSearchParams } from 'react-router-dom';
 
 import { AuthService } from './lib/auth-service';
 import { ToastProvider, useToast } from './context/ToastContext'; 
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { STEPS_CONFIG, ROLES, WORKFLOW_STAGES } from './lib/constants';
-// [NEW] Импорт утилиты
 import { getStepStage } from './lib/workflow-utils';
 
 import { useProjects } from './hooks/useProjects';
@@ -182,73 +181,59 @@ function ProjectEditorRoute({ user }) {
     const [currentStep, setCurrentStep] = useState(0);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [editingBuildingId, setEditingBuildingId] = useState(null);
-    const { complexInfo, composition, saveData, isReadOnly, applicationInfo, hasUnsavedChanges, setHasUnsavedChanges } = useProject();
+    const { 
+        complexInfo, 
+        composition, 
+        isReadOnly, 
+        applicationInfo, 
+        hasUnsavedChanges, 
+        setHasUnsavedChanges 
+    } = useProject();
+    
+    const [searchParams] = useSearchParams();
+    const isViewMode = searchParams.get('mode') === 'view';
+    
     const toast = useToast();
     const initialRedirectDone = useRef(false);
   
-    const currentStage = applicationInfo?.currentStage || 1;
-    
+    // 1. Инициализация: Переход на актуальный шаг задачи
     useEffect(() => {
-        if (applicationInfo?.currentStage && !initialRedirectDone.current) {
-            const stage = applicationInfo.currentStage;
-            if (stage > 1) {
-                const prevStageConfig = WORKFLOW_STAGES[stage - 1];
-                if (prevStageConfig) {
-                    const startStep = prevStageConfig.lastStepIndex + 1;
-                    if (startStep < STEPS_CONFIG.length) {
-                        setCurrentStep(startStep);
-                    }
-                }
-            }
+        // Если режим просмотра - не редиректим принудительно
+        if (!isViewMode && applicationInfo?.currentStepIndex !== undefined && !initialRedirectDone.current) {
+            const targetStep = applicationInfo.currentStepIndex;
+            // Если индекс выходит за границы (проект завершен), ставим последний доступный
+            const safeStep = Math.min(targetStep, STEPS_CONFIG.length - 1);
+            setCurrentStep(safeStep);
             initialRedirectDone.current = true;
         }
-    }, [applicationInfo]);
+    }, [applicationInfo, isViewMode]);
 
-    // [CHANGED] Используем импортированную утилиту вместо локальной функции
-    const stepStage = getStepStage(currentStep);
+    // 2. Логика блокировки "чужих" шагов
+    const isTechnician = user.role === ROLES.TECHNICIAN;
+    const taskIndex = applicationInfo?.currentStepIndex || 0;
+    const isCurrentTask = currentStep === taskIndex;
     
-    const isStepLocked = user.role === ROLES.TECHNICIAN && stepStage < currentStage;
-    const effectiveReadOnly = isReadOnly || isStepLocked;
+    // Блокируем, если глобальный ReadOnly или если техник ушел со своей задачи, ИЛИ включен режим просмотра
+    const effectiveReadOnly = isReadOnly || isViewMode || (isTechnician && !isCurrentTask);
 
-    let maxAllowedStep = STEPS_CONFIG.length - 1; 
-
-    if (user.role === ROLES.TECHNICIAN) {
-        maxAllowedStep = WORKFLOW_STAGES[currentStage]?.lastStepIndex ?? 0;
-    } 
+    // Максимально доступный шаг для навигации
+    // В режиме просмотра доступны ВСЕ шаги. В режиме задачи - только до текущего.
+    const maxAllowedStep = isViewMode ? STEPS_CONFIG.length - 1 : (isTechnician ? taskIndex : STEPS_CONFIG.length - 1);
 
     const canGoToStep = (stepIdx) => {
         if (stepIdx > maxAllowedStep) {
-            toast.error(`Этап ${currentStage} не завершен. Доступ закрыт до утверждения.`);
+            toast.error(`Этот шаг еще не доступен. Завершите текущую задачу.`);
             return false;
         }
         return true;
     };
 
-    const handleNext = () => { 
-        const nextStep = currentStep + 1;
-        if (nextStep >= STEPS_CONFIG.length) return;
-
-        // ПРОВЕРКА СОХРАНЕНИЯ
+    const handleBackToDashboard = () => { 
         if (hasUnsavedChanges) {
-            if (!window.confirm("Есть несохраненные изменения! При переходе они пропадут. Продолжить?")) return;
+            if (!window.confirm("Есть несохраненные изменения! Выйти без сохранения?")) return;
             setHasUnsavedChanges(false);
         }
-
-        if (canGoToStep(nextStep)) {
-            setEditingBuildingId(null); 
-            // saveData(); // Убрали авто-сохранение легких данных при переходе, чтобы не путать
-            setCurrentStep(nextStep);
-        }
-    };
-
-    const handlePrev = () => { 
-        if (hasUnsavedChanges) {
-            if (!window.confirm("Есть несохраненные изменения! При переходе они пропадут. Продолжить?")) return;
-            setHasUnsavedChanges(false);
-        }
-
-        setEditingBuildingId(null); 
-        setCurrentStep(prev => Math.max(prev - 1, 0)); 
+        navigate('/'); 
     };
 
     const onStepChange = (idx) => { 
@@ -261,14 +246,6 @@ function ProjectEditorRoute({ user }) {
             setEditingBuildingId(null); 
             setCurrentStep(idx);
         }
-    };
-
-    const handleBackToDashboard = () => { 
-        if (hasUnsavedChanges) {
-            if (!window.confirm("Есть несохраненные изменения! Выйти без сохранения?")) return;
-            setHasUnsavedChanges(false);
-        }
-        navigate('/'); 
     };
   
     const stepConfig = STEPS_CONFIG?.[currentStep];
@@ -286,7 +263,7 @@ function ProjectEditorRoute({ user }) {
       switch (stepId) {
         case 'passport': return <PassportEditor />;
         case 'composition': return <CompositionEditor />;
-        case 'parking_config': return <ParkingConfigurator onSave={handleNext} buildingId={null} />;
+        case 'parking_config': return <ParkingConfigurator buildingId={null} />; // Кнопка onSave убрана, т.к. есть WorkflowBar
         
         case 'registry_apartments': return <UnitRegistry mode="apartments" />;
         case 'registry_commercial': return <UnitRegistry mode="commercial" />;
@@ -319,7 +296,25 @@ function ProjectEditorRoute({ user }) {
             />
             <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
                 
-                <WorkflowBar user={user} currentStep={currentStep} />
+                {/* ПАНЕЛЬ ЗАДАЧИ: Скрываем в режиме просмотра */}
+                {!isViewMode && (
+                    <WorkflowBar 
+                        user={user} 
+                        currentStep={currentStep} 
+                        setCurrentStep={setCurrentStep}
+                        onExit={handleBackToDashboard} 
+                    />
+                )}
+
+                {/* Баннер режима просмотра */}
+                {isViewMode && (
+                    <div className="bg-blue-50 border-b border-blue-100 px-8 py-2 flex justify-between items-center text-xs text-blue-700 font-bold sticky top-0 z-30 animate-in slide-in-from-top-2">
+                        <div className="flex items-center gap-2">
+                            <Eye size={14}/> Режим просмотра
+                        </div>
+                        <button onClick={handleBackToDashboard} className="hover:underline opacity-80">Закрыть</button>
+                    </div>
+                )}
                 
                 <DevRoleSwitcher />
 
@@ -392,7 +387,7 @@ const MainLayout = ({ firebaseUser, activePersona }) => {
                 user={activePersona} 
                 projects={projects} 
                 dbScope={DB_SCOPE}
-                onSelectProject={(id) => navigate(`/project/${id}`)}
+                onSelectProject={(id, mode) => navigate(`/project/${id}${mode === 'view' ? '?mode=view' : ''}`)}
             />
             
             <DevRoleSwitcher />
