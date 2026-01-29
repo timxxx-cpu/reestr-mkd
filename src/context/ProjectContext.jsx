@@ -4,7 +4,6 @@ import { RegistryService } from '../lib/registry-service';
 import { useProjectData } from '../hooks/useProjectData';
 import { ROLES, APP_STATUS, WORKFLOW_STAGES, STEPS_CONFIG } from '../lib/constants';
 import { Skeleton } from '../components/ui/Skeleton';
-// [NEW] Импорт утилиты для определения этапа
 import { getStepStage } from '../lib/workflow-utils';
 
 const ProjectContext = createContext(null);
@@ -192,7 +191,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       }
   }, [dbScope, projectId]);
 
-  // [UPDATED] completeTask с логикой этапов
   const completeTask = useCallback(async (currentIndex) => {
       await saveProjectImmediate();
 
@@ -205,11 +203,8 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           newCompleted.push(currentIndex);
       }
 
-      // --- ЛОГИКА ЭТАПОВ ---
       const isLastStepGlobal = nextStepIndex >= STEPS_CONFIG.length;
       
-      // Определяем, является ли текущий шаг последним в каком-либо этапе
-      // getStepStage возвращает номер этапа (1, 2...)
       const currentStageNum = getStepStage(currentIndex);
       const stageConfig = WORKFLOW_STAGES[currentStageNum];
       const isStageBoundary = stageConfig && stageConfig.lastStepIndex === currentIndex;
@@ -218,15 +213,13 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       let newStage = currentAppInfo.currentStage;
       let historyComment = `Шаг "${STEPS_CONFIG[currentIndex]?.title}" выполнен.`;
 
-      // Если это конец всего проекта
       if (isLastStepGlobal) {
           newStatus = APP_STATUS.COMPLETED;
           historyComment = `Проект полностью завершен и переведен в статус "${APP_STATUS.COMPLETED}".`;
       } 
-      // Если это конец этапа (но не проекта)
       else if (isStageBoundary) {
           newStatus = APP_STATUS.REVIEW;
-          newStage = currentStageNum + 1; // Готовимся к следующему этапу, но пока ждем
+          newStage = currentStageNum + 1; 
           historyComment = `Этап ${currentStageNum} завершен. Отправлен на проверку (REVIEW).`;
       }
 
@@ -243,7 +236,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
               completedSteps: newCompleted,
               currentStepIndex: nextStepIndex,
               status: newStatus,
-              currentStage: isStageBoundary ? newStage : currentAppInfo.currentStage, // Обновляем номер этапа только на границе
+              currentStage: isStageBoundary ? newStage : currentAppInfo.currentStage,
               history: newHistory
           }
       };
@@ -278,9 +271,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
               ...currentAppInfo,
               completedSteps: newCompleted,
               currentStepIndex: prevIndex,
-              // Если проект был в REVIEW или COMPLETED, возвращаем в работу
               status: [APP_STATUS.COMPLETED, APP_STATUS.REVIEW].includes(currentAppInfo.status) ? APP_STATUS.DRAFT : currentAppInfo.status,
-              // Если откатились через границу этапа назад, нужно уменьшить currentStage
               currentStage: getStepStage(prevIndex),
               history: newHistory
           }
@@ -291,6 +282,64 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
       return prevIndex;
   }, [dbScope, projectId, mergedState, saveProjectImmediate, userProfile]);
+
+  // [NEW] Функция проверки этапа для Бригадира
+  const reviewStage = useCallback(async (action, comment = '') => {
+      // @ts-ignore
+      const currentAppInfo = mergedState.applicationInfo;
+      
+      // action: 'APPROVE' | 'REJECT'
+      const isApprove = action === 'APPROVE';
+      
+      let newStatus = currentAppInfo.status;
+      let newStepIndex = currentAppInfo.currentStepIndex;
+      let newStage = currentAppInfo.currentStage;
+      let historyAction = isApprove ? 'Этап принят' : 'Возврат на доработку';
+      
+      if (isApprove) {
+          // Если одобрили: статус становится рабочим (DRAFT), этап и шаг остаются как есть (они уже были переключены вперед в completeTask)
+          // Техник просто продолжает с того места, где он "завис" перед проверкой.
+          newStatus = APP_STATUS.DRAFT;
+      } else {
+          // Если вернули: 
+          // 1. Откатываем этап назад
+          newStage = Math.max(1, currentAppInfo.currentStage - 1);
+          
+          // 2. Ищем последний шаг этого предыдущего этапа
+          const prevStageConfig = WORKFLOW_STAGES[newStage];
+          if (prevStageConfig) {
+              newStepIndex = prevStageConfig.lastStepIndex;
+          } else {
+              newStepIndex = 0; // Фолбек
+          }
+          
+          // 3. Статус REJECTED
+          newStatus = APP_STATUS.REJECTED;
+      }
+
+      const historyItem = createHistoryEntry(
+          userProfile, 
+          historyAction, 
+          comment || (isApprove ? `Этап ${newStage - (isApprove ? 1 : 0)} проверен и одобрен.` : `Этап ${newStage} возвращен на доработку.`)
+      );
+      const newHistory = [historyItem, ...(currentAppInfo.history || [])];
+
+      const updates = {
+          applicationInfo: {
+              ...currentAppInfo,
+              status: newStatus,
+              currentStage: newStage,
+              currentStepIndex: newStepIndex,
+              history: newHistory,
+              rejectionReason: !isApprove ? comment : null
+          }
+      };
+
+      setProjectMeta(prev => ({ ...prev, ...updates }));
+      await RegistryService.saveData(dbScope, projectId, updates);
+      
+      return newStepIndex; // Возвращаем индекс, чтобы UI мог переключиться
+  }, [dbScope, projectId, mergedState, userProfile]);
 
   const saveBuildingData = useCallback(async (buildingId, dataKey, dataVal) => {
       if (isReadOnly) { toast.error("Редактирование запрещено"); return; }
@@ -344,6 +393,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
     completeTask,
     rollbackTask,
+    reviewStage, // [NEW]
     saveProjectImmediate,
     saveData,
     saveBuildingData, 

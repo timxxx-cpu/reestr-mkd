@@ -3,7 +3,7 @@ import {
   Inbox, Briefcase, Search, Filter, RefreshCw, 
   MapPin, Calendar, ArrowRight, Building, User,
   FileText, CheckCircle2, Clock, AlertCircle, Hash, Zap, Database, Trash2, Lock, 
-  ListTodo, ShieldCheck, HardHat, Archive, Eye, PlayCircle // [NEW] Icons
+  ListTodo, ShieldCheck, HardHat, Archive, Eye, PlayCircle 
 } from 'lucide-react';
 import { RegistryService } from '../lib/registry-service';
 import { ROLES, APP_STATUS, EXTERNAL_SYSTEMS, APP_STATUS_LABELS, STEPS_CONFIG } from '../lib/constants';
@@ -139,12 +139,15 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
 
     // --- ФИЛЬТРЫ ---
 
+    // 1. ЛОГИКА "МОИ ЗАДАЧИ"
     const myTasks = useMemo(() => {
         let filtered = projects;
 
         if (taskFilter === 'work') {
+            // В РАБОТЕ: New, Draft, Rejected
             filtered = filtered.filter(p => [APP_STATUS.NEW, APP_STATUS.DRAFT, APP_STATUS.REJECTED].includes(p.applicationInfo?.status));
         } else {
+            // НА ПРОВЕРКЕ: Review
             filtered = filtered.filter(p => p.applicationInfo?.status === APP_STATUS.REVIEW);
         }
 
@@ -160,6 +163,7 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
         return filtered.sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime());
     }, [projects, user, searchTerm, taskFilter]);
 
+    // Подсчет количества для табов
     const counts = useMemo(() => {
         const workCount = projects.filter(p => 
             [APP_STATUS.NEW, APP_STATUS.DRAFT, APP_STATUS.REJECTED].includes(p.applicationInfo?.status)
@@ -172,6 +176,7 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
         return { work: workCount, review: reviewCount };
     }, [projects]);
 
+    // 2. Все проекты (Реестр)
     const allProjects = useMemo(() => {
         let filtered = projects;
         if (searchTerm) {
@@ -182,6 +187,10 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
     }, [projects, searchTerm]);
 
     const canViewInbox = user.role === ROLES.TECHNICIAN || user.role === ROLES.ADMIN;
+    
+    // Админ может принимать входящие (как договаривались ранее)
+    const canTakeToWork = user.role === ROLES.TECHNICIAN || user.role === ROLES.ADMIN;
+
     const canSeeWorkTab = user.role === ROLES.TECHNICIAN || user.role === ROLES.ADMIN;
     const canSeeReviewTab = user.role === ROLES.CONTROLLER || user.role === ROLES.ADMIN;
 
@@ -299,7 +308,12 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                                                         >
                                                             <Trash2 size={16}/>
                                                         </button>
-                                                        <Button onClick={() => handleTakeToWork(app)} className="h-8 text-xs px-3 py-1 shadow-sm">
+                                                        <Button 
+                                                            onClick={() => canTakeToWork && handleTakeToWork(app)} 
+                                                            disabled={!canTakeToWork}
+                                                            className={`h-8 text-xs px-3 py-1 shadow-sm ${!canTakeToWork ? 'opacity-50 cursor-not-allowed bg-slate-300' : ''}`}
+                                                            title={!canTakeToWork ? "Доступно Технику или Админу" : "Принять в работу"}
+                                                        >
                                                             В работу <ArrowRight size={12} className="ml-1"/>
                                                         </Button>
                                                     </div>
@@ -378,6 +392,7 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                                 projects={myTasks} 
                                 onSelectProject={onSelectProject}
                                 onDeleteProject={undefined}
+                                user={user}
                             />
                         )}
                     </Card>
@@ -413,6 +428,7 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                                 projects={allProjects} 
                                 onSelectProject={onSelectProject} 
                                 onDeleteProject={user.role === ROLES.ADMIN ? handleDeleteProject : undefined}
+                                user={user}
                             />
                         )}
                     </Card>
@@ -422,7 +438,8 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
     );
 }
 
-const ProjectsTable = ({ projects, onSelectProject, onDeleteProject = undefined }) => (
+// Таблица проектов с логикой доступа к кнопкам
+const ProjectsTable = ({ projects, onSelectProject, onDeleteProject = undefined, user }) => (
     <div className="overflow-x-auto">
         <table className="w-full text-left text-sm border-collapse">
             <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10 shadow-sm">
@@ -434,7 +451,7 @@ const ProjectsTable = ({ projects, onSelectProject, onDeleteProject = undefined 
                     <th className="px-6 py-4">Заявитель</th>
                     <th className="px-6 py-4 w-40">Обновлено</th>
                     <th className="px-6 py-4 w-48">Исполнитель</th>
-                    <th className="px-6 py-4 w-28 text-right">Действия</th> {/* Увеличили ширину и переименовали */}
+                    <th className="px-6 py-4 w-28 text-right">Действия</th>
                 </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -448,10 +465,26 @@ const ProjectsTable = ({ projects, onSelectProject, onDeleteProject = undefined 
                     const isCompleted = appInfo.status === APP_STATUS.COMPLETED;
                     const stepTitle = STEPS_CONFIG[currentStepIdx]?.title || 'Завершено';
 
+                    const isReview = appInfo.status === APP_STATUS.REVIEW;
+                    const isWork = [APP_STATUS.NEW, APP_STATUS.DRAFT, APP_STATUS.REJECTED].includes(appInfo.status);
+                    
+                    // --- ЛОГИКА ДОСТУПА К КНОПКЕ PLAY ---
+                    let canPlay = false;
+                    let playTitle = "Взять задачу";
+
+                    if (isWork) {
+                        // Только Техник может брать в работу. Админ не может (должен переключиться)
+                        canPlay = user.role === ROLES.TECHNICIAN;
+                        if (!canPlay) playTitle = "Доступно только Технику";
+                    } else if (isReview) {
+                        // Только Бригадир может проверять. Админ не может (должен переключиться)
+                        canPlay = user.role === ROLES.CONTROLLER;
+                        if (!canPlay) playTitle = "Доступно только Бригадиру";
+                    }
+
                     return (
                         <tr 
                             key={project.id} 
-                            // Убираем глобальный onClick, чтобы действия были только по кнопкам
                             className="hover:bg-indigo-50/30 transition-colors group"
                         >
                             <td className="px-6 py-4">
@@ -501,7 +534,6 @@ const ProjectsTable = ({ projects, onSelectProject, onDeleteProject = undefined 
                                 ) : <span className="text-slate-300 text-xs">—</span>}
                             </td>
                             
-                            {/* [NEW] КОЛОНКА ДЕЙСТВИЙ */}
                             <td className="px-6 py-4 text-right">
                                 <div className="flex items-center justify-end gap-2">
                                     {/* Кнопка ПРОСМОТР */}
@@ -516,15 +548,16 @@ const ProjectsTable = ({ projects, onSelectProject, onDeleteProject = undefined 
                                         <Eye size={18}/>
                                     </button>
 
-                                    {/* Кнопка ЗАДАЧА (только если не завершено) */}
+                                    {/* Кнопка ЗАДАЧА */}
                                     {!isCompleted && (
                                         <button 
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                onSelectProject(project.id, 'edit');
+                                                if (canPlay) onSelectProject(project.id, 'edit');
                                             }}
-                                            className="p-2 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors border border-transparent hover:border-indigo-100"
-                                            title="Взять задачу"
+                                            disabled={!canPlay}
+                                            className={`p-2 rounded-lg transition-colors border border-transparent ${canPlay ? 'text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 hover:border-indigo-100' : 'text-slate-300 cursor-not-allowed'}`}
+                                            title={playTitle}
                                         >
                                             <PlayCircle size={18}/>
                                         </button>

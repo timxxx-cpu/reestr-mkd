@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useContext, createContext } from 'react';
-import { Loader2, User, FolderOpen, KeyRound, LogOut, Shield, Users, X, Settings, Eye } from 'lucide-react';
+import { Loader2, User, FolderOpen, KeyRound, LogOut, Shield, Users, X, Settings, Eye, History } from 'lucide-react';
 import { Routes, Route, useNavigate, useParams, Navigate, useSearchParams } from 'react-router-dom';
 
 import { AuthService } from './lib/auth-service';
@@ -15,6 +15,7 @@ import StepIndicator from './components/StepIndicator';
 import Breadcrumbs from './components/ui/Breadcrumbs';
 import { ReadOnlyProvider } from './components/ui/UIKit'; 
 import WorkflowBar from './components/WorkflowBar'; 
+import HistoryModal from './components/HistoryModal'; // [NEW] Импорт
 
 import PassportEditor from './components/editors/PassportEditor';
 import CompositionEditor from './components/editors/CompositionEditor';
@@ -193,31 +194,27 @@ function ProjectEditorRoute({ user }) {
     const [searchParams] = useSearchParams();
     const isViewMode = searchParams.get('mode') === 'view';
     
+    const [historyOpen, setHistoryOpen] = useState(false); // [NEW] Стейт модалки истории
+
     const toast = useToast();
     const initialRedirectDone = useRef(false);
   
     // 1. Инициализация: Переход на актуальный шаг задачи
     useEffect(() => {
-        // Если режим просмотра - не редиректим принудительно
         if (!isViewMode && applicationInfo?.currentStepIndex !== undefined && !initialRedirectDone.current) {
             const targetStep = applicationInfo.currentStepIndex;
-            // Если индекс выходит за границы (проект завершен), ставим последний доступный
             const safeStep = Math.min(targetStep, STEPS_CONFIG.length - 1);
             setCurrentStep(safeStep);
             initialRedirectDone.current = true;
         }
     }, [applicationInfo, isViewMode]);
 
-    // 2. Логика блокировки "чужих" шагов
+    // 2. Логика блокировки
     const isTechnician = user.role === ROLES.TECHNICIAN;
     const taskIndex = applicationInfo?.currentStepIndex || 0;
     const isCurrentTask = currentStep === taskIndex;
     
-    // Блокируем, если глобальный ReadOnly или если техник ушел со своей задачи, ИЛИ включен режим просмотра
     const effectiveReadOnly = isReadOnly || isViewMode || (isTechnician && !isCurrentTask);
-
-    // Максимально доступный шаг для навигации
-    // В режиме просмотра доступны ВСЕ шаги. В режиме задачи - только до текущего.
     const maxAllowedStep = isViewMode ? STEPS_CONFIG.length - 1 : (isTechnician ? taskIndex : STEPS_CONFIG.length - 1);
 
     const canGoToStep = (stepIdx) => {
@@ -263,7 +260,7 @@ function ProjectEditorRoute({ user }) {
       switch (stepId) {
         case 'passport': return <PassportEditor />;
         case 'composition': return <CompositionEditor />;
-        case 'parking_config': return <ParkingConfigurator buildingId={null} />; // Кнопка onSave убрана, т.к. есть WorkflowBar
+        case 'parking_config': return <ParkingConfigurator buildingId={null} />; 
         
         case 'registry_apartments': return <UnitRegistry mode="apartments" />;
         case 'registry_commercial': return <UnitRegistry mode="commercial" />;
@@ -296,27 +293,36 @@ function ProjectEditorRoute({ user }) {
             />
             <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
                 
-                {/* ПАНЕЛЬ ЗАДАЧИ: Скрываем в режиме просмотра */}
                 {!isViewMode && (
                     <WorkflowBar 
                         user={user} 
                         currentStep={currentStep} 
                         setCurrentStep={setCurrentStep}
                         onExit={handleBackToDashboard} 
+                        onOpenHistory={() => setHistoryOpen(true)} // [NEW] Передаем обработчик
                     />
                 )}
 
-                {/* Баннер режима просмотра */}
+                {/* Баннер режима просмотра с кнопкой истории */}
                 {isViewMode && (
                     <div className="bg-blue-50 border-b border-blue-100 px-8 py-2 flex justify-between items-center text-xs text-blue-700 font-bold sticky top-0 z-30 animate-in slide-in-from-top-2">
                         <div className="flex items-center gap-2">
                             <Eye size={14}/> Режим просмотра
                         </div>
-                        <button onClick={handleBackToDashboard} className="hover:underline opacity-80">Закрыть</button>
+                        <div className="flex items-center gap-4">
+                            <button onClick={() => setHistoryOpen(true)} className="flex items-center gap-1 hover:text-blue-900 transition-colors">
+                                <History size={14}/> История
+                            </button>
+                            <div className="w-px h-3 bg-blue-200"></div>
+                            <button onClick={handleBackToDashboard} className="hover:underline opacity-80">Закрыть</button>
+                        </div>
                     </div>
                 )}
                 
                 <DevRoleSwitcher />
+
+                {/* МОДАЛКА ИСТОРИИ */}
+                {historyOpen && <HistoryModal history={applicationInfo?.history || []} onClose={() => setHistoryOpen(false)} />}
 
                 <div className="px-8 pt-6 pb-2">
                     <Breadcrumbs 
