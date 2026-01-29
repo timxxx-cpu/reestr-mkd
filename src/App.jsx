@@ -15,7 +15,7 @@ import StepIndicator from './components/StepIndicator';
 import Breadcrumbs from './components/ui/Breadcrumbs';
 import { ReadOnlyProvider } from './components/ui/UIKit'; 
 import WorkflowBar from './components/WorkflowBar'; 
-import HistoryModal from './components/HistoryModal'; // [NEW] Импорт
+import HistoryModal from './components/HistoryModal'; 
 
 import PassportEditor from './components/editors/PassportEditor';
 import CompositionEditor from './components/editors/CompositionEditor';
@@ -194,7 +194,7 @@ function ProjectEditorRoute({ user }) {
     const [searchParams] = useSearchParams();
     const isViewMode = searchParams.get('mode') === 'view';
     
-    const [historyOpen, setHistoryOpen] = useState(false); // [NEW] Стейт модалки истории
+    const [historyOpen, setHistoryOpen] = useState(false); 
 
     const toast = useToast();
     const initialRedirectDone = useRef(false);
@@ -299,11 +299,10 @@ function ProjectEditorRoute({ user }) {
                         currentStep={currentStep} 
                         setCurrentStep={setCurrentStep}
                         onExit={handleBackToDashboard} 
-                        onOpenHistory={() => setHistoryOpen(true)} // [NEW] Передаем обработчик
+                        onOpenHistory={() => setHistoryOpen(true)} 
                     />
                 )}
 
-                {/* Баннер режима просмотра с кнопкой истории */}
                 {isViewMode && (
                     <div className="bg-blue-50 border-b border-blue-100 px-8 py-2 flex justify-between items-center text-xs text-blue-700 font-bold sticky top-0 z-30 animate-in slide-in-from-top-2">
                         <div className="flex items-center gap-2">
@@ -321,7 +320,6 @@ function ProjectEditorRoute({ user }) {
                 
                 <DevRoleSwitcher />
 
-                {/* МОДАЛКА ИСТОРИИ */}
                 {historyOpen && <HistoryModal history={applicationInfo?.history || []} onClose={() => setHistoryOpen(false)} />}
 
                 <div className="px-8 pt-6 pb-2">
@@ -363,37 +361,12 @@ const MainLayout = ({ firebaseUser, activePersona }) => {
 
     return (
         <div className="min-h-screen bg-slate-50">
-            <div className="bg-white border-b border-slate-200 px-6 py-3 flex justify-between items-center sticky top-0 z-50 shadow-sm">
-                <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-white"><FolderOpen size={20} /></div>
-                    <div>
-                        <h1 className="text-lg font-bold text-slate-800 leading-none">Реестр МКД</h1>
-                        <span className="text-xs text-slate-400 font-normal">{DB_SCOPE}</span>
-                    </div>
-                </div>
-                
-                <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-full border border-slate-200">
-                        <User size={14} className="text-slate-500"/>
-                        <span className="text-xs font-bold text-slate-700">{activePersona.name}</span>
-                        <span className="text-[10px] text-slate-400 font-medium px-1.5 py-0.5 bg-white rounded border border-slate-200 ml-1">
-                            {activePersona.role === ROLES.ADMIN ? 'ADM' : activePersona.role === ROLES.CONTROLLER ? 'CTRL' : 'TECH'}
-                        </span>
-                    </div>
-
-                    <div className="h-6 w-px bg-slate-200"></div>
-
-                    <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Выйти">
-                        <LogOut size={20}/>
-                    </button>
-                </div>
-            </div>
-            
             <ApplicationsDashboard 
                 user={activePersona} 
                 projects={projects} 
                 dbScope={DB_SCOPE}
                 onSelectProject={(id, mode) => navigate(`/project/${id}${mode === 'view' ? '?mode=view' : ''}`)}
+                onLogout={handleLogout} 
             />
             
             <DevRoleSwitcher />
