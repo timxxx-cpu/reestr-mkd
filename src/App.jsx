@@ -160,7 +160,7 @@ function LoginScreen({ onLogin, isLoading }) {
                         {isLoading ? <Loader2 className="animate-spin" size={20}/> : <KeyRound size={20}/>}
                         {isLoading ? 'Вход в систему...' : 'Войти в систему'}
                     </button>
-                    <p className="text-xs text-slate-400">Доступ для сотрудников (БТИ)</p>
+                    <p className="text-xs text-slate-400">Доступ для сотрудников</p>
                 </div>
             </div>
         </div>
