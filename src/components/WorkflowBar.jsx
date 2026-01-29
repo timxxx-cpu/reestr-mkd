@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Save, CheckCircle2, LogOut, ArrowRight, Loader2, ArrowLeft } from 'lucide-react';
+import { Save, CheckCircle2, LogOut, ArrowRight, Loader2, ArrowLeft, Send } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { Button } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
-import { ROLES, STEPS_CONFIG } from '../lib/constants';
+import { ROLES, STEPS_CONFIG, WORKFLOW_STAGES } from '../lib/constants';
+import { getStepStage } from '../lib/workflow-utils';
 
 /**
  * Панель управления рабочим процессом (Задачи)
@@ -22,14 +23,30 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit 
 
   if (!applicationInfo) return null;
 
-  // Определяем, является ли этот шаг текущей задачей пользователя
   const taskIndex = applicationInfo.currentStepIndex || 0;
   const isCurrentTask = currentStep === taskIndex;
-  
-  const isLastStepGlobal = currentStep === STEPS_CONFIG.length - 1;
-  
-  // Кнопка назад доступна, если мы не на самом первом шаге (0)
   const canGoBack = currentStep > 0;
+
+  // --- ПРОВЕРКА НА ГРАНИЦУ ЭТАПА ---
+  const currentStageNum = getStepStage(currentStep);
+  const stageConfig = WORKFLOW_STAGES[currentStageNum];
+  const isStageBoundary = stageConfig && stageConfig.lastStepIndex === currentStep;
+  const isLastStepGlobal = currentStep === STEPS_CONFIG.length - 1;
+
+  // Текст и иконка для кнопки действия
+  let actionBtnText = "Завершить";
+  let ActionIcon = ArrowRight;
+  let confirmMsg = "Завершить задачу и перейти к следующей?";
+
+  if (isLastStepGlobal) {
+      actionBtnText = "Завершить проект";
+      ActionIcon = CheckCircle2;
+      confirmMsg = "Это последний шаг. Завершить проект?";
+  } else if (isStageBoundary) {
+      actionBtnText = "Отправить на проверку";
+      ActionIcon = Send;
+      confirmMsg = `Вы завершаете Этап ${currentStageNum}. Отправить данные на проверку Бригадиру?`;
+  }
 
   // --- ОБРАБОТЧИКИ ---
 
@@ -50,7 +67,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit 
       setIsLoading(true);
       try {
           await saveProjectImmediate();
-          onExit(); // Возврат на дашборд
+          onExit(); 
       } catch (e) {
           console.error(e);
           toast.error("Ошибка сохранения");
@@ -59,17 +76,26 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit 
   };
 
   const handleCompleteTask = async () => {
-      if (!confirm("Завершить задачу и перейти к следующей?")) return;
+      if (!confirm(confirmMsg)) return;
 
       setIsLoading(true);
       try {
           const nextIndex = await completeTask(currentStep);
-          toast.success("Задача завершена");
           
-          if (!isLastStepGlobal) {
-              setCurrentStep(nextIndex); // Переход на UI к следующему шагу
+          if (isStageBoundary || isLastStepGlobal) {
+              // Если отправили на проверку или завершили проект - выходим или показываем уведомление
+              toast.success(isLastStepGlobal ? "Проект завершен!" : "Отправлено на проверку");
+              
+              // Для удобства, если отправили на проверку - переходим на следующий шаг (который будет ReadOnly)
+              // или выходим. Обычно удобнее выйти, так как работать дальше нельзя.
+              if (isStageBoundary) {
+                  onExit(); // Возврат на дашборд
+              } else {
+                  onExit(); 
+              }
           } else {
-              onExit(); // Если это был последний шаг - выходим
+              toast.success("Задача завершена");
+              setCurrentStep(nextIndex); // Идем к следующей задаче
           }
       } catch (e) {
           console.error(e);
@@ -79,7 +105,6 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit 
       }
   };
 
-  // Обработчик возврата на шаг назад
   const handleRollback = async () => {
       if (!confirm("Вернуться на шаг назад? Выполненные задачи начиная с текущего шага нужно будет пройти заново.")) return;
 
@@ -87,7 +112,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit 
       try {
           const prevIndex = await rollbackTask();
           toast.info("Возврат к предыдущей задаче");
-          setCurrentStep(prevIndex); // Переключаем UI назад
+          setCurrentStep(prevIndex);
       } catch (e) {
           console.error(e);
           toast.error("Ошибка возврата");
@@ -96,12 +121,10 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit 
       }
   };
 
-  // Если это не техник или глобальный ReadOnly (например, админ смотрит)
   if (user.role !== ROLES.TECHNICIAN || isReadOnly) {
       return null;
   }
 
-  // Если мы смотрим чужой/старый шаг (Режим просмотра внутри редактора)
   if (!isCurrentTask) {
       return (
           <div className="bg-slate-100 border-b border-slate-200 px-8 py-3 flex justify-between items-center sticky top-0 z-30 animate-in slide-in-from-top-2">
@@ -116,11 +139,9 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit 
       );
   }
 
-  // Активная панель для текущей задачи
   return (
     <div className="bg-white border-b border-slate-200 px-8 py-3 flex items-center justify-between sticky top-0 z-30 shadow-sm animate-in slide-in-from-top-2">
         <div className="flex items-center gap-4">
-            {/* КНОПКА НАЗАД */}
             {canGoBack && (
                 <Button 
                     variant="ghost" 
@@ -164,10 +185,10 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit 
             <Button 
                 onClick={handleCompleteTask} 
                 disabled={isLoading}
-                className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200 h-10 px-6 active:scale-95 transition-transform"
+                className={`${isStageBoundary ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'} text-white shadow-lg h-10 px-6 active:scale-95 transition-transform`}
             >
-                Завершить
-                <ArrowRight size={16} className="ml-2 opacity-60"/>
+                {actionBtnText}
+                <ActionIcon size={16} className="ml-2 opacity-80"/>
             </Button>
         </div>
     </div>

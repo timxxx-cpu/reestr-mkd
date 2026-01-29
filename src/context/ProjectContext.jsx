@@ -4,6 +4,8 @@ import { RegistryService } from '../lib/registry-service';
 import { useProjectData } from '../hooks/useProjectData';
 import { ROLES, APP_STATUS, WORKFLOW_STAGES, STEPS_CONFIG } from '../lib/constants';
 import { Skeleton } from '../components/ui/Skeleton';
+// [NEW] Импорт утилиты для определения этапа
+import { getStepStage } from '../lib/workflow-utils';
 
 const ProjectContext = createContext(null);
 
@@ -21,7 +23,6 @@ const HEAVY_KEYS = [
     'complexInfo', 'participants', 'cadastre', 'documents', 'buildingDetails', 'composition'
 ];
 
-// Хелпер для создания записи истории
 const createHistoryEntry = (user, action, comment) => ({
     date: new Date().toISOString(),
     user: user.name || 'Unknown',
@@ -191,7 +192,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       }
   }, [dbScope, projectId]);
 
-  // [UPDATED] Завершение задачи с записью в историю
+  // [UPDATED] completeTask с логикой этапов
   const completeTask = useCallback(async (currentIndex) => {
       await saveProjectImmediate();
 
@@ -204,16 +205,37 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           newCompleted.push(currentIndex);
       }
 
-      // Создаем запись в истории
+      // --- ЛОГИКА ЭТАПОВ ---
+      const isLastStepGlobal = nextStepIndex >= STEPS_CONFIG.length;
+      
+      // Определяем, является ли текущий шаг последним в каком-либо этапе
+      // getStepStage возвращает номер этапа (1, 2...)
+      const currentStageNum = getStepStage(currentIndex);
+      const stageConfig = WORKFLOW_STAGES[currentStageNum];
+      const isStageBoundary = stageConfig && stageConfig.lastStepIndex === currentIndex;
+
+      let newStatus = currentAppInfo.status;
+      let newStage = currentAppInfo.currentStage;
+      let historyComment = `Шаг "${STEPS_CONFIG[currentIndex]?.title}" выполнен.`;
+
+      // Если это конец всего проекта
+      if (isLastStepGlobal) {
+          newStatus = APP_STATUS.COMPLETED;
+          historyComment = `Проект полностью завершен и переведен в статус "${APP_STATUS.COMPLETED}".`;
+      } 
+      // Если это конец этапа (но не проекта)
+      else if (isStageBoundary) {
+          newStatus = APP_STATUS.REVIEW;
+          newStage = currentStageNum + 1; // Готовимся к следующему этапу, но пока ждем
+          historyComment = `Этап ${currentStageNum} завершен. Отправлен на проверку (REVIEW).`;
+      }
+
       const historyItem = createHistoryEntry(
           userProfile, 
-          'Завершение задачи', 
-          `Шаг "${STEPS_CONFIG[currentIndex]?.title}" выполнен.`
+          isStageBoundary ? 'Отправка на проверку' : 'Завершение задачи', 
+          historyComment
       );
       const newHistory = [historyItem, ...(currentAppInfo.history || [])];
-
-      const isFinished = nextStepIndex >= STEPS_CONFIG.length;
-      const newStatus = isFinished ? APP_STATUS.COMPLETED : currentAppInfo.status;
 
       const updates = {
           applicationInfo: {
@@ -221,6 +243,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
               completedSteps: newCompleted,
               currentStepIndex: nextStepIndex,
               status: newStatus,
+              currentStage: isStageBoundary ? newStage : currentAppInfo.currentStage, // Обновляем номер этапа только на границе
               history: newHistory
           }
       };
@@ -231,7 +254,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       return nextStepIndex;
   }, [dbScope, projectId, mergedState, saveProjectImmediate, userProfile]);
 
-  // [UPDATED] Откат задачи с записью в историю
   const rollbackTask = useCallback(async () => {
       await saveProjectImmediate();
 
@@ -244,7 +266,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       const prevIndex = currentIndex - 1;
       const newCompleted = (currentAppInfo.completedSteps || []).filter(s => s < prevIndex);
 
-      // Создаем запись в истории
       const historyItem = createHistoryEntry(
           userProfile, 
           'Возврат задачи', 
@@ -257,7 +278,10 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
               ...currentAppInfo,
               completedSteps: newCompleted,
               currentStepIndex: prevIndex,
-              status: currentAppInfo.status === APP_STATUS.COMPLETED ? APP_STATUS.DRAFT : currentAppInfo.status,
+              // Если проект был в REVIEW или COMPLETED, возвращаем в работу
+              status: [APP_STATUS.COMPLETED, APP_STATUS.REVIEW].includes(currentAppInfo.status) ? APP_STATUS.DRAFT : currentAppInfo.status,
+              // Если откатились через границу этапа назад, нужно уменьшить currentStage
+              currentStage: getStepStage(prevIndex),
               history: newHistory
           }
       };
@@ -295,7 +319,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       } catch (e) { toast.error("Ошибка удаления"); }
   }, [dbScope, projectId, mergedState, toast, isReadOnly]);
 
-  const updateStatus = useCallback(async (newStatus, newStage = null, comment = null) => { /* Legacy */ }, []);
+  const updateStatus = useCallback(async (newStatus, newStage = null, comment = null) => { /* ... */ }, []);
 
   const createSetter = (key) => (value) => {
       if (isReadOnly) return; 
