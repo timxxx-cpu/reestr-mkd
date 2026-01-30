@@ -2,7 +2,7 @@ import {
   FileText, Layout, Warehouse, 
   Ruler, DoorOpen, Grid3X3, BarChart3, 
   Table2, Car, PaintBucket, Building2,
-  Home, Briefcase
+  Home, Briefcase, Globe, Database
 } from 'lucide-react';
 
 // --- 1. РОЛЕВАЯ МОДЕЛЬ ---
@@ -19,6 +19,7 @@ export const APP_STATUS = {
     REVIEW: 'REVIEW',     // На проверке (отправлена Бригадиру)
     APPROVED: 'APPROVED', // Утверждена (Бригадир принял, работа завершена)
     REJECTED: 'REJECTED', // Отклонена (Бригадир вернул на доработку)
+    INTEGRATION: 'INTEGRATION', // [NEW] Готово к передаче в УЗКАД
     COMPLETED: 'COMPLETED' // Заявка полностью закрыта (финальный статус)
 };
 
@@ -29,6 +30,7 @@ export const APP_STATUS_LABELS = {
     [APP_STATUS.REVIEW]: { label: 'На проверке', color: 'bg-orange-100 text-orange-700 border-orange-200' },
     [APP_STATUS.APPROVED]: { label: 'Принято', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
     [APP_STATUS.REJECTED]: { label: 'Возврат', color: 'bg-red-100 text-red-700 border-red-200' },
+    [APP_STATUS.INTEGRATION]: { label: 'Интеграция', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' }, // [NEW]
     [APP_STATUS.COMPLETED]: { label: 'Закрыта', color: 'bg-gray-800 text-white border-gray-900' },
 };
 
@@ -45,7 +47,7 @@ export const WORKFLOW_STAGES = {
     3: { lastStepIndex: 11, label: 'Этап 3: Реестры' },       
     
     // Этап 4: Финал (до конца списка)
-    4: { lastStepIndex: 14, label: 'Финал: Закрытие' }        
+    4: { lastStepIndex: 16, label: 'Финал: Интеграция' }        
 };
 
 // --- 3. СТАТУСЫ ВНУТРЕННИХ ОБЪЕКТОВ (Зданий, помещений) ---
@@ -165,5 +167,23 @@ export const STEPS_CONFIG = [
         title: 'Сводная по Жилому комплексу', 
         description: 'Аналитика и графики ТЭП',
         icon: BarChart3 
-    } // -> CHECKPOINT 4 (Индекс 14)
+    },
+    
+    // --- ИНТЕГРАЦИЯ С УЗКАД ---
+    
+    // ШАГ 1: Передача Зданий
+    {
+        id: 'integration_buildings',
+        title: 'Регистрация зданий (УЗКАД)',
+        description: 'Получение кадастровых номеров зданий',
+        icon: Globe
+    },
+    
+    // ШАГ 2: Передача Помещений
+    {
+        id: 'integration_units',
+        title: 'Регистрация помещений (УЗКАД)',
+        description: 'Квартиры, коммерция, паркинг',
+        icon: Database
+    }
 ];

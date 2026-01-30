@@ -30,6 +30,8 @@ import UnitRegistry from './components/editors/UnitRegistry';
 import SummaryDashboard from './components/editors/SummaryDashboard';
 import RegistryView from './components/editors/RegistryView'; 
 import ApplicationsDashboard from './components/ApplicationsDashboard';
+import IntegrationBuildings from './components/editors/IntegrationBuildings';
+import IntegrationUnits from './components/editors/IntegrationUnits'; 
 
 const DB_SCOPE = 'shared_dev_env'; 
 
@@ -217,7 +219,17 @@ function ProjectEditorRoute({ user }) {
     const effectiveReadOnly = isReadOnly || isViewMode || (isTechnician && !isCurrentTask);
     const maxAllowedStep = isViewMode ? STEPS_CONFIG.length - 1 : (isTechnician ? taskIndex : STEPS_CONFIG.length - 1);
 
+    // [NEW] Индексы шагов интеграции (15: Здания, 16: Юниты)
+    const INTEGRATION_START_IDX = 15;
+
     const canGoToStep = (stepIdx) => {
+        // [NEW] Блокировка возврата назад для Техника на этапе интеграции
+        // Если текущий шаг - интеграция (или дальше), и мы пытаемся уйти назад в редактор
+        if (isTechnician && currentStep >= INTEGRATION_START_IDX && stepIdx < INTEGRATION_START_IDX) {
+             toast.error("На этапе интеграции возврат к редактированию запрещен. Сначала завершите обмен данными.");
+             return false;
+        }
+
         if (stepIdx > maxAllowedStep) {
             toast.error(`Этот шаг еще не доступен. Завершите текущую задачу.`);
             return false;
@@ -276,6 +288,10 @@ function ProjectEditorRoute({ user }) {
         case 'mop':
         case 'apartments':
             return <BuildingSelector stepId={stepId} onSelect={setEditingBuildingId} />;
+        
+        case 'integration_buildings': return <IntegrationBuildings />;
+        case 'integration_units': return <IntegrationUnits />;
+
         default: return <div className="p-8 text-center text-slate-400">Раздел в разработке</div>;
       }
     };

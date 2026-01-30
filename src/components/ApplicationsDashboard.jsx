@@ -3,7 +3,7 @@ import {
   Inbox, Briefcase, Search, ListTodo, ShieldCheck, 
   HardHat, Archive, Eye, PlayCircle, MapPin, 
   AlertCircle, Database, Zap, Trash2, ArrowRight,
-  Layers, LogOut, Globe, CheckCircle2
+  Layers, LogOut, Globe, CheckCircle2, Server // [NEW]
 } from 'lucide-react';
 import { RegistryService } from '../lib/registry-service';
 import { ROLES, APP_STATUS, EXTERNAL_SYSTEMS, APP_STATUS_LABELS, STEPS_CONFIG } from '../lib/constants';
@@ -176,8 +176,11 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
         if (scope === 'my_tasks') {
             if (taskFilter === 'work') {
                 filtered = filtered.filter(p => [APP_STATUS.NEW, APP_STATUS.DRAFT, APP_STATUS.REJECTED].includes(p.applicationInfo?.status));
-            } else {
+            } else if (taskFilter === 'review') {
                 filtered = filtered.filter(p => p.applicationInfo?.status === APP_STATUS.REVIEW);
+            } else if (taskFilter === 'integration') {
+                // [NEW] Фильтр для интеграции
+                filtered = filtered.filter(p => p.applicationInfo?.status === APP_STATUS.INTEGRATION);
             }
         }
 
@@ -202,6 +205,7 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
     const counts = useMemo(() => ({
         work: projects.filter(p => [APP_STATUS.NEW, APP_STATUS.DRAFT, APP_STATUS.REJECTED].includes(p.applicationInfo?.status)).length,
         review: projects.filter(p => p.applicationInfo?.status === APP_STATUS.REVIEW).length,
+        integration: projects.filter(p => p.applicationInfo?.status === APP_STATUS.INTEGRATION).length, // [NEW]
         total: projects.length
     }), [projects]);
 
@@ -247,7 +251,7 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                             >
                                 <ListTodo size={16}/> Задачи 
                                 <Badge className={`ml-1 border-0 ${activeTab === 'my_tasks' ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-500'}`}>
-                                {user.role === ROLES.CONTROLLER ? counts.review : counts.work}
+                                {user.role === ROLES.CONTROLLER ? counts.review : counts.work + counts.integration}
                                 </Badge>
                             </button>
                             
@@ -300,15 +304,12 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                             onClick={() => { setActiveTab('my_tasks'); setTaskFilter('review'); }}
                         />
                         
-                        {canViewInbox ? (
-                            <MetricCard 
-                                label="Новые заявки" value={incomingApps.length} icon={Inbox} color="text-purple-600" 
-                                isActive={false}
-                                onClick={() => setActiveTab('inbox')}
-                            />
-                        ) : (
-                            <div className="hidden md:block opacity-0 pointer-events-none"></div>
-                        )}
+                        {/* [NEW] Новая плитка */}
+                        <MetricCard 
+                            label="Передача в УЗКАД" value={counts.integration} icon={Globe} color="text-indigo-600" 
+                            isActive={activeTab === 'my_tasks' && taskFilter === 'integration'}
+                            onClick={() => { setActiveTab('my_tasks'); setTaskFilter('integration'); }}
+                        />
 
                         {canViewRegistry ? (
                             <MetricCard 
@@ -332,6 +333,10 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                                 </button>
                                 <button onClick={() => setTaskFilter('review')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${taskFilter === 'review' ? 'bg-orange-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}>
                                     <ShieldCheck size={14}/> На проверке
+                                </button>
+                                {/* [NEW] Кнопка фильтра интеграции */}
+                                <button onClick={() => setTaskFilter('integration')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${taskFilter === 'integration' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}>
+                                    <Globe size={14}/> Интеграция
                                 </button>
                             </div>
                         )}
@@ -432,7 +437,8 @@ const ProjectsTable = ({ data, user, onSelect, onDelete }) => {
                         const currentStepIdx = app.currentStepIndex || 0;
                         const stepTitle = STEPS_CONFIG[currentStepIdx]?.title || 'Завершено';
                         
-                        const canEdit = (user.role === ROLES.TECHNICIAN && [APP_STATUS.NEW, APP_STATUS.DRAFT, APP_STATUS.REJECTED].includes(app.status)) ||
+                        // [MODIFIED] Разрешаем редактирование для Техника, если статус INTEGRATION
+                        const canEdit = (user.role === ROLES.TECHNICIAN && [APP_STATUS.NEW, APP_STATUS.DRAFT, APP_STATUS.REJECTED, APP_STATUS.INTEGRATION].includes(app.status)) ||
                                         (user.role === ROLES.CONTROLLER && app.status === APP_STATUS.REVIEW);
 
                         return (
