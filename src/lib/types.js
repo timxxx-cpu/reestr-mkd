@@ -96,6 +96,9 @@
  * @property {string} [walls]
  * @property {string} [slabs]
  * @property {string} [roof]
+ * @property {string} [seismicity] - Сейсмичность
+ * @property {boolean} [hasCustomAddress] - Флаг ручного изменения адреса блока
+ * @property {string} [customHouseNumber] - Отдельный номер дома для блока
  * @property {boolean} [hasAttic]
  * @property {boolean} [hasLoft]
  * @property {boolean} [hasExploitableRoof]

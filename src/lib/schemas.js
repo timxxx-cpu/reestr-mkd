@@ -3,10 +3,8 @@ import { z } from 'zod';
 // --- Базовые типы ---
 
 // ИСПРАВЛЕНО: MopItemSchema
-// area теперь .nonnegative() (разрешает 0), а не .positive() (требует > 0)
-// Это позволяет сохранять черновики, где площадь еще не проставлена.
 export const MopItemSchema = z.object({
-  id: z.string().optional(), // Делаем optional, чтобы не крашилось на старых данных, ID сгенерируем
+  id: z.string().optional(),
   type: z.string().min(1, "Тип обязателен"),
   area: z.coerce.number().nonnegative("Площадь должна быть >= 0"),
 });
@@ -31,8 +29,6 @@ export const EntranceDataSchema = z.object({
   mopQty: z.coerce.number().int().nonnegative("Число МОП >= 0"),
 });
 
-// ... (Остальные схемы оставьте как есть: ProjectSchema, BuildingConfigSchema и т.д.)
-// Если нужно, я могу скинуть файл целиком, но изменения коснулись только MopItemSchema.
 export const ParkingPlaceSchema = z.object({
   number: z.string().min(1, "Номер обязателен"),
   area: z.coerce.number().positive("Площадь > 0"),
@@ -99,6 +95,12 @@ export const BuildingConfigSchema = z.object({
   walls: z.string().optional(),
   slabs: z.string().optional(),
   roof: z.string().optional(),
+  seismicity: z.coerce.number().int().min(1, "Мин. 1 балл").max(9, "Макс. 9 баллов").optional(),
+  
+  // [NEW] Новые поля для адреса
+  hasCustomAddress: z.boolean().optional(),
+  customHouseNumber: z.string().optional(),
+
   hasBasementFloor: z.boolean().optional(),
   hasAttic: z.boolean().optional(),
   hasLoft: z.boolean().optional(),

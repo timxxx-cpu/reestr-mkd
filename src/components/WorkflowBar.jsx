@@ -8,6 +8,7 @@ import { Button } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
 import { ROLES, STEPS_CONFIG, WORKFLOW_STAGES, APP_STATUS } from '../lib/constants';
 import { getStepStage } from '../lib/workflow-utils';
+import { getBlocksList } from '../lib/utils'; // [NEW] Импорт утилиты
 
 /**
  * Панель управления рабочим процессом (Задачи)
@@ -19,7 +20,9 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       completeTask,
       rollbackTask, 
       reviewStage, 
-      isReadOnly 
+      isReadOnly,
+      composition,       // [NEW] Нужно для валидации
+      buildingDetails    // [NEW] Нужно для валидации
   } = useProject();
   
   const toast = useToast();
@@ -44,8 +47,8 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   const isStageBoundary = stageConfig && stageConfig.lastStepIndex === currentStep;
   const isLastStepGlobal = currentStep === STEPS_CONFIG.length - 1;
 
-  // [NEW] Определение этапа интеграции (индексы 15 и 16)
-  const INTEGRATION_START_IDX = 15;
+  // Индекс начала 4-го этапа (Интеграция)
+  const INTEGRATION_START_IDX = 12;
   const isIntegrationStage = currentStep >= INTEGRATION_START_IDX;
 
   // --- ЛОГИКА ТЕХНИКА ---
@@ -61,10 +64,6 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       actionBtnText = "Отправить на проверку";
       ActionIcon = Send;
       confirmMsg = `Вы завершаете Этап ${currentStageNum}. Отправить данные на проверку Бригадиру?`;
-  } else if (currentStep === 14) { // Переход со Сводной (14) на Интеграцию (15)
-      actionBtnText = "Перейти к интеграции";
-      ActionIcon = Send;
-      confirmMsg = "Данные будут зафиксированы, и статус проекта изменится на 'Интеграция'. Продолжить?";
   }
 
   // --- ОБРАБОТЧИКИ ТЕХНИКА ---
@@ -94,6 +93,35 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   };
 
   const handleCompleteTask = async () => {
+      // [NEW] ВАЛИДАЦИЯ АДРЕСОВ БЛОКОВ
+      // Если мы на шаге конфигурации жилых блоков, проверяем многоблочные дома
+      if (STEPS_CONFIG[currentStep]?.id === 'registry_res') {
+          const invalidBuildings = composition.filter(b => {
+              // Проверяем только многоблочные дома
+              if (b.category !== 'residential_multiblock') return false;
+              
+              const blocks = getBlocksList(b);
+              if (blocks.length === 0) return false;
+
+              // Проверяем, что ВСЕ блоки имеют кастомный адрес
+              const allCustom = blocks.every(block => {
+                  const key = `${b.id}_${block.id}`;
+                  const details = buildingDetails[key];
+                  // Если hasCustomAddress === true, значит адрес изменен
+                  return details?.hasCustomAddress === true;
+              });
+              
+              // Если все кастомные (true), значит условие "хоть один наследует" нарушено -> invalid
+              return allCustom;
+          });
+
+          if (invalidBuildings.length > 0) {
+              const names = invalidBuildings.map(b => `"${b.label}"`).join(', ');
+              toast.error(`Ошибка: В объекте ${names} все блоки имеют индивидуальный номер. Минимум один блок должен наследовать номер дома.`);
+              return; // Прерываем выполнение
+          }
+      }
+
       if (!confirm(confirmMsg)) return;
 
       setIsLoading(true);

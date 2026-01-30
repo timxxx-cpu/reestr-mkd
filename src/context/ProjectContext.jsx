@@ -219,8 +219,8 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       const stageConfig = WORKFLOW_STAGES[currentStageNum];
       const isStageBoundary = stageConfig && stageConfig.lastStepIndex === currentIndex;
 
-      // [NEW] Индекс шага "Интеграция зданий" = 15
-      const INTEGRATION_START_IDX = 15;
+      // [UPDATED] Индекс начала 4-го этапа (Интеграция) теперь 12 (было 15)
+      const INTEGRATION_START_IDX = 12;
 
       const prevStatus = currentAppInfo.status;
       let newStatus = currentAppInfo.status;
@@ -236,7 +236,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           newStage = currentStageNum + 1; 
           historyComment = `Этап ${currentStageNum} завершен. Отправлен на проверку (REVIEW).`;
       }
-      // [NEW] Принудительная смена статуса при переходе к интеграции
+      // [UPDATED]
       else if (nextStepIndex === INTEGRATION_START_IDX) {
           newStatus = APP_STATUS.INTEGRATION;
           historyComment = `Переход к этапу интеграции с УЗКАД. Статус изменен на "${APP_STATUS.INTEGRATION}".`;
@@ -334,10 +334,15 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       let updatedVerifiedSteps = [...(currentAppInfo.verifiedSteps || [])];
 
       if (isApprove) {
-          // Если одобрили: статус становится рабочим (DRAFT), этап и шаг остаются как есть (они уже были переключены вперед в completeTask)
-          // Техник просто продолжает с того места, где он "завис" перед проверкой.
+          // Если одобрили: статус становится рабочим (DRAFT)
           newStatus = APP_STATUS.DRAFT;
           updatedVerifiedSteps = Array.from(new Set([...updatedVerifiedSteps, ...reviewedStepIndexes]));
+
+          // [UPDATED] Если следующий шаг — это начало Интеграции (индекс 12), ставим статус INTEGRATION
+          if (newStepIndex === 12) {
+              newStatus = APP_STATUS.INTEGRATION;
+          }
+
       } else {
           // Если вернули: 
           // 1. Откатываем этап назад

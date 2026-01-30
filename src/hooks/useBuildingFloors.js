@@ -5,17 +5,9 @@ import { getBlocksList } from '../lib/utils';
 /**
  * Хук для генерации списка этажей здания.
  * Учитывает: тип здания, подвалы, цоколь, тех. этажи, стилобат, коммерцию.
- * @param {string} buildingId - ID здания
- * @param {string|number} [activeBlockId] - ID активного блока (секции) или индекс
- * @returns {{
- * floorList: Array<any>,
- * currentBlock: any,
- * isUndergroundParking: boolean,
- * isParking: boolean,
- * isInfrastructure: boolean
- * }}
  */
 export function useBuildingFloors(buildingId, activeBlockId = 0) {
+    // [UPDATED] Добавили buildingDetails
     const { composition, buildingDetails } = useProject();
 
     const building = useMemo(() => composition.find(c => c.id === buildingId), [composition, buildingId]);
@@ -23,7 +15,8 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
     // Определяем текущий блок
     const currentBlock = useMemo(() => {
         if (!building) return null;
-        const blocks = getBlocksList(building);
+        // [UPDATED] Передаем buildingDetails
+        const blocks = getBlocksList(building, buildingDetails);
         
         // Если передан индекс (число)
         if (typeof activeBlockId === 'number') {
@@ -31,12 +24,10 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
         }
         // Если передан ID (строка)
         return blocks.find(b => b.id === activeBlockId) || blocks[0];
-    }, [building, activeBlockId]);
+    }, [building, activeBlockId, buildingDetails]);
 
-    // Основная логика расчета
     const floorList = useMemo(() => {
         if (!building || !currentBlock) return [];
-
         const list = [];
         const detailsKey = `${building.id}_${currentBlock.id}`;
         
@@ -111,7 +102,8 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
         // 3. Стилобат (Фильтр этажей)
         let stylobateHeight = 0;
         if (currentBlock.type === 'Ж') {
-            const allBlocks = getBlocksList(building);
+            // [UPDATED] Передаем buildingDetails
+            const allBlocks = getBlocksList(building, buildingDetails); 
             allBlocks.forEach(b => {
                 if (b.type === 'Н') { // Нежилой блок
                     // @ts-ignore

@@ -3,21 +3,44 @@ import { Building2, Store, Car, Box } from 'lucide-react';
 /**
  * Генерирует список блоков для здания на основе его конфигурации.
  * Используется в BuildingConfigurator, EntranceMatrix, FloorMatrix и др.
+ * @param {import('./types').BuildingMeta} building
+ * @param {Object} [buildingDetails] - Детальные настройки (для получения кастомных адресов)
  */
-export function getBlocksList(building) {
+export function getBlocksList(building, buildingDetails = {}) {
     if (!building) return [];
     const list = [];
     
+    // Хелпер для формирования названия с номером дома
+    const getLabelWithAddress = (baseLabel, fullId, defaultHouseNumber) => {
+        const details = buildingDetails[fullId];
+        // Если есть кастомный номер
+        if (details?.hasCustomAddress && details?.customHouseNumber) {
+            return `${baseLabel} (№${details.customHouseNumber})`;
+        }
+        // Иначе наследуем общий (для наглядности в многоблочных домах)
+        return `${baseLabel} (№${defaultHouseNumber})`;
+    };
+
     // 1. ЖИЛЫЕ БЛОКИ
     if (building.category && building.category.includes('residential')) {
         const count = building.resBlocks || (building.category === 'residential' ? 1 : 0);
+        const isMultiblock = count > 1 || building.nonResBlocks > 0;
+
         for(let i=0; i < count; i++) {
+            const fullId = `${building.id}_res_${i}`;
+            const baseLabel = count > 1 ? `Жилой Блок ${i+1}` : `Жилой дом`;
+            
+            // Если блоков несколько, добавляем номер дома к названию
+            const tabLabel = isMultiblock 
+                ? getLabelWithAddress(baseLabel, fullId, building.houseNumber) 
+                : baseLabel;
+
             list.push({ 
                 id: `res_${i}`, 
                 type: 'Ж', 
                 index: i, 
-                fullId: `${building.id}_res_${i}`,
-                tabLabel: count > 1 ? `Жилой Блок - ${i+1}` : `Жилой дом`,
+                fullId: fullId,
+                tabLabel: tabLabel,
                 icon: Building2
             });
         }
@@ -26,18 +49,24 @@ export function getBlocksList(building) {
     // 2. НЕЖИЛЫЕ БЛОКИ
     if (building.nonResBlocks > 0) {
          for(let i=0; i < building.nonResBlocks; i++) {
+             const fullId = `${building.id}_non_${i}`;
+             const baseLabel = `Нежилой Блок ${i+1}`;
+             
+             // Для нежилых блоков в составе ЖК всегда показываем номер
+             const tabLabel = getLabelWithAddress(baseLabel, fullId, building.houseNumber);
+
              list.push({ 
                  id: `non_${i}`, 
                  type: 'Н', 
                  index: i, 
-                 fullId: `${building.id}_non_${i}`,
-                 tabLabel: `Нежилой Блок - ${i+1}`,
+                 fullId: fullId,
+                 tabLabel: tabLabel,
                  icon: Store
              });
          }
     }
 
-    // 3. СПЕЦИАЛЬНЫЕ ТИПЫ
+    // 3. СПЕЦИАЛЬНЫЕ ТИПЫ (Паркинги, Инфраструктура)
     if (building.category === 'parking_separate') {
          list.push({ 
              id: 'main', 
@@ -58,7 +87,7 @@ export function getBlocksList(building) {
         });
     }
 
-    // Фолбек (если ничего не подошло)
+    // Фолбек
     if (list.length === 0) {
         list.push({ 
             id: 'main', 
