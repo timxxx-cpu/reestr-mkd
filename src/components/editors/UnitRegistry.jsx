@@ -252,9 +252,21 @@ export default function UnitRegistry({ mode = 'apartments' }) {
 
             // 3. ПАРКИНГ
             else if (mode === 'parking') {
+                // Сортировка блоков по длине ID для корректного матчинга
+                const sortedBlocks = [...blocks].sort((a, b) => b.fullId.length - a.fullId.length);
+
                 Object.keys(parkingPlaces).forEach(key => {
                     if (!key.startsWith(building.id)) return;
                     if (!key.includes('_place')) return;
+                    
+                    // Поиск блока, к которому относится паркоместо
+                    const parentBlock = sortedBlocks.find(b => key.startsWith(b.fullId));
+                    
+                    // [ИСПРАВЛЕНО] Убрана блокировка: если блок не найден, используем дефолтное название
+                    const blockLabel = parentBlock 
+                        ? parentBlock.tabLabel 
+                        : (building.category === 'parking_separate' ? 'Паркинг' : 'Паркинг / Подвал');
+
                     const place = parkingPlaces[key];
                     
                     let floorLabel = "Паркинг";
@@ -272,9 +284,10 @@ export default function UnitRegistry({ mode = 'apartments' }) {
                         type: 'parking_place',
                         area: place.area || '—',
                         rooms: '-',
-                        blockLabel: building.category === 'parking_separate' ? 'Паркинг' : 'Подземная часть',
+                        blockLabel: blockLabel,
                         floorLabel: floorLabel,
-                        entrance: '-'
+                        entrance: '-',
+                        isSaved: true
                     });
                 });
             }

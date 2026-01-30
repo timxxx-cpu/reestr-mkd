@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Save, CheckCircle2, LogOut, ArrowRight, Loader2, 
-  ArrowLeft, Send, History, ThumbsUp, XCircle, ShieldCheck // [FIX] Добавлен ShieldCheck
+  ArrowLeft, Send, History, ThumbsUp, XCircle, ShieldCheck 
 } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { Button } from './ui/UIKit';
@@ -44,6 +44,10 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   const isStageBoundary = stageConfig && stageConfig.lastStepIndex === currentStep;
   const isLastStepGlobal = currentStep === STEPS_CONFIG.length - 1;
 
+  // [NEW] Определение этапа интеграции (индексы 15 и 16)
+  const INTEGRATION_START_IDX = 15;
+  const isIntegrationStage = currentStep >= INTEGRATION_START_IDX;
+
   // --- ЛОГИКА ТЕХНИКА ---
   let actionBtnText = "Завершить";
   let ActionIcon = ArrowRight;
@@ -57,6 +61,10 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       actionBtnText = "Отправить на проверку";
       ActionIcon = Send;
       confirmMsg = `Вы завершаете Этап ${currentStageNum}. Отправить данные на проверку Бригадиру?`;
+  } else if (currentStep === 14) { // Переход со Сводной (14) на Интеграцию (15)
+      actionBtnText = "Перейти к интеграции";
+      ActionIcon = Send;
+      confirmMsg = "Данные будут зафиксированы, и статус проекта изменится на 'Интеграция'. Продолжить?";
   }
 
   // --- ОБРАБОТЧИКИ ТЕХНИКА ---
@@ -212,7 +220,8 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       return (
         <div className="bg-slate-900 border-b border-slate-800 px-8 py-4 flex items-center justify-between sticky top-0 z-30 shadow-xl shadow-slate-900/10 animate-in slide-in-from-top-2 text-white">
             <div className="flex items-center gap-4">
-                {canGoBack && (
+                {/* [MODIFIED] Скрываем кнопку возврата на этапах интеграции */}
+                {canGoBack && !isIntegrationStage && (
                     <Button 
                         variant="ghost" 
                         onClick={handleRollback}

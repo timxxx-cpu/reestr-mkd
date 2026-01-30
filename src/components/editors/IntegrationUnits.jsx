@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Database, Send, Loader2, CheckCircle2, AlertTriangle, 
-  Home, Car, Briefcase, RefreshCw, Hash, ArrowRight
+  Home, Car, Briefcase, RefreshCw, Hash, ArrowRight,
+  Building2, FileText, School, Filter
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, Button, SectionTitle, Badge, useReadOnly } from '../ui/UIKit';
+import { Card, Button, SectionTitle, Badge, useReadOnly, TabButton } from '../ui/UIKit';
 import { useToast } from '../../context/ToastContext';
+import { getBlocksList } from '../../lib/utils';
 
 // Статусы интеграции
 const SYNC_STATUS = {
@@ -16,44 +18,160 @@ const SYNC_STATUS = {
     ERROR: 'ERROR'
 };
 
+const getTypeConfig = (type) => {
+    switch(type) {
+        case 'flat': return { label: 'Квартира', icon: Home, color: 'text-blue-600 bg-blue-50 border-blue-200' };
+        case 'duplex_up': 
+        case 'duplex_down': return { label: 'Дуплекс', icon: Home, color: 'text-purple-600 bg-purple-50 border-purple-200' };
+        case 'office': return { label: 'Офис', icon: Briefcase, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' };
+        case 'office_inventory': return { label: 'Нежилое (Инв.)', icon: FileText, color: 'text-teal-600 bg-teal-50 border-teal-200' };
+        case 'non_res_block': return { label: 'Нежилой блок', icon: Building2, color: 'text-amber-600 bg-amber-50 border-amber-200' };
+        case 'infrastructure': return { label: 'Инфраструктура', icon: School, color: 'text-orange-600 bg-orange-50 border-orange-200' };
+        case 'parking_place': return { label: 'Машиноместо', icon: Car, color: 'text-indigo-600 bg-indigo-50 border-indigo-200' };
+        default: return { label: type, icon: FileText, color: 'text-slate-600 bg-slate-50 border-slate-200' };
+    }
+};
+
 export default function IntegrationUnits() {
     const { 
         composition, flatMatrix, setFlatMatrix, 
         parkingPlaces, setParkingPlaces,
-        applicationInfo, setApplicationInfo, saveData 
+        entrancesData, floorData,
+        applicationInfo, setApplicationInfo, saveData, complexInfo 
     } = useProject();
     
     const isReadOnly = useReadOnly();
     const toast = useToast();
 
-    // Локальный стейт статуса, синхронизируемый с глобальным
     const [status, setStatus] = useState(applicationInfo?.integration?.unitsStatus || SYNC_STATUS.IDLE);
+    const [activeTab, setActiveTab] = useState('living'); // living | nonres | parking
 
-    // Сбор статистики для отображения
-    const stats = useMemo(() => {
-        let totalFlats = 0;
-        let totalCommercial = 0;
-        let totalParking = 0;
-        let totalProcessed = 0;
+    // --- 1. СБОР ВСЕХ ОБЪЕКТОВ ---
+    const allObjects = useMemo(() => {
+        const list = [];
+        composition.forEach(building => {
+            const blocks = getBlocksList(building);
 
-        // Считаем квартиры и коммерцию
-        Object.values(flatMatrix).forEach(unit => {
-            if (['flat', 'duplex_up', 'duplex_down'].includes(unit.type)) totalFlats++;
-            else totalCommercial++;
-            
-            if (unit.cadastreNumber) totalProcessed++;
+            // А. Квартиры и Явные офисы (из FlatMatrix)
+            Object.keys(flatMatrix).forEach(key => {
+                if (!key.startsWith(building.id)) return;
+                const unit = flatMatrix[key];
+                if (!unit || !unit.num) return; 
+
+                list.push({
+                    id: key,
+                    category: ['flat', 'duplex_up', 'duplex_down'].includes(unit.type) ? 'living' : 'nonres',
+                    type: unit.type,
+                    number: unit.num,
+                    area: unit.area,
+                    buildingLabel: building.label,
+                    cadastreNumber: unit.cadastreNumber || null,
+                    isVirtual: false
+                });
+            });
+
+            // Б. Виртуальные нежилые
+            const resBlocks = blocks.filter(b => b.type === 'Ж');
+            resBlocks.forEach(block => {
+                Object.keys(entrancesData).forEach(entKey => {
+                    if (!entKey.startsWith(block.fullId)) return;
+                    const data = entrancesData[entKey];
+                    const unitsCount = parseInt(data.units || 0);
+                    if (unitsCount > 0) {
+                        for(let i = 1; i <= unitsCount; i++) {
+                            const virtualId = `${entKey}_unit_${i}`;
+                            if (!list.find(item => item.id === virtualId)) {
+                                list.push({
+                                    id: virtualId,
+                                    category: 'nonres',
+                                    type: 'office_inventory',
+                                    number: `НП-${i}`,
+                                    area: '0', 
+                                    buildingLabel: building.label,
+                                    cadastreNumber: null,
+                                    isVirtual: true
+                                });
+                            }
+                        }
+                    }
+                });
+            });
+
+            const nonResBlocks = blocks.filter(b => b.type === 'Н');
+            nonResBlocks.forEach(block => {
+                const virtualId = `${building.id}_${block.id}_whole`;
+                if (!list.find(item => item.id === virtualId)) {
+                    let totalArea = 0;
+                    Object.entries(floorData).forEach(([k, v]) => {
+                        if (k.startsWith(`${building.id}_${block.id}`)) totalArea += (parseFloat(v.areaProj) || 0);
+                    });
+                    list.push({
+                        id: virtualId,
+                        category: 'nonres',
+                        type: 'non_res_block',
+                        number: block.tabLabel,
+                        area: totalArea.toFixed(2),
+                        buildingLabel: building.label,
+                        cadastreNumber: null,
+                        isVirtual: true
+                    });
+                }
+            });
+
+            if (building.category === 'infrastructure') {
+                const virtualId = building.id;
+                if (!list.find(item => item.id === virtualId)) {
+                    let infraArea = 0;
+                    Object.entries(floorData).forEach(([k, v]) => {
+                        if (k.startsWith(`${building.id}_main`)) infraArea += (parseFloat(v.areaProj) || 0);
+                    });
+                    list.push({
+                        id: virtualId,
+                        category: 'nonres',
+                        type: 'infrastructure',
+                        number: building.houseNumber,
+                        area: infraArea.toFixed(2),
+                        buildingLabel: building.label,
+                        cadastreNumber: building.cadastreNumber || null,
+                        isVirtual: true
+                    });
+                }
+            }
+
+            // В. Паркинг
+            Object.keys(parkingPlaces).forEach(key => {
+                if (!key.startsWith(building.id) || !key.includes('_place')) return;
+                const place = parkingPlaces[key];
+                
+                list.push({
+                    id: key,
+                    category: 'parking',
+                    type: 'parking_place',
+                    number: place.number,
+                    area: place.area,
+                    buildingLabel: building.label,
+                    cadastreNumber: place.cadastreNumber || null,
+                    isVirtual: false
+                });
+            });
         });
 
-        // Считаем паркинг
-        Object.keys(parkingPlaces).forEach(key => {
-            if (key.includes('_place')) {
-                totalParking++;
-                if (parkingPlaces[key].cadastreNumber) totalProcessed++;
+        return list;
+    }, [composition, flatMatrix, entrancesData, floorData, parkingPlaces]);
+
+    // --- Статистика ---
+    const stats = useMemo(() => {
+        const s = { living: { total: 0, ready: 0 }, nonres: { total: 0, ready: 0 }, parking: { total: 0, ready: 0 } };
+        allObjects.forEach(obj => {
+            if (s[obj.category]) {
+                s[obj.category].total++;
+                if (obj.cadastreNumber) s[obj.category].ready++;
             }
         });
+        return s;
+    }, [allObjects]);
 
-        return { totalFlats, totalCommercial, totalParking, total: totalFlats + totalCommercial + totalParking, totalProcessed };
-    }, [flatMatrix, parkingPlaces]);
+    const filteredList = useMemo(() => allObjects.filter(o => o.category === activeTab), [allObjects, activeTab]);
 
     useEffect(() => {
         if (applicationInfo?.integration?.unitsStatus !== status) {
@@ -64,35 +182,58 @@ export default function IntegrationUnits() {
     }, [status]);
 
     const handleSendToUzkad = async () => {
+        if (isReadOnly) return;
         setStatus(SYNC_STATUS.SENDING);
         setTimeout(() => {
             setStatus(SYNC_STATUS.WAITING);
-            toast.info("Реестр помещений отправлен. Ожидание обработки...");
-        }, 2500);
+            toast.info("Реестр отправлен. Ожидание присвоения номеров...");
+        }, 2000);
     };
 
     const handleSimulateResponse = () => {
-        // 1. Обновляем Квартиры и Коммерцию
+        if (isReadOnly) return; // [FIXED] Блокировка
         const newFlatMatrix = { ...flatMatrix };
-        Object.keys(newFlatMatrix).forEach(key => {
-            if (!newFlatMatrix[key].cadastreNumber) {
-                const uniquePart = Math.floor(100000 + Math.random() * 900000);
-                newFlatMatrix[key] = {
-                    ...newFlatMatrix[key],
-                    cadastreNumber: `11:05:04:02:0077:${uniquePart}`
-                };
-            }
-        });
-
-        // 2. Обновляем Паркинги
         const newParkingPlaces = { ...parkingPlaces };
-        Object.keys(newParkingPlaces).forEach(key => {
-            if (key.includes('_place') && !newParkingPlaces[key].cadastreNumber) {
-                const uniquePart = Math.floor(100000 + Math.random() * 900000);
-                newParkingPlaces[key] = {
-                    ...newParkingPlaces[key],
-                    cadastreNumber: `11:05:04:02:0077:P:${uniquePart}`
-                };
+
+        let processedCount = 0;
+
+        allObjects.forEach(obj => {
+            if (obj.cadastreNumber) return; 
+
+            const uniquePart = Math.floor(100000 + Math.random() * 900000);
+            const generatedCadastre = `11:05:04:02:0077:${obj.category === 'parking' ? 'P:' : ''}${uniquePart}`;
+
+            if (obj.category === 'parking') {
+                if (newParkingPlaces[obj.id]) {
+                    newParkingPlaces[obj.id] = { ...newParkingPlaces[obj.id], cadastreNumber: generatedCadastre };
+                    processedCount++;
+                }
+            } else {
+                if (!obj.isVirtual) {
+                    if (newFlatMatrix[obj.id]) {
+                        newFlatMatrix[obj.id] = { ...newFlatMatrix[obj.id], cadastreNumber: generatedCadastre };
+                        processedCount++;
+                    }
+                } else {
+                    if (obj.type === 'infrastructure') {
+                        newFlatMatrix[obj.id] = {
+                            num: obj.number,
+                            type: obj.type,
+                            area: obj.area,
+                            cadastreNumber: generatedCadastre,
+                            buildingId: composition.find(c => c.label === obj.buildingLabel)?.id
+                        };
+                        processedCount++;
+                    } else {
+                        newFlatMatrix[obj.id] = {
+                            num: obj.number,
+                            type: obj.type,
+                            area: obj.area,
+                            cadastreNumber: generatedCadastre,
+                        };
+                        processedCount++;
+                    }
+                }
             }
         });
 
@@ -100,185 +241,169 @@ export default function IntegrationUnits() {
         setParkingPlaces(newParkingPlaces);
         setStatus(SYNC_STATUS.COMPLETED);
         
-        // Сохраняем пачкой
         saveData({ 
             flatMatrix: newFlatMatrix, 
             parkingPlaces: newParkingPlaces 
-        }, true); // true = показать уведомление
+        }, true);
         
-        toast.success("Кадастровые номера для помещений получены!");
+        toast.success(`Получено ${processedCount} новых кадастровых номеров!`);
     };
 
     const handleReset = () => {
-        if(!confirm("Сбросить статус интеграции помещений?")) return;
+        if (isReadOnly) return;
+        if(!confirm("Сбросить статус интеграции?")) return;
         setStatus(SYNC_STATUS.IDLE);
     };
 
     return (
-        <div className="max-w-5xl mx-auto pb-20 animate-in fade-in duration-500 space-y-8">
+        <div className="w-full pb-24 animate-in fade-in duration-500 space-y-6">
             
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-slate-200 pb-6">
+            {/* --- HEADER --- */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 pb-6">
                 <div className="flex items-center gap-4">
                     <div className="p-3 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-200">
                         <Database size={24} />
                     </div>
                     <div>
                         <h1 className="text-2xl font-bold text-slate-800">Регистрация помещений</h1>
-                        <p className="text-slate-500 text-sm">Передача реестра квартир, офисов и парковочных мест</p>
+                        <p className="text-slate-500 text-sm">Отправка реестров в УЗКАД и получение кадастровых номеров</p>
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    <div className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-2 ${
-                        status === SYNC_STATUS.COMPLETED ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                        status === SYNC_STATUS.WAITING ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                        'bg-slate-100 text-slate-600 border-slate-200'
-                    }`}>
-                        <RefreshCw size={14}/>
-                        {status === SYNC_STATUS.IDLE && 'Ожидание отправки'}
-                        {status === SYNC_STATUS.SENDING && 'Формирование пакета...'}
-                        {status === SYNC_STATUS.WAITING && 'Присвоение номеров'}
-                        {status === SYNC_STATUS.COMPLETED && 'Реестр синхронизирован'}
-                    </div>
+                
+                {/* Status Badge */}
+                <div className={`px-4 py-2 rounded-xl text-sm font-bold border flex items-center gap-2 shadow-sm ${
+                    status === SYNC_STATUS.COMPLETED ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                    status === SYNC_STATUS.WAITING ? 'bg-amber-50 text-amber-700 border-amber-200 animate-pulse' :
+                    'bg-white text-slate-600 border-slate-200'
+                }`}>
+                    <RefreshCw size={16} className={status === SYNC_STATUS.SENDING ? 'animate-spin' : ''}/>
+                    {status === SYNC_STATUS.IDLE && 'Готов к отправке'}
+                    {status === SYNC_STATUS.SENDING && 'Отправка...'}
+                    {status === SYNC_STATUS.WAITING && 'Ожидание ответа УЗКАД'}
+                    {status === SYNC_STATUS.COMPLETED && 'Все данные получены'}
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                
-                {/* Left Panel: Status & Actions */}
-                <Card className="lg:col-span-1 p-6 h-fit space-y-6">
-                    <SectionTitle icon={Database}>Процесс обмена</SectionTitle>
-                    
-                    <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
-                        <div className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-500 border-4 ${
-                            status === SYNC_STATUS.SENDING || status === SYNC_STATUS.WAITING ? 'bg-amber-50 border-amber-200 text-amber-600 animate-pulse' :
-                            status === SYNC_STATUS.COMPLETED ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
-                            'bg-slate-50 border-slate-100 text-slate-400'
-                        }`}>
-                            {status === SYNC_STATUS.SENDING ? <Loader2 size={32} className="animate-spin"/> :
-                             status === SYNC_STATUS.WAITING ? <Database size={32} className="animate-bounce"/> :
-                             status === SYNC_STATUS.COMPLETED ? <CheckCircle2 size={32}/> :
-                             <ArrowRight size={32}/>}
+            {/* --- ACTION CARD --- */}
+            <Card className="p-6 bg-slate-50/50 border-slate-200 shadow-sm">
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="flex items-center gap-6">
+                        <div className="flex -space-x-3">
+                            <div className="w-12 h-12 rounded-full bg-blue-100 border-4 border-white flex items-center justify-center text-blue-600 z-30"><Home size={20}/></div>
+                            <div className="w-12 h-12 rounded-full bg-emerald-100 border-4 border-white flex items-center justify-center text-emerald-600 z-20"><Briefcase size={20}/></div>
+                            <div className="w-12 h-12 rounded-full bg-indigo-100 border-4 border-white flex items-center justify-center text-indigo-600 z-10"><Car size={20}/></div>
                         </div>
                         <div>
-                            <h3 className="text-lg font-bold text-slate-800">
-                                {status === SYNC_STATUS.IDLE && 'Пакет сформирован'}
-                                {status === SYNC_STATUS.WAITING && 'Обработка реестра'}
-                                {status === SYNC_STATUS.COMPLETED && 'Успешно'}
-                            </h3>
-                            <p className="text-xs text-slate-500 mt-1 px-4">
-                                {status === SYNC_STATUS.IDLE && `Готово к передаче: ${stats.total} объектов недвижимости.`}
-                                {status === SYNC_STATUS.WAITING && 'УЗКАД проводит проверку площадей и генерацию кадастровых паспортов.'}
-                                {status === SYNC_STATUS.COMPLETED && `Получено ${stats.totalProcessed} кадастровых номеров.`}
-                            </p>
+                            <div className="text-sm font-bold text-slate-700">Единый пакет данных</div>
+                            <div className="text-xs text-slate-500 mt-1">
+                                Всего объектов: <span className="font-bold text-slate-900">{allObjects.length}</span> 
+                                <span className="mx-2">•</span>
+                                Обработано: <span className="font-bold text-emerald-600">{allObjects.filter(o=>o.cadastreNumber).length}</span>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="pt-4 border-t border-slate-100 space-y-3">
+                    <div className="flex gap-3 w-full md:w-auto">
                         {status === SYNC_STATUS.IDLE && (
                             <Button 
                                 onClick={handleSendToUzkad} 
-                                disabled={isReadOnly || stats.total === 0}
-                                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200"
+                                disabled={isReadOnly || allObjects.length === 0}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200 w-full md:w-auto"
                             >
                                 <Send size={16} className="mr-2"/> Отправить реестр
                             </Button>
                         )}
-
                         {status === SYNC_STATUS.WAITING && (
-                            <div className="space-y-3">
-                                <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-700 flex gap-2">
-                                    <Loader2 size={16} className="animate-spin shrink-0"/>
-                                    <span>Массовое присвоение номеров может занять до 24 часов.</span>
-                                </div>
-                                <Button 
-                                    onClick={handleSimulateResponse} 
-                                    variant="secondary"
-                                    className="w-full border-dashed border-slate-300 text-slate-500 hover:text-slate-700"
-                                >
-                                    <RefreshCw size={14} className="mr-2"/> Получить ответ (Dev)
-                                </Button>
-                            </div>
+                            <Button 
+                                onClick={handleSimulateResponse} 
+                                disabled={isReadOnly} // [FIXED] Блокировка
+                                variant="secondary" 
+                                className="border-dashed border-slate-300 w-full md:w-auto"
+                            >
+                                <RefreshCw size={16} className="mr-2"/> Получить ответ (Эмуляция)
+                            </Button>
                         )}
-
-                        {status === SYNC_STATUS.COMPLETED && (
-                            <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-xs text-emerald-700 flex gap-2 items-center justify-center">
-                                <CheckCircle2 size={16}/>
-                                <span className="font-bold">Данные обновлены</span>
-                            </div>
-                        )}
-
                         {status !== SYNC_STATUS.IDLE && !isReadOnly && (
-                             <button onClick={handleReset} className="text-[10px] text-slate-400 hover:text-red-500 w-full text-center mt-2 underline decoration-dashed">
-                                 Сброс (Отладка)
-                             </button>
+                            <button onClick={handleReset} className="px-4 text-xs font-bold text-slate-400 hover:text-red-500">Сброс</button>
                         )}
-                    </div>
-                </Card>
-
-                {/* Right Panel: Summary */}
-                <div className="lg:col-span-2 space-y-4">
-                    <div className="flex justify-between items-center">
-                        <SectionTitle icon={Database} className="mb-0">Состав пакета данных</SectionTitle>
-                        <Badge className="bg-slate-100 text-slate-600 border-slate-200">
-                            Всего объектов: {stats.total}
-                        </Badge>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                            <div className="p-3 bg-blue-50 text-blue-600 rounded-lg"><Home size={20}/></div>
-                            <div>
-                                <div className="text-2xl font-black text-slate-800">{stats.totalFlats}</div>
-                                <div className="text-[10px] font-bold text-slate-400 uppercase">Квартиры</div>
-                            </div>
-                        </div>
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                            <div className="p-3 bg-emerald-50 text-emerald-600 rounded-lg"><Briefcase size={20}/></div>
-                            <div>
-                                <div className="text-2xl font-black text-slate-800">{stats.totalCommercial}</div>
-                                <div className="text-[10px] font-bold text-slate-400 uppercase">Нежилые</div>
-                            </div>
-                        </div>
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                            <div className="p-3 bg-slate-50 text-slate-600 rounded-lg"><Car size={20}/></div>
-                            <div>
-                                <div className="text-2xl font-black text-slate-800">{stats.totalParking}</div>
-                                <div className="text-[10px] font-bold text-slate-400 uppercase">Машиноместа</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mt-4">
-                        <h4 className="text-sm font-bold text-slate-700 mb-3">Пример передаваемых данных (JSON)</h4>
-                        <div className="bg-slate-900 rounded-xl p-4 overflow-hidden relative">
-                            <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 pointer-events-none"></div>
-                            <pre className="text-[10px] text-emerald-400 font-mono overflow-x-auto custom-scrollbar">
-{`{
-  "request_id": "REQ-${Date.now()}",
-  "project_id": "PRJ-10293",
-  "objects": [
-    {
-      "type": "FLAT",
-      "number": "14",
-      "area": "74.50",
-      "rooms": 3,
-      "building_ref": "b_1700..."
-    },
-    {
-      "type": "PARKING",
-      "number": "P-12",
-      "area": "13.25",
-      "level": "-1",
-      "building_ref": "b_1700..."
-    },
-    ... (еще ${stats.total - 2} объектов)
-  ]
-}`}
-                            </pre>
-                        </div>
                     </div>
                 </div>
+            </Card>
+
+            {/* --- TABS & TABLE --- */}
+            <div className="space-y-4">
+                <div className="flex gap-2 p-1 bg-slate-100 rounded-xl w-max">
+                    <TabButton active={activeTab==='living'} onClick={()=>setActiveTab('living')}>
+                        <Home size={16} className="mr-2 opacity-70"/> Квартиры <Badge className="ml-2 bg-white text-slate-700 shadow-sm">{stats.living.total}</Badge>
+                    </TabButton>
+                    <TabButton active={activeTab==='nonres'} onClick={()=>setActiveTab('nonres')}>
+                        <Briefcase size={16} className="mr-2 opacity-70"/> Нежилые <Badge className="ml-2 bg-white text-slate-700 shadow-sm">{stats.nonres.total}</Badge>
+                    </TabButton>
+                    <TabButton active={activeTab==='parking'} onClick={()=>setActiveTab('parking')}>
+                        <Car size={16} className="mr-2 opacity-70"/> Паркинг <Badge className="ml-2 bg-white text-slate-700 shadow-sm">{stats.parking.total}</Badge>
+                    </TabButton>
+                </div>
+
+                <Card className="overflow-hidden border border-slate-200 shadow-md bg-white min-h-[400px]">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm border-collapse">
+                            <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                <tr>
+                                    <th className="px-6 py-4 w-12 text-center">#</th>
+                                    <th className="px-6 py-4">Номер / Имя</th>
+                                    <th className="px-6 py-4">Тип</th>
+                                    <th className="px-6 py-4">Здание</th>
+                                    <th className="px-6 py-4 text-right">Площадь</th>
+                                    <th className="px-6 py-4">Кадастровый номер</th>
+                                    <th className="px-6 py-4 text-center">Статус</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {filteredList.length === 0 ? (
+                                    <tr><td colSpan={7} className="p-12 text-center text-slate-400">Нет объектов в этой категории</td></tr>
+                                ) : (
+                                    filteredList.map((item, idx) => {
+                                        const typeConf = getTypeConfig(item.type);
+                                        const TypeIcon = typeConf.icon;
+                                        const hasCadastre = !!item.cadastreNumber;
+
+                                        return (
+                                            <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                                                <td className="px-6 py-4 text-center text-slate-400 text-xs">{idx+1}</td>
+                                                <td className="px-6 py-4 font-black text-slate-700">{item.number}</td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold uppercase border ${typeConf.color}`}>
+                                                        <TypeIcon size={12}/> {typeConf.label}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-xs text-slate-500">{item.buildingLabel}</td>
+                                                <td className="px-6 py-4 text-right font-mono text-slate-600">
+                                                    {item.area ? `${parseFloat(item.area).toFixed(2)} м²` : '-'}
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    {hasCadastre ? (
+                                                        <span className="font-mono text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded border border-emerald-100">
+                                                            {item.cadastreNumber}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-300 text-xs">—</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    {hasCadastre ? (
+                                                        <CheckCircle2 size={18} className="text-emerald-500 mx-auto"/>
+                                                    ) : (
+                                                        <div className={`w-2 h-2 rounded-full mx-auto ${status === SYNC_STATUS.WAITING ? 'bg-amber-400 animate-pulse' : 'bg-slate-200'}`}></div>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
             </div>
         </div>
     );

@@ -223,13 +223,6 @@ function ProjectEditorRoute({ user }) {
     const INTEGRATION_START_IDX = 15;
 
     const canGoToStep = (stepIdx) => {
-        // [NEW] Блокировка возврата назад для Техника на этапе интеграции
-        // Если текущий шаг - интеграция (или дальше), и мы пытаемся уйти назад в редактор
-        if (isTechnician && currentStep >= INTEGRATION_START_IDX && stepIdx < INTEGRATION_START_IDX) {
-             toast.error("На этапе интеграции возврат к редактированию запрещен. Сначала завершите обмен данными.");
-             return false;
-        }
-
         if (stepIdx > maxAllowedStep) {
             toast.error(`Этот шаг еще не доступен. Завершите текущую задачу.`);
             return false;

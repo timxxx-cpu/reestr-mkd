@@ -201,9 +201,11 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
         }));
     };
 
-    // [NEW] Обновленная функция сохранения
+    // [FIX] ИСПРАВЛЕННАЯ ФУНКЦИЯ СОХРАНЕНИЯ
     const handleSave = async () => {
         const newPlaces = { ...parkingPlaces };
+        
+        // 1. Генерируем места на основе введенных количеств
         allRows.forEach(lvl => {
             const enabled = isParkingEnabled(lvl);
             const countStr = getPlacesCount(lvl);
@@ -212,6 +214,7 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
             if (enabled && count > 0) {
                 for (let i = 0; i < count; i++) {
                     const placeKey = `${lvl.fullId}_${lvl.id}_place${i}`;
+                    // Если места еще нет, создаем дефолтное
                     // @ts-ignore
                     if (!newPlaces[placeKey]) {
                         // @ts-ignore
@@ -224,9 +227,13 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
             }
         });
 
-        // Фильтруем данные только для текущего здания (если редактируем конкретное)
+        // 2. [ВАЖНО] Обновляем стейт, чтобы данные появились в реестре сразу
+        setParkingPlaces(newPlaces);
+
+        // 3. Сохраняем в базу
         const specificData = {};
         if (buildingId) {
+            // Если редактируем конкретное здание, сохраняем только его данные в sub-collection
             Object.keys(newPlaces).forEach(k => {
                 if (k.startsWith(buildingId)) {
                     // @ts-ignore
@@ -234,14 +241,10 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                 }
             });
             await saveBuildingData(building.id, 'parkingData', specificData);
-        } else {
-            // Если режим конфигурации всего проекта - сохраняем всё
-            await saveData({ parkingPlaces: newPlaces });
         }
         
-        await saveData({}, true); // true для уведомления и сброса флага
-        
-        // onSave() больше не вызываем, навигация отдельно
+        // Сбрасываем флаг несохраненных изменений
+        await saveData({}, true); 
     };
 
     const getBadgeStyle = (type) => {
@@ -258,7 +261,6 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                     <h2 className="text-2xl font-bold text-slate-800 leading-tight">Конфигурация паркингов</h2>
                     <p className="text-slate-500 text-sm mt-1">Отметьте уровни, где размещаются машиноместа, и укажите их количество</p>
                 </div>
-                {/* [CHANGED] Кнопка сохранения убрана из хедера */}
             </div>
 
             {allRows.length > 0 ? (
@@ -281,7 +283,6 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                                 const count = getPlacesCount(lvl);
                                 const uniqueKey = `${lvl.fullId}_${lvl.id}`;
                                 
-                                // ВАЛИДАЦИЯ ZOD
                                 const validationResult = ParkingLevelConfigSchema.safeParse({ count });
                                 const isInvalid = !validationResult.success && count !== '';
 

@@ -128,7 +128,8 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       if (role === ROLES.CONTROLLER) return true;
 
       if (role === ROLES.TECHNICIAN) {
-          if ([APP_STATUS.DRAFT, APP_STATUS.NEW, APP_STATUS.REJECTED].includes(status)) {
+          // [MODIFIED] Теперь разрешаем редактирование и в статусе INTEGRATION
+          if ([APP_STATUS.DRAFT, APP_STATUS.NEW, APP_STATUS.REJECTED, APP_STATUS.INTEGRATION].includes(status)) {
               return false;
           }
           return true;
@@ -218,6 +219,9 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       const stageConfig = WORKFLOW_STAGES[currentStageNum];
       const isStageBoundary = stageConfig && stageConfig.lastStepIndex === currentIndex;
 
+      // [NEW] Индекс шага "Интеграция зданий" = 15
+      const INTEGRATION_START_IDX = 15;
+
       const prevStatus = currentAppInfo.status;
       let newStatus = currentAppInfo.status;
       let newStage = currentAppInfo.currentStage;
@@ -232,10 +236,15 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           newStage = currentStageNum + 1; 
           historyComment = `Этап ${currentStageNum} завершен. Отправлен на проверку (REVIEW).`;
       }
+      // [NEW] Принудительная смена статуса при переходе к интеграции
+      else if (nextStepIndex === INTEGRATION_START_IDX) {
+          newStatus = APP_STATUS.INTEGRATION;
+          historyComment = `Переход к этапу интеграции с УЗКАД. Статус изменен на "${APP_STATUS.INTEGRATION}".`;
+      }
 
       const historyItem = createHistoryEntry(
           userProfile,
-          isStageBoundary ? 'Отправка на проверку' : 'Завершение задачи',
+          isStageBoundary ? 'Отправка на проверку' : (nextStepIndex === INTEGRATION_START_IDX ? 'Старт интеграции' : 'Завершение задачи'),
           historyComment,
           {
               prevStatus,

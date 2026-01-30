@@ -41,6 +41,7 @@ export default function IntegrationBuildings() {
     };
 
     const handleSendToUzkad = async () => {
+        if (isReadOnly) return;
         updateStatus(SYNC_STATUS.SENDING);
         setTimeout(() => {
             updateStatus(SYNC_STATUS.WAITING);
@@ -49,6 +50,7 @@ export default function IntegrationBuildings() {
     };
 
     const handleSimulateResponse = () => {
+        if (isReadOnly) return;
         const updatedComposition = composition.map((building) => {
             if (building.cadastreNumber) return building;
             const regionCode = "11:05:04:02"; 
@@ -67,6 +69,7 @@ export default function IntegrationBuildings() {
     };
 
     const handleReset = () => {
+        if (isReadOnly) return;
         if(!confirm("Сбросить статус интеграции?")) return;
         updateStatus(SYNC_STATUS.IDLE);
     };
@@ -141,6 +144,7 @@ export default function IntegrationBuildings() {
                         {status === SYNC_STATUS.WAITING && (
                             <Button 
                                 onClick={handleSimulateResponse} 
+                                disabled={isReadOnly} // [FIXED] Блокировка в режиме просмотра
                                 variant="secondary"
                                 className="border-dashed border-slate-300 text-slate-500 hover:text-slate-700 h-12"
                             >
