@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
 import { Save, Car, CheckCircle2 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, Button, DebouncedInput } from '../ui/UIKit';
-import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
+import { Card, Button, DebouncedInput, useReadOnly } from '../ui/UIKit';
+import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { getBlocksList } from '../../lib/utils';
 // ВАЛИДАЦИЯ
 import { ParkingLevelConfigSchema } from '../../lib/schemas';
@@ -12,6 +12,7 @@ import { ParkingLevelConfigSchema } from '../../lib/schemas';
  */
 export default function ParkingConfigurator({ onSave, buildingId }) {
     const { composition, buildingDetails, setBuildingDetails, parkingPlaces, setParkingPlaces, saveBuildingData, saveData } = useProject();
+    const isReadOnly = useReadOnly();
 
     const building = useMemo(() => 
         buildingId ? composition.find(c => c.id === buildingId) : composition[0]
@@ -155,7 +156,7 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
     };
 
     const toggleParking = (lvl) => {
-        if (lvl.isMandatory) return;
+        if (lvl.isMandatory || isReadOnly) return;
         const currentlyEnabled = isParkingEnabled(lvl);
         const newValue = !currentlyEnabled;
 
@@ -186,6 +187,7 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
     };
 
     const updateCount = (lvl, value) => {
+        if (isReadOnly) return;
         // Проверка через Zod, чтобы не сохранять мусор в стейт
         // Хотя для текстового ввода в DebouncedInput мы разрешаем ввод, но валидируем
         const key = `${lvl.fullId}_${lvl.id}_meta`;
@@ -294,8 +296,8 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                                         <td className="p-4"><div className="flex flex-col"><span className={`font-bold text-sm ${isEnabled ? 'text-slate-800' : 'text-slate-400'}`}>{lvl.label}</span></div></td>
                                         
                                         <td className="p-4 text-center">
-                                            <label className={`flex items-center justify-center group relative ${lvl.isMandatory ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
-                                                <input type="checkbox" className="peer sr-only" checked={isEnabled} disabled={lvl.isMandatory} onChange={() => toggleParking(lvl)}/>
+                                            <label className={`flex items-center justify-center group relative ${lvl.isMandatory || isReadOnly ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+                                                <input type="checkbox" className="peer sr-only" checked={isEnabled} disabled={lvl.isMandatory || isReadOnly} onChange={() => toggleParking(lvl)}/>
                                                 {lvl.isMandatory ? (
                                                     <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100"><CheckCircle2 size={12}/><span>АКТИВЕН</span></div>
                                                 ) : (
@@ -311,10 +313,11 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                                                     <DebouncedInput 
                                                         type="number" 
                                                         min="0" 
-                                                        className={`pl-8 pr-3 py-2 w-full border rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all ${isInvalid ? 'border-red-500 bg-red-50' : 'border-slate-200'}`} 
+                                                        className={`pl-8 pr-3 py-2 w-full border rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all ${isInvalid ? 'border-red-500 bg-red-50' : 'border-slate-200'} ${isReadOnly ? 'bg-transparent border-transparent cursor-default' : ''}`} 
                                                         placeholder="0" 
                                                         value={count} 
                                                         onChange={(val) => updateCount(lvl, val)}
+                                                        disabled={isReadOnly}
                                                     />
                                                 </div>
                                                 <span className="text-xs text-slate-500 font-medium">мест</span>

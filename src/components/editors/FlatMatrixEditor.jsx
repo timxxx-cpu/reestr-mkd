@@ -4,8 +4,8 @@ import {
   MousePointer2, CheckSquare, Square, X, Layers, AlertCircle
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
-import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
+import { Card, DebouncedInput, TabButton, Button, useReadOnly } from '../ui/UIKit';
+import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 import { UnitSchema } from '../../lib/schemas';
@@ -33,6 +33,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         saveData 
     } = useProject();
     
+    const isReadOnly = useReadOnly();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
     const [startNum, setStartNum] = useState(1);
     
@@ -104,6 +105,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
     /** @type {(ent: number, floorId: string, idx: number, field: string, val: string) => void} */
     const updateApt = (ent, floorId, idx, field, val) => {
+        if (isReadOnly) return;
         if (!currentBlock) return;
         const key = `${currentBlock.fullId}_e${ent}_f${floorId}_i${idx}`;
         
@@ -163,6 +165,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     };
 
     const toggleSelection = (key) => {
+        if (isReadOnly) return;
         const newSet = new Set(selectedIds);
         if (newSet.has(key)) newSet.delete(key);
         else newSet.add(key);
@@ -170,6 +173,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     };
 
     const applyBulkType = (type) => {
+        if (isReadOnly) return;
         const updates = {};
         selectedIds.forEach(key => {
             // @ts-ignore
@@ -196,6 +200,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     };
 
     const autoNumber = () => {
+        if (isReadOnly) return;
         if (!currentBlock) return;
         let n = startNum;
         const updates = {};
@@ -250,19 +255,19 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                 <div className="flex gap-2">
                     <div className="flex items-center gap-2 bg-slate-100 px-3 rounded-xl border border-slate-200">
                         <span className="text-[10px] font-bold text-slate-400 uppercase">Старт №:</span>
-                        <input type="number" className="w-12 bg-transparent font-bold text-xs text-slate-700 outline-none text-center" value={startNum} onChange={e=>setStartNum(parseInt(e.target.value)||1)} />
+                        <input disabled={isReadOnly} type="number" className={`w-12 bg-transparent font-bold text-xs text-slate-700 outline-none text-center ${isReadOnly ? 'opacity-50' : ''}`} value={startNum} onChange={e=>setStartNum(parseInt(e.target.value)||1)} />
                     </div>
-                    <button onClick={autoNumber} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition-colors"><Wand2 size={14}/> Авто-нум.</button>
+                    <button disabled={isReadOnly} onClick={autoNumber} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-100'}`}><Wand2 size={14}/> Авто-нум.</button>
                     
                     <button 
+                        disabled={isReadOnly}
                         onClick={() => { setIsSelectionMode(!isSelectionMode); setSelectedIds(new Set()); }}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border ${isSelectionMode ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border ${isSelectionMode ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'} ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                         {isSelectionMode ? <CheckSquare size={14}/> : <MousePointer2 size={14}/>}
                         {isSelectionMode ? 'Режим выделения' : 'Выделение'}
                     </button>
 
-                    {/* [CHANGED] Кнопка Закрыть вместо Готово */}
                     <Button variant="secondary" onClick={onBack}>Закрыть</Button>
                 </div>
             </div>
@@ -271,7 +276,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                  {blocksList.map((b,i) => (<TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>Блок {i+1}</TabButton>))}
             </div>
 
-            {selectedIds.size > 0 && (
+            {selectedIds.size > 0 && !isReadOnly && (
                 <div className="sticky top-4 z-50 mb-4 mx-auto max-w-xl animate-in slide-in-from-top-4 fade-in duration-300">
                     <div className="bg-slate-900 text-white p-2 rounded-xl shadow-2xl flex items-center gap-3 border border-slate-700">
                         <div className="bg-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-300 flex items-center gap-2">
@@ -352,11 +357,11 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                                                             return (
                                                                 <div 
                                                                     key={i} 
-                                                                    onClick={() => isSelectionMode && toggleSelection(cellKey)}
+                                                                    onClick={() => isSelectionMode && !isReadOnly && toggleSelection(cellKey)}
                                                                     className={`
                                                                         flex flex-col gap-0.5 p-1.5 border-2 rounded-lg w-[64px] text-center transition-all shadow-sm relative group
                                                                         ${borderColorClass}
-                                                                        ${isSelectionMode ? 'cursor-pointer hover:border-blue-400' : ''}
+                                                                        ${isSelectionMode && !isReadOnly ? 'cursor-pointer hover:border-blue-400' : ''}
                                                                     `}
                                                                 >
                                                                     <div className={`h-1 w-full rounded-full mb-0.5 ${a.type === 'office' ? 'bg-emerald-400' : a.type.includes('duplex') ? 'bg-purple-400' : 'bg-slate-200'}`}></div>
@@ -371,10 +376,11 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                                                                             ref={el => inputsRef.current[`${e}-${f.id}-${i}`] = el}
                                                                             onKeyDown={(ev) => handleKeyDown(ev, floorList.indexOf(f), e, i)}
                                                                             type="text" 
-                                                                            className={`w-full text-center font-black text-xs outline-none bg-transparent ${isDuplicate ? 'text-red-600' : 'text-slate-700'}`} 
+                                                                            className={`w-full text-center font-black text-xs outline-none bg-transparent ${isDuplicate ? 'text-red-600' : 'text-slate-700'} ${isReadOnly ? 'cursor-default' : ''}`} 
                                                                             value={a.num} 
                                                                             onChange={val=>updateApt(e,f.id,i,'num',val)} 
                                                                             placeholder="№"
+                                                                            disabled={isReadOnly}
                                                                         />
                                                                     )}
 
@@ -382,7 +388,8 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                                                                     
                                                                     {isDuplexFloor && !isSelectionMode && (
                                                                         <select 
-                                                                            className="w-full text-[8px] bg-transparent outline-none font-bold cursor-pointer text-center appearance-none border-t border-black/5 mt-0.5 pt-0.5 text-slate-500 hover:text-blue-600" 
+                                                                            disabled={isReadOnly}
+                                                                            className={`w-full text-[8px] bg-transparent outline-none font-bold text-center appearance-none border-t border-black/5 mt-0.5 pt-0.5 text-slate-500 ${isReadOnly ? 'cursor-default' : 'cursor-pointer hover:text-blue-600'}`} 
                                                                             value={a.type} 
                                                                             onChange={ev=>updateApt(e,f.id,i,'type',ev.target.value)}
                                                                         >

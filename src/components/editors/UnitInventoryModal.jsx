@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { X, Plus, Trash2, Check, Home, Utensils, Bath, BedDouble, Sofa, Box, Layers, Calculator, Sun, Copy, Briefcase, Warehouse } from 'lucide-react';
-import { Button, Input, Select } from '../ui/UIKit';
+import { Button, Input, Select, useReadOnly } from '../ui/UIKit';
 import { useToast } from '../../context/ToastContext';
 import { useProject } from '../../context/ProjectContext';
 
@@ -42,6 +42,7 @@ const StatBadge = ({ label, value, subLabel, color }) => (
 
 export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSave }) {
     const { flatMatrix } = useProject();
+    const isReadOnly = useReadOnly();
     const toast = useToast();
     
     // Определяем режим: Жилье или Коммерция
@@ -106,6 +107,7 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
     }, [rooms, isCommercial, ROOM_TYPES]);
 
     const addRoom = () => {
+        if (isReadOnly) return;
         setRooms([...rooms, { 
             id: crypto.randomUUID(), 
             type: isCommercial ? 'main_hall' : 'living', 
@@ -115,10 +117,12 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
     };
 
     const removeRoom = (id) => {
+        if (isReadOnly) return;
         setRooms(rooms.filter(r => r.id !== id));
     };
 
     const updateRoom = (id, field, value) => {
+        if (isReadOnly) return;
         setRooms(rooms.map(r => {
             if (r.id !== id) return r;
             return { ...r, [field]: value };
@@ -126,7 +130,7 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
     };
 
     const handleCopy = () => {
-        if (!copySourceNum.trim()) return;
+        if (isReadOnly || !copySourceNum.trim()) return;
 
         const buildingPrefix = unit.buildingId;
         const sourceEntry = Object.entries(flatMatrix).find(([key, u]) => {
@@ -163,6 +167,7 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
     };
 
     const handleSave = () => {
+        if (isReadOnly) return;
         const payload = {
             ...unit,
             roomsList: rooms,
@@ -197,7 +202,7 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                             {isCommercial && <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold">НЕЖИЛОЕ</span>}
                         </div>
                         <h3 className="text-2xl font-black text-slate-800">
-                            {isCommercial ? 'Помещение' : 'Квартира'} № {unit.number}
+                            {isCommercial ? (isReadOnly ? 'Просмотр помещения' : 'Помещение') : (isReadOnly ? 'Просмотр квартиры' : 'Квартира')} № {unit.number}
                         </h3>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-200">
@@ -228,7 +233,7 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                         <StatBadge label="Общая площадь" value={stats.total} subLabel="В кадастр (с коэфф.)" color="bg-slate-800 text-white border-slate-900 shadow-md"/>
                         
                         {/* Кнопка копирования */}
-                        <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex flex-col gap-2 justify-center">
+                        <div className={`p-3 rounded-xl border border-slate-200 bg-slate-50 flex flex-col gap-2 justify-center ${isReadOnly ? 'opacity-50 pointer-events-none' : ''}`}>
                             <span className="text-[9px] uppercase font-bold text-slate-400 text-center">Копировать из №</span>
                             <div className="flex gap-1">
                                 <input 
@@ -237,8 +242,9 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                                     onChange={(e) => setCopySourceNum(e.target.value)}
                                     placeholder="..."
                                     onKeyDown={(e) => e.key === 'Enter' && handleCopy()}
+                                    disabled={isReadOnly}
                                 />
-                                <button onClick={handleCopy} className="p-1 bg-white border border-slate-200 rounded-md hover:text-blue-600"><Copy size={14}/></button>
+                                <button onClick={handleCopy} disabled={isReadOnly} className="p-1 bg-white border border-slate-200 rounded-md hover:text-blue-600"><Copy size={14}/></button>
                             </div>
                         </div>
                     </div>
@@ -280,7 +286,8 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                                             <Select
                                                 value={room.level || '1'}
                                                 onChange={(e) => updateRoom(room.id, 'level', e.target.value)}
-                                                className="text-xs py-2 bg-slate-50 border-slate-100 focus:bg-white text-purple-700 font-bold"
+                                                className={`text-xs py-2 bg-slate-50 border-slate-100 focus:bg-white text-purple-700 font-bold ${isReadOnly ? 'pointer-events-none appearance-none bg-transparent border-transparent' : ''}`}
+                                                disabled={isReadOnly}
                                             >
                                                 <option value="1">1 ур.</option>
                                                 <option value="2">2 ур.</option>
@@ -292,7 +299,8 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                                         <Select 
                                             value={room.type} 
                                             onChange={(e) => updateRoom(room.id, 'type', e.target.value)}
-                                            className="text-xs py-2 bg-slate-50 border-slate-100 focus:bg-white w-full font-medium"
+                                            className={`text-xs py-2 bg-slate-50 border-slate-100 focus:bg-white w-full font-medium ${isReadOnly ? 'pointer-events-none appearance-none bg-transparent border-transparent' : ''}`}
+                                            disabled={isReadOnly}
                                         >
                                             {ROOM_TYPES.map(t => (
                                                 <option key={t.id} value={t.id}>
@@ -310,7 +318,8 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                                             value={room.area} 
                                             onChange={(e) => updateRoom(room.id, 'area', e.target.value)}
                                             placeholder="0.00"
-                                            className="text-xs py-2 font-bold text-right bg-slate-50 border-slate-100 focus:bg-white pr-6"
+                                            className={`text-xs py-2 font-bold text-right bg-slate-50 border-slate-100 focus:bg-white pr-6 ${isReadOnly ? 'bg-transparent border-transparent cursor-default' : ''}`}
+                                            disabled={isReadOnly}
                                         />
                                         {k < 1 && (
                                             <div className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-mono">
@@ -319,20 +328,24 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                                         )}
                                     </div>
                                     <div className="col-span-1 flex justify-end">
-                                        <button onClick={() => removeRoom(room.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                                            <Trash2 size={14}/>
-                                        </button>
+                                        {!isReadOnly && (
+                                            <button onClick={() => removeRoom(room.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                                                <Trash2 size={14}/>
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             );
                         })}
 
-                        <button 
-                            onClick={addRoom}
-                            className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl flex items-center justify-center gap-2 text-slate-500 font-bold text-xs hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all"
-                        >
-                            <Plus size={16}/> Добавить {isCommercial ? 'помещение' : 'комнату'}
-                        </button>
+                        {!isReadOnly && (
+                            <button 
+                                onClick={addRoom}
+                                className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl flex items-center justify-center gap-2 text-slate-500 font-bold text-xs hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                            >
+                                <Plus size={16}/> Добавить {isCommercial ? 'помещение' : 'комнату'}
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -342,11 +355,12 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                         * Данные автоматически обновятся в общем реестре.
                     </div>
                     <div className="flex gap-3">
-                        <Button variant="ghost" onClick={onClose}>Отмена</Button>
-                        {/* [CHANGED] Кнопка переименована в Применить */}
-                        <Button onClick={handleSave} className="px-8 shadow-lg shadow-blue-200">
-                            <Check size={16} className="mr-2"/> Применить
-                        </Button>
+                        <Button variant="ghost" onClick={onClose}>{isReadOnly ? 'Закрыть' : 'Отмена'}</Button>
+                        {!isReadOnly && (
+                            <Button onClick={handleSave} className="px-8 shadow-lg shadow-blue-200">
+                                <Check size={16} className="mr-2"/> Применить
+                            </Button>
+                        )}
                     </div>
                 </div>
             </div>

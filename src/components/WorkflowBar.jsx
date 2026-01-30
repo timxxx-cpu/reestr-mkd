@@ -280,16 +280,22 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   // 3. Режим просмотра (для всех остальных случаев)
   if (!isCurrentTask && !isReviewMode) {
        return (
-          <div className="bg-slate-100 border-b border-slate-200 px-8 py-3 flex justify-between items-center sticky top-0 z-30 animate-in slide-in-from-top-2">
-              <div className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-                  <CheckCircle2 size={14} className="text-slate-400"/>
-                  Режим просмотра (Задача выполнена)
+          <div className="bg-slate-900 border-b border-slate-800 px-8 py-3 flex justify-between items-center sticky top-0 z-30 animate-in slide-in-from-top-2 text-slate-300">
+              <div className="flex items-center gap-4">
+                  <div className="p-1.5 bg-emerald-500/10 rounded-lg border border-emerald-500/20 text-emerald-500">
+                      <CheckCircle2 size={16} />
+                  </div>
+                  <div className="flex flex-col">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Статус</span>
+                      <span className="text-sm font-bold text-slate-300">Задача выполнена (Режим просмотра)</span>
+                  </div>
               </div>
-              <div className="flex gap-2">
-                  <Button variant="ghost" onClick={onOpenHistory} className="h-8 text-xs bg-white border border-slate-200 shadow-sm text-slate-500">
+              
+              <div className="flex items-center gap-3">
+                  <Button variant="ghost" onClick={onOpenHistory} className="h-9 px-3 text-xs bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 hover:text-white">
                       <History size={14} className="mr-2"/> История
                   </Button>
-                  <Button variant="ghost" onClick={onExit} className="h-8 text-xs bg-white border border-slate-200 shadow-sm text-slate-700">
+                  <Button variant="ghost" onClick={onExit} className="h-9 px-3 text-xs bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 hover:text-white">
                       <LogOut size={14} className="mr-2"/> Выйти
                   </Button>
               </div>

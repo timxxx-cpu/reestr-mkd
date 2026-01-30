@@ -6,10 +6,9 @@ import {
   Activity
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, SectionTitle, Label, Input, Button } from '../ui/UIKit';
-import SaveFloatingBar from '../ui/SaveFloatingBar'; // [NEW] Импорт
+import { Card, SectionTitle, Label, Input, Button, useReadOnly } from '../ui/UIKit';
+import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { calculateProgress } from '../../lib/utils';
-// ИМПОРТЫ ДЛЯ ВАЛИДАЦИИ
 import { ComplexInfoSchema } from '../../lib/schemas';
 import { useValidation } from '../../hooks/useValidation';
 
@@ -41,6 +40,7 @@ export default function PassportEditor() {
         saveData 
     } = useProject();
 
+    const isReadOnly = useReadOnly();
     const [loadingInn, setLoadingInn] = useState({});
     const [loadingCadastre, setLoadingCadastre] = useState(false);
 
@@ -142,10 +142,14 @@ export default function PassportEditor() {
                         
                         <div className="flex flex-col gap-2 items-end">
                             <div className="flex gap-2">
-                                <Button variant="secondary" onClick={autoFill} className="bg-white/10 border-white/10 text-white hover:bg-white/20 text-xs h-9">
+                                <Button 
+                                    variant="secondary" 
+                                    onClick={autoFill} 
+                                    disabled={isReadOnly}
+                                    className={`bg-white/10 border-white/10 text-white text-xs h-9 ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white/20'}`}
+                                >
                                     <Wand2 size={14}/> Демо
                                 </Button>
-                                {/* [REMOVED] Кнопка сохранения удалена из хедера */}
                             </div>
                         </div>
                     </div>
@@ -171,9 +175,10 @@ export default function PassportEditor() {
                             <div>
                                 <div className="text-[10px] text-slate-400 font-bold uppercase">Статус</div>
                                 <select 
+                                    disabled={isReadOnly}
                                     value={complexInfo.status} 
                                     onChange={e => setComplexInfo({...complexInfo, status: e.target.value})}
-                                    className="bg-transparent text-sm font-bold text-white outline-none cursor-pointer hover:text-blue-300 transition-colors appearance-none"
+                                    className={`bg-transparent text-sm font-bold text-white outline-none appearance-none transition-colors ${isReadOnly ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:text-blue-300'}`}
                                 >
                                     {Object.keys(STATUS_CONFIG).map(s => <option key={s} value={s} className="text-slate-900">{s}</option>)}
                                 </select>
@@ -214,7 +219,7 @@ export default function PassportEditor() {
                                             placeholder="00:00:00:00:0000" 
                                             className="font-mono text-sm"
                                         />
-                                        <Button variant="secondary" onClick={fetchCadastreInfo} disabled={loadingCadastre} className="shrink-0">
+                                        <Button variant="secondary" onClick={fetchCadastreInfo} disabled={loadingCadastre || isReadOnly} className="shrink-0">
                                             {loadingCadastre ? <Loader2 size={16} className="animate-spin"/> : <Search size={16}/>}
                                         </Button>
                                     </div>
@@ -230,7 +235,11 @@ export default function PassportEditor() {
                                 <div className="space-y-1.5">
                                     <Label>Улица / Адрес <ErrorMsg field="street"/></Label>
                                     <textarea 
-                                        className={`w-full p-3 bg-slate-50 border rounded-xl text-sm font-semibold text-slate-700 outline-none focus:bg-white focus:border-blue-500 transition-all resize-none h-24 ${errors.street ? 'border-red-300 bg-red-50' : 'border-slate-200'}`}
+                                        disabled={isReadOnly}
+                                        className={`w-full p-3 bg-slate-50 border rounded-xl text-sm font-semibold text-slate-700 outline-none transition-all resize-none h-24 
+                                            ${errors.street ? 'border-red-300 bg-red-50' : 'border-slate-200'}
+                                            ${isReadOnly ? 'opacity-70 cursor-not-allowed text-slate-500' : 'focus:bg-white focus:border-blue-500'}
+                                        `}
                                         value={complexInfo.street || ''}
                                         onChange={e => setComplexInfo({...complexInfo, street: e.target.value})}
                                         placeholder="Полный адрес..."
@@ -262,7 +271,7 @@ export default function PassportEditor() {
                                 <div key={role.id} className="group relative p-4 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:border-blue-300 hover:shadow-lg transition-all duration-300">
                                     <div className={`absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity`}>
                                         {/* @ts-ignore */}
-                                        <Button variant="ghost" onClick={() => fetchParticipant(role.id)} className="h-6 w-6 p-0 rounded-full" disabled={loadingInn[role.id]}>
+                                        <Button variant="ghost" onClick={() => fetchParticipant(role.id)} className="h-6 w-6 p-0 rounded-full" disabled={loadingInn[role.id] || isReadOnly}>
                                             {/* @ts-ignore */}
                                             {loadingInn[role.id] ? <Loader2 size={12} className="animate-spin"/> : <Search size={12}/>}
                                         </Button>
@@ -284,7 +293,8 @@ export default function PassportEditor() {
                                     <div className="flex items-center gap-2">
                                         <span className="text-[10px] font-bold text-slate-400 bg-white border border-slate-200 px-1.5 py-0.5 rounded">ИНН</span>
                                         <input 
-                                            className="bg-transparent outline-none text-xs font-mono text-slate-600 w-full"
+                                            disabled={isReadOnly}
+                                            className={`bg-transparent outline-none text-xs font-mono text-slate-600 w-full ${isReadOnly ? 'cursor-not-allowed opacity-70' : ''}`}
                                             placeholder="Введите ИНН"
                                             // @ts-ignore
                                             value={participants[role.id]?.inn || ''}
@@ -379,7 +389,14 @@ export default function PassportEditor() {
                         <div className="flex justify-between items-center mb-4">
                             <SectionTitle icon={FileText} className="mb-0">Документы</SectionTitle>
                             <div className="flex gap-1">
-                                <button onClick={() => addDocument('РНР')} title="Разрешение" className="w-6 h-6 flex items-center justify-center rounded bg-slate-50 text-slate-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"><Plus size={14}/></button>
+                                <button 
+                                    onClick={() => addDocument('РНР')} 
+                                    disabled={isReadOnly}
+                                    title="Разрешение" 
+                                    className={`w-6 h-6 flex items-center justify-center rounded bg-slate-50 transition-colors ${isReadOnly ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:bg-blue-50 hover:text-blue-600'}`}
+                                >
+                                    <Plus size={14}/>
+                                </button>
                             </div>
                         </div>
 
@@ -396,12 +413,14 @@ export default function PassportEditor() {
                                             <div className="text-[10px] text-slate-400">{doc.date}</div>
                                         </div>
                                     </div>
-                                    <button 
-                                        onClick={() => setDocuments(documents.filter(x => x.id !== doc.id))} 
-                                        className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-500 transition-all"
-                                    >
-                                        <Trash2 size={14}/>
-                                    </button>
+                                    {!isReadOnly && (
+                                        <button 
+                                            onClick={() => setDocuments(documents.filter(x => x.id !== doc.id))} 
+                                            className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-500 transition-all"
+                                        >
+                                            <Trash2 size={14}/>
+                                        </button>
+                                    )}
                                 </div>
                             ))}
                         </div>

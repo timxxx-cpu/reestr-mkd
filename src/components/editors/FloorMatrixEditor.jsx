@@ -5,7 +5,7 @@ import {
   CheckSquare, Square, MoreHorizontal, X, LayoutTemplate
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, DebouncedInput, TabButton, Button, Input, Badge } from '../ui/UIKit';
+import { Card, DebouncedInput, TabButton, Button, Input, useReadOnly } from '../ui/UIKit';
 import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
@@ -19,6 +19,7 @@ import { useBuildingType } from '../../hooks/useBuildingType';
  */
 export default function FloorMatrixEditor({ buildingId, onBack }) {
     const { composition, floorData, setFloorData, saveBuildingData, saveData } = useProject();
+    const isReadOnly = useReadOnly();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
     
     const [selectedRows, setSelectedRows] = useState(new Set());
@@ -71,14 +72,15 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     // --- ЛОГИКА ---
 
     const handleInput = useCallback((floorId, field, value) => { 
+        if (isReadOnly) return;
         if (value !== '' && (parseFloat(value) < 0 || value.includes('-'))) return;
         const key = `${currentBlock.fullId}_${floorId}`; 
         // @ts-ignore
         setFloorData(p => ({...p, [key]: { ...(p[key]||{}), [field]: value } })); 
-    }, [currentBlock.fullId, setFloorData]);
+    }, [currentBlock.fullId, setFloorData, isReadOnly]);
 
     const copyRowFromPrev = (idx) => {
-        if (idx <= 0) return;
+        if (isReadOnly || idx <= 0) return;
         const prevId = floorList[idx - 1].id;
         const currId = floorList[idx].id;
         const prevKey = `${currentBlock.fullId}_${prevId}`;
@@ -100,6 +102,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     };
 
     const fillRowsBelow = (idx) => {
+        if (isReadOnly) return;
         const sourceId = floorList[idx].id;
         const sourceKey = `${currentBlock.fullId}_${sourceId}`;
         // @ts-ignore
@@ -124,7 +127,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     };
 
     const copyFieldFromPrev = (idx, field) => {
-        if (idx <= 0) return;
+        if (isReadOnly || idx <= 0) return;
         const prevId = floorList[idx - 1].id;
         const currId = floorList[idx].id;
         const prevKey = `${currentBlock.fullId}_${prevId}`;
@@ -134,6 +137,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     };
 
     const fillFieldBelow = (idx, field) => {
+        if (isReadOnly) return;
         const sourceId = floorList[idx].id;
         const sourceKey = `${currentBlock.fullId}_${sourceId}`;
         // @ts-ignore
@@ -193,18 +197,20 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     };
 
     const toggleRow = (id) => {
+        if (isReadOnly) return;
         const newSet = new Set(selectedRows);
         if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
         setSelectedRows(newSet);
     };
 
     const toggleAll = () => {
+        if (isReadOnly) return;
         if (selectedRows.size === floorList.length) setSelectedRows(new Set());
         else setSelectedRows(new Set(floorList.map(f => f.id)));
     };
 
     const applyBulk = (field) => {
-        if (!bulkValue) return;
+        if (isReadOnly || !bulkValue) return;
         const updates = {};
         selectedRows.forEach(floorId => {
             const key = `${currentBlock.fullId}_${floorId}`;
@@ -217,6 +223,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     };
 
     const autoFill = () => { 
+        if (isReadOnly) return;
         const updates = {}; 
         floorList.forEach(f => { 
             const key = `${currentBlock.fullId}_${f.id}`; 
@@ -295,7 +302,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                  <div className="flex items-center gap-3 w-full md:w-auto">
                      <button 
                         onClick={autoFill} 
-                        className="flex-1 md:flex-none h-10 px-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors border border-indigo-100"
+                        disabled={isReadOnly}
+                        className={`flex-1 md:flex-none h-10 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors border ${isReadOnly ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border-indigo-100'}`}
                      >
                         <Wand2 size={14}/> Авто-заполнение
                      </button>
@@ -313,7 +321,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
             </div>
 
             {/* --- BULK ACTION BAR --- */}
-            {selectedRows.size > 0 && (
+            {selectedRows.size > 0 && !isReadOnly && (
                 <div className="sticky top-4 z-50 mx-auto max-w-2xl animate-in slide-in-from-top-4 fade-in duration-300">
                     <div className="bg-slate-900/95 backdrop-blur text-white p-2.5 rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-700/50 ring-1 ring-white/10">
                         <div className="bg-blue-600 px-3 py-1.5 rounded-lg text-xs font-bold text-white flex items-center gap-2 shadow-sm">
@@ -348,7 +356,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                             <tr className="bg-slate-50/90 backdrop-blur border-b border-slate-200">
                                 <th className="p-0 w-12 text-center border-r border-slate-200 sticky left-0 z-40 bg-slate-50">
                                     <div className="h-full w-full flex items-center justify-center">
-                                        <button onClick={toggleAll} className="text-slate-400 hover:text-blue-600 transition-colors p-2">
+                                        <button disabled={isReadOnly} onClick={toggleAll} className={`text-slate-400 hover:text-blue-600 transition-colors p-2 ${isReadOnly ? 'cursor-not-allowed opacity-50' : ''}`}>
                                             {selectedRows.size === floorList.length && floorList.length > 0 ? <CheckSquare size={18} className="text-blue-600"/> : <Square size={18}/>}
                                         </button>
                                     </div>
@@ -390,7 +398,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                         {/* 1. Чекбокс */}
                                         <td className="p-0 text-center border-r border-slate-100 sticky left-0 z-20 bg-inherit">
                                             <div className="h-full w-full flex items-center justify-center backdrop-blur-sm">
-                                                <button onClick={() => toggleRow(f.id)} className="text-slate-300 hover:text-blue-600 transition-colors p-2">
+                                                <button disabled={isReadOnly} onClick={() => toggleRow(f.id)} className={`text-slate-300 hover:text-blue-600 transition-colors p-2 ${isReadOnly ? 'cursor-not-allowed opacity-50' : ''}`}>
                                                     {isSelected ? <CheckSquare size={18} className="text-blue-600"/> : <Square size={18}/>}
                                                 </button>
                                             </div>
@@ -410,18 +418,20 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                 </div>
                                                 
                                                 {/* Кнопка "три точки" */}
-                                                <div className={`opacity-0 group-hover/label:opacity-100 transition-opacity ${openMenuId === f.id ? 'opacity-100' : ''}`}>
-                                                    <button 
-                                                        onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === f.id ? null : f.id); }}
-                                                        className={`p-1.5 rounded-lg hover:bg-slate-200 transition-colors ${openMenuId === f.id ? 'bg-slate-200 text-slate-800' : 'text-slate-400'}`}
-                                                    >
-                                                        <MoreHorizontal size={16}/>
-                                                    </button>
-                                                </div>
+                                                {!isReadOnly && (
+                                                    <div className={`opacity-0 group-hover/label:opacity-100 transition-opacity ${openMenuId === f.id ? 'opacity-100' : ''}`}>
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === f.id ? null : f.id); }}
+                                                            className={`p-1.5 rounded-lg hover:bg-slate-200 transition-colors ${openMenuId === f.id ? 'bg-slate-200 text-slate-800' : 'text-slate-400'}`}
+                                                        >
+                                                            <MoreHorizontal size={16}/>
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
 
                                             {/* Меню действий */}
-                                            {openMenuId === f.id && (
+                                            {openMenuId === f.id && !isReadOnly && (
                                                 <div ref={menuRef} className="absolute left-[85%] top-8 w-52 bg-white rounded-xl shadow-xl border border-slate-200 z-[100] p-1.5 flex flex-col animate-in fade-in zoom-in-95 duration-200 origin-top-left">
                                                     <button onClick={() => copyRowFromPrev(idx)} disabled={idx===0} className={`flex items-center gap-2 px-3 py-2.5 text-xs font-bold rounded-lg text-left transition-colors ${idx===0 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-700 hover:bg-slate-50 hover:text-blue-600'}`}>
                                                         <ArrowUp size={14} className={idx===0 ? 'text-slate-300' : 'text-blue-500'}/> Скопировать с пред.
@@ -469,6 +479,12 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                     textClass = "text-slate-400";
                                                 }
                                                 
+                                                if (isReadOnly) {
+                                                    bgClass = "bg-transparent";
+                                                    borderClass = "border-transparent";
+                                                    textClass = "text-slate-600";
+                                                }
+
                                                 return (
                                                     <td key={field.id} className="p-2 border-r border-slate-100 relative group/input">
                                                         <div className="relative h-10">
@@ -479,7 +495,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                                 type="number" 
                                                                 min="0"
                                                                 step="0.01" 
-                                                                className={`w-full h-full text-center rounded-xl text-sm outline-none transition-all border pr-7 ${bgClass} ${borderClass} ${textClass}`} 
+                                                                disabled={isReadOnly}
+                                                                className={`w-full h-full text-center rounded-xl text-sm outline-none transition-all border pr-7 ${bgClass} ${borderClass} ${textClass} ${isReadOnly ? 'cursor-default' : ''}`} 
                                                                 placeholder={field.ph} 
                                                                 // @ts-ignore
                                                                 value={val[field.id]} 
@@ -487,28 +504,30 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                             />
                                                             
                                                             {/* Индикатор ошибки */}
-                                                            {(finalError || isDiffErr) && (
+                                                            {(finalError || isDiffErr) && !isReadOnly && (
                                                                 <div className="absolute top-1/2 -translate-y-1/2 right-2 pointer-events-none">
                                                                     <AlertCircle size={14} className="text-red-500"/>
                                                                 </div>
                                                             )}
 
                                                             {/* Кнопки действий (Hover) */}
-                                                            <div className="absolute inset-y-0 right-1 flex flex-col justify-center gap-0.5 opacity-0 group-hover/input:opacity-100 transition-opacity z-10">
-                                                                {idx > 0 && (
-                                                                    <button onClick={() => copyFieldFromPrev(idx, field.id)} className="p-0.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded bg-white/80 shadow-sm border border-slate-200" title="Копировать верх">
-                                                                        <ArrowUp size={10}/>
-                                                                    </button>
-                                                                )}
-                                                                {idx < floorList.length - 1 && (
-                                                                    <button onClick={() => fillFieldBelow(idx, field.id)} className="p-0.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded bg-white/80 shadow-sm border border-slate-200" title="Заполнить низ">
-                                                                        <ChevronsDown size={10}/>
-                                                                    </button>
-                                                                )}
-                                                            </div>
+                                                            {!isReadOnly && (
+                                                                <div className="absolute inset-y-0 right-1 flex flex-col justify-center gap-0.5 opacity-0 group-hover/input:opacity-100 transition-opacity z-10">
+                                                                    {idx > 0 && (
+                                                                        <button onClick={() => copyFieldFromPrev(idx, field.id)} className="p-0.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded bg-white/80 shadow-sm border border-slate-200" title="Копировать верх">
+                                                                            <ArrowUp size={10}/>
+                                                                        </button>
+                                                                    )}
+                                                                    {idx < floorList.length - 1 && (
+                                                                        <button onClick={() => fillFieldBelow(idx, field.id)} className="p-0.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded bg-white/80 shadow-sm border border-slate-200" title="Заполнить низ">
+                                                                            <ChevronsDown size={10}/>
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                         
-                                                        {finalError && (
+                                                        {finalError && !isReadOnly && (
                                                             <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-red-600 text-white text-[10px] font-bold rounded shadow-lg pointer-events-none opacity-0 group-focus-within/input:opacity-100 transition-opacity whitespace-nowrap">
                                                                 {finalError}
                                                                 <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-red-600"></div>

@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Home, Layout, Car, Box, Pencil, Trash2, X, Sparkles, Building2, 
-  Calendar, Hash, Clock, ArrowRight, Plus, Layers, AlertCircle
+  Calendar, Hash, Clock, ArrowRight, Plus, Layers, AlertCircle, Eye
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Button, Input, Select, Label, SectionTitle } from '../ui/UIKit';
+import { Button, Input, Select, Label, SectionTitle, useReadOnly } from '../ui/UIKit';
 import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { calculateProgress, getStageColor } from '../../lib/utils';
 // ВАЛИДАЦИЯ
@@ -46,6 +46,8 @@ const PARKING_CONSTRUCTION_NAMES = {
 
 // Компонент обертка для модального окна, чтобы изолировать хук валидации
 const BuildingModal = ({ modal, setModal, onCommit }) => {
+    const isReadOnly = useReadOnly();
+    
     // Подключаем валидацию только к данным формы
     const { errors, isValid } = useValidation(BuildingModalSchema, {
         baseName: modal.baseName,
@@ -73,8 +75,8 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
             <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden ring-1 ring-white/20 animate-in zoom-in-95 duration-200">
                 <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                     <div>
-                        <h3 className="text-xl font-bold text-slate-800">{modal.editingId ? "Редактирование объекта" : "Создание объекта"}</h3>
-                        <p className="text-xs text-slate-500 font-medium mt-1">Заполните паспортные данные строения</p>
+                        <h3 className="text-xl font-bold text-slate-800">{modal.editingId ? (isReadOnly ? "Просмотр объекта" : "Редактирование объекта") : "Создание объекта"}</h3>
+                        <p className="text-xs text-slate-500 font-medium mt-1">Паспортные данные строения</p>
                     </div>
                     <button onClick={() => setModal(m => ({...m, isOpen: false}))} className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-200">
                         <X size={20} className="text-slate-400 hover:text-slate-700"/>
@@ -96,7 +98,7 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                                     onChange={(e) => setModal(m => ({...m, houseNumber: e.target.value}))} 
                                     placeholder="12А" 
                                     className={`pl-9 font-bold text-lg uppercase ${errors.houseNumber ? 'border-red-300 bg-red-50' : ''}`}
-                                    autoFocus
+                                    autoFocus={!isReadOnly}
                                 />
                             </div>
                         </div>
@@ -116,9 +118,9 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                                 <div className="flex justify-between items-center">
                                     <Label className="mb-0">Количество копий</Label>
                                     <div className="flex items-center gap-3">
-                                        <button onClick={() => setModal(m => ({...m, quantity: Math.max(1, m.quantity - 1)}))} className="w-8 h-8 rounded-full bg-white border shadow-sm flex items-center justify-center font-bold text-slate-500 hover:text-blue-600">-</button>
+                                        <button disabled={isReadOnly} onClick={() => setModal(m => ({...m, quantity: Math.max(1, m.quantity - 1)}))} className="w-8 h-8 rounded-full bg-white border shadow-sm flex items-center justify-center font-bold text-slate-500 hover:text-blue-600 disabled:opacity-50">-</button>
                                         <span className="font-bold text-lg w-4 text-center">{modal.quantity}</span>
-                                        <button onClick={() => setModal(m => ({...m, quantity: Math.min(20, m.quantity + 1)}))} className="w-8 h-8 rounded-full bg-white border shadow-sm flex items-center justify-center font-bold text-slate-500 hover:text-blue-600">+</button>
+                                        <button disabled={isReadOnly} onClick={() => setModal(m => ({...m, quantity: Math.min(20, m.quantity + 1)}))} className="w-8 h-8 rounded-full bg-white border shadow-sm flex items-center justify-center font-bold text-slate-500 hover:text-blue-600 disabled:opacity-50">+</button>
                                     </div>
                                 </div>
                             </div>
@@ -209,8 +211,14 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
 
                         {modal.category?.includes('residential') && (
                             <div className="pt-2 border-t border-slate-100 mt-2">
-                                <label className="flex items-start gap-3 cursor-pointer group">
-                                    <input type="checkbox" checked={modal.hasNonResPart} onChange={(e) => setModal(m => ({...m, hasNonResPart: e.target.checked}))} className="mt-1 w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300"/>
+                                <label className={`flex items-start gap-3 group ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={modal.hasNonResPart} 
+                                        onChange={(e) => setModal(m => ({...m, hasNonResPart: e.target.checked}))} 
+                                        disabled={isReadOnly}
+                                        className="mt-1 w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300 disabled:cursor-not-allowed"
+                                    />
                                     <div>
                                         <span className="text-sm font-bold text-slate-700 group-hover:text-blue-700 transition-colors">Есть коммерция</span>
                                         <p className="text-[10px] text-slate-400">Встроенные магазины/офисы</p>
@@ -222,10 +230,14 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                 </div>
 
                 <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
-                    <Button variant="ghost" onClick={() => setModal(m => ({...m, isOpen: false}))}>Отмена</Button>
-                    <Button onClick={onCommit} disabled={!isValid || isMultiblockError} className={`shadow-xl shadow-blue-200/50 px-8 ${(!isValid || isMultiblockError) ? 'opacity-50 cursor-not-allowed bg-slate-400' : ''}`}>
-                        <ArrowRight size={18} /> Применить
+                    <Button variant="ghost" onClick={() => setModal(m => ({...m, isOpen: false}))}>
+                        {isReadOnly ? 'Закрыть' : 'Отмена'}
                     </Button>
+                    {!isReadOnly && (
+                        <Button onClick={onCommit} disabled={!isValid || isMultiblockError} className={`shadow-xl shadow-blue-200/50 px-8 ${(!isValid || isMultiblockError) ? 'opacity-50 cursor-not-allowed bg-slate-400' : ''}`}>
+                            <ArrowRight size={18} /> Применить
+                        </Button>
+                    )}
                 </div>
             </div>
         </div>
@@ -234,6 +246,7 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
 
 export default function CompositionEditor() {
     const { composition, setComposition, buildingDetails, setBuildingDetails, saveData, deleteProjectBuilding } = useProject();
+    const isReadOnly = useReadOnly();
 
     /** @type {[ModalState, React.Dispatch<React.SetStateAction<ModalState>>]} */
     const [modal, setModal] = useState({ 
@@ -305,7 +318,7 @@ export default function CompositionEditor() {
 
         const newComposition = [...composition, ...demoBuildings];
         
-        // [CHANGED] Только обновляем стейт, не сохраняем
+        // [CHANGED] Только обновляем стейт, не сохраняем в БД сразу
         // @ts-ignore
         setComposition(newComposition);
         // @ts-ignore
@@ -418,7 +431,12 @@ export default function CompositionEditor() {
                     </p>
                 </div>
                 <div className="flex gap-3">
-                     <Button onClick={generateDemoComplex} variant="secondary" className="bg-white border border-slate-200 hover:bg-purple-50 hover:text-purple-600 transition-all shadow-sm">
+                     <Button 
+                        onClick={generateDemoComplex} 
+                        disabled={isReadOnly}
+                        variant="secondary" 
+                        className={`bg-white border border-slate-200 transition-all shadow-sm ${isReadOnly ? 'opacity-50 cursor-not-allowed text-slate-400' : 'hover:bg-purple-50 hover:text-purple-600'}`}
+                     >
                         <Sparkles size={16} /> Демо-данные
                     </Button>
                      <div className="h-10 px-4 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center shadow-lg shadow-slate-900/20">
@@ -428,26 +446,28 @@ export default function CompositionEditor() {
             </div>
 
             {/* --- ТУЛБАР СОЗДАНИЯ --- */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap gap-3 items-center">
-                <span className="text-xs font-bold text-slate-400 uppercase mr-2">Создать:</span>
-                <div className="flex flex-wrap gap-2">
-                    {[
-                        { id: 'residential', label: 'Жилой дом', icon: Home, color: 'text-slate-700 bg-white border-slate-200 hover:border-blue-400 hover:text-blue-600 hover:shadow-md' },
-                        { id: 'residential_multiblock', label: 'Многоблочный', icon: Layers, color: 'text-slate-700 bg-white border-slate-200 hover:border-indigo-400 hover:text-indigo-600 hover:shadow-md' },
-                        { id: 'parking_separate', label: 'Паркинг', icon: Car, color: 'text-slate-700 bg-white border-slate-200 hover:border-slate-400 hover:text-slate-900 hover:shadow-md' },
-                        { id: 'infrastructure', label: 'Инфраструктура', icon: Box, color: 'text-slate-700 bg-white border-slate-200 hover:border-amber-400 hover:text-amber-600 hover:shadow-md' }
-                    ].map(btn => (
-                        <button 
-                            key={btn.id} 
-                            onClick={() => openPlanning(btn.id)} 
-                            className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all active:scale-95 shadow-sm ${btn.color}`}
-                        >
-                            <btn.icon size={14} />
-                            {btn.label}
-                        </button>
-                    ))}
+            {!isReadOnly && (
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap gap-3 items-center">
+                    <span className="text-xs font-bold text-slate-400 uppercase mr-2">Создать:</span>
+                    <div className="flex flex-wrap gap-2">
+                        {[
+                            { id: 'residential', label: 'Жилой дом', icon: Home, color: 'text-slate-700 bg-white border-slate-200 hover:border-blue-400 hover:text-blue-600 hover:shadow-md' },
+                            { id: 'residential_multiblock', label: 'Многоблочный', icon: Layers, color: 'text-slate-700 bg-white border-slate-200 hover:border-indigo-400 hover:text-indigo-600 hover:shadow-md' },
+                            { id: 'parking_separate', label: 'Паркинг', icon: Car, color: 'text-slate-700 bg-white border-slate-200 hover:border-slate-400 hover:text-slate-900 hover:shadow-md' },
+                            { id: 'infrastructure', label: 'Инфраструктура', icon: Box, color: 'text-slate-700 bg-white border-slate-200 hover:border-amber-400 hover:text-amber-600 hover:shadow-md' }
+                        ].map(btn => (
+                            <button 
+                                key={btn.id} 
+                                onClick={() => openPlanning(btn.id)} 
+                                className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all active:scale-95 shadow-sm ${btn.color}`}
+                            >
+                                <btn.icon size={14} />
+                                {btn.label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* --- ПРЕДУПРЕЖДЕНИЕ ОБ ОТСУТСТВИИ ЖИЛЬЯ --- */}
             {!hasResidential && (
@@ -554,12 +574,14 @@ export default function CompositionEditor() {
 
                                 {/* Действия */}
                                 <div className="col-span-1 flex justify-end gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => openEditing(item)} className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                                        <Pencil size={16}/>
+                                    <button onClick={() => openEditing(item)} title={isReadOnly ? "Просмотр" : "Редактировать"} className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                                        {isReadOnly ? <Eye size={16}/> : <Pencil size={16}/>}
                                     </button>
-                                    <button onClick={() => deleteItem(item.id)} className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                                        <Trash2 size={16}/>
-                                    </button>
+                                    {!isReadOnly && (
+                                        <button onClick={() => deleteItem(item.id)} className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                            <Trash2 size={16}/>
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         );

@@ -6,7 +6,7 @@ import {
   Home, Briefcase, PaintBucket, AlertCircle, X, Check
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
+import { Card, DebouncedInput, TabButton, Button, useReadOnly } from '../ui/UIKit';
 import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
@@ -19,6 +19,7 @@ import { useBuildingType } from '../../hooks/useBuildingType';
  */
 export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const { composition, buildingDetails, entrancesData, setEntrancesData, floorData, setFloorData, saveBuildingData, saveData } = useProject();
+    const isReadOnly = useReadOnly();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
     
     // Состояние меню
@@ -72,6 +73,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
     
     const setEntData = (entIdx, floorId, field, val) => {
+        if (isReadOnly) return;
         let safeVal = val;
         if (val !== '' && val !== '-') {
             const num = parseFloat(val);
@@ -91,6 +93,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     };
 
     const toggleDuplex = (floorId) => { 
+        if (isReadOnly) return;
         const key = `${currentBlock.fullId}_${floorId}`; 
         const current = floorData[key]?.isDuplex; 
         setFloorData(p => ({...p, [key]: {...(p[key]||{}), isDuplex: !current}})); 
@@ -159,7 +162,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     }, [floorList, entrancesList, entrancesData, currentBlock, floorData]);
 
     const handleKeyDown = (e, floorIdx, entIdx, field) => {
-        if (['-', '+', 'e', 'E'].includes(e.key)) { e.preventDefault(); return; }
         if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
         
         e.preventDefault();
@@ -214,6 +216,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     };
 
     const handleMenuOpen = (e, floorId) => {
+        if (isReadOnly) return;
         e.stopPropagation();
         const rect = e.currentTarget.getBoundingClientRect();
         setMenuPosition({ top: rect.bottom + 5, left: rect.left });
@@ -221,7 +224,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     };
 
     const fillColumnBelow = (ent, field) => {
-        if (floorList.length < 2) return;
+        if (isReadOnly || floorList.length < 2) return;
         const sourceFloor = floorList[0];
         const sourceVal = getEntData(ent, sourceFloor.id, field);
         const updates = {};
@@ -239,6 +242,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     };
 
     const autoFill = () => { 
+        if (isReadOnly) return;
         const updates = {}; 
         entrancesList.forEach(ent => floorList.forEach(f => { 
             let apts = 0;
@@ -252,7 +256,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     };
 
     const copyFloorToNext = (idx) => { 
-        if (idx >= floorList.length - 1) return; 
+        if (isReadOnly || idx >= floorList.length - 1) return; 
         const currentFloor = floorList[idx]; 
         const nextFloor = floorList[idx + 1]; 
         const updates = {}; 
@@ -272,6 +276,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     };
 
     const fillFloorsAfter = (idx) => { 
+        if (isReadOnly) return;
         const sourceFloor = floorList[idx]; 
         const updates = {}; 
         const sourceValues = {}; 
@@ -293,7 +298,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     };
 
     const copyEntranceFromLeft = (floorId, entIdx) => { 
-        if(entIdx <= 1) return; 
+        if(isReadOnly || entIdx <= 1) return; 
         const tgtKey = `${currentBlock.fullId}_ent${entIdx}_${floorId}`; 
         const srcKey = `${currentBlock.fullId}_ent${entIdx-1}_${floorId}`; 
         const srcData = entrancesData[srcKey]; 
@@ -301,6 +306,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     };
 
     const fillEntrancesRow = (floorId, srcEntIdx) => { 
+        if(isReadOnly) return;
         const srcKey = `${currentBlock.fullId}_ent${srcEntIdx}_${floorId}`; 
         const srcData = entrancesData[srcKey]; 
         if(!srcData) return; 
@@ -364,8 +370,8 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                  <div className="flex items-center gap-3 w-full md:w-auto">
                      <button 
                         onClick={autoFill} 
-                        disabled={!isResidentialBlock && !isParking} 
-                        className={`flex-1 md:flex-none h-10 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors border ${!isResidentialBlock && !isParking ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border-indigo-100'}`}
+                        disabled={isReadOnly || (!isResidentialBlock && !isParking)} 
+                        className={`flex-1 md:flex-none h-10 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors border ${isReadOnly || (!isResidentialBlock && !isParking) ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border-indigo-100'}`}
                      >
                         <Wand2 size={14}/> Заполнить типовыми
                      </button>
@@ -381,7 +387,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 ))}
             </div>
 
-            {openMenuId && (
+            {openMenuId && !isReadOnly && (
                 <div ref={menuRef} className="fixed z-[9999] w-48 bg-white rounded-xl shadow-2xl border border-slate-200 p-1 flex flex-col animate-in fade-in zoom-in-95 duration-200 origin-top-left" style={{ top: menuPosition.top, left: menuPosition.left }}>
                     <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 mb-1">Действия</div>
                     {(() => {
@@ -412,33 +418,33 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                 <div className="grid grid-cols-3 gap-0.5 w-full text-center">
                                                     
                                                     <div 
-                                                        className="group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg cursor-pointer hover:bg-slate-100 relative transition-colors"
-                                                        onClick={() => fillColumnBelow(e, 'apts')}
-                                                        title="Заполнить колонку вниз"
+                                                        className={`group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg transition-colors relative ${isReadOnly ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-slate-100'}`}
+                                                        onClick={() => !isReadOnly && fillColumnBelow(e, 'apts')}
+                                                        title={isReadOnly ? "" : "Заполнить колонку вниз"}
                                                     >
                                                         <Home size={12} className="text-slate-400 group-hover/col-header:text-blue-500"/>
                                                         <span className="text-[8px] font-bold text-slate-400 group-hover/col-header:text-blue-600 uppercase">Кв</span>
-                                                        <ArrowDown size={10} className="absolute -bottom-1.5 text-blue-500 opacity-0 group-hover/col-header:opacity-100 transition-opacity bg-white rounded-full shadow-sm" />
+                                                        {!isReadOnly && <ArrowDown size={10} className="absolute -bottom-1.5 text-blue-500 opacity-0 group-hover/col-header:opacity-100 transition-opacity bg-white rounded-full shadow-sm" />}
                                                     </div>
 
                                                     <div 
-                                                        className="group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg cursor-pointer hover:bg-slate-100 relative transition-colors"
-                                                        onClick={() => fillColumnBelow(e, 'units')}
-                                                        title="Заполнить колонку вниз"
+                                                        className={`group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg transition-colors relative ${isReadOnly ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-slate-100'}`}
+                                                        onClick={() => !isReadOnly && fillColumnBelow(e, 'units')}
+                                                        title={isReadOnly ? "" : "Заполнить колонку вниз"}
                                                     >
                                                         <Briefcase size={12} className="text-slate-400 group-hover/col-header:text-blue-500"/>
                                                         <span className="text-[8px] font-bold text-slate-400 group-hover/col-header:text-blue-600 uppercase">Оф</span>
-                                                        <ArrowDown size={10} className="absolute -bottom-1.5 text-blue-500 opacity-0 group-hover/col-header:opacity-100 transition-opacity bg-white rounded-full shadow-sm" />
+                                                        {!isReadOnly && <ArrowDown size={10} className="absolute -bottom-1.5 text-blue-500 opacity-0 group-hover/col-header:opacity-100 transition-opacity bg-white rounded-full shadow-sm" />}
                                                     </div>
 
                                                     <div 
-                                                        className="group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg cursor-pointer hover:bg-slate-100 relative transition-colors"
-                                                        onClick={() => fillColumnBelow(e, 'mopQty')}
-                                                        title="Заполнить колонку вниз"
+                                                        className={`group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg transition-colors relative ${isReadOnly ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-slate-100'}`}
+                                                        onClick={() => !isReadOnly && fillColumnBelow(e, 'mopQty')}
+                                                        title={isReadOnly ? "" : "Заполнить колонку вниз"}
                                                     >
                                                         <PaintBucket size={12} className="text-slate-400 group-hover/col-header:text-blue-500"/>
                                                         <span className="text-[8px] font-bold text-slate-400 group-hover/col-header:text-blue-600 uppercase">МОП</span>
-                                                        <ArrowDown size={10} className="absolute -bottom-1.5 text-blue-500 opacity-0 group-hover/col-header:opacity-100 transition-opacity bg-white rounded-full shadow-sm" />
+                                                        {!isReadOnly && <ArrowDown size={10} className="absolute -bottom-1.5 text-blue-500 opacity-0 group-hover/col-header:opacity-100 transition-opacity bg-white rounded-full shadow-sm" />}
                                                     </div>
 
                                                 </div>
@@ -451,7 +457,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                 {floorList.map((f, idx) => {
                                     const isDuplex = floorData[`${currentBlock.fullId}_${f.id}`]?.isDuplex; 
                                     const canHaveApts = isFieldEnabled(f, 'apts');
-                                    const canHaveUnits = isFieldEnabled(f, 'units');
                                     
                                     let hasApts = false;
                                     for (const e of entrancesList) {
@@ -467,7 +472,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                         isLowerFloorDuplex = floorData[prevKey]?.isDuplex;
                                     }
                                     
-                                    const isDuplexDisabled = duplexState.disabled || isLowerFloorDuplex;
+                                    const isDuplexDisabled = duplexState.disabled || isLowerFloorDuplex || isReadOnly;
                                     const rowBg = idx % 2 === 0 ? "bg-slate-50/30" : "bg-white";
 
                                     return (
@@ -489,23 +494,25 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                     </div>
                                                     {renderBadge(f.type)}
                                                 </div>
-                                                <div className={`absolute right-1 top-1/2 -translate-y-1/2 transition-opacity z-30 ${openMenuId === f.id ? 'opacity-100' : 'opacity-0 group-hover/cell:opacity-100'}`}>
-                                                    <button onClick={(e) => handleMenuOpen(e, f.id)} className={`p-1 rounded-md shadow-sm border border-slate-200 hover:text-blue-600 transition-colors ${openMenuId === f.id ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-white/90 text-slate-400'}`}><MoreHorizontal size={14}/></button>
-                                                </div>
+                                                {!isReadOnly && (
+                                                    <div className={`absolute right-1 top-1/2 -translate-y-1/2 transition-opacity z-30 ${openMenuId === f.id ? 'opacity-100' : 'opacity-0 group-hover/cell:opacity-100'}`}>
+                                                        <button onClick={(e) => handleMenuOpen(e, f.id)} className={`p-1 rounded-md shadow-sm border border-slate-200 hover:text-blue-600 transition-colors ${openMenuId === f.id ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-white/90 text-slate-400'}`}><MoreHorizontal size={14}/></button>
+                                                    </div>
+                                                )}
                                             </td>
 
                                             {entrancesList.map(e => (
                                                 <td key={e} className={`p-0 w-[180px] min-w-[180px] border-r border-slate-100 h-11 relative group/cell ${isDuplex ? 'bg-purple-50/5' : ''}`}>
                                                     <div className="grid grid-cols-3 h-full divide-x divide-slate-100">
                                                         {['apts', 'units', 'mopQty'].map(field => {
-                                                            const canEdit = isFieldEnabled(f, field);
+                                                            const canEdit = isFieldEnabled(f, field) && !isReadOnly;
                                                             const val = getEntData(e, f.id, field);
                                                             const isInvalid = getCellError(f, idx, e, field, val);
 
                                                             let bgClass = "bg-transparent";
                                                             let textClass = "text-slate-800";
                                                             
-                                                            if (!canEdit) {
+                                                            if (!isFieldEnabled(f, field)) { // Логическая недоступность
                                                                 bgClass = "bg-slate-50";
                                                                 textClass = "text-slate-300 cursor-not-allowed";
                                                             } else if (isInvalid) {
@@ -516,6 +523,10 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                             } else {
                                                                 textClass = "text-slate-400";
                                                             }
+                                                            
+                                                            if (isReadOnly && isFieldEnabled(f, field)) {
+                                                                textClass = val ? "text-slate-800 font-bold" : "text-slate-300";
+                                                            }
 
                                                             return (
                                                                 <div key={field} className="relative w-full h-full">
@@ -525,7 +536,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                                         type="number" 
                                                                         min="0"
                                                                         disabled={!canEdit} 
-                                                                        className={`w-full h-full text-center text-xs outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${bgClass} ${textClass}`} 
+                                                                        className={`w-full h-full text-center text-xs outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${bgClass} ${textClass} ${isReadOnly ? 'cursor-default' : ''}`} 
                                                                         value={val} 
                                                                         onChange={v => setEntData(e, f.id, field, v)} 
                                                                         placeholder={canEdit ? "-" : ""}
@@ -535,12 +546,14 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                             );
                                                         })}
                                                     </div>
-                                                    <div className="absolute top-0 right-0 h-full flex items-center pr-0.5 opacity-0 group-hover/cell:opacity-100 transition-opacity z-10 pointer-events-none">
-                                                        <div className="flex flex-col gap-0.5 pointer-events-auto bg-white/90 backdrop-blur-sm shadow-sm border border-slate-200 rounded p-0.5">
-                                                            {e > 1 && <button onClick={()=>copyEntranceFromLeft(f.id, e)} title="Скопировать слева" className="p-0.5 hover:text-blue-600 hover:bg-blue-50 rounded"><ChevronLeft size={10}/></button>}
-                                                            <button onClick={()=>fillEntrancesRow(f.id, e)} title="Заполнить ряд вправо" className="p-0.5 hover:text-blue-600 hover:bg-blue-50 rounded"><ChevronsRight size={10}/></button>
+                                                    {!isReadOnly && (
+                                                        <div className="absolute top-0 right-0 h-full flex items-center pr-0.5 opacity-0 group-hover/cell:opacity-100 transition-opacity z-10 pointer-events-none">
+                                                            <div className="flex flex-col gap-0.5 pointer-events-auto bg-white/90 backdrop-blur-sm shadow-sm border border-slate-200 rounded p-0.5">
+                                                                {e > 1 && <button onClick={()=>copyEntranceFromLeft(f.id, e)} title="Скопировать слева" className="p-0.5 hover:text-blue-600 hover:bg-blue-50 rounded"><ChevronLeft size={10}/></button>}
+                                                                <button onClick={()=>fillEntrancesRow(f.id, e)} title="Заполнить ряд вправо" className="p-0.5 hover:text-blue-600 hover:bg-blue-50 rounded"><ChevronsRight size={10}/></button>
+                                                            </div>
                                                         </div>
-                                                    </div>
+                                                    )}
                                                 </td>
                                             ))}
                                         </tr>

@@ -4,7 +4,7 @@ import {
   Copy, ArrowDown, Trash2
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, DebouncedInput, TabButton, Button } from '../ui/UIKit';
+import { Card, DebouncedInput, TabButton, Button, useReadOnly } from '../ui/UIKit';
 import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
@@ -25,6 +25,7 @@ const MOP_TYPES = [
  */
 export default function MopEditor({ buildingId, onBack }) {
     const { composition, buildingDetails, entrancesData, mopData, setMopData, saveBuildingData, saveData } = useProject();
+    const isReadOnly = useReadOnly();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
     const [dataNormalized, setDataNormalized] = useState(false);
     
@@ -110,6 +111,7 @@ export default function MopEditor({ buildingId, onBack }) {
 
     /** @type {(ent: number, floorId: string, index: number, field: string, val: any) => void} */
     const updateMop = (ent, floorId, index, field, val) => {
+        if (isReadOnly) return;
         if (field === 'area' && val !== '' && (parseFloat(val) < 0 || String(val).includes('-'))) return;
 
         const key = `${currentBlock.fullId}_e${ent}_f${floorId}_mops`;
@@ -156,6 +158,7 @@ export default function MopEditor({ buildingId, onBack }) {
     // --- ФУНКЦИИ ДЕЙСТВИЙ ---
 
     const autoFillMops = () => { 
+        if (isReadOnly) return;
         const updates = {}; 
         floorList.forEach(f => { 
             entrancesList.forEach(e => { 
@@ -194,7 +197,7 @@ export default function MopEditor({ buildingId, onBack }) {
     };
 
     const copyFirstFloorToAll = () => {
-        if (floorList.length === 0) return;
+        if (isReadOnly || floorList.length === 0) return;
         const firstFloor = floorList[0];
         const updates = {};
         const templateData = {};
@@ -220,6 +223,7 @@ export default function MopEditor({ buildingId, onBack }) {
     };
 
     const clearAllMops = () => {
+        if (isReadOnly) return;
         if (!confirm('Вы уверены? Все введенные данные МОП для этого блока будут очищены.')) return;
         
         const updates = {};
@@ -271,14 +275,14 @@ export default function MopEditor({ buildingId, onBack }) {
                 </div>
                 <div className="flex gap-2">
                     {/* КНОПКА ОЧИСТКИ */}
-                    <button onClick={clearAllMops} disabled={!showEditor} className="px-4 py-2 bg-red-50 text-red-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-red-100 transition-colors" title="Очистить все данные МОП">
+                    <button onClick={clearAllMops} disabled={!showEditor || isReadOnly} className={`px-4 py-2 bg-red-50 text-red-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-100'}`} title="Очистить все данные МОП">
                         <Trash2 size={14}/> Очистить
                     </button>
 
-                    <button onClick={copyFirstFloorToAll} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-slate-200 transition-colors" title="Скопировать 1-й этаж на все остальные">
+                    <button onClick={copyFirstFloorToAll} disabled={isReadOnly} className={`px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'}`} title="Скопировать 1-й этаж на все остальные">
                         <Copy size={14}/> Дублировать 1-й эт.
                     </button>
-                    <button onClick={autoFillMops} disabled={!showEditor} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${showEditor ? 'hover:bg-purple-100' : 'opacity-50 cursor-not-allowed'}`}>
+                    <button onClick={autoFillMops} disabled={!showEditor || isReadOnly} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${showEditor && !isReadOnly ? 'hover:bg-purple-100' : 'opacity-50 cursor-not-allowed'}`}>
                         <Wand2 size={14}/> Авто-генерация
                     </button>
                     
@@ -294,7 +298,7 @@ export default function MopEditor({ buildingId, onBack }) {
 
             {showEditor ? (
                 <>
-                    {!validationState.isValid && (
+                    {!validationState.isValid && !isReadOnly && (
                         <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-xl flex items-center gap-2 text-xs text-red-600 animate-in slide-in-from-top-2">
                             <AlertCircle size={16}/>
                             <span className="font-bold">Внимание!</span>
@@ -336,10 +340,11 @@ export default function MopEditor({ buildingId, onBack }) {
                                                                             <select 
                                                                                 // @ts-ignore
                                                                                 ref={el => inputsRef.current[`${fIdx}-${e}-${mIdx}-type`] = el}
-                                                                                className="bg-transparent text-[10px] font-bold w-full outline-none cursor-pointer hover:text-blue-600 focus:text-blue-700 truncate" 
+                                                                                className={`bg-transparent text-[10px] font-bold w-full outline-none truncate ${isReadOnly ? 'cursor-default text-slate-700 appearance-none' : 'cursor-pointer hover:text-blue-600 focus:text-blue-700'}`} 
                                                                                 value={mop.type || ''} 
                                                                                 onChange={ev=>updateMop(e, f.id, mIdx, 'type', ev.target.value)} 
                                                                                 title={mop.type}
+                                                                                disabled={isReadOnly}
                                                                             >
                                                                                 <option value="" disabled>Выберите тип</option>
                                                                                 {MOP_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
@@ -351,10 +356,11 @@ export default function MopEditor({ buildingId, onBack }) {
                                                                                     ref={el => inputsRef.current[`${fIdx}-${e}-${mIdx}-area`] = el}
                                                                                     type="number" 
                                                                                     min="0"
-                                                                                    className={`w-full bg-slate-50 border rounded px-1 py-0.5 text-[10px] font-medium text-center focus:bg-white focus:border-blue-300 outline-none transition-all ${!mop.area ? 'border-red-200' : 'border-slate-100'}`} 
+                                                                                    className={`w-full bg-slate-50 border rounded px-1 py-0.5 text-[10px] font-medium text-center focus:bg-white focus:border-blue-300 outline-none transition-all ${!mop.area ? 'border-red-200' : 'border-slate-100'} ${isReadOnly ? 'cursor-default bg-transparent border-transparent' : ''}`} 
                                                                                     placeholder="м²" 
                                                                                     value={mop.area || ''} 
                                                                                     onChange={val=>updateMop(e, f.id, mIdx, 'area', val)} 
+                                                                                    disabled={isReadOnly}
                                                                                 />
                                                                             </div>
                                                                         </div>

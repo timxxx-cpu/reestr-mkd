@@ -6,7 +6,7 @@ import {
   Sofa, BedDouble, Bath, Utensils
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, Input, Select } from '../ui/UIKit';
+import { Card, useReadOnly } from '../ui/UIKit';
 import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { getBlocksList } from '../../lib/utils';
 import UnitInventoryModal from './UnitInventoryModal'; 
@@ -70,6 +70,7 @@ const StatCard = ({ label, value, icon: Icon, colorClass, iconBgClass }) => (
 
 export default function UnitRegistry({ mode = 'apartments' }) {
     const { composition, flatMatrix, setFlatMatrix, floorData, parkingPlaces, setParkingPlaces, entrancesData, complexInfo, saveBuildingData, saveData } = useProject();
+    const isReadOnly = useReadOnly();
     
     const [searchTerm, setSearchTerm] = useState('');
     const [filterBuilding, setFilterBuilding] = useState('all');
@@ -308,7 +309,7 @@ export default function UnitRegistry({ mode = 'apartments' }) {
 
     // Обработчик сохранения отдельного юнита
     const handleSaveUnit = async (updatedUnit) => {
-        if (!updatedUnit.id) return;
+        if (!updatedUnit.id || isReadOnly) return;
         
         if (mode !== 'parking') {
             const existingData = flatMatrix[updatedUnit.id] || {};
@@ -343,6 +344,7 @@ export default function UnitRegistry({ mode = 'apartments' }) {
 
     // Глобальное сохранение
     const handleSave = async () => {
+        if (isReadOnly) return;
         setIsSaving(true);
         try {
             for (const building of composition) {
@@ -413,14 +415,23 @@ export default function UnitRegistry({ mode = 'apartments' }) {
                 </div>
                 <div className="flex flex-col gap-1 min-w-[200px]">
                     <span className="text-[9px] font-bold text-muted-foreground uppercase ml-1">Выбор дома</span>
-                    <Select value={filterBuilding} onChange={e => setFilterBuilding(e.target.value)} className="h-10 text-xs shadow-sm bg-background font-bold">
+                    <select 
+                        value={filterBuilding} 
+                        onChange={e => setFilterBuilding(e.target.value)} 
+                        className="flex h-10 w-full items-center justify-between rounded-xl border border-input bg-background px-3 py-2 text-xs font-bold text-foreground ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0 appearance-none cursor-pointer transition-all shadow-sm"
+                    >
                         <option value="all">Все здания комплекса</option>
                         {composition.map(b => (<option key={b.id} value={b.id}>{b.label} (Дом {b.houseNumber})</option>))}
-                    </Select>
+                    </select>
                 </div>
                 <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
                     <span className="text-[9px] font-bold text-muted-foreground uppercase ml-1">Поиск</span>
-                    <Input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Номер..." className="pl-9 h-10 text-xs shadow-sm bg-background"/>
+                    <input 
+                        value={searchTerm} 
+                        onChange={e => setSearchTerm(e.target.value)} 
+                        placeholder="Номер..." 
+                        className="flex h-10 w-full rounded-xl border border-input bg-background pl-9 pr-3 py-2 text-xs shadow-sm text-foreground ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 transition-all"
+                    />
                 </div>
             </div>
 
@@ -447,7 +458,7 @@ export default function UnitRegistry({ mode = 'apartments' }) {
                                     const typeConf = getTypeConfig(item.type);
                                     const TypeIcon = typeConf.icon;
                                     const isFilled = parseFloat(item.area) > 0;
-                                    const isClickable = true;
+                                    const isClickable = true; // Теперь всегда true, чтобы можно было открыть модалку на просмотр
                                     
                                     const rowClass = `transition-colors group text-sm border-b border-border last:border-0 
                                         ${isFilled ? 'bg-emerald-500/5 dark:bg-emerald-500/10' : 'hover:bg-accent'}

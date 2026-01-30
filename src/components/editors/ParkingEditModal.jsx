@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { X, Check, Car, Ruler, Hash } from 'lucide-react';
-import { Button, Input, Label } from '../ui/UIKit';
+import { Button, Input, Label, useReadOnly } from '../ui/UIKit';
 
 export default function ParkingEditModal({ unit, buildingLabel, onClose, onSave }) {
+    const isReadOnly = useReadOnly();
     const [number, setNumber] = useState(unit.number || '');
     const [area, setArea] = useState(unit.area || '');
 
     const handleSave = () => {
+        if (isReadOnly) return;
         onSave({
             ...unit,
             number,
@@ -28,7 +30,7 @@ export default function ParkingEditModal({ unit, buildingLabel, onClose, onSave 
                         </div>
                         <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
                             <Car className="text-indigo-500" size={24}/>
-                            Машиноместо
+                            {isReadOnly ? 'Просмотр машиноместа' : 'Машиноместо'}
                         </h3>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-200">
@@ -45,9 +47,10 @@ export default function ParkingEditModal({ unit, buildingLabel, onClose, onSave 
                         <Input 
                             value={number}
                             onChange={(e) => setNumber(e.target.value)}
-                            className="font-black text-lg h-12"
+                            className={`font-black text-lg h-12 ${isReadOnly ? 'bg-transparent border-transparent' : ''}`}
                             placeholder="№"
-                            autoFocus
+                            autoFocus={!isReadOnly}
+                            disabled={isReadOnly}
                         />
                     </div>
 
@@ -61,19 +64,21 @@ export default function ParkingEditModal({ unit, buildingLabel, onClose, onSave 
                             step="0.01"
                             value={area}
                             onChange={(e) => setArea(e.target.value)}
-                            className="font-bold text-lg h-12"
+                            className={`font-bold text-lg h-12 ${isReadOnly ? 'bg-transparent border-transparent' : ''}`}
                             placeholder="0.00"
+                            disabled={isReadOnly}
                         />
                     </div>
                 </div>
 
                 {/* Footer */}
                 <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
-                    <Button variant="ghost" onClick={onClose}>Отмена</Button>
-                    {/* [CHANGED] Кнопка переименована в Применить */}
-                    <Button onClick={handleSave} className="px-8 shadow-lg shadow-indigo-200 bg-indigo-600 hover:bg-indigo-700">
-                        <Check size={16} className="mr-2"/> Применить
-                    </Button>
+                    <Button variant="ghost" onClick={onClose}>{isReadOnly ? 'Закрыть' : 'Отмена'}</Button>
+                    {!isReadOnly && (
+                        <Button onClick={handleSave} className="px-8 shadow-lg shadow-indigo-200 bg-indigo-600 hover:bg-indigo-700">
+                            <Check size={16} className="mr-2"/> Применить
+                        </Button>
+                    )}
                 </div>
             </div>
         </div>
