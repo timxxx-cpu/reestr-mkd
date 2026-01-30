@@ -3,7 +3,8 @@ import {
   ArrowLeft, Wand2, ArrowDown, ArrowUp, 
   DoorOpen, ChevronLeft, ChevronsRight, Ban,
   MoreHorizontal, ChevronsDown, LayoutTemplate,
-  Home, Briefcase, PaintBucket, AlertCircle, X, Check
+  Home, Briefcase, PaintBucket, AlertCircle, X, Check,
+  Warehouse // [NEW] Иконка для стилобата
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button, useReadOnly } from '../ui/UIKit';
@@ -110,6 +111,9 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
         const num = parseFloat(val);
         const isZeroOrEmpty = val === '' || num === 0;
+
+        // [NEW] Если это этаж стилобата (нежилого блока), поля НЕ обязательны
+        if (floor.isStylobate) return false;
 
         if (field === 'apts') {
             if (isZeroOrEmpty) {
@@ -325,7 +329,9 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             attic: { color: 'bg-teal-100 text-teal-700', label: 'Манс.' },
             loft: { color: 'bg-gray-200 text-gray-600', label: 'Чердак' },
             roof: { color: 'bg-sky-100 text-sky-700', label: 'Кровля' },
-            parking_floor: { color: 'bg-indigo-100 text-indigo-700', label: 'Паркинг' }
+            parking_floor: { color: 'bg-indigo-100 text-indigo-700', label: 'Паркинг' },
+            // [NEW]
+            stylobate: { color: 'bg-orange-100 text-orange-700', label: 'Нежилой блок' }
         };
         const style = map[type] || map.residential;
         return <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${style.color}`}>{style.label}</span>
@@ -478,22 +484,33 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                     return (
                                         <tr key={f.id} className={`${rowBg} hover:bg-slate-50 transition-colors group h-11`}>
                                             <td className="p-3 w-[120px] min-w-[120px] sticky left-0 z-20 bg-inherit border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] relative group/cell">
-                                                <div className="flex items-center justify-between h-full px-1">
-                                                    <div className="flex items-center gap-2">
-                                                        {canHaveApts && (
-                                                            <input 
-                                                                type="checkbox" 
-                                                                title={isDuplexDisabled ? (isLowerFloorDuplex ? "Нижний этаж уже дуплекс" : duplexState.title) : "Сделать дуплексом"}
-                                                                checked={isDuplex || false} 
-                                                                onChange={() => !isDuplexDisabled && toggleDuplex(f.id)} 
-                                                                disabled={isDuplexDisabled} 
-                                                                className={`rounded w-3.5 h-3.5 transition-all flex-shrink-0 border-slate-300 ${isDuplexDisabled ? 'cursor-not-allowed opacity-30 bg-slate-100' : 'cursor-pointer text-purple-600 focus:ring-purple-500'}`}
-                                                            />
-                                                        )}
-                                                        <span className="text-xs font-bold text-slate-700">{f.label}</span>
+                                                <div className="flex flex-col gap-1">
+                                                    {/* [NEW] Если стилобат, показываем имя блока сверху */}
+                                                    {f.isStylobate && (
+                                                        <div className="flex items-center gap-1 text-[9px] text-orange-600 font-bold bg-orange-50 px-1 rounded -ml-1 w-fit mb-0.5" title="Этаж относится к нежилому блоку под домом">
+                                                            <Warehouse size={8} /> {f.stylobateLabel}
+                                                        </div>
+                                                    )}
+                                                    
+                                                    <div className="flex items-center justify-between h-full px-1">
+                                                        <div className="flex items-center gap-2">
+                                                            {/* [NEW] Скрываем чекбокс дуплекса для стилобата */}
+                                                            {canHaveApts && !f.isStylobate && (
+                                                                <input 
+                                                                    type="checkbox" 
+                                                                    title={isDuplexDisabled ? (isLowerFloorDuplex ? "Нижний этаж уже дуплекс" : duplexState.title) : "Сделать дуплексом"}
+                                                                    checked={isDuplex || false} 
+                                                                    onChange={() => !isDuplexDisabled && toggleDuplex(f.id)} 
+                                                                    disabled={isDuplexDisabled} 
+                                                                    className={`rounded w-3.5 h-3.5 transition-all flex-shrink-0 border-slate-300 ${isDuplexDisabled ? 'cursor-not-allowed opacity-30 bg-slate-100' : 'cursor-pointer text-purple-600 focus:ring-purple-500'}`}
+                                                                />
+                                                            )}
+                                                            <span className="text-xs font-bold text-slate-700">{f.label}</span>
+                                                        </div>
+                                                        {renderBadge(f.type)}
                                                     </div>
-                                                    {renderBadge(f.type)}
                                                 </div>
+                                                
                                                 {!isReadOnly && (
                                                     <div className={`absolute right-1 top-1/2 -translate-y-1/2 transition-opacity z-30 ${openMenuId === f.id ? 'opacity-100' : 'opacity-0 group-hover/cell:opacity-100'}`}>
                                                         <button onClick={(e) => handleMenuOpen(e, f.id)} className={`p-1 rounded-md shadow-sm border border-slate-200 hover:text-blue-600 transition-colors ${openMenuId === f.id ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-white/90 text-slate-400'}`}><MoreHorizontal size={14}/></button>
@@ -512,7 +529,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                             let bgClass = "bg-transparent";
                                                             let textClass = "text-slate-800";
                                                             
-                                                            if (!isFieldEnabled(f, field)) { // Логическая недоступность
+                                                            if (!isFieldEnabled(f, field)) { 
                                                                 bgClass = "bg-slate-50";
                                                                 textClass = "text-slate-300 cursor-not-allowed";
                                                             } else if (isInvalid) {

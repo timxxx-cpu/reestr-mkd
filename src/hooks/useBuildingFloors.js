@@ -7,7 +7,6 @@ import { getBlocksList } from '../lib/utils';
  * Учитывает: тип здания, подвалы, цоколь, тех. этажи, стилобат, коммерцию.
  */
 export function useBuildingFloors(buildingId, activeBlockId = 0) {
-    // [UPDATED] Добавили buildingDetails
     const { composition, buildingDetails } = useProject();
 
     const building = useMemo(() => composition.find(c => c.id === buildingId), [composition, buildingId]);
@@ -15,14 +14,11 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
     // Определяем текущий блок
     const currentBlock = useMemo(() => {
         if (!building) return null;
-        // [UPDATED] Передаем buildingDetails
         const blocks = getBlocksList(building, buildingDetails);
         
-        // Если передан индекс (число)
         if (typeof activeBlockId === 'number') {
             return blocks[activeBlockId];
         }
-        // Если передан ID (строка)
         return blocks.find(b => b.id === activeBlockId) || blocks[0];
     }, [building, activeBlockId, buildingDetails]);
 
@@ -31,14 +27,12 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
         const list = [];
         const detailsKey = `${building.id}_${currentBlock.id}`;
         
-        // Для инфраструктуры и паркингов ключи могут отличаться (main)
         const effectiveDetailsKey = (building.category === 'parking_separate' || building.category === 'infrastructure') 
             ? `${building.id}_main` 
             : detailsKey;
 
         // @ts-ignore
         const blockDetails = buildingDetails[effectiveDetailsKey] || {};
-        // Приводим features к any, чтобы TS не ругался на отсутствие basements в типах
         const features = /** @type {any} */ (buildingDetails[`${building.id}_features`] || {});
         const basements = features.basements || [];
         const commFloors = blockDetails.commercialFloors || [];
@@ -54,13 +48,13 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
                     type: 'parking_floor',
                     index: -i,
                     isComm: false,
-                    sortOrder: -i // Сортировка: -1 выше чем -2
+                    sortOrder: -i 
                 });
             }
             return list.sort((a, b) => b.sortOrder - a.sortOrder);
         }
 
-        // --- Тип: Наземный объект (Жилье, Офис, Инфра, Паркинг) ---
+        // --- Тип: Наземный объект ---
         
         // 1. Подвалы
         const currentBlockBasements = basements.filter(b => b.blocks?.includes(currentBlock.id));
@@ -68,7 +62,6 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
 
         currentBlockBasements.forEach((b, bIdx) => {
             const depth = Number(b.depth || 1);
-            // Проверка: помечен ли этот конкретный подвал как коммерческий
             const isThisBasementMixed = commFloors.includes(`basement_${b.id}`) || commFloors.includes('basement');
 
             for (let d = depth; d >= 1; d--) {
@@ -80,7 +73,7 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
                     label: label,
                     type: 'basement',
                     isComm: isThisBasementMixed,
-                    isSeparator: d === 1, // Отделяем визуально первый уровень подвала
+                    isSeparator: d === 1,
                     sortOrder: -1000 - d + (Number(bIdx) * 0.1)
                 });
             }
@@ -99,18 +92,22 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
             });
         }
 
-        // 3. Стилобат (Фильтр этажей)
-        let stylobateHeight = 0;
+        // 3. Стилобат (Карта перекрытий)
+        // Создаем карту: номер этажа -> название нежилого блока, который находится под текущим жилым
+        const stylobateMap = {}; 
         if (currentBlock.type === 'Ж') {
-            // [UPDATED] Передаем buildingDetails
             const allBlocks = getBlocksList(building, buildingDetails); 
             allBlocks.forEach(b => {
                 if (b.type === 'Н') { // Нежилой блок
                     // @ts-ignore
                     const bDetails = buildingDetails[`${building.id}_${b.id}`];
+                    // Если этот нежилой блок указан как родитель для текущего жилого
                     if (bDetails?.parentBlocks?.includes(currentBlock.id)) {
                         const h = Number(bDetails.floorsTo || 0);
-                        if (h > stylobateHeight) stylobateHeight = h;
+                        // Заполняем карту для всех этажей, которые занимает этот нежилой блок
+                        for(let k = 1; k <= h; k++) {
+                            stylobateMap[k] = b.tabLabel; // Сохраняем имя блока
+                        }
                     }
                 }
             });
@@ -129,26 +126,40 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
         }
 
         for (let i = start; i <= end; i++) {
-            // Пропускаем этажи, которые "съедены" стилобатом
-            if (currentBlock.type === 'Ж' && i <= stylobateHeight) continue;
-
-            let type = 'residential';
-            if (currentBlock.type === 'Н') type = 'office';
-            if (building.category === 'parking_separate') type = 'parking_floor';
-            if (building.category === 'infrastructure') type = 'office';
+            // Проверка: является ли этаж частью стилобата
+            const stylobateSource = stylobateMap[i];
             
-            // Проверка на смешанный тип (коммерция в жилье)
-            const isMixed = commFloors.includes(i);
-            if (currentBlock.type === 'Ж' && isMixed) type = 'mixed';
+            if (stylobateSource) {
+                // Это этаж стилобата (нежилого блока под низом)
+                list.push({
+                    id: `floor_${i}`,
+                    label: `${i} этаж`,
+                    index: i,
+                    type: 'stylobate', // Новый тип!
+                    isStylobate: true,
+                    stylobateLabel: stylobateSource, // Название блока-источника
+                    isComm: true, // Стилобат обычно коммерческий, поля доступны
+                    sortOrder: i * 10
+                });
+            } else {
+                // Обычный этаж
+                let type = 'residential';
+                if (currentBlock.type === 'Н') type = 'office';
+                if (building.category === 'parking_separate') type = 'parking_floor';
+                if (building.category === 'infrastructure') type = 'office';
+                
+                const isMixed = commFloors.includes(i);
+                if (currentBlock.type === 'Ж' && isMixed) type = 'mixed';
 
-            list.push({
-                id: `floor_${i}`,
-                label: `${i} этаж`,
-                index: i,
-                type: type,
-                isComm: isMixed || type === 'office', // Флаг для матриц
-                sortOrder: i * 10
-            });
+                list.push({
+                    id: `floor_${i}`,
+                    label: `${i} этаж`,
+                    index: i,
+                    type: type,
+                    isComm: isMixed || type === 'office',
+                    sortOrder: i * 10
+                });
+            }
 
             // Вставка тех. этажей
             if (blockDetails.technicalFloors?.includes(i)) {
@@ -158,14 +169,13 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
                     label: `${i}-Т (Технический)`,
                     type: 'technical',
                     isComm: isTechMixed,
-                    isInserted: true, // Для подсветки в UI
+                    isInserted: true, 
                     sortOrder: (i * 10) + 5
                 });
             }
         }
 
         // 5. Верхние спец. этажи
-        // Доп. тех этажи выше последнего
         // @ts-ignore
         const extraTechs = (blockDetails.technicalFloors || []).filter(f => Number(f) > end);
         // @ts-ignore
@@ -199,7 +209,6 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
     return { 
         floorList, 
         currentBlock,
-        // Вспомогательные флаги
         isUndergroundParking: building?.category === 'parking_separate' && building?.parkingType === 'underground',
         isParking: building?.category === 'parking_separate',
         isInfrastructure: building?.category === 'infrastructure'

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Save, Car, CheckCircle2 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, Button, DebouncedInput, useReadOnly } from '../ui/UIKit';
+import { Card, Button, Input, useReadOnly } from '../ui/UIKit'; // Input вместо DebouncedInput
 import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { getBlocksList } from '../../lib/utils';
 // ВАЛИДАЦИЯ
@@ -18,7 +18,7 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
         buildingId ? composition.find(c => c.id === buildingId) : composition[0]
     , [composition, buildingId]);
 
-    // Используем общую функцию
+    // Используем общую функцию для сбора всех уровней
     const allRows = useMemo(() => {
         if (!building) return [];
         const rows = [];
@@ -155,11 +155,44 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
         return parkingPlaces[key]?.count || '';
     };
 
+    // Хелпер для синхронизации (удаления/создания) мест в стейте
+    const syncPlacesInState = (nextState, lvl, count, isEnabled) => {
+        const prefix = `${lvl.fullId}_${lvl.id}_place`;
+        
+        if (isEnabled && count > 0) {
+            // 1. Создаем недостающие
+            for (let i = 0; i < count; i++) {
+                const placeKey = `${prefix}${i}`;
+                if (!nextState[placeKey]) {
+                    nextState[placeKey] = {
+                        number: `${i + 1}`, 
+                        area: '13.25'       
+                    };
+                }
+            }
+            // 2. Удаляем лишние (если уменьшили)
+            let i = count;
+            while (nextState[`${prefix}${i}`]) {
+                delete nextState[`${prefix}${i}`];
+                i++;
+            }
+        } else {
+            // Если выключено или 0 — удаляем все
+            let i = 0;
+            while (nextState[`${prefix}${i}`]) {
+                delete nextState[`${prefix}${i}`];
+                i++;
+            }
+        }
+        return nextState;
+    };
+
     const toggleParking = (lvl) => {
         if (lvl.isMandatory || isReadOnly) return;
         const currentlyEnabled = isParkingEnabled(lvl);
         const newValue = !currentlyEnabled;
 
+        // 1. Если это подвал - обновляем buildingDetails (мета-флаг)
         if (lvl.basementId) {
             const featuresKey = `${lvl.buildingId}_features`;
             // @ts-ignore
@@ -180,70 +213,48 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                 };
             });
             setBuildingDetails(prev => ({ ...prev, [featuresKey]: { ...features, basements: updatedBasements } }));
-        } else {
-            const key = `${lvl.fullId}_${lvl.id}_enabled`;
-            setParkingPlaces(prev => ({ ...prev, [key]: newValue }));
         }
+
+        // 2. В ЛЮБОМ СЛУЧАЕ обновляем parkingPlaces (флаг enabled + сами места)
+        const keyEnabled = `${lvl.fullId}_${lvl.id}_enabled`;
+        const currentCount = parseInt(getPlacesCount(lvl) || '0');
+
+        setParkingPlaces(prev => {
+            const next = { ...prev, [keyEnabled]: newValue };
+            // Сразу генерируем/удаляем места
+            return syncPlacesInState(next, lvl, currentCount, newValue);
+        });
     };
 
     const updateCount = (lvl, value) => {
         if (isReadOnly) return;
-        // Проверка через Zod, чтобы не сохранять мусор в стейт
-        // Хотя для текстового ввода в DebouncedInput мы разрешаем ввод, но валидируем
-        const key = `${lvl.fullId}_${lvl.id}_meta`;
-        setParkingPlaces(prev => ({
-            ...prev,
-            [key]: { 
-                // @ts-ignore
-                ...prev[key], 
-                count: value 
-            }
-        }));
+        
+        const keyMeta = `${lvl.fullId}_${lvl.id}_meta`;
+        const newCount = parseInt(value || '0');
+        const isEnabled = isParkingEnabled(lvl);
+
+        // Обновляем состояние напрямую и СРАЗУ генерируем места
+        setParkingPlaces(prev => {
+            const next = { 
+                ...prev,
+                [keyMeta]: { ...prev[keyMeta], count: value } 
+            };
+            return syncPlacesInState(next, lvl, newCount, isEnabled);
+        });
     };
 
-    // [FIX] ИСПРАВЛЕННАЯ ФУНКЦИЯ СОХРАНЕНИЯ
+    // Эта функция теперь просто форсирует сохранение в БД, так как стейт уже актуален
     const handleSave = async () => {
-        const newPlaces = { ...parkingPlaces };
-        
-        // 1. Генерируем места на основе введенных количеств
-        allRows.forEach(lvl => {
-            const enabled = isParkingEnabled(lvl);
-            const countStr = getPlacesCount(lvl);
-            const count = parseInt(countStr || '0');
-
-            if (enabled && count > 0) {
-                for (let i = 0; i < count; i++) {
-                    const placeKey = `${lvl.fullId}_${lvl.id}_place${i}`;
-                    // Если места еще нет, создаем дефолтное
-                    // @ts-ignore
-                    if (!newPlaces[placeKey]) {
-                        // @ts-ignore
-                        newPlaces[placeKey] = {
-                            number: `${i + 1}`, 
-                            area: '13.25'       
-                        };
-                    }
-                }
-            }
-        });
-
-        // 2. [ВАЖНО] Обновляем стейт, чтобы данные появились в реестре сразу
-        setParkingPlaces(newPlaces);
-
-        // 3. Сохраняем в базу
         const specificData = {};
         if (buildingId) {
-            // Если редактируем конкретное здание, сохраняем только его данные в sub-collection
-            Object.keys(newPlaces).forEach(k => {
+            Object.keys(parkingPlaces).forEach(k => {
                 if (k.startsWith(buildingId)) {
                     // @ts-ignore
-                    specificData[k] = newPlaces[k];
+                    specificData[k] = parkingPlaces[k];
                 }
             });
             await saveBuildingData(building.id, 'parkingData', specificData);
         }
-        
-        // Сбрасываем флаг несохраненных изменений
         await saveData({}, true); 
     };
 
@@ -311,13 +322,14 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                                             <div className={`flex items-center gap-3 transition-opacity duration-200 ${isEnabled ? 'opacity-100' : 'opacity-20 pointer-events-none'}`}>
                                                 <div className="relative max-w-xs w-32">
                                                     <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none"><Car size={14} className="text-slate-400" /></div>
-                                                    <DebouncedInput 
+                                                    {/* ОБЫЧНЫЙ INPUT для мгновенной реакции */}
+                                                    <Input 
                                                         type="number" 
                                                         min="0" 
                                                         className={`pl-8 pr-3 py-2 w-full border rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all ${isInvalid ? 'border-red-500 bg-red-50' : 'border-slate-200'} ${isReadOnly ? 'bg-transparent border-transparent cursor-default' : ''}`} 
                                                         placeholder="0" 
                                                         value={count} 
-                                                        onChange={(val) => updateCount(lvl, val)}
+                                                        onChange={(e) => updateCount(lvl, e.target.value)}
                                                         disabled={isReadOnly}
                                                     />
                                                 </div>
@@ -338,7 +350,6 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                 </div>
             )}
 
-            {/* [NEW] Панель сохранения */}
             <SaveFloatingBar onSave={handleSave} />
         </div>
     );

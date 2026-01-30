@@ -122,11 +122,16 @@ export const Validators = {
         if (isUnderground) return false; 
         
         if (field === 'apts') {
-            return ['residential', 'mixed', 'basement', 'tsokol', 'attic'].includes(floor.type);
+            // Разрешаем ввод квартир на этажах стилобата (если они там есть)
+            return ['residential', 'mixed', 'basement', 'tsokol', 'attic', 'stylobate'].includes(floor.type);
         }
         
         if (field === 'units') {
-            return floor.isComm; // Флаг, который проставляет useBuildingFloors
+            // [ИЗМЕНЕНО] БЛОКИРУЕМ ввод офисов для этажей стилобата
+            // (т.к. они управляются в редакторе нежилого блока)
+            if (floor.type === 'stylobate') return false; 
+            
+            return floor.isComm; 
         }
         
         return true;
