@@ -22,13 +22,22 @@ const HEAVY_KEYS = [
     'complexInfo', 'participants', 'cadastre', 'documents', 'buildingDetails', 'composition'
 ];
 
-const createHistoryEntry = (user, action, comment) => ({
+const createHistoryEntry = (user, action, comment, details = {}) => ({
     date: new Date().toISOString(),
     user: user.name || 'Unknown',
     role: user.role || 'system',
     action,
-    comment
+    comment,
+    ...details
 });
+
+const getStageStepRange = (stageNum) => {
+    const prevStage = WORKFLOW_STAGES[stageNum - 1];
+    const currentStage = WORKFLOW_STAGES[stageNum];
+    const startIndex = stageNum <= 1 ? 0 : (prevStage?.lastStepIndex ?? -1) + 1;
+    const endIndex = currentStage?.lastStepIndex ?? STEPS_CONFIG.length - 1;
+    return { startIndex, endIndex };
+};
 
 export const ProjectProvider = ({ children, projectId, user, customScope, userProfile }) => {
   const toast = useToast();
@@ -209,6 +218,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       const stageConfig = WORKFLOW_STAGES[currentStageNum];
       const isStageBoundary = stageConfig && stageConfig.lastStepIndex === currentIndex;
 
+      const prevStatus = currentAppInfo.status;
       let newStatus = currentAppInfo.status;
       let newStage = currentAppInfo.currentStage;
       let historyComment = `Шаг "${STEPS_CONFIG[currentIndex]?.title}" выполнен.`;
@@ -224,9 +234,15 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       }
 
       const historyItem = createHistoryEntry(
-          userProfile, 
-          isStageBoundary ? 'Отправка на проверку' : 'Завершение задачи', 
-          historyComment
+          userProfile,
+          isStageBoundary ? 'Отправка на проверку' : 'Завершение задачи',
+          historyComment,
+          {
+              prevStatus,
+              nextStatus: newStatus,
+              stage: getStepStage(currentIndex),
+              stepIndex: currentIndex
+          }
       );
       const newHistory = [historyItem, ...(currentAppInfo.history || [])];
 
@@ -260,9 +276,15 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       const newCompleted = (currentAppInfo.completedSteps || []).filter(s => s < prevIndex);
 
       const historyItem = createHistoryEntry(
-          userProfile, 
-          'Возврат задачи', 
-          `Возврат с шага "${STEPS_CONFIG[currentIndex]?.title}" на "${STEPS_CONFIG[prevIndex]?.title}".`
+          userProfile,
+          'Возврат задачи',
+          `Возврат с шага "${STEPS_CONFIG[currentIndex]?.title}" на "${STEPS_CONFIG[prevIndex]?.title}".`,
+          {
+              prevStatus: currentAppInfo.status,
+              nextStatus: [APP_STATUS.COMPLETED, APP_STATUS.REVIEW].includes(currentAppInfo.status) ? APP_STATUS.DRAFT : currentAppInfo.status,
+              stage: getStepStage(prevIndex),
+              stepIndex: prevIndex
+          }
       );
       const newHistory = [historyItem, ...(currentAppInfo.history || [])];
 
@@ -291,15 +313,22 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       // action: 'APPROVE' | 'REJECT'
       const isApprove = action === 'APPROVE';
       
+      const prevStatus = currentAppInfo.status;
       let newStatus = currentAppInfo.status;
       let newStepIndex = currentAppInfo.currentStepIndex;
       let newStage = currentAppInfo.currentStage;
       let historyAction = isApprove ? 'Этап принят' : 'Возврат на доработку';
       
+      const reviewedStage = Math.max(1, currentAppInfo.currentStage - 1);
+      const { startIndex, endIndex } = getStageStepRange(reviewedStage);
+      const reviewedStepIndexes = Array.from({ length: endIndex - startIndex + 1 }, (_, i) => startIndex + i);
+      let updatedVerifiedSteps = [...(currentAppInfo.verifiedSteps || [])];
+
       if (isApprove) {
           // Если одобрили: статус становится рабочим (DRAFT), этап и шаг остаются как есть (они уже были переключены вперед в completeTask)
           // Техник просто продолжает с того места, где он "завис" перед проверкой.
           newStatus = APP_STATUS.DRAFT;
+          updatedVerifiedSteps = Array.from(new Set([...updatedVerifiedSteps, ...reviewedStepIndexes]));
       } else {
           // Если вернули: 
           // 1. Откатываем этап назад
@@ -315,12 +344,19 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           
           // 3. Статус REJECTED
           newStatus = APP_STATUS.REJECTED;
+          updatedVerifiedSteps = updatedVerifiedSteps.filter((idx) => idx < startIndex || idx > endIndex);
       }
 
       const historyItem = createHistoryEntry(
-          userProfile, 
-          historyAction, 
-          comment || (isApprove ? `Этап ${newStage - (isApprove ? 1 : 0)} проверен и одобрен.` : `Этап ${newStage} возвращен на доработку.`)
+          userProfile,
+          historyAction,
+          comment || (isApprove ? `Этап ${reviewedStage} проверен и одобрен.` : `Этап ${reviewedStage} возвращен на доработку.`),
+          {
+              prevStatus,
+              nextStatus: newStatus,
+              stage: reviewedStage,
+              stepIndex: newStepIndex
+          }
       );
       const newHistory = [historyItem, ...(currentAppInfo.history || [])];
 
@@ -331,7 +367,8 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
               currentStage: newStage,
               currentStepIndex: newStepIndex,
               history: newHistory,
-              rejectionReason: !isApprove ? comment : null
+              rejectionReason: !isApprove ? comment : null,
+              verifiedSteps: updatedVerifiedSteps
           }
       };
 
