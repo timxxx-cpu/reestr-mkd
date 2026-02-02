@@ -11,12 +11,8 @@ import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 import { FloorDataSchema } from '../../lib/schemas';
 import { Validators } from '../../lib/validators';
-// [NEW] Импорт хука типов
 import { useBuildingType } from '../../hooks/useBuildingType';
 
-/**
- * @param {{ buildingId: string, onBack: () => void }} props
- */
 export default function FloorMatrixEditor({ buildingId, onBack }) {
     const { composition, floorData, setFloorData, saveBuildingData, saveData } = useProject();
     const isReadOnly = useReadOnly();
@@ -30,9 +26,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
     const building = composition.find(c => c.id === buildingId);
     
-    // [NEW] Использование хука
     const { isGroundOpen, isGroundLight } = useBuildingType(building);
-    // Логика: Внешняя инвентаризация не нужна для открытых или легких паркингов
     const isExcludedType = isGroundOpen || isGroundLight;
 
     const blocksList = useMemo(() => getBlocksList(building), [building]);
@@ -69,15 +63,23 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
     if (!currentBlock) return <div className="p-8">Блоки не найдены</div>;
     
-    // --- ЛОГИКА ---
-
     const handleInput = useCallback((floorId, field, value) => { 
         if (isReadOnly) return;
         if (value !== '' && (parseFloat(value) < 0 || value.includes('-'))) return;
         const key = `${currentBlock.fullId}_${floorId}`; 
-        // @ts-ignore
-        setFloorData(p => ({...p, [key]: { ...(p[key]||{}), [field]: value } })); 
-    }, [currentBlock.fullId, setFloorData, isReadOnly]);
+        setFloorData(p => ({
+            ...p, 
+            [key]: { 
+                id: p[key]?.id || crypto.randomUUID(), // UUID
+                ...(p[key]||{}), 
+                [field]: value,
+                // FKs
+                buildingId: building.id,
+                blockId: currentBlock.id,
+                // floorId в данном случае это сам floorId из пропсов, но он строковый
+            } 
+        })); 
+    }, [currentBlock.fullId, setFloorData, isReadOnly, building.id, currentBlock.id]);
 
     const copyRowFromPrev = (idx) => {
         if (isReadOnly || idx <= 0) return;
@@ -86,16 +88,17 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         const prevKey = `${currentBlock.fullId}_${prevId}`;
         const currKey = `${currentBlock.fullId}_${currId}`;
         
-        // @ts-ignore
         const prevData = floorData[prevKey] || {};
-        // @ts-ignore
         setFloorData(p => ({
             ...p,
             [currKey]: { 
+                id: p[currKey]?.id || crypto.randomUUID(),
                 ...(p[currKey] || {}), 
                 height: prevData.height, 
                 areaProj: prevData.areaProj, 
-                areaFact: prevData.areaFact 
+                areaFact: prevData.areaFact,
+                buildingId: building.id,
+                blockId: currentBlock.id
             }
         }));
         setOpenMenuId(null);
@@ -105,23 +108,22 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         if (isReadOnly) return;
         const sourceId = floorList[idx].id;
         const sourceKey = `${currentBlock.fullId}_${sourceId}`;
-        // @ts-ignore
         const sourceData = floorData[sourceKey] || {};
         
         const updates = {};
         for (let i = idx + 1; i < floorList.length; i++) {
             const targetId = floorList[i].id;
             const targetKey = `${currentBlock.fullId}_${targetId}`;
-            // @ts-ignore
             updates[targetKey] = { 
-                // @ts-ignore
+                id: floorData[targetKey]?.id || crypto.randomUUID(),
                 ...(floorData[targetKey] || {}), 
                 height: sourceData.height, 
                 areaProj: sourceData.areaProj, 
-                areaFact: sourceData.areaFact 
+                areaFact: sourceData.areaFact,
+                buildingId: building.id,
+                blockId: currentBlock.id
             };
         }
-        // @ts-ignore
         setFloorData(p => ({ ...p, ...updates }));
         setOpenMenuId(null);
     };
@@ -131,7 +133,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         const prevId = floorList[idx - 1].id;
         const currId = floorList[idx].id;
         const prevKey = `${currentBlock.fullId}_${prevId}`;
-        // @ts-ignore
         const val = floorData[prevKey]?.[field];
         if (val !== undefined) handleInput(currId, field, val);
     };
@@ -140,7 +141,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         if (isReadOnly) return;
         const sourceId = floorList[idx].id;
         const sourceKey = `${currentBlock.fullId}_${sourceId}`;
-        // @ts-ignore
         const val = floorData[sourceKey]?.[field];
         if (val === undefined) return;
 
@@ -148,17 +148,21 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         for (let i = idx + 1; i < floorList.length; i++) {
             const targetId = floorList[i].id;
             const targetKey = `${currentBlock.fullId}_${targetId}`;
-            // @ts-ignore
-            updates[targetKey] = { ...(floorData[targetKey] || {}), [field]: val };
+            updates[targetKey] = { 
+                id: floorData[targetKey]?.id || crypto.randomUUID(),
+                ...(floorData[targetKey] || {}), 
+                [field]: val,
+                buildingId: building.id,
+                blockId: currentBlock.id
+            };
         }
-        // @ts-ignore
         setFloorData(p => ({ ...p, ...updates }));
     };
 
     const hasCriticalErrors = useMemo(() => {
         for (const f of floorList) {
             const key = `${currentBlock.fullId}_${f.id}`;
-            const val = /** @type {import('../../lib/types').FloorData} */ (floorData[key] || {});
+            const val = (floorData[key] || {});
             
             const result = FloorDataSchema.safeParse(val);
             if (!result.success) return true;
@@ -190,7 +194,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
         if (newRow !== rowIndex || newCol !== colIndex) {
             e.preventDefault();
-            // @ts-ignore
             const targetRef = inputsRef.current[`${newRow}-${colOrder[newCol]}`];
             if (targetRef) targetRef.focus();
         }
@@ -214,11 +217,15 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         const updates = {};
         selectedRows.forEach(floorId => {
             const key = `${currentBlock.fullId}_${floorId}`;
-            // @ts-ignore
             const currentData = floorData[key] || {};
-            updates[key] = { ...currentData, [field]: bulkValue };
+            updates[key] = { 
+                id: currentData.id || crypto.randomUUID(),
+                ...currentData, 
+                [field]: bulkValue,
+                buildingId: building.id,
+                blockId: currentBlock.id
+            };
         });
-        // @ts-ignore
         setFloorData(prev => ({ ...prev, ...updates }));
     };
 
@@ -230,23 +237,26 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
             let h = '3.00'; let s_proj = '500.00';
             if (f.type === 'basement') { h = '2.50'; s_proj = '450.00'; }
             if (f.type === 'parking_floor') { h = '2.70'; s_proj = '1000.00'; }
-            // @ts-ignore
             if (f.type === 'technical') { h = '1.80'; s_proj = '480.00'; }
-            // @ts-ignore
             if (f.type === 'attic') { h = '2.70'; s_proj = '350.00'; }
-            // @ts-ignore
             if (f.type === 'roof') { h = '0.00'; s_proj = '400.00'; }
-            // @ts-ignore
             if (f.type === 'mixed') { h = '3.60'; s_proj = '550.00'; } 
             if (f.type === 'office') { h = '3.30'; s_proj = '600.00'; }
-            // @ts-ignore
-            if (!floorData[key]) { updates[key] = { height: h, areaProj: s_proj, areaFact: s_proj }; }
+            
+            if (!floorData[key]) { 
+                updates[key] = { 
+                    id: crypto.randomUUID(),
+                    height: h, 
+                    areaProj: s_proj, 
+                    areaFact: s_proj,
+                    buildingId: building.id,
+                    blockId: currentBlock.id
+                }; 
+            }
         }); 
-        // @ts-ignore
         setFloorData(p => ({...p, ...updates})); 
     };
 
-    // @ts-ignore
     const renderTypeBadge = (type) => {
         const styles = {
             residential: "bg-blue-50 text-blue-600 border-blue-100",
@@ -264,20 +274,19 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
             basement: "Подвал", tsokol: "Цоколь", attic: "Мансарда",
             roof: "Кровля", office: "Нежилой", parking_floor: "Паркинг"
         };
-        // @ts-ignore
         return <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${styles[type] || styles.residential}`}>{labels[type] || type}</span>;
     };
 
     const handleSave = async () => { 
         const specificData = {};
         Object.keys(floorData).forEach(k => { if (k.startsWith(building.id)) specificData[k] = floorData[k]; });
+        // Используем сервис с трансформацией внутри
         await saveBuildingData(building.id, 'floorData', specificData);
         await saveData({}, true); 
     };
     
     return (
         <div className="space-y-6 pb-24 max-w-7xl mx-auto animate-in fade-in duration-500 relative">
-             {/* --- HEADER --- */}
              <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 flex flex-col md:flex-row justify-between items-center gap-4">
                  <div className="flex items-center gap-4 w-full md:w-auto">
                      <button onClick={onBack} className="p-2.5 hover:bg-slate-100 rounded-xl text-slate-500 hover:text-slate-800 transition-colors">
@@ -311,7 +320,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                  </div>
              </div>
 
-             {/* --- TABS --- */}
              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                 {blocksList.map((b,i) => (
                     <TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)} className="shadow-sm border border-slate-200">
@@ -320,7 +328,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 ))}
             </div>
 
-            {/* --- BULK ACTION BAR --- */}
             {selectedRows.size > 0 && !isReadOnly && (
                 <div className="sticky top-4 z-50 mx-auto max-w-2xl animate-in slide-in-from-top-4 fade-in duration-300">
                     <div className="bg-slate-900/95 backdrop-blur text-white p-2.5 rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-700/50 ring-1 ring-white/10">
@@ -348,7 +355,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 </div>
             )}
 
-            {/* --- TABLE CARD --- */}
             <Card className="overflow-hidden shadow-sm border border-slate-200 rounded-2xl bg-white">
                 <div className="overflow-x-auto max-h-[70vh] scrollbar-thin"> 
                     <table className="w-full relative border-collapse text-sm table-fixed">
@@ -378,7 +384,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                         <tbody className="divide-y divide-slate-100 bg-white">
                             {floorList.map((f, idx) => {
                                 const key = `${currentBlock.fullId}_${f.id}`; 
-                                const val = /** @type {import('../../lib/types').FloorData} */ (floorData[key] || {});
+                                const val = (floorData[key] || {});
                                 const isSelected = selectedRows.has(f.id);
                                 
                                 const validationResult = FloorDataSchema.safeParse(val);
@@ -387,15 +393,12 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                 const diffErrorMsg = Validators.checkDiff(val.areaProj, val.areaFact);
                                 const hasDiffError = !!diffErrorMsg;
 
-                                // @ts-ignore
                                 const borderClass = f.isSeparator ? "border-b-[4px] border-slate-100" : "";
-                                // @ts-ignore
                                 const rowBg = isSelected ? "bg-blue-50" : (idx % 2 === 0 ? "bg-slate-50/30" : "bg-white");
 
                                 return (
                                     <tr key={f.id} className={`${rowBg} hover:bg-slate-50 transition-colors group ${borderClass}`}>
                                         
-                                        {/* 1. Чекбокс */}
                                         <td className="p-0 text-center border-r border-slate-100 sticky left-0 z-20 bg-inherit">
                                             <div className="h-full w-full flex items-center justify-center backdrop-blur-sm">
                                                 <button disabled={isReadOnly} onClick={() => toggleRow(f.id)} className={`text-slate-300 hover:text-blue-600 transition-colors p-2 ${isReadOnly ? 'cursor-not-allowed opacity-50' : ''}`}>
@@ -404,20 +407,16 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                             </div>
                                         </td>
 
-                                        {/* 2. Название этажа */}
                                         <td className={`px-4 py-3 border-r border-slate-100 sticky left-12 z-20 bg-inherit shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] relative group/label ${openMenuId === f.id ? 'z-50' : ''}`}>
                                             <div className="flex items-center justify-between">
                                                 <div className="flex flex-col gap-1">
                                                     <div className="flex items-center gap-2">
-                                                        {/* @ts-ignore */}
                                                         {f.isInserted && <ArrowUpFromLine size={14} className="text-amber-500"/>}
-                                                        {/* @ts-ignore */}
                                                         <span className={`font-bold text-sm ${f.isInserted ? 'text-amber-700' : 'text-slate-700'}`}>{f.label}</span>
                                                     </div>
                                                     {renderTypeBadge(f.type)}
                                                 </div>
                                                 
-                                                {/* Кнопка "три точки" */}
                                                 {!isReadOnly && (
                                                     <div className={`opacity-0 group-hover/label:opacity-100 transition-opacity ${openMenuId === f.id ? 'opacity-100' : ''}`}>
                                                         <button 
@@ -430,7 +429,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                 )}
                                             </div>
 
-                                            {/* Меню действий */}
                                             {openMenuId === f.id && !isReadOnly && (
                                                 <div ref={menuRef} className="absolute left-[85%] top-8 w-52 bg-white rounded-xl shadow-xl border border-slate-200 z-[100] p-1.5 flex flex-col animate-in fade-in zoom-in-95 duration-200 origin-top-left">
                                                     <button onClick={() => copyRowFromPrev(idx)} disabled={idx===0} className={`flex items-center gap-2 px-3 py-2.5 text-xs font-bold rounded-lg text-left transition-colors ${idx===0 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-700 hover:bg-slate-50 hover:text-blue-600'}`}>
@@ -444,17 +442,14 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                             )}
                                         </td>
 
-                                        {/* 3. Поля ввода */}
                                         {
                                             [
                                                 { id: 'height', ph: '0.00', required: f.type !== 'roof' }, 
                                                 { id: 'areaProj', ph: '0.00', required: true }, 
                                                 { id: 'areaFact', ph: '0.00', required: false }
                                             ].map(field => {
-                                                // @ts-ignore
                                                 const zodError = fieldErrors[field.id];
                                                 const isDiffErr = field.id === 'areaFact' && hasDiffError;
-                                                // @ts-ignore
                                                 const isEmpty = !val[field.id];
                                                 
                                                 let customError = null;
@@ -473,7 +468,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                     borderClass = "border-red-300 focus:border-red-500 focus:ring-red-100";
                                                     textClass = "text-red-700";
                                                 } else if (val[field.id]) {
-                                                    // Если есть значение и оно валидно, делаем чуть темнее текст
                                                     textClass = "text-slate-900 font-bold";
                                                 } else {
                                                     textClass = "text-slate-400";
@@ -489,7 +483,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                     <td key={field.id} className="p-2 border-r border-slate-100 relative group/input">
                                                         <div className="relative h-10">
                                                             <DebouncedInput 
-                                                                // @ts-ignore
                                                                 ref={el => inputsRef.current[`${idx}-${field.id}`] = el}
                                                                 onKeyDown={(e) => handleKeyDown(e, idx, field.id)}
                                                                 type="number" 
@@ -498,19 +491,16 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                                 disabled={isReadOnly}
                                                                 className={`w-full h-full text-center rounded-xl text-sm outline-none transition-all border pr-7 ${bgClass} ${borderClass} ${textClass} ${isReadOnly ? 'cursor-default' : ''}`} 
                                                                 placeholder={field.ph} 
-                                                                // @ts-ignore
                                                                 value={val[field.id]} 
                                                                 onChange={v => handleInput(f.id, field.id, v)} 
                                                             />
                                                             
-                                                            {/* Индикатор ошибки */}
                                                             {(finalError || isDiffErr) && !isReadOnly && (
                                                                 <div className="absolute top-1/2 -translate-y-1/2 right-2 pointer-events-none">
                                                                     <AlertCircle size={14} className="text-red-500"/>
                                                                 </div>
                                                             )}
 
-                                                            {/* Кнопки действий (Hover) */}
                                                             {!isReadOnly && (
                                                                 <div className="absolute inset-y-0 right-1 flex flex-col justify-center gap-0.5 opacity-0 group-hover/input:opacity-100 transition-opacity z-10">
                                                                     {idx > 0 && (

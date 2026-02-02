@@ -4,7 +4,7 @@ import {
   DoorOpen, ChevronLeft, ChevronsRight, Ban,
   MoreHorizontal, ChevronsDown, LayoutTemplate,
   Home, Briefcase, PaintBucket, AlertCircle, X, Check,
-  Warehouse // [NEW] Иконка для стилобата
+  Warehouse
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button, useReadOnly } from '../ui/UIKit';
@@ -15,15 +15,11 @@ import { Validators } from '../../lib/validators';
 import { EntranceDataSchema } from '../../lib/schemas';
 import { useBuildingType } from '../../hooks/useBuildingType';
 
-/**
- * @param {{ buildingId: string, onBack: () => void }} props
- */
 export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const { composition, buildingDetails, entrancesData, setEntrancesData, floorData, setFloorData, saveBuildingData, saveData } = useProject();
     const isReadOnly = useReadOnly();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
     
-    // Состояние меню
     const [openMenuId, setOpenMenuId] = useState(null);
     const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
     
@@ -31,11 +27,9 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const menuRef = useRef(null);
 
     const building = composition.find(c => c.id === buildingId);
-    
     const { isUnderground, isParking } = useBuildingType(building);
 
     const blocksList = useMemo(() => getBlocksList(building), [building]);
-    
     const { floorList, currentBlock } = useBuildingFloors(buildingId, activeBlockIndex);
 
     useEffect(() => {
@@ -65,7 +59,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const isResidentialBlock = currentBlock.type === 'Ж';
     const showEditor = isResidentialBlock || isUnderground;
 
-    // @ts-ignore
     const blockDetails = buildingDetails[`${building.id}_${currentBlock.id}`] || {};
     const entrancesCount = isUnderground 
         ? (blockDetails.inputs || 1) 
@@ -85,7 +78,22 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         if (val === '-') safeVal = ''; 
 
         const key = `${currentBlock.fullId}_ent${entIdx}_${floorId}`;
-        setEntrancesData(prev => ({ ...prev, [key]: { ...(prev[key]||{}), [field]: safeVal } }));
+        setEntrancesData(prev => {
+            const existing = prev[key] || {};
+            return { 
+                ...prev, 
+                [key]: { 
+                    id: existing.id || crypto.randomUUID(), // Генерируем UUID
+                    ...existing, 
+                    [field]: safeVal,
+                    // Добавляем внешние ключи для будущего экспорта
+                    buildingId: building.id,
+                    blockId: currentBlock.id,
+                    floorId: floorId,
+                    entranceIndex: entIdx
+                } 
+            };
+        });
     };
 
     const getEntData = (entIdx, floorId, field) => {
@@ -100,7 +108,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         setFloorData(p => ({...p, [key]: {...(p[key]||{}), isDuplex: !current}})); 
     };
 
-    // [CHANGED] Используем валидатор вместо локальной функции
     const isFieldEnabled = (floor, field) => {
         return Validators.checkFieldAvailability(floor, field, isUnderground);
     };
@@ -112,7 +119,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         const num = parseFloat(val);
         const isZeroOrEmpty = val === '' || num === 0;
 
-        // [NEW] Если это этаж стилобата (нежилого блока), поля НЕ обязательны
         if (floor.isStylobate) return false;
 
         if (field === 'apts') {
@@ -237,7 +243,15 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             if (isFieldEnabled(targetFloor, field)) {
                 const key = `${currentBlock.fullId}_ent${ent}_${targetFloor.id}`;
                 const currentData = entrancesData[key] || {};
-                updates[key] = { ...currentData, [field]: sourceVal };
+                updates[key] = { 
+                    id: currentData.id || crypto.randomUUID(), // UUID
+                    ...currentData, 
+                    [field]: sourceVal,
+                    buildingId: building.id,
+                    blockId: currentBlock.id,
+                    floorId: targetFloor.id,
+                    entranceIndex: ent
+                };
             }
         }
         if (Object.keys(updates).length > 0) {
@@ -254,7 +268,18 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 if (f.type === 'residential' || f.type === 'attic') apts = 4;
                 if (f.type === 'mixed') apts = 3;
             }
-            updates[`${currentBlock.fullId}_ent${ent}_${f.id}`] = { apts, mopQty: 1, units: (f.isComm) ? 1 : 0 }; 
+            const key = `${currentBlock.fullId}_ent${ent}_${f.id}`;
+            const existing = entrancesData[key] || {};
+            updates[key] = { 
+                id: existing.id || crypto.randomUUID(), // UUID
+                apts, 
+                mopQty: 1, 
+                units: (f.isComm) ? 1 : 0,
+                buildingId: building.id,
+                blockId: currentBlock.id,
+                floorId: f.id,
+                entranceIndex: ent
+            }; 
         })); 
         setEntrancesData(p => ({...p, ...updates})); 
     };
@@ -268,8 +293,14 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             const srcKey = `${currentBlock.fullId}_ent${ent}_${currentFloor.id}`; 
             const tgtKey = `${currentBlock.fullId}_ent${ent}_${nextFloor.id}`; 
             const srcData = entrancesData[srcKey]; 
+            const tgtExisting = entrancesData[tgtKey] || {};
+
             if(srcData) {
                 const newData = { ...srcData };
+                // Сохраняем или генерируем новый ID для целевой ячейки
+                newData.id = tgtExisting.id || crypto.randomUUID();
+                newData.floorId = nextFloor.id; // Обновляем ссылку на этаж
+
                 if (!isFieldEnabled(nextFloor, 'apts')) newData.apts = 0;
                 if (!isFieldEnabled(nextFloor, 'units')) newData.units = 0;
                 updates[tgtKey] = newData; 
@@ -290,10 +321,16 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             const targetFloor = floorList[i]; 
             entrancesList.forEach(ent => { 
                 if(sourceValues[ent]) { 
+                    const tgtKey = `${currentBlock.fullId}_ent${ent}_${targetFloor.id}`;
+                    const tgtExisting = entrancesData[tgtKey] || {};
+                    
                     const newData = { ...sourceValues[ent] };
+                    newData.id = tgtExisting.id || crypto.randomUUID(); // UUID
+                    newData.floorId = targetFloor.id;
+
                     if (!isFieldEnabled(targetFloor, 'apts')) newData.apts = 0;
                     if (!isFieldEnabled(targetFloor, 'units')) newData.units = 0;
-                    updates[`${currentBlock.fullId}_ent${ent}_${targetFloor.id}`] = newData; 
+                    updates[tgtKey] = newData; 
                 } 
             }); 
         } 
@@ -306,7 +343,18 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         const tgtKey = `${currentBlock.fullId}_ent${entIdx}_${floorId}`; 
         const srcKey = `${currentBlock.fullId}_ent${entIdx-1}_${floorId}`; 
         const srcData = entrancesData[srcKey]; 
-        if(srcData) setEntrancesData(p => ({...p, [tgtKey]: {...srcData}})); 
+        const tgtExisting = entrancesData[tgtKey] || {};
+
+        if(srcData) {
+            setEntrancesData(p => ({
+                ...p, 
+                [tgtKey]: {
+                    ...srcData, 
+                    id: tgtExisting.id || crypto.randomUUID(), // UUID
+                    entranceIndex: entIdx
+                }
+            })); 
+        }
     };
 
     const fillEntrancesRow = (floorId, srcEntIdx) => { 
@@ -315,7 +363,17 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         const srcData = entrancesData[srcKey]; 
         if(!srcData) return; 
         const updates = {}; 
-        entrancesList.forEach(ent => { if(ent !== srcEntIdx) updates[`${currentBlock.fullId}_ent${ent}_${floorId}`] = {...srcData}; }); 
+        entrancesList.forEach(ent => { 
+            if(ent !== srcEntIdx) {
+                const tgtKey = `${currentBlock.fullId}_ent${ent}_${floorId}`;
+                const tgtExisting = entrancesData[tgtKey] || {};
+                updates[tgtKey] = {
+                    ...srcData, 
+                    id: tgtExisting.id || crypto.randomUUID(), // UUID
+                    entranceIndex: ent
+                };
+            }
+        }); 
         setEntrancesData(p => ({...p, ...updates})); 
     };
 
@@ -330,7 +388,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             loft: { color: 'bg-gray-200 text-gray-600', label: 'Чердак' },
             roof: { color: 'bg-sky-100 text-sky-700', label: 'Кровля' },
             parking_floor: { color: 'bg-indigo-100 text-indigo-700', label: 'Паркинг' },
-            // [NEW]
             stylobate: { color: 'bg-orange-100 text-orange-700', label: 'Нежилой блок' }
         };
         const style = map[type] || map.residential;
@@ -485,7 +542,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                         <tr key={f.id} className={`${rowBg} hover:bg-slate-50 transition-colors group h-11`}>
                                             <td className="p-3 w-[120px] min-w-[120px] sticky left-0 z-20 bg-inherit border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] relative group/cell">
                                                 <div className="flex flex-col gap-1">
-                                                    {/* [NEW] Если стилобат, показываем имя блока сверху */}
                                                     {f.isStylobate && (
                                                         <div className="flex items-center gap-1 text-[9px] text-orange-600 font-bold bg-orange-50 px-1 rounded -ml-1 w-fit mb-0.5" title="Этаж относится к нежилому блоку под домом">
                                                             <Warehouse size={8} /> {f.stylobateLabel}
@@ -494,7 +550,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                     
                                                     <div className="flex items-center justify-between h-full px-1">
                                                         <div className="flex items-center gap-2">
-                                                            {/* [NEW] Скрываем чекбокс дуплекса для стилобата */}
                                                             {canHaveApts && !f.isStylobate && (
                                                                 <input 
                                                                     type="checkbox" 

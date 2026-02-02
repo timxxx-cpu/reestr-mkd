@@ -11,6 +11,7 @@ export default function ParkingEditModal({ unit, buildingLabel, onClose, onSave 
         if (isReadOnly) return;
         onSave({
             ...unit,
+            // id уже есть в unit, сохраняем его
             number,
             area
         });
@@ -20,7 +21,6 @@ export default function ParkingEditModal({ unit, buildingLabel, onClose, onSave 
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col">
                 
-                {/* Header */}
                 <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                     <div>
                         <div className="flex items-center gap-2 text-slate-500 text-xs mb-1">
@@ -38,7 +38,6 @@ export default function ParkingEditModal({ unit, buildingLabel, onClose, onSave 
                     </button>
                 </div>
 
-                {/* Body */}
                 <div className="p-8 space-y-6">
                     <div className="space-y-1.5">
                         <Label className="flex items-center gap-2">
@@ -71,7 +70,6 @@ export default function ParkingEditModal({ unit, buildingLabel, onClose, onSave 
                     </div>
                 </div>
 
-                {/* Footer */}
                 <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
                     <Button variant="ghost" onClick={onClose}>{isReadOnly ? 'Закрыть' : 'Отмена'}</Button>
                     {!isReadOnly && (

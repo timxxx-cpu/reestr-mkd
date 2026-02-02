@@ -7,9 +7,6 @@ import { getBlocksList } from '../../lib/utils';
 // ВАЛИДАЦИЯ
 import { ParkingLevelConfigSchema } from '../../lib/schemas';
 
-/**
- * @param {{ onSave?: () => void, buildingId: string }} props
- */
 export default function ParkingConfigurator({ onSave, buildingId }) {
     const { composition, buildingDetails, setBuildingDetails, parkingPlaces, setParkingPlaces, saveBuildingData, saveData } = useProject();
     const isReadOnly = useReadOnly();
@@ -18,7 +15,6 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
         buildingId ? composition.find(c => c.id === buildingId) : composition[0]
     , [composition, buildingId]);
 
-    // Используем общую функцию для сбора всех уровней
     const allRows = useMemo(() => {
         if (!building) return [];
         const rows = [];
@@ -31,12 +27,9 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
 
             blocks.forEach(block => {
                 const detailsKey = `${b.id}_${block.id}`;
-                // @ts-ignore
                 const blockDetails = buildingDetails[detailsKey] || {};
                 const featuresKey = `${b.id}_features`;
-                // @ts-ignore
                 const features = buildingDetails[featuresKey] || {};
-                // @ts-ignore
                 const basements = features.basements || [];
 
                 const isParkingBuilding = b.category === 'parking_separate';
@@ -49,7 +42,6 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                     fullId: block.fullId
                 };
 
-                // А. ЗДАНИЕ-ПАРКИНГ
                 if (isParkingBuilding) {
                     const isUnderground = b.parkingType === 'underground';
                     
@@ -80,9 +72,7 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                             });
                         }
                         
-                        // @ts-ignore
                         const parkingBasements = basements.filter(base => base.blocks?.includes(block.id));
-                        // @ts-ignore
                         parkingBasements.forEach((base) => {
                             const bDepth = parseInt(String(base.depth || 1), 10);
                             for (let d = 1; d <= bDepth; d++) {
@@ -99,11 +89,8 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                         });
                     }
                 }
-                // Б. ОБЫЧНОЕ ЗДАНИЕ
                 else {
-                    // @ts-ignore
                     const blockBasements = basements.filter(base => base.blocks?.includes(block.id));
-                    // @ts-ignore
                     blockBasements.forEach((base, bIdx) => {
                         const bDepth = parseInt(String(base.depth || 1), 10);
                         for (let d = 1; d <= bDepth; d++) {
@@ -131,11 +118,8 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
     const isParkingEnabled = (lvl) => {
         if (lvl.isMandatory) return true;
         if (lvl.basementId) {
-            // @ts-ignore
             const features = buildingDetails[`${lvl.buildingId}_features`] || {};
-            // @ts-ignore
             const basements = features.basements || [];
-            // @ts-ignore
             const base = basements.find(b => b.id === lvl.basementId);
             if (!base) return false;
             if (base.parkingLevels && base.parkingLevels[lvl.depthLevel] !== undefined) {
@@ -144,18 +128,16 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
             return base.hasParking || false; 
         }
         const key = `${lvl.fullId}_${lvl.id}_enabled`;
-        // @ts-ignore
         const val = parkingPlaces[key];
         return val !== undefined ? val : true;
     };
 
     const getPlacesCount = (lvl) => {
         const key = `${lvl.fullId}_${lvl.id}_meta`;
-        // @ts-ignore
         return parkingPlaces[key]?.count || '';
     };
 
-    // Хелпер для синхронизации (удаления/создания) мест в стейте
+    // Хелпер для синхронизации (удаления/создания) мест в стейте с UUID
     const syncPlacesInState = (nextState, lvl, count, isEnabled) => {
         const prefix = `${lvl.fullId}_${lvl.id}_place`;
         
@@ -165,8 +147,11 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                 const placeKey = `${prefix}${i}`;
                 if (!nextState[placeKey]) {
                     nextState[placeKey] = {
+                        id: crypto.randomUUID(), // UUID
                         number: `${i + 1}`, 
-                        area: '13.25'       
+                        area: '13.25',
+                        // FKs
+                        buildingId: building.id
                     };
                 }
             }
@@ -192,14 +177,10 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
         const currentlyEnabled = isParkingEnabled(lvl);
         const newValue = !currentlyEnabled;
 
-        // 1. Если это подвал - обновляем buildingDetails (мета-флаг)
         if (lvl.basementId) {
             const featuresKey = `${lvl.buildingId}_features`;
-            // @ts-ignore
             const features = buildingDetails[featuresKey] || {};
-            // @ts-ignore
             const basements = features.basements || [];
-            // @ts-ignore
             const updatedBasements = basements.map(b => {
                 if (b.id !== lvl.basementId) return b;
                 const currentLevels = b.parkingLevels || {};
@@ -215,13 +196,11 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
             setBuildingDetails(prev => ({ ...prev, [featuresKey]: { ...features, basements: updatedBasements } }));
         }
 
-        // 2. В ЛЮБОМ СЛУЧАЕ обновляем parkingPlaces (флаг enabled + сами места)
         const keyEnabled = `${lvl.fullId}_${lvl.id}_enabled`;
         const currentCount = parseInt(getPlacesCount(lvl) || '0');
 
         setParkingPlaces(prev => {
             const next = { ...prev, [keyEnabled]: newValue };
-            // Сразу генерируем/удаляем места
             return syncPlacesInState(next, lvl, currentCount, newValue);
         });
     };
@@ -233,7 +212,6 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
         const newCount = parseInt(value || '0');
         const isEnabled = isParkingEnabled(lvl);
 
-        // Обновляем состояние напрямую и СРАЗУ генерируем места
         setParkingPlaces(prev => {
             const next = { 
                 ...prev,
@@ -243,16 +221,15 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
         });
     };
 
-    // Эта функция теперь просто форсирует сохранение в БД, так как стейт уже актуален
     const handleSave = async () => {
         const specificData = {};
         if (buildingId) {
             Object.keys(parkingPlaces).forEach(k => {
                 if (k.startsWith(buildingId)) {
-                    // @ts-ignore
                     specificData[k] = parkingPlaces[k];
                 }
             });
+            // Используем сервис с трансформацией внутри
             await saveBuildingData(building.id, 'parkingData', specificData);
         }
         await saveData({}, true); 
@@ -322,7 +299,6 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                                             <div className={`flex items-center gap-3 transition-opacity duration-200 ${isEnabled ? 'opacity-100' : 'opacity-20 pointer-events-none'}`}>
                                                 <div className="relative max-w-xs w-32">
                                                     <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none"><Car size={14} className="text-slate-400" /></div>
-                                                    {/* ОБЫЧНЫЙ INPUT для мгновенной реакции */}
                                                     <Input 
                                                         type="number" 
                                                         min="0" 

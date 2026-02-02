@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
-  ArrowLeft, Save, Wand2, AlertCircle, DoorOpen, Ban,
-  Copy, ArrowDown, Trash2
+  ArrowLeft, Wand2, ArrowDown, Trash2, 
+  DoorOpen, Ban, Copy, X, AlertCircle 
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, DebouncedInput, TabButton, Button, useReadOnly } from '../ui/UIKit';
@@ -9,7 +9,6 @@ import SaveFloatingBar from '../ui/SaveFloatingBar';
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 import { MopItemSchema } from '../../lib/schemas';
-// [NEW] Импорт хука типов
 import { useBuildingType } from '../../hooks/useBuildingType';
 
 const MOP_TYPES = [
@@ -20,9 +19,6 @@ const MOP_TYPES = [
     'Паркинг (зона проезда)', 'Рампа', 'Кладовая', 'Техническое помещение', 'Другое'
 ];
 
-/**
- * @param {{ buildingId: string, onBack: () => void }} props
- */
 export default function MopEditor({ buildingId, onBack }) {
     const { composition, buildingDetails, entrancesData, mopData, setMopData, saveBuildingData, saveData } = useProject();
     const isReadOnly = useReadOnly();
@@ -32,19 +28,16 @@ export default function MopEditor({ buildingId, onBack }) {
     const inputsRef = useRef({});
 
     const building = composition.find(c => c.id === buildingId);
-    
-    // [NEW] Использование хука для определения типа здания
     const { isUnderground } = useBuildingType(building);
 
     const blocksList = useMemo(() => getBlocksList(building), [building]);
-    // В useBuildingFloors передаем buildingId и индекс
     const { floorList, currentBlock } = useBuildingFloors(buildingId, activeBlockIndex);
 
     useEffect(() => {
         inputsRef.current = {};
     }, [activeBlockIndex]);
 
-    // --- НОРМАЛИЗАЦИЯ ДАННЫХ ---
+    // --- НОРМАЛИЗАЦИЯ ДАННЫХ (Внедрение ID и FK в существующие данные) ---
     useEffect(() => {
         if (!currentBlock || dataNormalized) return;
 
@@ -53,14 +46,26 @@ export default function MopEditor({ buildingId, onBack }) {
 
         Object.keys(mopData).forEach(key => {
             if (key.startsWith(currentBlock.fullId)) {
-                // @ts-ignore
+                // Извлекаем метаданные из ключа для миграции старых данных
+                // Ключ вида: buildingId_res_0_ent1_floor_1_mops
+                const parts = key.match(/_ent(\d+)_(.*)_mops$/);
+                const entIdx = parts ? parseInt(parts[1]) : 1;
+                const floorId = parts ? parts[2] : 'unknown';
+
                 const mops = mopData[key];
                 if (Array.isArray(mops)) {
                     const fixedMops = mops.map(m => {
                         const fixed = { ...m };
                         let changed = false;
                         
+                        // 1. UUID
                         if (!fixed.id) { fixed.id = crypto.randomUUID(); changed = true; }
+                        // 2. Внешние ключи (FK)
+                        if (!fixed.buildingId) { fixed.buildingId = building.id; changed = true; }
+                        if (!fixed.blockId) { fixed.blockId = currentBlock.id; changed = true; }
+                        if (!fixed.floorId) { fixed.floorId = floorId; changed = true; }
+                        if (!fixed.entranceIndex) { fixed.entranceIndex = entIdx; changed = true; }
+
                         if (fixed.area === null || fixed.area === undefined) { fixed.area = ''; changed = true; }
                         if (!fixed.type) { fixed.type = ''; changed = true; }
 
@@ -76,57 +81,53 @@ export default function MopEditor({ buildingId, onBack }) {
         });
 
         if (Object.keys(updates).length > 0) {
-            // @ts-ignore
             setMopData(prev => ({ ...prev, ...updates }));
         }
         setDataNormalized(true);
-    }, [currentBlock, mopData, setMopData, dataNormalized]);
+    }, [currentBlock, mopData, setMopData, dataNormalized, building.id]);
 
 
     if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Данные не найдены</div>;
 
-    // [CHANGED] Используем флаг isUnderground из хука
     const showEditor = (currentBlock.type === 'Ж') || isUnderground;
 
-    // @ts-ignore
     const blockDetails = buildingDetails[`${building.id}_${currentBlock.id}`] || {};
     const entrancesCount = isUnderground ? (blockDetails.inputs || 1) : (blockDetails.entrances || 1);
     const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
 
-    // Helpers
-    // @ts-ignore
     const getTargetMopCount = (ent, floorId) => {
         const entKey = `${currentBlock.fullId}_ent${ent}_${floorId}`;
-        // @ts-ignore
         const qty = parseInt(entrancesData[entKey]?.mopQty || 0);
         return isNaN(qty) ? 0 : qty;
     };
 
-    /** @type {(ent: number, floorId: string) => any[]} */
     const getMops = (ent, floorId) => {
         const key = `${currentBlock.fullId}_e${ent}_f${floorId}_mops`;
-        // @ts-ignore
         return mopData[key] || [];
     };
 
-    /** @type {(ent: number, floorId: string, index: number, field: string, val: any) => void} */
     const updateMop = (ent, floorId, index, field, val) => {
         if (isReadOnly) return;
         if (field === 'area' && val !== '' && (parseFloat(val) < 0 || String(val).includes('-'))) return;
 
         const key = `${currentBlock.fullId}_e${ent}_f${floorId}_mops`;
-        // @ts-ignore
         const currentMops = [...(mopData[key] || [])];
+        
         if (!currentMops[index]) {
-            currentMops[index] = { id: crypto.randomUUID(), type: '', area: '' };
+            currentMops[index] = { 
+                id: crypto.randomUUID(), 
+                type: '', 
+                area: '',
+                // FKs для новой записи
+                buildingId: building.id,
+                blockId: currentBlock.id,
+                floorId: floorId,
+                entranceIndex: ent
+            };
         }
         currentMops[index] = { ...currentMops[index], [field]: val };
-        // @ts-ignore
+        
         setMopData(prev => ({ ...prev, [key]: currentMops }));
-    };
-
-    const handleKeyDown = (e, fIdx, eIdx, mIdx, field) => {
-        if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
     };
 
     // --- ВАЛИДАЦИЯ ---
@@ -165,14 +166,12 @@ export default function MopEditor({ buildingId, onBack }) {
                 const targetQty = getTargetMopCount(e, f.id);
                 if (targetQty > 0) {
                     const key = `${currentBlock.fullId}_e${e}_f${f.id}_mops`;
-                    // @ts-ignore
                     const existing = mopData[key] || [];
                     const newMops = [...existing];
                     
                     let defaultType = 'Лестничная клетка';
                     if (isUnderground) defaultType = 'Паркинг (зона проезда)';
                     else if (f.type === 'basement') defaultType = 'Техническое подполье';
-                    // @ts-ignore
                     else if (f.type === 'roof') defaultType = 'Кровля';
 
                     for (let i = 0; i < targetQty; i++) {
@@ -184,7 +183,12 @@ export default function MopEditor({ buildingId, onBack }) {
                             newMops[i] = { 
                                 id: newMops[i]?.id || crypto.randomUUID(), 
                                 type: type, 
-                                area: newMops[i]?.area || '15' 
+                                area: newMops[i]?.area || '15',
+                                // FKs
+                                buildingId: building.id,
+                                blockId: currentBlock.id,
+                                floorId: f.id,
+                                entranceIndex: e
                             };
                         }
                     }
@@ -192,7 +196,6 @@ export default function MopEditor({ buildingId, onBack }) {
                 }
             }); 
         }); 
-        // @ts-ignore
         setMopData(p => ({...p, ...updates})); 
     };
 
@@ -203,22 +206,23 @@ export default function MopEditor({ buildingId, onBack }) {
         const templateData = {};
         entrancesList.forEach(e => {
              const key = `${currentBlock.fullId}_e${e}_f${firstFloor.id}_mops`;
-             // @ts-ignore
              templateData[e] = mopData[key];
         });
 
         for (let i = 1; i < floorList.length; i++) {
             const f = floorList[i];
             entrancesList.forEach(e => {
-                // @ts-ignore
                 if (templateData[e]) {
                     const key = `${currentBlock.fullId}_e${e}_f${f.id}_mops`;
-                    // @ts-ignore
-                    updates[key] = templateData[e].map(m => ({ ...m, id: crypto.randomUUID() }));
+                    // Копируем, но генерируем новые ID и обновляем floorId
+                    updates[key] = templateData[e].map(m => ({ 
+                        ...m, 
+                        id: crypto.randomUUID(),
+                        floorId: f.id
+                    }));
                 }
             });
         }
-        // @ts-ignore
         setMopData(p => ({...p, ...updates}));
     };
 
@@ -234,11 +238,9 @@ export default function MopEditor({ buildingId, onBack }) {
             });
         });
         
-        // @ts-ignore
         setMopData(prev => ({ ...prev, ...updates }));
     };
 
-    // @ts-ignore
     const renderBadge = (type) => {
         const map = {
             residential: { color: 'bg-blue-100 text-blue-700', label: 'Жилой' },
@@ -248,7 +250,6 @@ export default function MopEditor({ buildingId, onBack }) {
             tsokol: { color: 'bg-purple-100 text-purple-700', label: 'Цоколь' },
             parking_floor: { color: 'bg-indigo-100 text-indigo-700', label: 'Паркинг' }
         };
-        // @ts-ignore
         const style = map[type] || map.residential;
         return <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${style.color}`}>{style.label}</span>
     }
@@ -256,6 +257,9 @@ export default function MopEditor({ buildingId, onBack }) {
     const handleSave = async () => { 
         const specificData = {};
         Object.keys(mopData).forEach(k => { if (k.startsWith(building.id)) specificData[k] = mopData[k]; });
+        // ProjectContext (обновленный) теперь может сам разрулить это, но мы используем явный метод
+        // В данном случае, так как mopData - это массивы, мы просто сохраняем как есть через универсальный метод
+        // В будущем можно будет добавить saveCommonAreas в контекст, если понадобится трансформация
         await saveBuildingData(building.id, 'commonAreasData', specificData);
         await saveData({}, true); 
     };
@@ -274,7 +278,6 @@ export default function MopEditor({ buildingId, onBack }) {
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    {/* КНОПКА ОЧИСТКИ */}
                     <button onClick={clearAllMops} disabled={!showEditor || isReadOnly} className={`px-4 py-2 bg-red-50 text-red-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-100'}`} title="Очистить все данные МОП">
                         <Trash2 size={14}/> Очистить
                     </button>

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
-  Globe, Send, Loader2, CheckCircle2, AlertTriangle, 
+  Globe, Send, Loader2, CheckCircle2, 
   Building2, Server, RefreshCw, Hash, MapPin, Layers, Box
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
@@ -51,12 +51,15 @@ export default function IntegrationBuildings() {
 
     const handleSimulateResponse = () => {
         if (isReadOnly) return;
+        
+        // Обновляем composition, сохраняя целостность объектов
         const updatedComposition = composition.map((building) => {
             if (building.cadastreNumber) return building;
             const regionCode = "11:05:04:02"; 
             const uniquePart = Math.floor(1000 + Math.random() * 9000);
             return {
                 ...building,
+                // ID уже есть (UUID), добавляем внешние идентификаторы
                 cadastreNumber: `${regionCode}:${uniquePart}`,
                 uzkadId: `UZ-${crypto.randomUUID().slice(0,8).toUpperCase()}`
             };
@@ -64,7 +67,10 @@ export default function IntegrationBuildings() {
 
         setComposition(updatedComposition);
         updateStatus(SYNC_STATUS.COMPLETED);
-        saveData({ composition: updatedComposition });
+        
+        // Сохраняем обновленный список зданий
+        saveData({ composition: updatedComposition }, true);
+        
         toast.success("Кадастровые номера получены!");
     };
 
@@ -144,7 +150,7 @@ export default function IntegrationBuildings() {
                         {status === SYNC_STATUS.WAITING && (
                             <Button 
                                 onClick={handleSimulateResponse} 
-                                disabled={isReadOnly} // [FIXED] Блокировка в режиме просмотра
+                                disabled={isReadOnly}
                                 variant="secondary"
                                 className="border-dashed border-slate-300 text-slate-500 hover:text-slate-700 h-12"
                             >

@@ -1,20 +1,19 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  ArrowLeft, Wand2, Save, ImageIcon, Hammer, Maximize, 
+  ArrowLeft, Wand2, ImageIcon, Hammer, Maximize, 
   ArrowDownToLine, X, Zap, Settings2, Trash2, Droplets, 
-  Thermometer, Flame, Wind, ShieldCheck, Wifi, Store, Layers,
-  Fan, Plug, ArrowUpFromLine, Plus, AlertCircle, Car, Footprints,
+  Thermometer, Flame, Wifi, Store, Layers,
+  Fan, ArrowUpFromLine, Plus, AlertCircle, Car, Footprints,
   ArrowDown, ArrowUp, Building2, Warehouse, Tent, Box, MapPin, Lock,
-  AlertTriangle
+  AlertTriangle, ShieldCheck
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Select, Button, TabButton, useReadOnly } from '../ui/UIKit';
 import SaveFloatingBar from '../ui/SaveFloatingBar'; 
-import { getBlocksList, calculateProgress, getStageColor } from '../../lib/utils';
+import { getBlocksList, getStageColor } from '../../lib/utils';
 import { Validators } from '../../lib/validators'; 
 import { BuildingConfigSchema } from '../../lib/schemas';
 import { useValidation } from '../../hooks/useValidation';
-// [NEW] Импорт нового хука
 import { useBuildingType } from '../../hooks/useBuildingType';
 
 const PARKING_TYPE_LABELS = {
@@ -23,11 +22,7 @@ const PARKING_TYPE_LABELS = {
     open: "Открытый"
 };
 
-/**
- * @param {{ buildingId: string, mode?: 'all'|'res'|'nonres', onBack: () => void }} props
- */
 export default function BuildingConfigurator({ buildingId, mode = 'all', onBack }) {
-    // [UPDATED] Добавлен complexInfo в деструктуризацию
     const { composition, buildingDetails, setBuildingDetails, saveData, complexInfo } = useProject();
     const isReadOnly = useReadOnly();
     
@@ -43,7 +38,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
 
     const blocksList = useMemo(() => getBlocksList(building), [building]);
   
-    // Доступные блоки (пятно застройки) для подземного паркинга
     const availableParents = useMemo(() => {
         if (!isUnderground) return [];
         return composition.filter(c => c.id !== building.id && c.category.includes('residential'));
@@ -68,7 +62,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
 
     if (!building) return <div className="p-8 text-center">Объект не найден</div>;
 
-    // --- ЛОГИКА ДАННЫХ ---
     let currentBlock = blocksList.find(b => b.id === activeTabId);
     if (isParking) currentBlock = { id: 'main', type: 'Паркинг', index: 0, fullId: 'main', tabLabel: 'Паркинг', icon: Car };
     if (isInfrastructure) currentBlock = { id: 'main', type: 'Инфра', index: 0, fullId: 'main', tabLabel: 'Инфра', icon: Box };
@@ -77,17 +70,13 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     const detailsKey = currentBlockId ? `${building.id}_${currentBlockId}` : null;
     const featuresKey = `${building.id}_features`;
 
-    /** @type {any} */
     const features = buildingDetails[featuresKey] || { basements: [], exploitableRoofs: [] };
     
-    // Дефолтные значения
     const defaultDetails = { 
         foundation: 'Монолитная плита', walls: 'Кирпич', slabs: 'Монолитные ж/б', roof: 'Плоская рулонная', 
-        seismicity: '', // [NEW]
-        // [NEW] Поля для адреса
+        seismicity: '', 
         hasCustomAddress: false,
         customHouseNumber: '',
-        
         floorsFrom: 1, floorsTo: 1, entrances: 1, inputs: 1, vehicleEntries: 1, elevators: 0, 
         commercialFloors: [], hasBasementFloor: false, hasAttic: false, hasLoft: false, 
         hasTechnicalFloor: false, technicalFloors: [], hasExploitableRoof: false, 
@@ -99,25 +88,20 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         engineering: { hvs: true, gvs: true, heating: true, electricity: true, gas: false, sewerage: true, ventilation: true, firefighting: true, lowcurrent: true } 
     };
 
-    /** @type {import('../../lib/types').BuildingConfig} */
     const details = { ...defaultDetails, ...(buildingDetails[detailsKey] || {}) };
 
-    // ПОДКЛЮЧЕНИЕ ВАЛИДАЦИИ
     const { errors, isValid } = useValidation(BuildingConfigSchema, details);
 
-    /** @type {(key: string, val: any) => void} */
     const updateDetail = (key, val) => {
         if (isReadOnly) return;
         setBuildingDetails(prev => ({ ...prev, [detailsKey]: { ...details, [key]: val } }));
     };
     
-    /** @type {(updates: any) => void} */
     const updateFeatures = (updates) => {
         if (isReadOnly) return;
         setBuildingDetails(prev => ({ ...prev, [featuresKey]: { ...features, ...updates } }));
     };
     
-    // --- РАСЧЕТЫ ДЛЯ СТИЛОБАТА ---
     const stylobateHeightUnderCurrentBlock = useMemo(() => {
         if (currentBlock?.type !== 'Ж') return 0;
         let maxH = 0;
@@ -171,31 +155,32 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
 
     const localResBlocks = useMemo(() => blocksList.filter(b => b.type === 'Ж'), [blocksList]);
 
-    /** @type {(id: number, field: string, val: any) => void} */
     const updateBasement = (id, field, val) => {
         if (isReadOnly) return;
-        // @ts-ignore
         const updatedBasements = (features.basements || []).map(b => b.id === id ? { ...b, [field]: val } : b);
         updateFeatures({ basements: updatedBasements });
     };
     
-    // @ts-ignore
     const blockBasements = (features.basements || []).filter(b => b.blocks?.includes(currentBlock?.id));
     const canAddBasement = blockBasements.length < 3;
     
-    /** @type {() => void} */
     const createBlockBasement = () => {
         if (isReadOnly || !canAddBasement) return; 
-        const newB = { id: crypto.randomUUID(), depth: 1, hasParking: false, parkingLevels: {}, blocks: [currentBlock.id] }; 
-        // @ts-ignore
+        const newB = { 
+            id: crypto.randomUUID(), 
+            depth: 1, 
+            hasParking: false, 
+            parkingLevels: {}, 
+            blocks: [currentBlock.id],
+            // Явные FK
+            buildingId: building.id,
+            blockId: currentBlock.id
+        }; 
         updateFeatures({ basements: [...(features.basements || []), newB] }); 
     };
     
-    /** @type {(id: number) => void} */
-    // @ts-ignore
     const removeBasement = (id) => {
         if (isReadOnly) return;
-        // @ts-ignore
         updateFeatures({ basements: (features.basements || []).filter(b => b.id !== id) });
     };
     
@@ -206,16 +191,13 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         return Array.from({length: safeTo - from + 1}, (_, i) => from + i);
     }, [details.floorsFrom, details.floorsTo]);
 
-    /** @type {(targetList: string, value: any) => void} */
     const toggleFloorAttribute = (targetList, value) => {
         if (isReadOnly) return;
-        // @ts-ignore
         const currentTarget = details[targetList] || [];
         const newTarget = currentTarget.includes(value) ? currentTarget.filter(f => f !== value) : [...currentTarget, value];
         updateDetail(targetList, newTarget);
     };
 
-    /** @type {(blockId: string) => void} */
     const toggleParentBlock = (blockId) => {
         if (isReadOnly) return;
         const currentParents = details.parentBlocks || [];
@@ -225,11 +207,8 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
         
         const updates = { parentBlocks: newParents };
         if (newParents.length > 0 && currentBlock.type === 'Н') {
-            // @ts-ignore
             updates.hasAttic = false;
-            // @ts-ignore
             updates.hasLoft = false;
-            // @ts-ignore
             updates.hasExploitableRoof = false;
         }
         setBuildingDetails(prev => ({
@@ -255,19 +234,15 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
     ];
     if (!isParking) engineeringSystems.splice(4, 0, { id: 'gas', label: 'Газ', icon: Flame, color: 'text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-100' });
 
-    // --- ВАЛИДАЦИЯ И ОШИБКИ ---
     const isCommercialValid = Validators.commercialPresence(building, buildingDetails, blocksList, mode);
     const hasElevatorIssue = Validators.elevatorRequirement(isParking, isInfrastructure, details.floorsTo, details.elevators || 0);
-    
     const isResidentialBlock = currentBlock?.type === 'Ж';
-
     const hasCriticalErrors = isResidentialBlock 
         ? (!isValid || hasElevatorIssue || !isCommercialValid)
         : !isValid;
 
     const isFloorFromDisabled = currentBlock?.type === 'Ж' || currentBlock?.type === 'Н';
     const isStylobate = currentBlock?.type === 'Н' && (details.parentBlocks || []).length > 0;
-
     const ErrorBorder = (field) => errors[field] ? 'border-red-500 focus:border-red-500 bg-red-50' : '';
 
     const handleSave = async () => {
@@ -394,7 +369,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                     </div>
                 </div>
             ) : isInfrastructure ? (
-                // --- ВЕТВЛЕНИЕ: ИНФРАСТРУКТУРА ---
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2 space-y-6">
                         <Card className="p-6 shadow-sm border-t-4 border-t-amber-500">
@@ -427,7 +401,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                     </div>
                 </div>
             ) : (
-                // --- СТАНДАРТНЫЙ ИНТЕРФЕЙС (ЖИЛЬЕ / НЕЖИЛЫЕ БЛОКИ) ---
                 <>
                     <div className="flex gap-2 p-1 bg-slate-200/50 rounded-xl w-max overflow-x-auto max-w-full mb-6 scrollbar-none">
                         {visibleBlocks.map((block) => (
@@ -466,8 +439,7 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                     <div className="grid grid-cols-2 gap-8 mb-6">
                                         <div className="space-y-1">
                                             <Label>С этажа {errors.floorsFrom && <span className="text-red-500 text-[9px] ml-1">{errors.floorsFrom}</span>}</Label>
-                                            <Input type="number" min="1" value={isFloorFromDisabled ? 1 : details.floorsFrom} onChange={(e) => { const val = e.target.value; if (val === '') { updateDetail('floorsFrom', ''); return; } let num = parseInt(val); if (num < 1) num = 1; updateDetail('floorsFrom', num); }} disabled={isFloorFromDisabled} className={`${isFloorFromDisabled ? "bg-slate-100 text-slate-500 cursor-not-allowed font-bold" : ""} ${ErrorBorder('floorsFrom')}`}/>
-                                            {isFloorFromDisabled && <span className="text-[10px] text-slate-400">Начинается всегда с 1-го этажа</span>}
+                                            <Input type="number" min="1" value={details.floorsFrom} onChange={(e) => { const val = e.target.value; if (val === '') { updateDetail('floorsFrom', ''); return; } let num = parseInt(val); if (num < 1) num = 1; updateDetail('floorsFrom', num); }} disabled={isReadOnly} className={ErrorBorder('floorsFrom')}/>
                                         </div>
                                         <div className="space-y-1">
                                             <Label>По этаж (макс. 50)</Label>
@@ -482,12 +454,11 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                         <div className="flex flex-wrap gap-1.5">
                                             {
                                             floorRange.map((f, idx) => { 
-                                                // @ts-ignore
                                                 const isTech = details.technicalFloors?.includes(f); 
                                                 const isGap = (idx > 0) && (idx % 10 === 0); 
                                                 const isLockedByStylobate = currentBlock.type === 'Ж' && f <= stylobateHeightUnderCurrentBlock; 
                                                 const isDisabled = isLockedByStylobate || isReadOnly;
-                                                return (<React.Fragment key={f}>{isGap && <div className="w-3"></div>}<button disabled={isDisabled} onClick={() => toggleFloorAttribute('technicalFloors', f)} className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border flex items-center justify-center gap-1 relative ${isLockedByStylobate ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed' : isTech ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-amber-200 text-amber-600 hover:bg-amber-50'} ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}`} title={isLockedByStylobate ? 'Этаж занят стилобатом' : ''}>{f}{isLockedByStylobate ? <Lock size={8} className="absolute top-0.5 right-0.5 opacity-50"/> : (isTech ? <ArrowUpFromLine size={10}/> : <Plus size={10} className="opacity-50"/>)}</button></React.Fragment>) 
+                                                return (<React.Fragment key={f}>{isGap && <div className="w-3"></div>}<button disabled={isDisabled} onClick={() => toggleFloorAttribute('technicalFloors', f)} className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border flex items-center justify-center gap-1 relative ${isLockedByStylobate ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed' : isTech ? 'bg-amber-50 border-amber-500 text-white' : 'bg-white border-amber-200 text-amber-600 hover:bg-amber-50'} ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}`} title={isLockedByStylobate ? 'Этаж занят стилобатом' : ''}>{f}{isLockedByStylobate ? <Lock size={8} className="absolute top-0.5 right-0.5 opacity-50"/> : (isTech ? <ArrowUpFromLine size={10}/> : <Plus size={10} className="opacity-50"/>)}</button></React.Fragment>) 
                                             })
                                             }
                                         </div>
@@ -496,10 +467,8 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                         <div className="mt-6 p-4 bg-blue-50/50 border border-blue-100 rounded-xl animate-in fade-in slide-in-from-top-2">
                                             <div className="flex items-center gap-2 mb-4"><div className="p-1.5 bg-blue-100 text-blue-600 rounded-lg"><Store size={16}/></div><div><Label className="text-blue-900">Нежилые объекты (Коммерция)</Label><p className="text-[10px] text-blue-500/80 leading-tight">Отметьте этажи с нежилыми помещениями.</p></div></div>
                                             <div className="flex flex-wrap gap-1.5 mb-4">
-                                                {/* Кнопки Подвалов */}
                                                 {blockBasements.map((b, idx) => {
                                                     const val = `basement_${b.id}`; 
-                                                    // @ts-ignore
                                                     const isActive = details.commercialFloors?.includes(val);
                                                     return (
                                                          <button 
@@ -513,36 +482,27 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                                     )
                                                 })}
 
-                                                {/* Кнопка Цоколь */}
                                                 {details.hasBasementFloor && (
-                                                    // @ts-ignore
                                                     <button disabled={isReadOnly} onClick={() => toggleFloorAttribute('commercialFloors', 'tsokol')} className={`px-2 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${details.commercialFloors?.includes('tsokol') ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'} ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}`}>Цоколь</button>
                                                 )}
 
                                                 {floorRange.map((f, idx) => { 
-                                                    // @ts-ignore
                                                     const isComm = details.commercialFloors?.includes(f); 
-                                                    // @ts-ignore
                                                     const isCommTech = details.commercialFloors?.includes(`${f}-Т`); 
                                                     const isLockedByStylobate = f <= stylobateHeightUnderCurrentBlock; 
                                                     const isDisabled = isLockedByStylobate || isReadOnly;
                                                     return (<React.Fragment key={f}>{idx > 0 && idx % 10 === 0 && <div className="w-3"></div>}<button disabled={isDisabled} onClick={() => toggleFloorAttribute('commercialFloors', f)} className={`w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${isLockedByStylobate ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed' : isComm ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'} ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}`} title={isLockedByStylobate ? 'Этаж занят стилобатом (нежилым блоком)' : ''}>{f}{isLockedByStylobate && <Lock size={8} className="absolute top-0.5 right-0.5 opacity-50"/>}</button>{
-                                                        // @ts-ignore
                                                         details.technicalFloors?.includes(f) && (<button disabled={isReadOnly} onClick={() => toggleFloorAttribute('commercialFloors', `${f}-Т`)} className={`px-1.5 h-8 rounded-md text-[10px] font-bold shadow-sm transition-all border flex items-center justify-center relative ${isCommTech ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-indigo-50 border-indigo-200 text-indigo-500 hover:bg-indigo-100'} ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}`} title={`Отметить тех.этаж ${f}-Т как нежилой`}>{f}-Т</button>)}</React.Fragment>) 
                                                     })
                                                 }
 
-                                                {/* Кнопки спецэтажей */}
                                                 {details.hasAttic && (
-                                                    // @ts-ignore
                                                     <button disabled={isReadOnly} onClick={() => toggleFloorAttribute('commercialFloors', 'attic')} className={`px-2 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${details.commercialFloors?.includes('attic') ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'} ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}`}>Мансарда</button>
                                                 )}
                                                 {details.hasLoft && (
-                                                    // @ts-ignore
                                                     <button disabled={isReadOnly} onClick={() => toggleFloorAttribute('commercialFloors', 'loft')} className={`px-2 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${details.commercialFloors?.includes('loft') ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'} ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}`}>Чердак</button>
                                                 )}
                                                 {details.hasExploitableRoof && (
-                                                    // @ts-ignore
                                                     <button disabled={isReadOnly} onClick={() => toggleFloorAttribute('commercialFloors', 'roof')} className={`px-2 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative ${details.commercialFloors?.includes('roof') ? 'bg-blue-600 border-blue-600 text-white transform scale-105' : 'bg-white border-blue-200 text-blue-400 hover:bg-blue-100'} ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}`}>Кровля</button>
                                                 )}
                                             </div>
@@ -555,8 +515,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                                 </Card>
                             </div>
                             <div className="space-y-6">
-                                
-                                {/* [NEW] КАРТОЧКА АДРЕСА (Только для многоблочных домов) */}
                                 {building.category === 'residential_multiblock' && (
                                     <Card className="p-6 shadow-sm">
                                         <SectionTitle icon={MapPin}>Адрес блока</SectionTitle>
@@ -632,7 +590,6 @@ export default function BuildingConfigurator({ buildingId, mode = 'all', onBack 
                 </>
             )}
 
-            {/* [NEW] НОВАЯ ПАНЕЛЬ СОХРАНЕНИЯ ВНИЗУ */}
             <SaveFloatingBar onSave={handleSave} disabled={hasCriticalErrors} />
         </div>
     );

@@ -16,7 +16,6 @@ export const RegistryService = {
   getProjectsList: async (scope) => {
     try {
         const snap = await getDoc(getMetaListRef(scope));
-        // @ts-ignore
         return snap.exists() ? snap.data().list || [] : [];
     } catch (error) {
         console.error("[RegistryService] Error fetching projects:", error);
@@ -27,7 +26,6 @@ export const RegistryService = {
   getProjectMeta: async (scope, projectId) => {
     try {
         const snap = await getDoc(getProjectRef(scope, projectId));
-        // @ts-ignore
         return snap.exists() ? snap.data() : null;
     } catch (error) {
         console.error("[RegistryService] Error fetching project meta:", error);
@@ -40,7 +38,6 @@ export const RegistryService = {
         const snapshot = await getDocs(getBuildingsRef(scope, projectId));
         const buildings = {};
         snapshot.forEach(doc => {
-            // @ts-ignore
             buildings[doc.id] = doc.data();
         });
         return buildings;
@@ -77,8 +74,8 @@ export const RegistryService = {
               assignee: user.id,
               assigneeName: user.name,
               currentStage: 1, 
-              completedSteps: [], // Массив выполненных шагов (Техник)
-              verifiedSteps: [],  // Массив проверенных шагов (Бригадир)
+              completedSteps: [],
+              verifiedSteps: [],
               history: [
                   { 
                       date: now, 
@@ -112,7 +109,6 @@ export const RegistryService = {
 
   subscribeProjectMeta: (scope, projectId, callback) => {
     return onSnapshot(getProjectRef(scope, projectId), (snap) => {
-      // @ts-ignore
       callback(snap.exists() ? snap.data() : null);
     });
   },
@@ -121,7 +117,6 @@ export const RegistryService = {
     return onSnapshot(getBuildingsRef(scope, projectId), (snapshot) => {
       const buildings = {};
       snapshot.forEach(doc => {
-          // @ts-ignore
           buildings[doc.id] = doc.data();
       });
       callback(buildings);
@@ -130,11 +125,13 @@ export const RegistryService = {
 
   subscribeProjectsList: (scope, callback) => {
       return onSnapshot(getMetaListRef(scope), (snap) => {
-          // @ts-ignore
           callback(snap.exists() ? snap.data().list || [] : []);
       });
   },
 
+  /**
+   * Универсальный метод сохранения (Legacy support + Internal usage)
+   */
   saveData: async (scope, projectId, payload) => {
     try {
       const batch = writeBatch(db);
@@ -161,7 +158,71 @@ export const RegistryService = {
     }
   },
 
-  // Алиас для удобства вызова из UI
+  // --- НОВЫЕ МЕТОДЫ (SQL-READY) ---
+  
+  /**
+   * Сохранение списка помещений (FlatMatrix) для конкретного здания.
+   * Принимает массив объектов, преобразует в Map для Firestore.
+   */
+  saveUnits: async (scope, projectId, buildingId, unitsArray) => {
+      const unitsMap = {};
+      unitsArray.forEach(u => {
+          // Генерируем составной ключ для обратной совместимости, если его нет
+          // Но лучше использовать u.id, если он совпадает с ключом
+          const key = u.id || `unknown_${crypto.randomUUID()}`; 
+          unitsMap[key] = u;
+      });
+      
+      const payload = {
+          buildingSpecificData: {
+              [buildingId]: { apartmentsData: unitsMap }
+          }
+      };
+      return RegistryService.saveData(scope, projectId, payload);
+  },
+
+  saveFloors: async (scope, projectId, buildingId, floorsArray) => {
+      const floorsMap = {};
+      floorsArray.forEach(f => {
+          const key = f.legacyKey || f.id; // Используем legacyKey для совместимости ключей
+          floorsMap[key] = f;
+      });
+
+      const payload = {
+          buildingSpecificData: {
+              [buildingId]: { floorData: floorsMap }
+          }
+      };
+      return RegistryService.saveData(scope, projectId, payload);
+  },
+
+  saveParkingPlaces: async (scope, projectId, buildingId, placesArray) => {
+      const placesMap = {};
+      placesArray.forEach(p => {
+          const key = p.legacyKey || p.id;
+          placesMap[key] = p;
+      });
+
+      const payload = {
+          buildingSpecificData: {
+              [buildingId]: { parkingData: placesMap }
+          }
+      };
+      return RegistryService.saveData(scope, projectId, payload);
+  },
+
+  saveCommonAreas: async (scope, projectId, buildingId, mopMap) => {
+      // МОПы пока оставим как Map, так как они хранятся массивами внутри ключей этажей
+      const payload = {
+          buildingSpecificData: {
+              [buildingId]: { commonAreasData: mopMap }
+          }
+      };
+      return RegistryService.saveData(scope, projectId, payload);
+  },
+
+  // --------------------------------
+
   updateProject: async (scope, projectId, data) => {
       return RegistryService.saveData(scope, projectId, data);
   },

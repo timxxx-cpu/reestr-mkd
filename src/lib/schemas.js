@@ -2,25 +2,36 @@ import { z } from 'zod';
 
 // --- Базовые типы ---
 
-// ИСПРАВЛЕНО: MopItemSchema
 export const MopItemSchema = z.object({
-  id: z.string().optional(),
+  id: z.string().uuid().optional(), // Делаем optional для валидации при вводе, но в коде будем генерировать
   type: z.string().min(1, "Тип обязателен"),
   area: z.coerce.number().nonnegative("Площадь должна быть >= 0"),
+  buildingId: z.string().uuid().optional(), // Связь с зданием
 });
 
 export const UnitSchema = z.object({
+  id: z.string().uuid().optional(),
   num: z.string(),
   area: z.coerce.number().optional(),
   type: z.enum(['flat', 'office', 'pantry', 'duplex_up', 'duplex_down']).default('flat'),
   rooms: z.number().int().optional(),
+  // Внешние ключи для будущего SQL
+  buildingId: z.string().uuid().optional(),
+  blockId: z.string().optional(),
+  floorId: z.string().optional(),
+  entranceId: z.number().int().optional(),
 });
 
 export const FloorDataSchema = z.object({
+  id: z.string().uuid().optional(),
   height: z.coerce.number().min(0, "Высота не может быть отрицательной"),
   areaProj: z.coerce.number().nonnegative("Площадь не может быть отрицательной"),
   areaFact: z.coerce.number().nonnegative().optional(),
   isDuplex: z.boolean().optional(),
+  // Связи
+  buildingId: z.string().uuid().optional(),
+  blockId: z.string().optional(),
+  levelIndex: z.number().int().optional(),
 });
 
 export const EntranceDataSchema = z.object({
@@ -30,9 +41,12 @@ export const EntranceDataSchema = z.object({
 });
 
 export const ParkingPlaceSchema = z.object({
+  id: z.string().uuid().optional(),
   number: z.string().min(1, "Номер обязателен"),
   area: z.coerce.number().positive("Площадь > 0"),
   isSold: z.boolean().optional(),
+  // Связи
+  buildingId: z.string().uuid().optional(),
 });
 
 export const ParkingLevelConfigSchema = z.object({
@@ -97,7 +111,6 @@ export const BuildingConfigSchema = z.object({
   roof: z.string().optional(),
   seismicity: z.coerce.number().int().min(1, "Мин. 1 балл").max(9, "Макс. 9 баллов").optional(),
   
-  // [NEW] Новые поля для адреса
   hasCustomAddress: z.boolean().optional(),
   customHouseNumber: z.string().optional(),
 

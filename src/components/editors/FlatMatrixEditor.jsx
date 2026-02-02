@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
-  ArrowLeft, Save, Wand2, AlertTriangle, CheckCircle2, 
+  ArrowLeft, Wand2, AlertTriangle, CheckCircle2, 
   MousePointer2, CheckSquare, Square, X, Layers, AlertCircle
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
@@ -18,9 +18,6 @@ const TYPE_COLORS = {
     duplex_down: 'bg-orange-50 border-orange-200 text-orange-700'
 };
 
-/**
- * @param {{ buildingId: string, onBack: () => void }} props
- */
 export default function FlatMatrixEditor({ buildingId, onBack }) {
     const { 
         composition = [], 
@@ -37,7 +34,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
     const [startNum, setStartNum] = useState(1);
     
-    // --- НОВОЕ: Режим выделения и навигация ---
     const [isSelectionMode, setIsSelectionMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState(new Set());
     const inputsRef = useRef({});
@@ -47,26 +43,22 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     
     const { floorList: rawFloorList, currentBlock } = useBuildingFloors(buildingId, activeBlockIndex);
 
-    // Сброс при смене блока
     useEffect(() => {
         setSelectedIds(new Set());
         inputsRef.current = {};
     }, [activeBlockIndex]);
 
     const blockKey = (building && currentBlock) ? `${building.id}_${currentBlock.id}` : null;
-    // @ts-ignore
     const blockDetails = blockKey ? (buildingDetails[blockKey] || {}) : {};
     
     const entrances = useMemo(() => 
         Array.from({ length: blockDetails.entrances || 1 }, (_, i) => i + 1),
     [blockDetails.entrances]);
 
-    // Фильтруем этажи, где есть квартиры
     const floorList = useMemo(() => {
         if (!rawFloorList) return [];
         return rawFloorList.filter(f => {
             return entrances.some(e => {
-                // @ts-ignore
                 const key = `${currentBlock.fullId}_ent${e}_${f.id}`;
                 const aptsCount = Number(entrancesData[key]?.apts || 0);
                 return aptsCount > 0;
@@ -74,14 +66,12 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         });
     }, [rawFloorList, entrances, entrancesData, currentBlock]);
 
-    // --- ЛОГИКА ДУБЛИКАТОВ ---
     const duplicateSet = useMemo(() => {
         const counts = {};
         const dups = new Set();
         if (currentBlock) {
             Object.keys(flatMatrix).forEach(k => {
                 if (k.startsWith(currentBlock.fullId)) {
-                    // @ts-ignore
                     const num = flatMatrix[k]?.num;
                     if (num && String(num).trim() !== '') {
                         counts[num] = (counts[num] || 0) + 1;
@@ -90,31 +80,36 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
             });
         }
         Object.entries(counts).forEach(([num, count]) => {
-            // @ts-ignore
             if (count > 1) dups.add(num);
         });
         return dups;
     }, [flatMatrix, currentBlock]);
 
-    /** @type {(ent: number, floorId: string, idx: number) => { num: string, type: string }} */
     const getApt = (ent, floorId, idx) => {
         if (!currentBlock) return { num: '', type: 'flat' };
-        // @ts-ignore
-        return flatMatrix[`${currentBlock.fullId}_e${ent}_f${floorId}_i${idx}`] || { num: '', type: 'flat' };
+        const key = `${currentBlock.fullId}_e${ent}_f${floorId}_i${idx}`;
+        const unit = flatMatrix[key] || { num: '', type: 'flat' };
+        // Генерируем ID "на лету" если его нет в стейте, но лучше это делать при записи
+        return unit;
     };
 
-    /** @type {(ent: number, floorId: string, idx: number, field: string, val: string) => void} */
     const updateApt = (ent, floorId, idx, field, val) => {
         if (isReadOnly) return;
         if (!currentBlock) return;
         const key = `${currentBlock.fullId}_e${ent}_f${floorId}_i${idx}`;
+        const existing = flatMatrix[key] || { type: 'flat' };
         
         setFlatMatrix(prev => ({
             ...prev,
             [key]: { 
-                // @ts-ignore
-                ...(prev[key] || { type: 'flat' }), 
-                [field]: val 
+                id: existing.id || crypto.randomUUID(), // Гарантируем наличие UUID
+                ...existing, 
+                [field]: val,
+                // Добавляем внешние ключи для будущего SQL
+                buildingId: building.id,
+                blockId: currentBlock.id,
+                entranceIndex: ent,
+                floorId: floorId
             }
         }));
     };
@@ -136,14 +131,12 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
             } else {
                 if (nextEnt > 1) {
                     nextEnt--;
-                    // @ts-ignore
                     const prevCount = Number(entrancesData[`${currentBlock.fullId}_ent${nextEnt}_${floorList[nextFIdx].id}`]?.apts || 0);
                     nextIdx = Math.max(0, prevCount - 1);
                 }
             }
         }
         if (e.key === 'ArrowRight') {
-            // @ts-ignore
             const currentCount = Number(entrancesData[`${currentBlock.fullId}_ent${nextEnt}_${floorList[nextFIdx].id}`]?.apts || 0);
             if (nextIdx < currentCount - 1) {
                 nextIdx++;
@@ -157,9 +150,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
         const nextFloorId = floorList[nextFIdx].id;
         const refKey = `${nextEnt}-${nextFloorId}-${nextIdx}`;
-        // @ts-ignore
         if (inputsRef.current[refKey]) {
-            // @ts-ignore
             inputsRef.current[refKey].focus();
         }
     };
@@ -176,8 +167,12 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         if (isReadOnly) return;
         const updates = {};
         selectedIds.forEach(key => {
-            // @ts-ignore
-            updates[key] = { ...(flatMatrix[key] || {}), type };
+            const existing = flatMatrix[key] || {};
+            updates[key] = { 
+                id: existing.id || crypto.randomUUID(),
+                ...existing, 
+                type 
+            };
         });
         setFlatMatrix(prev => ({ ...prev, ...updates }));
         setSelectedIds(new Set());
@@ -186,11 +181,9 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
     const isFloorDuplexValid = (floorId) => {
         if (!currentBlock) return true;
-        // @ts-ignore
         const isDuplexFloor = floorData[`${currentBlock.fullId}_${floorId}`]?.isDuplex;
         if (!isDuplexFloor) return true;
         return entrances.some(e => {
-            // @ts-ignore
             const count = parseInt(entrancesData[`${currentBlock.fullId}_ent${e}_${floorId}`]?.apts || 0);
             for(let i=0; i<count; i++) {
                 if (getApt(e, floorId, i).type !== 'flat') return true;
@@ -207,33 +200,40 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         
         entrances.forEach(e => {
             floorList.forEach(f => {
-                // @ts-ignore
                 const count = parseInt(entrancesData[`${currentBlock.fullId}_ent${e}_${f.id}`]?.apts || 0);
                 for(let i=0; i<count; i++) {
                     const key = `${currentBlock.fullId}_e${e}_f${f.id}_i${i}`;
                     
-                    const existing = /** @type {import('../../lib/types').UnitData} */ (flatMatrix[key] || {});
+                    const existing = (flatMatrix[key] || {});
                     
                     if (existing.type === 'office' || existing.type === 'pantry') continue;
                     
-                    updates[key] = { ...existing, num: String(n++), type: existing.type || 'flat' };
+                    updates[key] = { 
+                        id: existing.id || crypto.randomUUID(), // UUID
+                        ...existing, 
+                        num: String(n++), 
+                        type: existing.type || 'flat',
+                        // FKs
+                        buildingId: building.id,
+                        blockId: currentBlock.id,
+                        entranceIndex: e,
+                        floorId: f.id
+                    };
                 }
             });
         });
-        // @ts-ignore
         setFlatMatrix(p => ({...p, ...updates})); 
     };
 
-    // [NEW] Функция сохранения
     const handleSave = async () => { 
         const specificData = {};
         Object.keys(flatMatrix).forEach(k => {
             if (k.startsWith(building.id)) {
-                // @ts-ignore
                 specificData[k] = flatMatrix[k];
             }
         });
 
+        // Теперь ProjectContext сам разберется, как это сохранять (через saveUnits)
         await saveBuildingData(building.id, 'apartmentsData', specificData);
         await saveData({}, true); 
     };
@@ -278,7 +278,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
             {selectedIds.size > 0 && !isReadOnly && (
                 <div className="sticky top-4 z-50 mb-4 mx-auto max-w-xl animate-in slide-in-from-top-4 fade-in duration-300">
-                    <div className="bg-slate-900 text-white p-2 rounded-xl shadow-2xl flex items-center gap-3 border border-slate-700">
+                    <div className="bg-slate-900 text-white p-2.5 rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-700">
                         <div className="bg-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-300 flex items-center gap-2">
                             <CheckCircle2 size={14} className="text-emerald-400"/>
                             {selectedIds.size}
@@ -307,9 +307,8 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                                 ))}
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100">
+                        <tbody className="divide-y divide-slate-100 bg-white">
                             {floorList.slice().map(f => {
-                                // @ts-ignore
                                 const isDuplexFloor = floorData[`${currentBlock.fullId}_${f.id}`]?.isDuplex;
                                 const isValid = isFloorDuplexValid(f.id);
 
@@ -326,7 +325,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                                             </div>
                                         </td>
                                         {entrances.map(e => {
-                                            // @ts-ignore
                                             const count = parseInt(entrancesData[`${currentBlock.fullId}_ent${e}_${f.id}`]?.apts || 0);
                                             const isEvenCol = e % 2 === 0;
                                             
@@ -339,19 +337,16 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                                                             const a = getApt(e, f.id, i);
                                                             const cellKey = `${currentBlock.fullId}_e${e}_f${f.id}_i${i}`;
                                                             const isSelected = selectedIds.has(cellKey);
-                                                            // @ts-ignore
                                                             const isDuplicate = duplicateSet.has(a.num);
                                                             
-                                                            // ZOD Check для отдельной ячейки
                                                             const result = UnitSchema.safeParse(a);
-                                                            const isInvalidSchema = !result.success && a.num !== ''; // Пустой номер - это отдельная проверка ниже
+                                                            const isInvalidSchema = !result.success && a.num !== '';
                                                             const isMissingNum = !a.num || String(a.num).trim() === '';
 
-                                                            // Цвет границы
                                                             let borderColorClass = '';
                                                             if (isSelected) borderColorClass = 'border-blue-500 ring-2 ring-blue-200';
                                                             else if (isDuplicate) borderColorClass = 'border-red-500 bg-red-50';
-                                                            else if (isInvalidSchema || isMissingNum) borderColorClass = 'border-red-300 border-dashed'; // Пунктир если невалидно
+                                                            else if (isInvalidSchema || isMissingNum) borderColorClass = 'border-red-300 border-dashed';
                                                             else borderColorClass = TYPE_COLORS[a.type] || TYPE_COLORS.flat;
 
                                                             return (
@@ -372,7 +367,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                                                                         </div>
                                                                     ) : (
                                                                         <DebouncedInput 
-                                                                            // @ts-ignore
                                                                             ref={el => inputsRef.current[`${e}-${f.id}-${i}`] = el}
                                                                             onKeyDown={(ev) => handleKeyDown(ev, floorList.indexOf(f), e, i)}
                                                                             type="text" 
@@ -413,7 +407,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                 </div>
             </Card>
 
-            {/* [NEW] Новая панель сохранения */}
             <SaveFloatingBar onSave={handleSave} />
         </div>
     );

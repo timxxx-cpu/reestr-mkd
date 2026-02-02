@@ -11,7 +11,6 @@ import { calculateProgress, getStageColor } from '../../lib/utils';
 import { BuildingModalSchema } from '../../lib/schemas';
 import { useValidation } from '../../hooks/useValidation';
 
-// --- Хелперы ---
 const TYPE_NAMES = {
     residential: "Отдельный жилой дом", 
     residential_multiblock: "Жилой дом из нескольких секций/блоков", 
@@ -25,30 +24,9 @@ const PARKING_CONSTRUCTION_NAMES = {
     open: "Открытый"
 };
 
-/**
- * @typedef {Object} ModalState
- * @property {boolean} isOpen
- * @property {string|null} category
- * @property {number} quantity
- * @property {number} resBlocks
- * @property {number} nonResBlocks
- * @property {boolean} hasNonResPart
- * @property {string} baseName
- * @property {string} houseNumber
- * @property {string} dateStart
- * @property {string} dateEnd
- * @property {string} stage
- * @property {string|null} editingId
- * @property {string} parkingType
- * @property {string} parkingConstruction
- * @property {string} infraType
- */
-
-// Компонент обертка для модального окна, чтобы изолировать хук валидации
 const BuildingModal = ({ modal, setModal, onCommit }) => {
     const isReadOnly = useReadOnly();
     
-    // Подключаем валидацию только к данным формы
     const { errors, isValid } = useValidation(BuildingModalSchema, {
         baseName: modal.baseName,
         houseNumber: modal.houseNumber,
@@ -65,7 +43,6 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
         infraType: modal.infraType
     });
 
-    // Логическая проверка для многоблочного дома
     const isMultiblockError = modal.category === 'residential_multiblock' && (modal.resBlocks < 1 || modal.nonResBlocks < 1);
 
     const ErrorMsg = ({ field }) => errors[field] ? <span className="text-[9px] text-red-500 font-bold ml-1 animate-in fade-in">{errors[field]}</span> : null;
@@ -248,7 +225,6 @@ export default function CompositionEditor() {
     const { composition, setComposition, buildingDetails, setBuildingDetails, saveData, deleteProjectBuilding } = useProject();
     const isReadOnly = useReadOnly();
 
-    /** @type {[ModalState, React.Dispatch<React.SetStateAction<ModalState>>]} */
     const [modal, setModal] = useState({ 
         isOpen: false, 
         category: null, 
@@ -267,14 +243,10 @@ export default function CompositionEditor() {
         infraType: 'Котельная' 
     });
 
-    // [FIX] Проверка наличия жилых объектов в составе комплекса
     const hasResidential = useMemo(() => {
         return composition.some(c => c.category.includes('residential'));
     }, [composition]);
 
-    // --- ЛОГИКА ---
-    
-    // [NEW] Функция сохранения
     const handleSave = async () => {
         await saveData({}, true); 
     };
@@ -282,8 +254,6 @@ export default function CompositionEditor() {
     const generateDemoComplex = () => {
         if (!window.confirm("Создать демо-данные? Текущий список будет дополнен.")) return;
         
-        /** @type {import('../../lib/types').BuildingMeta[]} */
-        // @ts-ignore
         const demoBuildings = [
             { 
                 id: crypto.randomUUID(), label: 'Корпус "Доминанта"', houseNumber: "1", stage: "Строящийся", 
@@ -310,22 +280,16 @@ export default function CompositionEditor() {
         
         const demoDetails = {};
         demoBuildings.forEach(b => {
-             // @ts-ignore
              demoDetails[`${b.id}_main`] = { floorsFrom: 10, floorsTo: 10, entrances: 2, hasBasementFloor: true };
-             // @ts-ignore
              demoDetails[`${b.id}_features`] = { basements: [] };
         });
 
         const newComposition = [...composition, ...demoBuildings];
         
-        // [CHANGED] Только обновляем стейт, не сохраняем в БД сразу
-        // @ts-ignore
         setComposition(newComposition);
-        // @ts-ignore
         setBuildingDetails(prev => ({ ...prev, ...demoDetails }));
     };
 
-    /** @param {string} category */
     const openPlanning = (category) => {
         const defaultName = TYPE_NAMES[category] || "Новый объект";
 
@@ -348,7 +312,6 @@ export default function CompositionEditor() {
         });
     };
 
-    /** @param {import('../../lib/types').BuildingMeta} item */
     const openEditing = (item) => {
         setModal({ 
             isOpen: true, 
@@ -370,8 +333,7 @@ export default function CompositionEditor() {
     };
     
     const commitPlanning = () => {
-         // @ts-ignore
-         let itemType = TYPE_NAMES[modal.category];
+         const itemType = TYPE_NAMES[modal.category];
          
          const newItemData = {
              label: modal.baseName,
@@ -380,11 +342,7 @@ export default function CompositionEditor() {
              dateEnd: modal.dateEnd,
              stage: modal.stage,
              type: itemType,
-             
-             // ИСПРАВЛЕНИЕ: Приводим к any, чтобы TS разрешил слияние
-             category: /** @type {any} */ (modal.category),
-             
-             // @ts-ignore
+             category: modal.category,
              categoryType: modal.category === 'infrastructure' ? modal.infraType : itemType,
              constructionType: modal.parkingConstruction,
              resBlocks: modal.resBlocks, 
@@ -396,33 +354,25 @@ export default function CompositionEditor() {
 
          if (modal.editingId) {
              const updated = composition.map(c => c.id === modal.editingId ? { ...c, ...newItemData } : c);
-             
-             // [CHANGED] Только обновляем стейт, не сохраняем в БД сразу
              setComposition(updated);
          } else {
              const newItems = Array.from({length: modal.quantity}).map((_, i) => ({
-                 id: crypto.randomUUID(), 
+                 id: crypto.randomUUID(), // UUID
                  ...newItemData,
                  label: modal.quantity > 1 ? `${modal.baseName} ${i+1}` : modal.baseName, 
              }));
              const newList = [...composition, ...newItems];
-             
-             // [CHANGED] Только обновляем стейт
              setComposition(newList);
          }
          setModal(prev => ({...prev, isOpen: false}));
     };
     
-    /** @param {string} id */
     const deleteItem = (id) => {
-        // Удаление остается немедленным, так как это деструктивное действие
         deleteProjectBuilding(id);
     };
 
     return (
         <div className="w-full px-6 pb-20 animate-in fade-in duration-500">
-            
-            {/* --- ШАПКА --- */}
             <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 mb-2 gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800">Состав комплекса</h1>
@@ -445,7 +395,6 @@ export default function CompositionEditor() {
                 </div>
             </div>
 
-            {/* --- ТУЛБАР СОЗДАНИЯ --- */}
             {!isReadOnly && (
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap gap-3 items-center">
                     <span className="text-xs font-bold text-slate-400 uppercase mr-2">Создать:</span>
@@ -469,7 +418,6 @@ export default function CompositionEditor() {
                 </div>
             )}
 
-            {/* --- ПРЕДУПРЕЖДЕНИЕ ОБ ОТСУТСТВИИ ЖИЛЬЯ --- */}
             {!hasResidential && (
                 <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-600 animate-in fade-in">
                     <div className="p-2 bg-white rounded-full shadow-sm border border-red-100 text-red-500">
@@ -482,9 +430,7 @@ export default function CompositionEditor() {
                 </div>
             )}
 
-            {/* --- ТАБЛИЦА ОБЪЕКТОВ --- */}
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-h-[400px]">
-                {/* Header Таблицы - Темный фон для контраста */}
                 <div className="grid grid-cols-12 bg-slate-50/80 border-b border-slate-200 py-4 px-6 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
                     <div className="col-span-1 text-center">#</div>
                     <div className="col-span-1 text-center">Дом №</div>
@@ -518,23 +464,19 @@ export default function CompositionEditor() {
 
                         return (
                             <div key={item.id} className="grid grid-cols-12 items-center py-4 px-6 hover:bg-blue-50/50 transition-colors group even:bg-slate-50/50">
-                                {/* # (Центрировано) */}
                                 <div className="col-span-1 text-xs font-bold text-slate-400 text-center">{idx + 1}</div>
                                 
-                                {/* Номер дома (Центрировано) */}
                                 <div className="col-span-1 flex justify-center">
                                     <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-sm shadow-sm border ${isRes ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-200 text-amber-700'}`}>
                                         {item.houseNumber || '?'}
                                     </div>
                                 </div>
 
-                                {/* Наименование */}
                                 <div className="col-span-3 pr-4">
                                     <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">{item.label}</div>
                                     <div className="text-[10px] text-slate-400 mt-0.5">{item.type}</div>
                                 </div>
 
-                                {/* Характеристики */}
                                 <div className="col-span-3 pr-4 flex flex-col justify-center gap-1.5">
                                     <div className="flex flex-wrap gap-1">
                                         {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
@@ -548,7 +490,6 @@ export default function CompositionEditor() {
                                     </div>
                                 </div>
 
-                                {/* Статус и Прогресс */}
                                 <div className="col-span-3 pr-8">
                                     <div className="flex items-center justify-between mb-1.5">
                                         <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}>
@@ -557,7 +498,6 @@ export default function CompositionEditor() {
                                         <span className="text-[10px] font-bold text-slate-400">{Math.round(progress)}%</span>
                                     </div>
                                     
-                                    {/* Тонкий прогресс бар */}
                                     <div className="h-1 w-full bg-slate-200 rounded-full overflow-hidden">
                                         <div 
                                             className={`h-full rounded-full transition-all duration-1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} 
@@ -565,14 +505,12 @@ export default function CompositionEditor() {
                                         />
                                     </div>
                                     
-                                    {/* Даты */}
                                     <div className="flex justify-between text-[9px] text-slate-400 mt-1 font-mono">
                                         <span>{item.dateStart ? new Date(item.dateStart).toLocaleDateString('ru-RU') : '...'}</span>
                                         <span>{item.dateEnd ? new Date(item.dateEnd).toLocaleDateString('ru-RU') : '...'}</span>
                                     </div>
                                 </div>
 
-                                {/* Действия */}
                                 <div className="col-span-1 flex justify-end gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
                                     <button onClick={() => openEditing(item)} title={isReadOnly ? "Просмотр" : "Редактировать"} className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
                                         {isReadOnly ? <Eye size={16}/> : <Pencil size={16}/>}
@@ -589,10 +527,8 @@ export default function CompositionEditor() {
                 </div>
             </div>
 
-            {/* --- МОДАЛЬНОЕ ОКНО --- */}
             {modal.isOpen && <BuildingModal modal={modal} setModal={setModal} onCommit={commitPlanning} />}
 
-            {/* [NEW] НОВАЯ ПАНЕЛЬ СОХРАНЕНИЯ ВНИЗУ */}
             <SaveFloatingBar onSave={handleSave} disabled={!hasResidential} />
         </div>
     );

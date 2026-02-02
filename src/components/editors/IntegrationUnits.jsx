@@ -44,7 +44,7 @@ export default function IntegrationUnits() {
     const toast = useToast();
 
     const [status, setStatus] = useState(applicationInfo?.integration?.unitsStatus || SYNC_STATUS.IDLE);
-    const [activeTab, setActiveTab] = useState('living'); // living | nonres | parking
+    const [activeTab, setActiveTab] = useState('living'); 
 
     // --- 1. СБОР ВСЕХ ОБЪЕКТОВ ---
     const allObjects = useMemo(() => {
@@ -89,7 +89,10 @@ export default function IntegrationUnits() {
                                     area: '0', 
                                     buildingLabel: building.label,
                                     cadastreNumber: null,
-                                    isVirtual: true
+                                    isVirtual: true,
+                                    // Доп поля для сохранения
+                                    buildingId: building.id,
+                                    blockId: block.id
                                 });
                             }
                         }
@@ -113,7 +116,9 @@ export default function IntegrationUnits() {
                         area: totalArea.toFixed(2),
                         buildingLabel: building.label,
                         cadastreNumber: null,
-                        isVirtual: true
+                        isVirtual: true,
+                        buildingId: building.id,
+                        blockId: block.id
                     });
                 }
             });
@@ -133,7 +138,8 @@ export default function IntegrationUnits() {
                         area: infraArea.toFixed(2),
                         buildingLabel: building.label,
                         cadastreNumber: building.cadastreNumber || null,
-                        isVirtual: true
+                        isVirtual: true,
+                        buildingId: building.id
                     });
                 }
             }
@@ -159,7 +165,6 @@ export default function IntegrationUnits() {
         return list;
     }, [composition, flatMatrix, entrancesData, floorData, parkingPlaces]);
 
-    // --- Статистика ---
     const stats = useMemo(() => {
         const s = { living: { total: 0, ready: 0 }, nonres: { total: 0, ready: 0 }, parking: { total: 0, ready: 0 } };
         allObjects.forEach(obj => {
@@ -191,7 +196,7 @@ export default function IntegrationUnits() {
     };
 
     const handleSimulateResponse = () => {
-        if (isReadOnly) return; // [FIXED] Блокировка
+        if (isReadOnly) return; 
         const newFlatMatrix = { ...flatMatrix };
         const newParkingPlaces = { ...parkingPlaces };
 
@@ -210,29 +215,30 @@ export default function IntegrationUnits() {
                 }
             } else {
                 if (!obj.isVirtual) {
+                    // Существующий юнит
                     if (newFlatMatrix[obj.id]) {
                         newFlatMatrix[obj.id] = { ...newFlatMatrix[obj.id], cadastreNumber: generatedCadastre };
                         processedCount++;
                     }
                 } else {
-                    if (obj.type === 'infrastructure') {
-                        newFlatMatrix[obj.id] = {
-                            num: obj.number,
-                            type: obj.type,
-                            area: obj.area,
-                            cadastreNumber: generatedCadastre,
-                            buildingId: composition.find(c => c.label === obj.buildingLabel)?.id
-                        };
-                        processedCount++;
-                    } else {
-                        newFlatMatrix[obj.id] = {
-                            num: obj.number,
-                            type: obj.type,
-                            area: obj.area,
-                            cadastreNumber: generatedCadastre,
-                        };
-                        processedCount++;
-                    }
+                    // Виртуальный юнит -> превращаем в реальный с UUID
+                    const newId = crypto.randomUUID(); // Генерируем UUID
+                    // ВАЖНО: Мы сохраняем объект по СТАРОМУ ключу (obj.id - который был virtualId), 
+                    // чтобы React-компоненты могли его найти, НО внутри объекта будет лежать настоящий UUID.
+                    // Либо мы сохраняем по UUID ключу, но тогда надо чистить старые ссылки. 
+                    // Для совместимости с текущим FlatMatrixEditor, который работает на строковых ключах, 
+                    // сохраним ключ как есть, но добавим поле id.
+                    
+                    newFlatMatrix[obj.id] = {
+                        id: newId, // UUID
+                        num: obj.number,
+                        type: obj.type,
+                        area: obj.area,
+                        cadastreNumber: generatedCadastre,
+                        buildingId: obj.buildingId,
+                        blockId: obj.blockId
+                    };
+                    processedCount++;
                 }
             }
         });
@@ -316,7 +322,7 @@ export default function IntegrationUnits() {
                         {status === SYNC_STATUS.WAITING && (
                             <Button 
                                 onClick={handleSimulateResponse} 
-                                disabled={isReadOnly} // [FIXED] Блокировка
+                                disabled={isReadOnly}
                                 variant="secondary" 
                                 className="border-dashed border-slate-300 w-full md:w-auto"
                             >

@@ -61,7 +61,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
   useEffect(() => {
       if (serverMeta && Object.keys(serverMeta).length > 0) {
-          // @ts-ignore
           setProjectMeta(prev => ({ ...prev, ...serverMeta }));
       }
   }, [serverMeta]);
@@ -73,6 +72,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   }, [serverBuildings]);
 
   const mergedState = useMemo(() => {
+    // [FIX] Приводим к any, чтобы TS не ругался на отсутствие полей в пустом объекте {}
     const meta = /** @type {any} */ (projectMeta);
     
     const defaultAppInfo = {
@@ -104,14 +104,20 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     };
 
     Object.values(buildingsState).forEach(b => {
+       // @ts-ignore
        if (b.buildingDetails) {
            // @ts-ignore
            combined.buildingDetails = { ...b.buildingDetails, ...combined.buildingDetails };
        }
+       // @ts-ignore
        if (b.floorData) combined.floorData = { ...b.floorData, ...combined.floorData };
+       // @ts-ignore
        if (b.entrancesData) combined.entrancesData = { ...b.entrancesData, ...combined.entrancesData };
+       // @ts-ignore
        if (b.commonAreasData) combined.mopData = { ...b.commonAreasData, ...combined.mopData };
+       // @ts-ignore
        if (b.apartmentsData) combined.flatMatrix = { ...b.apartmentsData, ...combined.flatMatrix };
+       // @ts-ignore
        if (b.parkingData) combined.parkingPlaces = { ...b.parkingData, ...combined.parkingPlaces };
     });
 
@@ -128,7 +134,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       if (role === ROLES.CONTROLLER) return true;
 
       if (role === ROLES.TECHNICIAN) {
-          // [MODIFIED] Теперь разрешаем редактирование и в статусе INTEGRATION
           if ([APP_STATUS.DRAFT, APP_STATUS.NEW, APP_STATUS.REJECTED, APP_STATUS.INTEGRATION].includes(status)) {
               return false;
           }
@@ -167,10 +172,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
             await RegistryService.saveData(dbScope, projectId, payload);
         }
         if (showNotification) toast.success("Сохранено!");
-        
-        if (showNotification) {
-            setHasUnsavedChanges(false);
-        }
+        if (showNotification) setHasUnsavedChanges(false);
 
       } catch (e) {
         console.error("SAVE ERROR:", e);
@@ -219,7 +221,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       const stageConfig = WORKFLOW_STAGES[currentStageNum];
       const isStageBoundary = stageConfig && stageConfig.lastStepIndex === currentIndex;
 
-      // [UPDATED] Индекс начала 4-го этапа (Интеграция) теперь 12 (было 15)
       const INTEGRATION_START_IDX = 12;
 
       const prevStatus = currentAppInfo.status;
@@ -236,7 +237,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           newStage = currentStageNum + 1; 
           historyComment = `Этап ${currentStageNum} завершен. Отправлен на проверку (REVIEW).`;
       }
-      // [UPDATED]
       else if (nextStepIndex === INTEGRATION_START_IDX) {
           newStatus = APP_STATUS.INTEGRATION;
           historyComment = `Переход к этапу интеграции с УЗКАД. Статус изменен на "${APP_STATUS.INTEGRATION}".`;
@@ -314,12 +314,9 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       return prevIndex;
   }, [dbScope, projectId, mergedState, saveProjectImmediate, userProfile]);
 
-  // [NEW] Функция проверки этапа для Бригадира
   const reviewStage = useCallback(async (action, comment = '') => {
       // @ts-ignore
       const currentAppInfo = mergedState.applicationInfo;
-      
-      // action: 'APPROVE' | 'REJECT'
       const isApprove = action === 'APPROVE';
       
       const prevStatus = currentAppInfo.status;
@@ -334,29 +331,19 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       let updatedVerifiedSteps = [...(currentAppInfo.verifiedSteps || [])];
 
       if (isApprove) {
-          // Если одобрили: статус становится рабочим (DRAFT)
           newStatus = APP_STATUS.DRAFT;
           updatedVerifiedSteps = Array.from(new Set([...updatedVerifiedSteps, ...reviewedStepIndexes]));
-
-          // [UPDATED] Если следующий шаг — это начало Интеграции (индекс 12), ставим статус INTEGRATION
           if (newStepIndex === 12) {
               newStatus = APP_STATUS.INTEGRATION;
           }
-
       } else {
-          // Если вернули: 
-          // 1. Откатываем этап назад
           newStage = Math.max(1, currentAppInfo.currentStage - 1);
-          
-          // 2. Ищем последний шаг этого предыдущего этапа
           const prevStageConfig = WORKFLOW_STAGES[newStage];
           if (prevStageConfig) {
               newStepIndex = prevStageConfig.lastStepIndex;
           } else {
-              newStepIndex = 0; // Фолбек
+              newStepIndex = 0;
           }
-          
-          // 3. Статус REJECTED
           newStatus = APP_STATUS.REJECTED;
           updatedVerifiedSteps = updatedVerifiedSteps.filter((idx) => idx < startIndex || idx > endIndex);
       }
@@ -389,16 +376,42 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       setProjectMeta(prev => ({ ...prev, ...updates }));
       await RegistryService.saveData(dbScope, projectId, updates);
       
-      return newStepIndex; // Возвращаем индекс, чтобы UI мог переключиться
+      return newStepIndex;
   }, [dbScope, projectId, mergedState, userProfile]);
 
   const saveBuildingData = useCallback(async (buildingId, dataKey, dataVal) => {
       if (isReadOnly) { toast.error("Редактирование запрещено"); return; }
       setIsSyncing(true);
       try {
-          const payload = { buildingSpecificData: { [buildingId]: { [dataKey]: dataVal } } };
-          await RegistryService.saveData(dbScope, projectId, payload);
-          setBuildingsState(prev => ({ ...prev, [buildingId]: { ...(prev[buildingId] || {}), [dataKey]: { ...((prev[buildingId] || {})[dataKey] || {}), ...dataVal } } }));
+          let promise;
+          
+          if (dataKey === 'apartmentsData') {
+              const unitsArray = Object.values(dataVal);
+              promise = RegistryService.saveUnits(dbScope, projectId, buildingId, unitsArray);
+          } else if (dataKey === 'floorData') {
+              const floorsArray = Object.entries(dataVal).map(([k, v]) => ({ ...v, legacyKey: k }));
+              promise = RegistryService.saveFloors(dbScope, projectId, buildingId, floorsArray);
+          } else if (dataKey === 'parkingData') {
+              const parkingArray = Object.entries(dataVal).map(([k, v]) => ({ ...v, legacyKey: k }));
+              promise = RegistryService.saveParkingPlaces(dbScope, projectId, buildingId, parkingArray);
+          } else {
+              const payload = { buildingSpecificData: { [buildingId]: { [dataKey]: dataVal } } };
+              promise = RegistryService.saveData(dbScope, projectId, payload);
+          }
+
+          await promise;
+          
+          setBuildingsState(prev => ({ 
+              ...prev, 
+              [buildingId]: { 
+                  ...(prev[buildingId] || {}), 
+                  [dataKey]: { 
+                      // @ts-ignore
+                      ...((prev[buildingId] || {})[dataKey] || {}), 
+                      ...dataVal 
+                  } 
+              } 
+          }));
           
           setHasUnsavedChanges(false); 
           
@@ -444,7 +457,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
     completeTask,
     rollbackTask,
-    reviewStage, // [NEW]
+    reviewStage,
     saveProjectImmediate,
     saveData,
     saveBuildingData, 

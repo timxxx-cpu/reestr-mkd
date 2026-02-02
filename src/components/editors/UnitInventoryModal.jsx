@@ -1,10 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { X, Plus, Trash2, Check, Home, Utensils, Bath, BedDouble, Sofa, Box, Layers, Calculator, Sun, Copy, Briefcase, Warehouse } from 'lucide-react';
+import { X, Plus, Trash2, Check, Bath, BedDouble, Sofa, Box, Layers, Calculator, Sun, Copy, Briefcase, Warehouse, Utensils } from 'lucide-react';
 import { Button, Input, Select, useReadOnly } from '../ui/UIKit';
 import { useToast } from '../../context/ToastContext';
 import { useProject } from '../../context/ProjectContext';
 
-// --- ТИПЫ ПОМЕЩЕНИЙ ДЛЯ ЖИЛЬЯ ---
 const RESIDENTIAL_ROOMS = [
     { id: 'living', label: 'Жилая комната', icon: BedDouble, k: 1.0, category: 'living' },
     { id: 'kitchen', label: 'Кухня', icon: Utensils, k: 1.0, category: 'useful' },
@@ -18,7 +17,6 @@ const RESIDENTIAL_ROOMS = [
     { id: 'other', label: 'Другое', icon: Box, k: 1.0, category: 'useful' },
 ];
 
-// --- ТИПЫ ПОМЕЩЕНИЙ ДЛЯ КОММЕРЦИИ ---
 const COMMERCIAL_ROOMS = [
     { id: 'main_hall', label: 'Торговый зал / Опенспейс', icon: Briefcase, k: 1.0, category: 'main' },
     { id: 'cabinet', label: 'Кабинет', icon: Briefcase, k: 1.0, category: 'main' },
@@ -31,7 +29,6 @@ const COMMERCIAL_ROOMS = [
     { id: 'terrace', label: 'Терраса (k=0.3)', icon: Sun, k: 0.3, category: 'summer' },
 ];
 
-// Мини-карточка для дашборда
 const StatBadge = ({ label, value, subLabel, color }) => (
     <div className={`p-3 rounded-xl border ${color} flex flex-col items-center justify-center text-center w-full`}>
         <span className="text-[9px] uppercase font-bold tracking-wider opacity-70 mb-1">{label}</span>
@@ -45,7 +42,6 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
     const isReadOnly = useReadOnly();
     const toast = useToast();
     
-    // Определяем режим: Жилье или Коммерция
     const isCommercial = !['flat', 'duplex_up', 'duplex_down'].includes(unit.type);
     const isDuplex = ['duplex_up', 'duplex_down'].includes(unit.type);
 
@@ -54,18 +50,12 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
     const [rooms, setRooms] = useState(unit.roomsList || []);
     const [copySourceNum, setCopySourceNum] = useState(''); 
     
-    // --- АВТОМАТИЧЕСКИЙ РАСЧЕТ ПЛОЩАДЕЙ ---
     const stats = useMemo(() => {
-        let s_total = 0; // Общая (кадастровая)
-        
-        // Для жилья
+        let s_total = 0;
         let s_living = 0;
         let s_useful = 0;
-        
-        // Для коммерции
         let s_main = 0;
         let s_aux = 0;
-
         let count_main = 0;
 
         rooms.forEach(r => {
@@ -82,7 +72,6 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                 } else if (typeConfig.category === 'aux') {
                     s_aux += rawArea;
                 }
-                // Летние в коммерции обычно тоже идут в общую с коэфф, но не в основную
             } else {
                 if (typeConfig.category === 'living') {
                     s_living += rawArea;
@@ -95,13 +84,10 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
 
         return { 
             total: s_total.toFixed(2),
-            // Жилые показатели
             living: s_living.toFixed(2), 
             useful: s_useful.toFixed(2),
-            // Коммерческие показатели
             main: s_main.toFixed(2),
             aux: s_aux.toFixed(2),
-            
             main_rooms_count: count_main
         };
     }, [rooms, isCommercial, ROOM_TYPES]);
@@ -112,7 +98,9 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
             id: crypto.randomUUID(), 
             type: isCommercial ? 'main_hall' : 'living', 
             area: '',
-            level: '1'
+            level: '1',
+            // Явный FK для SQL
+            unitId: unit.id // Убедитесь, что unit.id уже UUID (обеспечено в UnitRegistry)
         }]);
     };
 
@@ -154,11 +142,13 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
             if (!confirm(`Заменить данные данными из №${copySourceNum}?`)) return;
         }
 
+        // При копировании генерируем новые UUID и привязываем к ТЕКУЩЕМУ юниту
         const copiedRooms = sourceUnit.roomsList.map(r => ({
             id: crypto.randomUUID(),
             type: r.type,
             area: r.area,
-            level: r.level || '1'
+            level: r.level || '1',
+            unitId: unit.id
         }));
 
         setRooms(copiedRooms);
@@ -171,11 +161,10 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
         const payload = {
             ...unit,
             roomsList: rooms,
-            area: stats.total, // Общая всегда идет в area
+            area: stats.total, 
             rooms: stats.main_rooms_count > 0 ? stats.main_rooms_count : unit.rooms 
         };
 
-        // Дописываем специфичные поля
         if (isCommercial) {
             payload.mainArea = stats.main;
             payload.auxArea = stats.aux;
@@ -191,7 +180,6 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                 
-                {/* Header */}
                 <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                     <div>
                         <div className="flex items-center gap-2 text-slate-500 text-xs mb-1">
@@ -210,7 +198,6 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                     </button>
                 </div>
 
-                {/* Dashboard (Сводные данные) */}
                 <div className="p-6 bg-white border-b border-slate-100">
                     <div className="flex items-center gap-2 mb-3 text-slate-400">
                         <Calculator size={16}/>
@@ -232,7 +219,6 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                         
                         <StatBadge label="Общая площадь" value={stats.total} subLabel="В кадастр (с коэфф.)" color="bg-slate-800 text-white border-slate-900 shadow-md"/>
                         
-                        {/* Кнопка копирования */}
                         <div className={`p-3 rounded-xl border border-slate-200 bg-slate-50 flex flex-col gap-2 justify-center ${isReadOnly ? 'opacity-50 pointer-events-none' : ''}`}>
                             <span className="text-[9px] uppercase font-bold text-slate-400 text-center">Копировать из №</span>
                             <div className="flex gap-1">
@@ -250,7 +236,6 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                     </div>
                 </div>
 
-                {/* Room List */}
                 <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
                     <div className="space-y-3">
                         {rooms.length > 0 && (
@@ -349,7 +334,6 @@ export default function UnitInventoryModal({ unit, buildingLabel, onClose, onSav
                     </div>
                 </div>
 
-                {/* Footer */}
                 <div className="p-6 bg-white border-t border-slate-200 flex justify-between items-center">
                     <div className="text-xs text-slate-400 max-w-md italic">
                         * Данные автоматически обновятся в общем реестре.
