@@ -3,10 +3,10 @@ import { z } from 'zod';
 // --- Базовые типы ---
 
 export const MopItemSchema = z.object({
-  id: z.string().uuid().optional(), // Делаем optional для валидации при вводе, но в коде будем генерировать
+  id: z.string().uuid().optional(),
   type: z.string().min(1, "Тип обязателен"),
   area: z.coerce.number().nonnegative("Площадь должна быть >= 0"),
-  buildingId: z.string().uuid().optional(), // Связь с зданием
+  buildingId: z.string().uuid().optional(),
 });
 
 export const UnitSchema = z.object({
@@ -15,7 +15,6 @@ export const UnitSchema = z.object({
   area: z.coerce.number().optional(),
   type: z.enum(['flat', 'office', 'pantry', 'duplex_up', 'duplex_down']).default('flat'),
   rooms: z.number().int().optional(),
-  // Внешние ключи для будущего SQL
   buildingId: z.string().uuid().optional(),
   blockId: z.string().optional(),
   floorId: z.string().optional(),
@@ -28,7 +27,6 @@ export const FloorDataSchema = z.object({
   areaProj: z.coerce.number().nonnegative("Площадь не может быть отрицательной"),
   areaFact: z.coerce.number().nonnegative().optional(),
   isDuplex: z.boolean().optional(),
-  // Связи
   buildingId: z.string().uuid().optional(),
   blockId: z.string().optional(),
   levelIndex: z.number().int().optional(),
@@ -45,7 +43,6 @@ export const ParkingPlaceSchema = z.object({
   number: z.string().min(1, "Номер обязателен"),
   area: z.coerce.number().positive("Площадь > 0"),
   isSold: z.boolean().optional(),
-  // Связи
   buildingId: z.string().uuid().optional(),
 });
 
@@ -96,20 +93,24 @@ export const BuildingModalSchema = z.object({
   infraType: z.string().optional(),
 });
 
+// [ВАЖНО] Все поля optional, чтобы step-validators мог управлять логикой обязательности
 export const BuildingConfigSchema = z.object({
-  floorsFrom: z.coerce.number().int().min(1, "Минимум 1 этаж"),
-  floorsTo: z.coerce.number().int().min(1, "Минимум 1 этаж").max(100, "Максимум 100 этажей"),
-  entrances: z.coerce.number().int().min(1, "Минимум 1 подъезд").max(30, "Максимум 30 подъездов"),
-  inputs: z.coerce.number().int().min(1).optional(),
-  vehicleEntries: z.coerce.number().int().min(1).optional(),
-  elevators: z.coerce.number().int().min(0).optional(),
+  floorsFrom: z.coerce.number().int().min(1, "Минимум 1 этаж").optional(),
+  floorsTo: z.coerce.number().int().min(1, "Минимум 1 этаж").max(100, "Максимум 100 этажей").optional(),
+  entrances: z.coerce.number().int().min(1, "Минимум 1 подъезд").max(30, "Максимум 30 подъездов").optional(),
+  
+  foundation: z.string().min(1, "Выберите тип фундамента").optional(),
+  walls: z.string().min(1, "Выберите материал стен").optional(),
+  slabs: z.string().min(1, "Выберите тип перекрытий").optional(),
+  roof: z.string().min(1, "Выберите тип кровли").optional(),
+  
+  seismicity: z.coerce.number().int().min(3, "Не менее 3 баллов").max(10, "Макс. 10 баллов").optional(),
+
+  inputs: z.coerce.number().int().min(1, "Минимум 1 вход").optional(),
+  vehicleEntries: z.coerce.number().int().min(1).optional().default(1),
+  elevators: z.coerce.number().int().min(0).optional().default(0),
   levelsDepth: z.coerce.number().int().min(1).max(10).optional(),
   floorsCount: z.coerce.number().int().min(1).optional(),
-  foundation: z.string().optional(),
-  walls: z.string().optional(),
-  slabs: z.string().optional(),
-  roof: z.string().optional(),
-  seismicity: z.coerce.number().int().min(1, "Мин. 1 балл").max(9, "Макс. 9 баллов").optional(),
   
   hasCustomAddress: z.boolean().optional(),
   customHouseNumber: z.string().optional(),
@@ -118,8 +119,12 @@ export const BuildingConfigSchema = z.object({
   hasAttic: z.boolean().optional(),
   hasLoft: z.boolean().optional(),
   hasExploitableRoof: z.boolean().optional(),
+  
+  // Паркинг
+  lightStructureType: z.string().optional(),
 }).refine(data => {
-  if (data.floorsFrom > data.floorsTo) return false;
+  // Range check только если оба поля существуют и не undefined
+  if (data.floorsFrom !== undefined && data.floorsTo !== undefined && data.floorsFrom !== null && data.floorsTo !== null && data.floorsFrom > data.floorsTo) return false;
   return true;
 }, {
   message: "Первый этаж не может быть выше последнего",

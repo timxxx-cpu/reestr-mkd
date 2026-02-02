@@ -144,6 +144,11 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
   // --- МЕТОДЫ ---
 
+  /**
+   * Обновленная функция saveData (Ручной режим)
+   * Больше не отправляет данные в Firebase автоматически.
+   * Только обновляет локальный буфер (pendingUpdatesRef) и ставит флаг изменений.
+   */
   const saveData = useCallback((updates = {}, showNotification = false, bypassReadOnly = false) => {
     if (!dbScope || !projectId) return;
     if (isReadOnly && !bypassReadOnly) {
@@ -151,36 +156,23 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         return;
     }
     
-    if (updates && (updates.nativeEvent || updates.type === 'click')) { updates = {}; showNotification = true; }
+    // Игнорируем события кликов, если они случайно попали сюда
+    if (updates && (updates.nativeEvent || updates.type === 'click')) { updates = {}; }
     
+    // 1. Очищаем "тяжелые" ключи из updates, если они пришли целиком (оптимизация)
     const safeUpdates = { ...updates };
     HEAVY_KEYS.forEach(k => delete safeUpdates[k]);
     
+    // 2. Просто складываем изменения в буфер
     pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...safeUpdates };
-
-    if (Object.keys(pendingUpdatesRef.current).length === 0 && !showNotification) return;
-
-    setIsSyncing(true);
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     
-    saveTimeoutRef.current = setTimeout(async () => {
-      const payload = { ...pendingUpdatesRef.current };
-      pendingUpdatesRef.current = {}; 
+    // 3. Включаем индикатор "Есть несохраненные изменения"
+    if (Object.keys(pendingUpdatesRef.current).length > 0) {
+        setHasUnsavedChanges(true);
+    }
 
-      try {
-        if (Object.keys(payload).length > 0) {
-            await RegistryService.saveData(dbScope, projectId, payload);
-        }
-        if (showNotification) toast.success("Сохранено!");
-        if (showNotification) setHasUnsavedChanges(false);
-
-      } catch (e) {
-        console.error("SAVE ERROR:", e);
-        toast.error("Ошибка: " + e.message);
-      } finally {
-        setIsSyncing(false);
-      }
-    }, 500);
+    // ТАЙМЕР И ОТПРАВКА УБРАНЫ. 
+    // Теперь данные уйдут только при явном вызове saveProjectImmediate() (кнопка "Сохранить")
   }, [dbScope, projectId, toast, isReadOnly]);
 
   const saveProjectImmediate = useCallback(async () => {

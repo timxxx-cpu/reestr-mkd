@@ -20,7 +20,7 @@ import HistoryModal from './components/HistoryModal';
 import PassportEditor from './components/editors/PassportEditor';
 import CompositionEditor from './components/editors/CompositionEditor';
 import BuildingSelector from './components/editors/BuildingSelector';
-import BuildingConfigurator from './components/editors/BuildingConfigurator';
+import BuildingConfigurator from './components/editors/configurator';
 import ParkingConfigurator from './components/editors/ParkingConfigurator';
 import FloorMatrixEditor from './components/editors/FloorMatrixEditor';
 import EntranceMatrixEditor from './components/editors/EntranceMatrixEditor';
@@ -55,7 +55,8 @@ const TEST_USERS = [
     { id: 'abbos_tech',  name: 'Аббос', role: ROLES.TECHNICIAN, group: 'Аббос' },
 ];
 
-const DevRoleSwitcher = () => {
+// [ИЗМЕНЕНО] Добавлен проп disabled
+const DevRoleSwitcher = ({ disabled }) => {
     const { activePersona, setActivePersona } = useContext(PersonaContext);
     const [isOpen, setIsOpen] = useState(false);
 
@@ -69,68 +70,75 @@ const DevRoleSwitcher = () => {
 
     return (
         <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none">
-            <div className={`
-                bg-slate-900 border border-slate-700 shadow-2xl rounded-2xl p-4 mb-4 w-72 pointer-events-auto
-                transition-all duration-300 origin-bottom-right
-                ${isOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-10 invisible'}
-            `}>
-                <div className="flex justify-between items-center mb-3 pb-3 border-b border-slate-700">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                        <Settings size={14} /> Тестовые роли
-                    </h3>
-                    <button onClick={() => setIsOpen(false)} className="text-slate-500 hover:text-white">
-                        <X size={16} />
-                    </button>
-                </div>
-                
-                <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
-                    {Object.entries(groups).map(([groupName, users]) => (
-                        <div key={groupName}>
-                            <div className="text-[10px] font-bold text-slate-500 mb-1.5 ml-1">{groupName}</div>
-                            <div className="grid grid-cols-3 gap-1">
-                                {users.map(user => {
-                                    const isActive = activePersona.id === user.id;
-                                    let roleLabel = 'Тех';
-                                    let roleColor = 'text-blue-400 bg-blue-400/10 border-blue-400/20';
-                                    
-                                    if (user.role === ROLES.ADMIN) { 
-                                        roleLabel = 'Адм'; 
-                                        roleColor = 'text-purple-400 bg-purple-400/10 border-purple-400/20';
-                                    }
-                                    if (user.role === ROLES.CONTROLLER) { 
-                                        roleLabel = 'Бриг'; 
-                                        roleColor = 'text-orange-400 bg-orange-400/10 border-orange-400/20';
-                                    }
+            {/* Панель открывается только если не заблокировано */}
+            {!disabled && (
+                <div className={`
+                    bg-slate-900 border border-slate-700 shadow-2xl rounded-2xl p-4 mb-4 w-72 pointer-events-auto
+                    transition-all duration-300 origin-bottom-right
+                    ${isOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-10 invisible'}
+                `}>
+                    <div className="flex justify-between items-center mb-3 pb-3 border-b border-slate-700">
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                            <Settings size={14} /> Тестовые роли
+                        </h3>
+                        <button onClick={() => setIsOpen(false)} className="text-slate-500 hover:text-white">
+                            <X size={16} />
+                        </button>
+                    </div>
+                    
+                    <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
+                        {Object.entries(groups).map(([groupName, users]) => (
+                            <div key={groupName}>
+                                <div className="text-[10px] font-bold text-slate-500 mb-1.5 ml-1">{groupName}</div>
+                                <div className="grid grid-cols-3 gap-1">
+                                    {users.map(user => {
+                                        const isActive = activePersona.id === user.id;
+                                        let roleLabel = 'Тех';
+                                        let roleColor = 'text-blue-400 bg-blue-400/10 border-blue-400/20';
+                                        
+                                        if (user.role === ROLES.ADMIN) { 
+                                            roleLabel = 'Адм'; 
+                                            roleColor = 'text-purple-400 bg-purple-400/10 border-purple-400/20';
+                                        }
+                                        if (user.role === ROLES.CONTROLLER) { 
+                                            roleLabel = 'Бриг'; 
+                                            roleColor = 'text-orange-400 bg-orange-400/10 border-orange-400/20';
+                                        }
 
-                                    return (
-                                        <button
-                                            key={user.id}
-                                            onClick={() => { setActivePersona(user); setIsOpen(false); }}
-                                            className={`
-                                                px-1 py-1.5 rounded-lg text-[10px] font-bold border transition-all
-                                                ${isActive 
-                                                    ? 'bg-slate-100 border-slate-100 text-slate-900 shadow-sm' 
-                                                    : `${roleColor} hover:bg-slate-800`
-                                                }
-                                            `}
-                                        >
-                                            {roleLabel}
-                                        </button>
-                                    );
-                                })}
+                                        return (
+                                            <button
+                                                key={user.id}
+                                                onClick={() => { setActivePersona(user); setIsOpen(false); }}
+                                                className={`
+                                                    px-1 py-1.5 rounded-lg text-[10px] font-bold border transition-all
+                                                    ${isActive 
+                                                        ? 'bg-slate-100 border-slate-100 text-slate-900 shadow-sm' 
+                                                        : `${roleColor} hover:bg-slate-800`
+                                                    }
+                                                `}
+                                            >
+                                                {roleLabel}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
 
             <button 
-                onClick={() => setIsOpen(!isOpen)}
+                onClick={() => !disabled && setIsOpen(!isOpen)}
+                disabled={disabled}
                 className={`
                     w-12 h-12 rounded-full shadow-xl flex items-center justify-center transition-all pointer-events-auto
-                    ${isOpen ? 'bg-slate-700 text-white rotate-90' : 'bg-slate-900 text-blue-400 hover:bg-blue-600 hover:text-white hover:scale-110'}
+                    ${disabled 
+                        ? 'bg-slate-800 text-slate-600 cursor-not-allowed opacity-50 grayscale' 
+                        : (isOpen ? 'bg-slate-700 text-white rotate-90' : 'bg-slate-900 text-blue-400 hover:bg-blue-600 hover:text-white hover:scale-110')
+                    }
                 `}
-                title="Сменить пользователя"
+                title={disabled ? "Смена роли недоступна внутри задачи" : "Сменить пользователя"}
             >
                 <Users size={20} />
             </button>
@@ -230,8 +238,9 @@ function ProjectEditorRoute({ user }) {
         return true;
     };
 
-    const handleBackToDashboard = () => { 
-        if (hasUnsavedChanges) {
+    // [ИЗМЕНЕНО] Добавлен аргумент force для обхода проверки
+    const handleBackToDashboard = (force = false) => { 
+        if (hasUnsavedChanges && !force) {
             if (!window.confirm("Есть несохраненные изменения! Выйти без сохранения?")) return;
             setHasUnsavedChanges(false);
         }
@@ -239,10 +248,9 @@ function ProjectEditorRoute({ user }) {
     };
 
     const onStepChange = (idx) => { 
-        if (hasUnsavedChanges) {
-            if (!window.confirm("Есть несохраненные изменения! При переходе они пропадут. Продолжить?")) return;
-            setHasUnsavedChanges(false);
-        }
+        // [ИЗМЕНЕНО] Удалена проверка hasUnsavedChanges.
+        // Теперь навигация по шагам свободная, пока мы внутри редактора.
+        // Сохранение остается на совести пользователя (индикатор горит).
 
         if (canGoToStep(idx)) {
             setEditingBuildingId(null); 
@@ -297,7 +305,7 @@ function ProjectEditorRoute({ user }) {
                 onStepChange={onStepChange} 
                 isOpen={sidebarOpen} 
                 onToggle={() => setSidebarOpen(!sidebarOpen)} 
-                onBackToDashboard={handleBackToDashboard}
+                onBackToDashboard={handleBackToDashboard} // [ИЗМЕНЕНО] Передаем функцию как ссылку, чтобы аргументы работали
                 maxAllowedStep={maxAllowedStep} 
             />
             <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
@@ -322,12 +330,13 @@ function ProjectEditorRoute({ user }) {
                                 <History size={14}/> История
                             </button>
                             <div className="w-px h-3 bg-blue-200"></div>
-                            <button onClick={handleBackToDashboard} className="hover:underline opacity-80">Закрыть</button>
+                            <button onClick={() => handleBackToDashboard(false)} className="hover:underline opacity-80">Закрыть</button>
                         </div>
                     </div>
                 )}
                 
-                <DevRoleSwitcher />
+                {/* [ИЗМЕНЕНО] Блокируем смену ролей внутри задачи */}
+                <DevRoleSwitcher disabled={true} />
 
                 {historyOpen && <HistoryModal history={applicationInfo?.history || []} onClose={() => setHistoryOpen(false)} />}
 
@@ -378,15 +387,36 @@ const MainLayout = ({ firebaseUser, activePersona }) => {
                 onLogout={handleLogout} 
             />
             
-            <DevRoleSwitcher />
+            {/* [ИЗМЕНЕНО] На дашборде смена ролей активна */}
+            <DevRoleSwitcher disabled={false} />
         </div>
     );
 };
 
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
-  const [activePersona, setActivePersona] = useState(TEST_USERS[0]);
+  
+  // [ИЗМЕНЕНО] Инициализация из localStorage
+  const [activePersona, setActivePersona] = useState(() => {
+      try {
+          const saved = localStorage.getItem('dev_active_persona');
+          if (saved) {
+              return JSON.parse(saved);
+          }
+      } catch (e) {
+          console.error("Ошибка чтения роли из storage", e);
+      }
+      return TEST_USERS[0];
+  });
+
   const [isAuthLoading, setIsAuthLoading] = useState(false);
+
+  // [ИЗМЕНЕНО] Сохранение в localStorage при изменении
+  useEffect(() => {
+      if (activePersona) {
+          localStorage.setItem('dev_active_persona', JSON.stringify(activePersona));
+      }
+  }, [activePersona]);
 
   useEffect(() => {
     const unsubscribe = AuthService.subscribe((u) => { 

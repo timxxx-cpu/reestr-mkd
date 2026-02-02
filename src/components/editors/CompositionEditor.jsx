@@ -1,11 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Home, Layout, Car, Box, Pencil, Trash2, X, Sparkles, Building2, 
-  Calendar, Hash, Clock, ArrowRight, Plus, Layers, AlertCircle, Eye
+  Calendar, Hash, Clock, ArrowRight, Layers, AlertCircle, Eye
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Button, Input, Select, Label, SectionTitle, useReadOnly } from '../ui/UIKit';
-import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { calculateProgress, getStageColor } from '../../lib/utils';
 // ВАЛИДАЦИЯ
 import { BuildingModalSchema } from '../../lib/schemas';
@@ -222,7 +221,7 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
 };
 
 export default function CompositionEditor() {
-    const { composition, setComposition, buildingDetails, setBuildingDetails, saveData, deleteProjectBuilding } = useProject();
+    const { composition, setComposition, setBuildingDetails, deleteProjectBuilding } = useProject();
     const isReadOnly = useReadOnly();
 
     const [modal, setModal] = useState({ 
@@ -246,10 +245,6 @@ export default function CompositionEditor() {
     const hasResidential = useMemo(() => {
         return composition.some(c => c.category.includes('residential'));
     }, [composition]);
-
-    const handleSave = async () => {
-        await saveData({}, true); 
-    };
 
     const generateDemoComplex = () => {
         if (!window.confirm("Создать демо-данные? Текущий список будет дополнен.")) return;
@@ -528,8 +523,6 @@ export default function CompositionEditor() {
             </div>
 
             {modal.isOpen && <BuildingModal modal={modal} setModal={setModal} onCommit={commitPlanning} />}
-
-            <SaveFloatingBar onSave={handleSave} disabled={!hasResidential} />
         </div>
     );
 }

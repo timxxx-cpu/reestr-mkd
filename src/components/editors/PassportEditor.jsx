@@ -7,7 +7,6 @@ import {
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, SectionTitle, Label, Input, Button, useReadOnly } from '../ui/UIKit';
-import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { calculateProgress } from '../../lib/utils';
 import { ComplexInfoSchema } from '../../lib/schemas';
 import { useValidation } from '../../hooks/useValidation';
@@ -407,8 +406,6 @@ export default function PassportEditor() {
 
                 </div>
             </div>
-
-            <SaveFloatingBar onSave={handleSave} disabled={!isValid} />
         </div>
     );
 }

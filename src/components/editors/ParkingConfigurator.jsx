@@ -2,12 +2,12 @@ import React, { useMemo } from 'react';
 import { Save, Car, CheckCircle2 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { Card, Button, Input, useReadOnly } from '../ui/UIKit'; // Input вместо DebouncedInput
-import SaveFloatingBar from '../ui/SaveFloatingBar'; 
 import { getBlocksList } from '../../lib/utils';
 // ВАЛИДАЦИЯ
 import { ParkingLevelConfigSchema } from '../../lib/schemas';
 
-export default function ParkingConfigurator({ onSave, buildingId }) {
+// Убрали onSave из пропсов
+export default function ParkingConfigurator({ buildingId }) {
     const { composition, buildingDetails, setBuildingDetails, parkingPlaces, setParkingPlaces, saveBuildingData, saveData } = useProject();
     const isReadOnly = useReadOnly();
 
@@ -221,6 +221,9 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
         });
     };
 
+    // Функция сохранения теперь используется только внутри (если нужно)
+    // но в текущей архитектуре сохранение происходит через верхний бар
+    // eslint-disable-next-line no-unused-vars
     const handleSave = async () => {
         const specificData = {};
         if (buildingId) {
@@ -325,8 +328,6 @@ export default function ParkingConfigurator({ onSave, buildingId }) {
                     <p className="text-xs mt-2 max-w-sm mx-auto">В проекте нет зданий типа "Паркинг" и жилых домов с подвалами.</p>
                 </div>
             )}
-
-            <SaveFloatingBar onSave={handleSave} />
         </div>
     );
 }
