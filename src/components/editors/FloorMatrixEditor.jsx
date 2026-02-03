@@ -1,20 +1,37 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { 
-  ArrowLeft, Wand2, ArrowUp, ChevronsDown, 
-  Ruler, Maximize2, FileText, ArrowUpFromLine, AlertCircle,
-  CheckSquare, Square, MoreHorizontal, X, LayoutTemplate
+  ArrowUp, ChevronsDown, Ruler, Maximize2, FileText, 
+  ArrowUpFromLine, AlertCircle, CheckSquare, Square, 
+  MoreHorizontal, X, Wand2
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, DebouncedInput, TabButton, Button, Input, useReadOnly } from '../ui/UIKit';
-import SaveFloatingBar from '../ui/SaveFloatingBar'; 
+import { Card, DebouncedInput, Input, useReadOnly } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 import { FloorDataSchema } from '../../lib/schemas';
 import { Validators } from '../../lib/validators';
 import { useBuildingType } from '../../hooks/useBuildingType';
+import ConfigHeader from './configurator/ConfigHeader';
+
+// Кастомная кнопка таба в темном стиле
+const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
+    <button
+        onClick={onClick}
+        className={`
+            px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2
+            ${active 
+                ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50 ring-1 ring-blue-400" 
+                : "text-slate-400 hover:text-white hover:bg-slate-700"
+            }
+        `}
+    >
+        {Icon && <Icon size={14} className={active ? "text-blue-200" : "opacity-70"}/>}
+        {children}
+    </button>
+);
 
 export default function FloorMatrixEditor({ buildingId, onBack }) {
-    const { composition, floorData, setFloorData, saveBuildingData, saveData } = useProject();
+    const { composition, floorData, setFloorData } = useProject();
     const isReadOnly = useReadOnly();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
     
@@ -26,7 +43,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
     const building = composition.find(c => c.id === buildingId);
     
-    const { isGroundOpen, isGroundLight } = useBuildingType(building);
+    const typeInfo = useBuildingType(building);
+    const { isGroundOpen, isGroundLight, isParking, isInfrastructure, isUnderground } = typeInfo;
     const isExcludedType = isGroundOpen || isGroundLight;
 
     const blocksList = useMemo(() => getBlocksList(building), [building]);
@@ -52,11 +70,20 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
     if (isExcludedType) {
         return (
-            <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-4 animate-in fade-in">
-                <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400"><Ruler size={40} /></div>
-                <h3 className="text-xl font-bold text-slate-700">Внешняя инвентаризация не требуется</h3>
-                <p className="text-slate-500 max-w-md">Для паркингов открытого типа или легких конструкций обмеры этажей не производятся.</p>
-                <Button onClick={onBack} variant="secondary">Вернуться назад</Button>
+            <div className="space-y-6 pb-20 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in">
+                <ConfigHeader 
+                    building={building} 
+                    isParking={isParking} 
+                    isInfrastructure={isInfrastructure} 
+                    isUnderground={isUnderground} 
+                    onBack={onBack} 
+                    isSticky={false} // [FIX] Отключаем залипание
+                />
+                <div className="flex flex-col items-center justify-center h-[40vh] text-center space-y-4 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200">
+                    <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400"><Ruler size={40} /></div>
+                    <h3 className="text-xl font-bold text-slate-700">Внешняя инвентаризация не требуется</h3>
+                    <p className="text-slate-500 max-w-md">Для паркингов открытого типа или легких конструкций обмеры этажей не производятся.</p>
+                </div>
             </div>
         );
     }
@@ -70,13 +97,11 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         setFloorData(p => ({
             ...p, 
             [key]: { 
-                id: p[key]?.id || crypto.randomUUID(), // UUID
+                id: p[key]?.id || crypto.randomUUID(),
                 ...(p[key]||{}), 
                 [field]: value,
-                // FKs
                 buildingId: building.id,
                 blockId: currentBlock.id,
-                // floorId в данном случае это сам floorId из пропсов, но он строковый
             } 
         })); 
     }, [currentBlock.fullId, setFloorData, isReadOnly, building.id, currentBlock.id]);
@@ -158,26 +183,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         }
         setFloorData(p => ({ ...p, ...updates }));
     };
-
-    const hasCriticalErrors = useMemo(() => {
-        for (const f of floorList) {
-            const key = `${currentBlock.fullId}_${f.id}`;
-            const val = (floorData[key] || {});
-            
-            const result = FloorDataSchema.safeParse(val);
-            if (!result.success) return true;
-
-            const heightError = Validators.floorHeight(f.type, val.height);
-            if (heightError) return true;
-
-            const areaError = Validators.checkPositive(val.areaProj);
-            if (areaError) return true;
-
-            const diffError = Validators.checkDiff(val.areaProj, val.areaFact);
-            if (diffError) return true;
-        }
-        return false;
-    }, [floorList, floorData, currentBlock.fullId]);
 
     const handleKeyDown = (e, rowIndex, colKey) => {
         if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
@@ -276,57 +281,40 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         };
         return <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${styles[type] || styles.residential}`}>{labels[type] || type}</span>;
     };
-
-    const handleSave = async () => { 
-        const specificData = {};
-        Object.keys(floorData).forEach(k => { if (k.startsWith(building.id)) specificData[k] = floorData[k]; });
-        // Используем сервис с трансформацией внутри
-        await saveBuildingData(building.id, 'floorData', specificData);
-        await saveData({}, true); 
-    };
     
     return (
-        <div className="space-y-6 pb-24 max-w-7xl mx-auto animate-in fade-in duration-500 relative">
-             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 flex flex-col md:flex-row justify-between items-center gap-4">
-                 <div className="flex items-center gap-4 w-full md:w-auto">
-                     <button onClick={onBack} className="p-2.5 hover:bg-slate-100 rounded-xl text-slate-500 hover:text-slate-800 transition-colors">
-                         <ArrowLeft size={20}/>
-                     </button>
-                     <div>
-                         <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                             <LayoutTemplate size={20} className="text-blue-600"/>
-                             {building.label}
-                         </h2>
-                         <div className="flex items-center gap-3 mt-1.5">
-                             <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase">Дом №</span>
-                                <span className="text-xs font-bold text-slate-700">{building.houseNumber}</span>
-                             </div>
-                             <div className="w-px h-4 bg-slate-200"></div>
-                             <span className="text-xs font-medium text-slate-500">{building.type}</span>
-                         </div>
-                     </div>
-                 </div>
-                 
-                 <div className="flex items-center gap-3 w-full md:w-auto">
-                     <button 
-                        onClick={autoFill} 
-                        disabled={isReadOnly}
-                        className={`flex-1 md:flex-none h-10 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors border ${isReadOnly ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border-indigo-100'}`}
-                     >
-                        <Wand2 size={14}/> Авто-заполнение
-                     </button>
-                     <Button variant="secondary" onClick={onBack} className="h-10">Закрыть</Button>
-                 </div>
-             </div>
+        <div className="space-y-6 pb-24 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in duration-500 relative">
+             <ConfigHeader 
+                building={building} 
+                isParking={isParking} 
+                isInfrastructure={isInfrastructure} 
+                isUnderground={isUnderground} 
+                onBack={onBack} 
+                isSticky={false} // [FIX] Отключаем залипание, чтобы не было конфликта
+             />
 
-             <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                {blocksList.map((b,i) => (
-                    <TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)} className="shadow-sm border border-slate-200">
-                        {b.icon && <b.icon size={14} className="mr-1.5 opacity-70"/>}{b.tabLabel}
-                    </TabButton>
-                ))}
-            </div>
+             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                 <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full shadow-inner border border-slate-700 custom-scrollbar">
+                    {blocksList.map((b,i) => (
+                        <DarkTabButton 
+                            key={b.id} 
+                            active={activeBlockIndex===i} 
+                            onClick={()=>setActiveBlockIndex(i)} 
+                            icon={b.icon}
+                        >
+                            {b.tabLabel}
+                        </DarkTabButton>
+                    ))}
+                </div>
+
+                <button 
+                    onClick={autoFill} 
+                    disabled={isReadOnly}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border shadow-sm ${isReadOnly ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 hover:border-indigo-200'}`}
+                >
+                    <Wand2 size={16}/> Авто-заполнение
+                </button>
+             </div>
 
             {selectedRows.size > 0 && !isReadOnly && (
                 <div className="sticky top-4 z-50 mx-auto max-w-2xl animate-in slide-in-from-top-4 fade-in duration-300">
@@ -355,33 +343,36 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 </div>
             )}
 
-            <Card className="overflow-hidden shadow-sm border border-slate-200 rounded-2xl bg-white">
+            <Card className="overflow-hidden shadow-lg border border-slate-300 rounded-2xl bg-white">
                 <div className="overflow-x-auto max-h-[70vh] scrollbar-thin"> 
                     <table className="w-full relative border-collapse text-sm table-fixed">
-                        <thead className="sticky top-0 z-30 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
-                            <tr className="bg-slate-50/90 backdrop-blur border-b border-slate-200">
-                                <th className="p-0 w-12 text-center border-r border-slate-200 sticky left-0 z-40 bg-slate-50">
+                        <thead className="sticky top-0 z-30 shadow-md">
+                            <tr className="bg-slate-100 border-b-2 border-slate-300">
+                                <th className="p-0 w-12 text-center border-r border-slate-300 sticky left-0 z-40 bg-slate-100">
                                     <div className="h-full w-full flex items-center justify-center">
-                                        <button disabled={isReadOnly} onClick={toggleAll} className={`text-slate-400 hover:text-blue-600 transition-colors p-2 ${isReadOnly ? 'cursor-not-allowed opacity-50' : ''}`}>
+                                        <button disabled={isReadOnly} onClick={toggleAll} className={`text-slate-500 hover:text-blue-600 transition-colors p-2 ${isReadOnly ? 'cursor-not-allowed opacity-50' : ''}`}>
                                             {selectedRows.size === floorList.length && floorList.length > 0 ? <CheckSquare size={18} className="text-blue-600"/> : <Square size={18}/>}
                                         </button>
                                     </div>
                                 </th>
-                                <th className="px-4 py-3 text-left w-64 border-r border-slate-200 sticky left-12 z-40 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] bg-slate-50">
-                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Уровень / Этаж</span>
+                                <th className="px-4 py-3 text-left w-36 border-r border-slate-300 sticky left-12 z-40 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)] bg-slate-100">
+                                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Этаж</span>
                                 </th>
-                                <th className="px-4 py-3 w-48 text-center border-r border-slate-100 bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                    <div className="flex items-center justify-center gap-1.5"><Ruler size={14} className="text-slate-400"/> Высота (м)</div>
+                                <th className="px-4 py-3 text-left w-48 border-r border-slate-300 bg-slate-100">
+                                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Тип этажа</span>
                                 </th>
-                                <th className="px-4 py-3 w-48 text-center border-r border-slate-100 bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                    <div className="flex items-center justify-center gap-1.5"><FileText size={14} className="text-slate-400"/> S Проект (м²)</div>
+                                <th className="px-4 py-3 w-48 text-center border-r border-slate-300 bg-slate-100 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                    <div className="flex items-center justify-center gap-1.5"><Ruler size={14} className="text-slate-500"/> Высота (м)</div>
                                 </th>
-                                <th className="px-4 py-3 w-48 text-center bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                    <div className="flex items-center justify-center gap-1.5"><Maximize2 size={14} className="text-slate-400"/> S Факт (м²)</div>
+                                <th className="px-4 py-3 w-48 text-center border-r border-slate-300 bg-slate-100 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                    <div className="flex items-center justify-center gap-1.5"><FileText size={14} className="text-slate-500"/> Площадь по проекту (м²)</div>
+                                </th>
+                                <th className="px-4 py-3 w-48 text-center bg-slate-100 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                    <div className="flex items-center justify-center gap-1.5"><Maximize2 size={14} className="text-slate-500"/> Площадь по обмерам (м²)</div>
                                 </th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100 bg-white">
+                        <tbody className="divide-y divide-slate-200 bg-white">
                             {floorList.map((f, idx) => {
                                 const key = `${currentBlock.fullId}_${f.id}`; 
                                 const val = (floorData[key] || {});
@@ -393,13 +384,13 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                 const diffErrorMsg = Validators.checkDiff(val.areaProj, val.areaFact);
                                 const hasDiffError = !!diffErrorMsg;
 
-                                const borderClass = f.isSeparator ? "border-b-[4px] border-slate-100" : "";
-                                const rowBg = isSelected ? "bg-blue-50" : (idx % 2 === 0 ? "bg-slate-50/30" : "bg-white");
+                                const borderClass = f.isSeparator ? "border-b-[4px] border-slate-200" : "";
+                                const rowBg = isSelected ? "bg-blue-50" : (idx % 2 === 0 ? "bg-slate-50/50" : "bg-white");
 
                                 return (
-                                    <tr key={f.id} className={`${rowBg} hover:bg-slate-50 transition-colors group ${borderClass}`}>
+                                    <tr key={f.id} className={`${rowBg} hover:bg-blue-50/30 transition-colors group ${borderClass}`}>
                                         
-                                        <td className="p-0 text-center border-r border-slate-100 sticky left-0 z-20 bg-inherit">
+                                        <td className="p-0 text-center border-r border-slate-200 sticky left-0 z-20 bg-inherit">
                                             <div className="h-full w-full flex items-center justify-center backdrop-blur-sm">
                                                 <button disabled={isReadOnly} onClick={() => toggleRow(f.id)} className={`text-slate-300 hover:text-blue-600 transition-colors p-2 ${isReadOnly ? 'cursor-not-allowed opacity-50' : ''}`}>
                                                     {isSelected ? <CheckSquare size={18} className="text-blue-600"/> : <Square size={18}/>}
@@ -407,14 +398,11 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                             </div>
                                         </td>
 
-                                        <td className={`px-4 py-3 border-r border-slate-100 sticky left-12 z-20 bg-inherit shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] relative group/label ${openMenuId === f.id ? 'z-50' : ''}`}>
+                                        <td className={`px-4 py-3 border-r border-slate-200 sticky left-12 z-20 bg-inherit shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] relative group/label ${openMenuId === f.id ? 'z-50' : ''}`}>
                                             <div className="flex items-center justify-between">
-                                                <div className="flex flex-col gap-1">
-                                                    <div className="flex items-center gap-2">
-                                                        {f.isInserted && <ArrowUpFromLine size={14} className="text-amber-500"/>}
-                                                        <span className={`font-bold text-sm ${f.isInserted ? 'text-amber-700' : 'text-slate-700'}`}>{f.label}</span>
-                                                    </div>
-                                                    {renderTypeBadge(f.type)}
+                                                <div className="flex items-center gap-2">
+                                                    {f.isInserted && <ArrowUpFromLine size={14} className="text-amber-500"/>}
+                                                    <span className={`font-bold text-sm ${f.isInserted ? 'text-amber-700' : 'text-slate-700'}`}>{f.label}</span>
                                                 </div>
                                                 
                                                 {!isReadOnly && (
@@ -440,6 +428,10 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                     </button>
                                                 </div>
                                             )}
+                                        </td>
+
+                                        <td className="px-4 py-3 border-r border-slate-200 bg-inherit">
+                                            {renderTypeBadge(f.type)}
                                         </td>
 
                                         {
@@ -480,7 +472,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                 }
 
                                                 return (
-                                                    <td key={field.id} className="p-2 border-r border-slate-100 relative group/input">
+                                                    <td key={field.id} className="p-2 border-r border-slate-200 relative group/input">
                                                         <div className="relative h-10">
                                                             <DebouncedInput 
                                                                 ref={el => inputsRef.current[`${idx}-${field.id}`] = el}
@@ -534,8 +526,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                     </table>
                 </div>
             </Card>
-
-            <SaveFloatingBar onSave={handleSave} disabled={hasCriticalErrors} />
         </div>
     );
 }

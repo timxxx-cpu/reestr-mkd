@@ -8,7 +8,14 @@ const PARKING_TYPE_LABELS = {
     open: "Открытый"
 };
 
-export default function ConfigHeader({ building, isParking, isInfrastructure, isUnderground, onBack }) {
+export default function ConfigHeader({ 
+    building, 
+    isParking, 
+    isInfrastructure, 
+    isUnderground, 
+    onBack,
+    isSticky = true // [NEW] Возможность отключить sticky-позиционирование
+}) {
     // Определяем иконку и ЦВЕТ типа
     let TypeIcon = Building2;
     let accentColor = "border-blue-500"; // Дефолт (Жилье)
@@ -27,9 +34,11 @@ export default function ConfigHeader({ building, isParking, isInfrastructure, is
     // Формируем полный адрес
     const fullAddress = [building.region, building.district, building.address].filter(Boolean).join(', ');
 
+    // [NEW] Класс позиционирования
+    const positionClass = isSticky ? "sticky top-2 z-30" : "relative";
+
     return (
-        // [ИЗМЕНЕНО] Добавлен accentColor (цветная полоса сверху) и bg-slate-50/50
-        <div className={`bg-slate-50/80 backdrop-blur-sm rounded-xl border border-slate-200 shadow-sm mb-6 sticky top-2 z-30 ${accentColor} border-t-4`}>
+        <div className={`bg-slate-50/80 backdrop-blur-sm rounded-xl border border-slate-200 shadow-sm mb-6 ${positionClass} ${accentColor} border-t-4`}>
             <div className="flex flex-col md:flex-row items-stretch">
                 
                 {/* ЛЕВАЯ ЧАСТЬ: Кнопка Назад */}

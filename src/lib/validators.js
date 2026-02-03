@@ -37,9 +37,10 @@ export const Validators = {
 
     /**
      * Проверка расхождения площадей (> 15%)
+     * Это КРИТИЧЕСКАЯ ошибка, блокирующая переход.
      * @param {number|string} proj - Проектная площадь
      * @param {number|string} fact - Фактическая площадь
-     * @returns {string|null} 'warning_diff' или null
+     * @returns {string|null} Текст ошибки или null
      */
     checkDiff: (proj, fact) => {
         const p = parseFloat(String(proj));
@@ -48,7 +49,7 @@ export const Validators = {
         // Считаем разницу только если оба значения валидны (положительны)
         if (p > 0 && f > 0) {
             const diffPercent = Math.abs(p - f) / p * 100;
-            if (diffPercent > 15) return "warning_diff";
+            if (diffPercent > 15) return "Расхождение > 15%";
         }
         return null;
     },
@@ -112,7 +113,7 @@ export const Validators = {
     },
 
     /**
-     * [NEW] Проверка доступности поля ввода (квартиры/офисы) на этаже
+     * Проверка доступности поля ввода (квартиры/офисы) на этаже
      * @param {Object} floor - Объект этажа из floorList
      * @param {string} field - Поле ('apts' | 'units' | 'mopQty')
      * @param {boolean} isUnderground - Флаг подземного сооружения
@@ -127,8 +128,7 @@ export const Validators = {
         }
         
         if (field === 'units') {
-            // [ИЗМЕНЕНО] БЛОКИРУЕМ ввод офисов для этажей стилобата
-            // (т.к. они управляются в редакторе нежилого блока)
+            // БЛОКИРУЕМ ввод офисов для этажей стилобата (они управляются в редакторе нежилого блока)
             if (floor.type === 'stylobate') return false; 
             
             return floor.isComm; 

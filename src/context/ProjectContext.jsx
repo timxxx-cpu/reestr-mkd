@@ -72,7 +72,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   }, [serverBuildings]);
 
   const mergedState = useMemo(() => {
-    // [FIX] Приводим к any, чтобы TS не ругался на отсутствие полей в пустом объекте {}
     const meta = /** @type {any} */ (projectMeta);
     
     const defaultAppInfo = {
@@ -144,11 +143,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
   // --- МЕТОДЫ ---
 
-  /**
-   * Обновленная функция saveData (Ручной режим)
-   * Больше не отправляет данные в Firebase автоматически.
-   * Только обновляет локальный буфер (pendingUpdatesRef) и ставит флаг изменений.
-   */
   const saveData = useCallback((updates = {}, showNotification = false, bypassReadOnly = false) => {
     if (!dbScope || !projectId) return;
     if (isReadOnly && !bypassReadOnly) {
@@ -156,44 +150,100 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         return;
     }
     
-    // Игнорируем события кликов, если они случайно попали сюда
     if (updates && (updates.nativeEvent || updates.type === 'click')) { updates = {}; }
     
-    // 1. Очищаем "тяжелые" ключи из updates, если они пришли целиком (оптимизация)
     const safeUpdates = { ...updates };
     HEAVY_KEYS.forEach(k => delete safeUpdates[k]);
     
-    // 2. Просто складываем изменения в буфер
     pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...safeUpdates };
     
-    // 3. Включаем индикатор "Есть несохраненные изменения"
     if (Object.keys(pendingUpdatesRef.current).length > 0) {
         setHasUnsavedChanges(true);
     }
-
-    // ТАЙМЕР И ОТПРАВКА УБРАНЫ. 
-    // Теперь данные уйдут только при явном вызове saveProjectImmediate() (кнопка "Сохранить")
   }, [dbScope, projectId, toast, isReadOnly]);
 
   const saveProjectImmediate = useCallback(async () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       
-      const payload = { ...pendingUpdatesRef.current };
+      // Копируем изменения для сохранения
+      const changes = { ...pendingUpdatesRef.current };
       pendingUpdatesRef.current = {}; 
       
       setIsSyncing(true);
       try {
-          if (Object.keys(payload).length > 0) {
-              await RegistryService.saveData(dbScope, projectId, payload);
+          if (Object.keys(changes).length > 0) {
+              
+              // 1. ОТДЕЛЯЕМ ТЯЖЕЛЫЕ ДАННЫЕ (МАТРИЦЫ)
+              const buildingUpdates = {};
+
+              // Хелпер
+              const addToBuilding = (bId, key, data) => {
+                  if (!buildingUpdates[bId]) buildingUpdates[bId] = {};
+                  if (!buildingUpdates[bId][key]) buildingUpdates[bId][key] = {};
+                  
+                  // Фильтрация данных только для текущего здания
+                  Object.keys(data).forEach(k => {
+                      if (k.startsWith(bId)) {
+                          buildingUpdates[bId][key][k] = data[k];
+                      }
+                  });
+              };
+
+              // Список ключей, которые должны уйти в sub-collections
+              const MATRIX_KEYS = {
+                  'floorData': 'floorData',
+                  'entrancesData': 'entrancesData',
+                  'mopData': 'commonAreasData',
+                  'flatMatrix': 'apartmentsData',
+                  'parkingPlaces': 'parkingData'
+              };
+
+              Object.keys(changes).forEach(changeKey => {
+                  if (MATRIX_KEYS[changeKey]) {
+                      const firebaseKey = MATRIX_KEYS[changeKey];
+                      const fullData = changes[changeKey];
+                      
+                      // Пробегаемся по всем зданиям проекта (берем из текущего состояния)
+                      // @ts-ignore
+                      mergedState.composition.forEach(b => {
+                          addToBuilding(b.id, firebaseKey, fullData);
+                      });
+                      
+                      // Удаляем этот ключ из general updates
+                      delete changes[changeKey];
+                  }
+              });
+
+              // 2. Сохраняем общие данные в документ проекта
+              if (Object.keys(changes).length > 0) {
+                  await RegistryService.saveData(dbScope, projectId, changes);
+              }
+
+              // 3. Сохраняем данные зданий в подколлекции
+              const buildingPromises = Object.entries(buildingUpdates).map(([bId, bData]) => {
+                  // Проверяем, есть ли что сохранять для этого здания
+                  const hasData = Object.values(bData).some(val => Object.keys(val).length > 0);
+                  if (!hasData) return Promise.resolve();
+
+                  const payload = {
+                      buildingSpecificData: {
+                          [bId]: bData
+                      }
+                  };
+                  return RegistryService.saveData(dbScope, projectId, payload);
+              });
+
+              await Promise.all(buildingPromises);
           }
       } catch(e) {
           console.error("Force Save Error", e);
+          toast.error("Ошибка сохранения данных");
           throw e;
       } finally {
           setIsSyncing(false);
           setHasUnsavedChanges(false);
       }
-  }, [dbScope, projectId]);
+  }, [dbScope, projectId, mergedState.composition]);
 
   const completeTask = useCallback(async (currentIndex) => {
       await saveProjectImmediate();
@@ -371,6 +421,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       return newStepIndex;
   }, [dbScope, projectId, mergedState, userProfile]);
 
+  // Сохранено для совместимости (если вдруг используется напрямую)
   const saveBuildingData = useCallback(async (buildingId, dataKey, dataVal) => {
       if (isReadOnly) { toast.error("Редактирование запрещено"); return; }
       setIsSyncing(true);

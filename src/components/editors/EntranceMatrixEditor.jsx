@@ -1,22 +1,37 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
-  ArrowLeft, Wand2, ArrowDown, ArrowUp, 
-  DoorOpen, ChevronLeft, ChevronsRight, Ban,
-  MoreHorizontal, ChevronsDown, LayoutTemplate,
-  Home, Briefcase, PaintBucket, AlertCircle, X, Check,
-  Warehouse
+  ArrowDown, ArrowLeft, DoorOpen, ChevronLeft, ChevronsRight, Ban,
+  MoreHorizontal, ChevronsDown,
+  Home, Briefcase, PaintBucket, AlertCircle, Warehouse, Wand2
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, DebouncedInput, TabButton, Button, useReadOnly } from '../ui/UIKit';
-import SaveFloatingBar from '../ui/SaveFloatingBar'; 
+import { Card, DebouncedInput, useReadOnly } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 import { Validators } from '../../lib/validators';
 import { EntranceDataSchema } from '../../lib/schemas';
 import { useBuildingType } from '../../hooks/useBuildingType';
+import ConfigHeader from './configurator/ConfigHeader';
+
+// Кастомная кнопка таба в темном стиле
+const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
+    <button
+        onClick={onClick}
+        className={`
+            px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2
+            ${active 
+                ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50 ring-1 ring-blue-400" 
+                : "text-slate-400 hover:text-white hover:bg-slate-700"
+            }
+        `}
+    >
+        {Icon && <Icon size={14} className={active ? "text-blue-200" : "opacity-70"}/>}
+        {children}
+    </button>
+);
 
 export default function EntranceMatrixEditor({ buildingId, onBack }) {
-    const { composition, buildingDetails, entrancesData, setEntrancesData, floorData, setFloorData, saveBuildingData, saveData } = useProject();
+    const { composition, buildingDetails, entrancesData, setEntrancesData, floorData, setFloorData } = useProject();
     const isReadOnly = useReadOnly();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
     
@@ -27,7 +42,8 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     const menuRef = useRef(null);
 
     const building = composition.find(c => c.id === buildingId);
-    const { isUnderground, isParking } = useBuildingType(building);
+    const typeInfo = useBuildingType(building);
+    const { isUnderground, isParking, isInfrastructure } = typeInfo;
 
     const blocksList = useMemo(() => getBlocksList(building), [building]);
     const { floorList, currentBlock } = useBuildingFloors(buildingId, activeBlockIndex);
@@ -83,10 +99,9 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             return { 
                 ...prev, 
                 [key]: { 
-                    id: existing.id || crypto.randomUUID(), // Генерируем UUID
+                    id: existing.id || crypto.randomUUID(), 
                     ...existing, 
                     [field]: safeVal,
-                    // Добавляем внешние ключи для будущего экспорта
                     buildingId: building.id,
                     blockId: currentBlock.id,
                     floorId: floorId,
@@ -156,20 +171,6 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
         return false;
     };
-
-    const hasCriticalErrors = useMemo(() => {
-        for (let i = 0; i < floorList.length; i++) {
-            const f = floorList[i];
-            for (const e of entrancesList) {
-                for (const field of ['apts', 'units', 'mopQty']) {
-                    if (!isFieldEnabled(f, field)) continue;
-                    const val = getEntData(e, f.id, field);
-                    if (getCellError(f, i, e, field, val)) return true;
-                }
-            }
-        }
-        return false;
-    }, [floorList, entrancesList, entrancesData, currentBlock, floorData]);
 
     const handleKeyDown = (e, floorIdx, entIdx, field) => {
         if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
@@ -244,7 +245,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 const key = `${currentBlock.fullId}_ent${ent}_${targetFloor.id}`;
                 const currentData = entrancesData[key] || {};
                 updates[key] = { 
-                    id: currentData.id || crypto.randomUUID(), // UUID
+                    id: currentData.id || crypto.randomUUID(), 
                     ...currentData, 
                     [field]: sourceVal,
                     buildingId: building.id,
@@ -271,7 +272,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             const key = `${currentBlock.fullId}_ent${ent}_${f.id}`;
             const existing = entrancesData[key] || {};
             updates[key] = { 
-                id: existing.id || crypto.randomUUID(), // UUID
+                id: existing.id || crypto.randomUUID(), 
                 apts, 
                 mopQty: 1, 
                 units: (f.isComm) ? 1 : 0,
@@ -297,9 +298,8 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
             if(srcData) {
                 const newData = { ...srcData };
-                // Сохраняем или генерируем новый ID для целевой ячейки
                 newData.id = tgtExisting.id || crypto.randomUUID();
-                newData.floorId = nextFloor.id; // Обновляем ссылку на этаж
+                newData.floorId = nextFloor.id; 
 
                 if (!isFieldEnabled(nextFloor, 'apts')) newData.apts = 0;
                 if (!isFieldEnabled(nextFloor, 'units')) newData.units = 0;
@@ -325,7 +325,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                     const tgtExisting = entrancesData[tgtKey] || {};
                     
                     const newData = { ...sourceValues[ent] };
-                    newData.id = tgtExisting.id || crypto.randomUUID(); // UUID
+                    newData.id = tgtExisting.id || crypto.randomUUID(); 
                     newData.floorId = targetFloor.id;
 
                     if (!isFieldEnabled(targetFloor, 'apts')) newData.apts = 0;
@@ -350,7 +350,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 ...p, 
                 [tgtKey]: {
                     ...srcData, 
-                    id: tgtExisting.id || crypto.randomUUID(), // UUID
+                    id: tgtExisting.id || crypto.randomUUID(),
                     entranceIndex: entIdx
                 }
             })); 
@@ -369,7 +369,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 const tgtExisting = entrancesData[tgtKey] || {};
                 updates[tgtKey] = {
                     ...srcData, 
-                    id: tgtExisting.id || crypto.randomUUID(), // UUID
+                    id: tgtExisting.id || crypto.randomUUID(), 
                     entranceIndex: ent
                 };
             }
@@ -379,75 +379,56 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
     const renderBadge = (type) => {
         const map = {
-            residential: { color: 'bg-blue-100 text-blue-700', label: 'Жилой' },
-            mixed: { color: 'bg-violet-100 text-violet-700', label: 'Смеш.' },
-            technical: { color: 'bg-amber-100 text-amber-700', label: 'Тех.' },
-            basement: { color: 'bg-slate-200 text-slate-600', label: 'Подвал' },
-            tsokol: { color: 'bg-purple-100 text-purple-700', label: 'Цоколь' },
-            attic: { color: 'bg-teal-100 text-teal-700', label: 'Манс.' },
-            loft: { color: 'bg-gray-200 text-gray-600', label: 'Чердак' },
-            roof: { color: 'bg-sky-100 text-sky-700', label: 'Кровля' },
-            parking_floor: { color: 'bg-indigo-100 text-indigo-700', label: 'Паркинг' },
-            stylobate: { color: 'bg-orange-100 text-orange-700', label: 'Нежилой блок' }
+            residential: { color: 'bg-blue-50 text-blue-600 border-blue-100', label: 'Жилой' },
+            mixed: { color: 'bg-violet-50 text-violet-600 border-violet-100', label: 'Смеш.' },
+            technical: { color: 'bg-amber-50 text-amber-600 border-amber-100', label: 'Тех.' },
+            basement: { color: 'bg-slate-100 text-slate-600 border-slate-200', label: 'Подвал' },
+            tsokol: { color: 'bg-purple-50 text-purple-600 border-purple-100', label: 'Цоколь' },
+            attic: { color: 'bg-teal-50 text-teal-600 border-teal-100', label: 'Манс.' },
+            loft: { color: 'bg-gray-100 text-gray-600 border-gray-200', label: 'Чердак' },
+            roof: { color: 'bg-sky-50 text-sky-600 border-sky-100', label: 'Кровля' },
+            parking_floor: { color: 'bg-indigo-50 text-indigo-600 border-indigo-100', label: 'Паркинг' },
+            stylobate: { color: 'bg-orange-50 text-orange-700 border-orange-100', label: 'Нежилой блок' }
         };
         const style = map[type] || map.residential;
-        return <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${style.color}`}>{style.label}</span>
+        return <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase border ${style.color}`}>{style.label}</span>
     }
 
-    const handleSave = async () => { 
-        const specificData = {};
-        Object.keys(entrancesData).forEach(k => {
-            if (k.startsWith(building.id)) {
-                specificData[k] = entrancesData[k];
-            }
-        });
-
-        await saveBuildingData(building.id, 'entrancesData', specificData);
-        await saveData({}, true);
-    };
-
     return (
-        <div className="space-y-6 pb-24 max-w-7xl mx-auto animate-in fade-in duration-500 relative">
+        <div className="space-y-6 pb-24 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in duration-500 relative">
             
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 flex flex-col md:flex-row justify-between items-center gap-4">
-                 <div className="flex items-center gap-4 w-full md:w-auto">
-                     <button onClick={onBack} className="p-2.5 hover:bg-slate-100 rounded-xl text-slate-500 hover:text-slate-800 transition-colors">
-                         <ArrowLeft size={20}/>
-                     </button>
-                     <div>
-                         <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                             <LayoutTemplate size={20} className="text-blue-600"/>
-                             {building.label}
-                         </h2>
-                         <div className="flex items-center gap-3 mt-1.5">
-                             <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase">Дом №</span>
-                                <span className="text-xs font-bold text-slate-700">{building.houseNumber}</span>
-                             </div>
-                             <div className="w-px h-4 bg-slate-200"></div>
-                             <span className="text-xs font-medium text-slate-500">{building.type}</span>
-                         </div>
-                     </div>
-                 </div>
-                 
-                 <div className="flex items-center gap-3 w-full md:w-auto">
+            <ConfigHeader 
+                building={building} 
+                isParking={isParking} 
+                isInfrastructure={isInfrastructure} 
+                isUnderground={isUnderground} 
+                onBack={onBack} 
+                isSticky={false}
+            />
+
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                 <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full shadow-inner border border-slate-700 custom-scrollbar">
+                    {blocksList.map((b,i) => (
+                        <DarkTabButton 
+                            key={b.id} 
+                            active={activeBlockIndex===i} 
+                            onClick={()=>setActiveBlockIndex(i)} 
+                            icon={b.icon}
+                        >
+                            {b.tabLabel}
+                        </DarkTabButton>
+                    ))}
+                </div>
+
+                <div className="flex items-center gap-3">
                      <button 
                         onClick={autoFill} 
                         disabled={isReadOnly || (!isResidentialBlock && !isParking)} 
-                        className={`flex-1 md:flex-none h-10 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors border ${isReadOnly || (!isResidentialBlock && !isParking) ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border-indigo-100'}`}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border shadow-sm ${isReadOnly || (!isResidentialBlock && !isParking) ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 hover:border-indigo-200'}`}
                      >
-                        <Wand2 size={14}/> Заполнить типовыми
+                        <Wand2 size={16}/> Заполнить типовыми
                      </button>
-                     <Button variant="secondary" onClick={onBack} className="h-10">Закрыть</Button>
-                 </div>
-             </div>
-
-            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                {blocksList.map((b,i) => (
-                    <TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)} className="shadow-sm border border-slate-200">
-                        {b.icon && <b.icon size={14} className="mr-1.5 opacity-70"/>}{b.tabLabel}
-                    </TabButton>
-                ))}
+                </div>
             </div>
 
             {openMenuId && !isReadOnly && (
@@ -466,48 +447,48 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             )}
 
             {showEditor ? (
-                <Card className="overflow-hidden shadow-sm border border-slate-200 rounded-2xl bg-white">
+                <Card className="overflow-hidden shadow-lg border border-slate-300 rounded-2xl bg-white">
                     <div className="overflow-x-auto max-h-[70vh] scrollbar-thin">
                         <table className="w-max border-collapse table-fixed">
-                            <thead className="sticky top-0 z-30 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
-                                <tr className="bg-slate-50/90 backdrop-blur border-b border-slate-200">
-                                    <th className="p-3 text-left w-[120px] min-w-[120px] sticky left-0 z-40 bg-slate-50 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
-                                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">Этаж</span>
+                            <thead className="sticky top-0 z-30 shadow-md">
+                                <tr className="bg-slate-100 border-b-2 border-slate-300">
+                                    <th className="p-3 text-left w-[140px] min-w-[140px] sticky left-0 z-40 bg-slate-100 border-r border-slate-300 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">
+                                        <span className="text-xs font-bold text-slate-700 uppercase tracking-wider pl-1">Этаж</span>
                                     </th>
                                     {entrancesList.map(e => (
-                                        <th key={e} className="p-2 w-[180px] min-w-[180px] border-r border-slate-200/60 bg-slate-50/50">
+                                        <th key={e} className="p-2 w-[180px] min-w-[180px] border-r border-slate-300 bg-slate-100">
                                             <div className="flex flex-col items-center">
-                                                <span className="text-blue-600 mb-1.5 font-bold text-xs bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">{isUnderground ? `Вход ${e}` : `Подъезд ${e}`}</span>
+                                                <span className="text-blue-700 mb-2 font-bold text-xs bg-blue-50 px-3 py-1 rounded-md border border-blue-200 shadow-sm">{isUnderground ? `Вход ${e}` : `Подъезд ${e}`}</span>
                                                 <div className="grid grid-cols-3 gap-0.5 w-full text-center">
                                                     
                                                     <div 
-                                                        className={`group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg transition-colors relative ${isReadOnly ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-slate-100'}`}
+                                                        className={`group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg transition-colors relative ${isReadOnly ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-slate-200'}`}
                                                         onClick={() => !isReadOnly && fillColumnBelow(e, 'apts')}
                                                         title={isReadOnly ? "" : "Заполнить колонку вниз"}
                                                     >
-                                                        <Home size={12} className="text-slate-400 group-hover/col-header:text-blue-500"/>
-                                                        <span className="text-[8px] font-bold text-slate-400 group-hover/col-header:text-blue-600 uppercase">Кв</span>
-                                                        {!isReadOnly && <ArrowDown size={10} className="absolute -bottom-1.5 text-blue-500 opacity-0 group-hover/col-header:opacity-100 transition-opacity bg-white rounded-full shadow-sm" />}
+                                                        <Home size={12} className="text-slate-500 group-hover/col-header:text-blue-600"/>
+                                                        <span className="text-[9px] font-bold text-slate-500 group-hover/col-header:text-blue-700 uppercase">Кв</span>
+                                                        {!isReadOnly && <ArrowDown size={10} className="absolute -bottom-1.5 text-blue-600 opacity-0 group-hover/col-header:opacity-100 transition-opacity bg-white rounded-full shadow-sm border border-slate-200" />}
                                                     </div>
 
                                                     <div 
-                                                        className={`group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg transition-colors relative ${isReadOnly ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-slate-100'}`}
+                                                        className={`group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg transition-colors relative ${isReadOnly ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-slate-200'}`}
                                                         onClick={() => !isReadOnly && fillColumnBelow(e, 'units')}
                                                         title={isReadOnly ? "" : "Заполнить колонку вниз"}
                                                     >
-                                                        <Briefcase size={12} className="text-slate-400 group-hover/col-header:text-blue-500"/>
-                                                        <span className="text-[8px] font-bold text-slate-400 group-hover/col-header:text-blue-600 uppercase">Оф</span>
-                                                        {!isReadOnly && <ArrowDown size={10} className="absolute -bottom-1.5 text-blue-500 opacity-0 group-hover/col-header:opacity-100 transition-opacity bg-white rounded-full shadow-sm" />}
+                                                        <Briefcase size={12} className="text-slate-500 group-hover/col-header:text-blue-600"/>
+                                                        <span className="text-[9px] font-bold text-slate-500 group-hover/col-header:text-blue-700 uppercase">Оф</span>
+                                                        {!isReadOnly && <ArrowDown size={10} className="absolute -bottom-1.5 text-blue-600 opacity-0 group-hover/col-header:opacity-100 transition-opacity bg-white rounded-full shadow-sm border border-slate-200" />}
                                                     </div>
 
                                                     <div 
-                                                        className={`group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg transition-colors relative ${isReadOnly ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-slate-100'}`}
+                                                        className={`group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg transition-colors relative ${isReadOnly ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-slate-200'}`}
                                                         onClick={() => !isReadOnly && fillColumnBelow(e, 'mopQty')}
                                                         title={isReadOnly ? "" : "Заполнить колонку вниз"}
                                                     >
-                                                        <PaintBucket size={12} className="text-slate-400 group-hover/col-header:text-blue-500"/>
-                                                        <span className="text-[8px] font-bold text-slate-400 group-hover/col-header:text-blue-600 uppercase">МОП</span>
-                                                        {!isReadOnly && <ArrowDown size={10} className="absolute -bottom-1.5 text-blue-500 opacity-0 group-hover/col-header:opacity-100 transition-opacity bg-white rounded-full shadow-sm" />}
+                                                        <PaintBucket size={12} className="text-slate-500 group-hover/col-header:text-blue-600"/>
+                                                        <span className="text-[9px] font-bold text-slate-500 group-hover/col-header:text-blue-700 uppercase">МОП</span>
+                                                        {!isReadOnly && <ArrowDown size={10} className="absolute -bottom-1.5 text-blue-600 opacity-0 group-hover/col-header:opacity-100 transition-opacity bg-white rounded-full shadow-sm border border-slate-200" />}
                                                     </div>
 
                                                 </div>
@@ -516,7 +497,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                     ))}
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100 bg-white">
+                            <tbody className="divide-y divide-slate-200 bg-white">
                                 {floorList.map((f, idx) => {
                                     const isDuplex = floorData[`${currentBlock.fullId}_${f.id}`]?.isDuplex; 
                                     const canHaveApts = isFieldEnabled(f, 'apts');
@@ -536,14 +517,14 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                     }
                                     
                                     const isDuplexDisabled = duplexState.disabled || isLowerFloorDuplex || isReadOnly;
-                                    const rowBg = idx % 2 === 0 ? "bg-slate-50/30" : "bg-white";
+                                    const rowBg = idx % 2 === 0 ? "bg-slate-50/50" : "bg-white";
 
                                     return (
-                                        <tr key={f.id} className={`${rowBg} hover:bg-slate-50 transition-colors group h-11`}>
-                                            <td className="p-3 w-[120px] min-w-[120px] sticky left-0 z-20 bg-inherit border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] relative group/cell">
-                                                <div className="flex flex-col gap-1">
+                                        <tr key={f.id} className={`${rowBg} hover:bg-blue-50/30 transition-colors group h-14`}>
+                                            <td className="p-3 w-[140px] min-w-[140px] sticky left-0 z-20 bg-inherit border-r border-slate-300 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] relative group/cell">
+                                                <div className="flex flex-col gap-1.5">
                                                     {f.isStylobate && (
-                                                        <div className="flex items-center gap-1 text-[9px] text-orange-600 font-bold bg-orange-50 px-1 rounded -ml-1 w-fit mb-0.5" title="Этаж относится к нежилому блоку под домом">
+                                                        <div className="flex items-center gap-1 text-[9px] text-orange-700 font-bold bg-orange-50 border border-orange-100 px-1.5 rounded-sm w-fit mb-0.5" title="Этаж относится к нежилому блоку под домом">
                                                             <Warehouse size={8} /> {f.stylobateLabel}
                                                         </div>
                                                     )}
@@ -557,10 +538,10 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                                     checked={isDuplex || false} 
                                                                     onChange={() => !isDuplexDisabled && toggleDuplex(f.id)} 
                                                                     disabled={isDuplexDisabled} 
-                                                                    className={`rounded w-3.5 h-3.5 transition-all flex-shrink-0 border-slate-300 ${isDuplexDisabled ? 'cursor-not-allowed opacity-30 bg-slate-100' : 'cursor-pointer text-purple-600 focus:ring-purple-500'}`}
+                                                                    className={`rounded w-4 h-4 transition-all flex-shrink-0 border-slate-300 ${isDuplexDisabled ? 'cursor-not-allowed opacity-30 bg-slate-100' : 'cursor-pointer text-purple-600 focus:ring-purple-500 hover:border-purple-400'}`}
                                                                 />
                                                             )}
-                                                            <span className="text-xs font-bold text-slate-700">{f.label}</span>
+                                                            <span className="text-sm font-bold text-slate-800">{f.label}</span>
                                                         </div>
                                                         {renderBadge(f.type)}
                                                     </div>
@@ -568,28 +549,31 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                 
                                                 {!isReadOnly && (
                                                     <div className={`absolute right-1 top-1/2 -translate-y-1/2 transition-opacity z-30 ${openMenuId === f.id ? 'opacity-100' : 'opacity-0 group-hover/cell:opacity-100'}`}>
-                                                        <button onClick={(e) => handleMenuOpen(e, f.id)} className={`p-1 rounded-md shadow-sm border border-slate-200 hover:text-blue-600 transition-colors ${openMenuId === f.id ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-white/90 text-slate-400'}`}><MoreHorizontal size={14}/></button>
+                                                        <button onClick={(e) => handleMenuOpen(e, f.id)} className={`p-1.5 rounded-lg shadow-sm border border-slate-200 hover:text-blue-600 transition-colors ${openMenuId === f.id ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-white/90 text-slate-400'}`}><MoreHorizontal size={14}/></button>
                                                     </div>
                                                 )}
                                             </td>
 
                                             {entrancesList.map(e => (
-                                                <td key={e} className={`p-0 w-[180px] min-w-[180px] border-r border-slate-100 h-11 relative group/cell ${isDuplex ? 'bg-purple-50/5' : ''}`}>
-                                                    <div className="grid grid-cols-3 h-full divide-x divide-slate-100">
+                                                <td key={e} className={`p-2 w-[180px] min-w-[180px] border-r border-slate-200 relative group/cell align-middle ${isDuplex ? 'bg-purple-50/10' : ''}`}>
+                                                    <div className="grid grid-cols-3 gap-2 h-full">
                                                         {['apts', 'units', 'mopQty'].map(field => {
                                                             const canEdit = isFieldEnabled(f, field) && !isReadOnly;
                                                             const val = getEntData(e, f.id, field);
                                                             const isInvalid = getCellError(f, idx, e, field, val);
 
-                                                            let bgClass = "bg-transparent";
-                                                            let textClass = "text-slate-800";
+                                                            let bgClass = "bg-white";
+                                                            let textClass = "text-slate-700";
+                                                            let borderClass = "border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
                                                             
                                                             if (!isFieldEnabled(f, field)) { 
                                                                 bgClass = "bg-slate-50";
                                                                 textClass = "text-slate-300 cursor-not-allowed";
+                                                                borderClass = "border-transparent";
                                                             } else if (isInvalid) {
                                                                 bgClass = "bg-red-50";
                                                                 textClass = "text-red-600 font-bold";
+                                                                borderClass = "border-red-300 focus:border-red-500 focus:ring-red-100";
                                                             } else if (val !== '' && val !== '0') {
                                                                 textClass = "text-slate-900 font-bold"; 
                                                             } else {
@@ -597,18 +581,20 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                             }
                                                             
                                                             if (isReadOnly && isFieldEnabled(f, field)) {
+                                                                bgClass = "bg-transparent";
+                                                                borderClass = "border-transparent";
                                                                 textClass = val ? "text-slate-800 font-bold" : "text-slate-300";
                                                             }
 
                                                             return (
-                                                                <div key={field} className="relative w-full h-full">
+                                                                <div key={field} className="relative w-full h-9">
                                                                     <DebouncedInput 
                                                                         ref={el => inputsRef.current[`${idx}-${e}-${field}`] = el}
                                                                         onKeyDown={(ev) => handleKeyDown(ev, idx, e, field)}
                                                                         type="number" 
                                                                         min="0"
                                                                         disabled={!canEdit} 
-                                                                        className={`w-full h-full text-center text-xs outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-200 transition-all ${bgClass} ${textClass} ${isReadOnly ? 'cursor-default' : ''}`} 
+                                                                        className={`w-full h-full text-center text-xs rounded-lg outline-none transition-all border ${bgClass} ${borderClass} ${textClass} ${isReadOnly ? 'cursor-default' : ''}`} 
                                                                         value={val} 
                                                                         onChange={v => setEntData(e, f.id, field, v)} 
                                                                         placeholder={canEdit ? "-" : ""}
@@ -619,10 +605,10 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                         })}
                                                     </div>
                                                     {!isReadOnly && (
-                                                        <div className="absolute top-0 right-0 h-full flex items-center pr-0.5 opacity-0 group-hover/cell:opacity-100 transition-opacity z-10 pointer-events-none">
-                                                            <div className="flex flex-col gap-0.5 pointer-events-auto bg-white/90 backdrop-blur-sm shadow-sm border border-slate-200 rounded p-0.5">
-                                                                {e > 1 && <button onClick={()=>copyEntranceFromLeft(f.id, e)} title="Скопировать слева" className="p-0.5 hover:text-blue-600 hover:bg-blue-50 rounded"><ChevronLeft size={10}/></button>}
-                                                                <button onClick={()=>fillEntrancesRow(f.id, e)} title="Заполнить ряд вправо" className="p-0.5 hover:text-blue-600 hover:bg-blue-50 rounded"><ChevronsRight size={10}/></button>
+                                                        <div className="absolute top-1/2 -translate-y-1/2 right-0 pr-1 opacity-0 group-hover/cell:opacity-100 transition-opacity z-10 pointer-events-none">
+                                                            <div className="flex flex-col gap-1 pointer-events-auto bg-white/95 backdrop-blur-sm shadow-md border border-slate-200 rounded-md p-0.5">
+                                                                {e > 1 && <button onClick={()=>copyEntranceFromLeft(f.id, e)} title="Скопировать слева" className="p-1 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><ChevronLeft size={10}/></button>}
+                                                                <button onClick={()=>fillEntrancesRow(f.id, e)} title="Заполнить ряд вправо" className="p-1 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><ChevronsRight size={10}/></button>
                                                             </div>
                                                         </div>
                                                     )}
@@ -636,14 +622,12 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                     </div>
                 </Card>
             ) : (
-                <div className="flex flex-col items-center justify-center h-[50vh] text-center space-y-4 animate-in fade-in">
-                    <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400"><DoorOpen size={40} /><div className="absolute"><Ban size={20} className="text-slate-400 translate-x-4 translate-y-4"/></div></div>
+                <div className="flex flex-col items-center justify-center h-[50vh] text-center space-y-4 animate-in fade-in bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200">
+                    <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 border border-slate-200"><DoorOpen size={40} /><div className="absolute"><Ban size={20} className="text-slate-400 translate-x-4 translate-y-4"/></div></div>
                     <h3 className="text-xl font-bold text-slate-700">Настройка подъездов недоступна</h3>
                     <p className="text-slate-500 max-w-md">Матрица подъездов и квартир заполняется только для жилых блоков и подземных паркингов.<br/>Для нежилых блоков и инфраструктуры это не требуется.</p>
                 </div>
             )}
-
-            <SaveFloatingBar onSave={handleSave} disabled={hasCriticalErrors} />
         </div>
     );
 }
