@@ -140,7 +140,7 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
         if (details.hasCustomAddress && (!details.customHouseNumber || details.customHouseNumber.trim() === '')) {
              errors.push({
                 title: contextTitle,
-                description: `Вы указали "Свой номер дома", но не ввели его.`
+                description: `Вы включили опцию "Номер корпуса", но не указали его.`
             });
         }
     }
@@ -180,22 +180,9 @@ export const STEP_VALIDATORS = {
         const targetBuildings = composition.filter(b => b.category.includes('residential'));
 
         for (const building of targetBuildings) {
-            if (building.category === 'residential_multiblock') {
-                const blocks = getBlocksList(building);
-                if (blocks.length > 0) {
-                    const allCustom = blocks.every(block => {
-                        const key = `${building.id}_${block.id}`;
-                        const details = buildingDetails[key];
-                        return details?.hasCustomAddress === true;
-                    });
-                    if (allCustom) {
-                        allErrors.push({
-                            title: `Объект: ${building.label}`,
-                            description: "Ошибка адресации: Все блоки имеют индивидуальный номер дома. Минимум один блок должен наследовать основной номер."
-                        });
-                    }
-                }
-            }
+            // [ИЗМЕНЕНО] Удалена проверка на то, что "все блоки имеют кастомный номер".
+            // Теперь это допустимо (все блоки могут быть корпусами).
+            
             const configErrors = getBuildingErrors(building, buildingDetails, 'res');
             allErrors = [...allErrors, ...configErrors];
         }

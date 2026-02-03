@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { useProject } from '../../../context/ProjectContext'; // 3 уровня вверх от index.jsx
+import { useProject } from '../../../context/ProjectContext'; 
 import { useBuildingType } from '../../../hooks/useBuildingType';
 
-import ConfigHeader from './ConfigHeader'; // Лежит рядом
+import ConfigHeader from './ConfigHeader'; 
 // Импорты из папки views
 import StandardView from './views/StandardView'; 
 import ParkingView from './views/ParkingView';
@@ -23,7 +23,8 @@ export default function BuildingConfiguratorIndex({ buildingId, mode = 'all', on
     const { isParking, isInfrastructure } = typeInfo;
 
     return (
-        <div className="animate-in slide-in-from-bottom duration-500 space-y-6 pb-20 max-w-7xl mx-auto w-full">
+        // [ИЗМЕНЕНО] Убрал max-w-7xl, добавил padding по краям, ограничил только на сверхшироких (1920px)
+        <div className="animate-in slide-in-from-bottom duration-500 space-y-6 pb-20 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto">
             {/* Общая шапка */}
             <ConfigHeader 
                 building={building} 

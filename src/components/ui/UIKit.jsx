@@ -135,11 +135,12 @@ export const Select = React.forwardRef((/** @type {any} */ { className = '', chi
 });
 
 // --- КАРТОЧКА (CARD) ---
+// [ИЗМЕНЕНО] border -> border-2 (толще), shadow-sm -> shadow-md (чуть больше тень)
 export const Card = ({ className = '', children, ...props }) => {
     return (
         <div 
             className={cn(
-                "rounded-2xl border border-border bg-card text-card-foreground shadow-sm overflow-hidden", 
+                "rounded-2xl border-2 border-border bg-card text-card-foreground shadow-md overflow-hidden", 
                 className
             )} 
             {...props}

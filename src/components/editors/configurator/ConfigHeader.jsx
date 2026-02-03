@@ -1,6 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Car, Box, Building2 } from 'lucide-react';
-import { Button } from '../../ui/UIKit';
+import { ArrowLeft, MapPin, Building2, Hash, Layers, Car, Box } from 'lucide-react';
 import { getStageColor } from '../../../lib/utils';
 
 const PARKING_TYPE_LABELS = {
@@ -10,35 +9,97 @@ const PARKING_TYPE_LABELS = {
 };
 
 export default function ConfigHeader({ building, isParking, isInfrastructure, isUnderground, onBack }) {
+    // Определяем иконку и ЦВЕТ типа
+    let TypeIcon = Building2;
+    let accentColor = "border-blue-500"; // Дефолт (Жилье)
+    let iconBg = "bg-blue-100 text-blue-600";
+
+    if (isParking) {
+        TypeIcon = Car;
+        accentColor = "border-amber-500";
+        iconBg = "bg-amber-100 text-amber-600";
+    } else if (isInfrastructure) {
+        TypeIcon = Box;
+        accentColor = "border-emerald-500";
+        iconBg = "bg-emerald-100 text-emerald-600";
+    }
+    
+    // Формируем полный адрес
+    const fullAddress = [building.region, building.district, building.address].filter(Boolean).join(', ');
+
     return (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 relative overflow-hidden mb-6">
-            <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
-                {isParking ? <Car size={140}/> : isInfrastructure ? <Box size={140}/> : <Building2 size={140}/>}
-            </div>
-            <div className="flex flex-col md:flex-row justify-between items-start gap-6 relative z-10">
-                <div className="flex gap-5">
-                    <button onClick={onBack} className="mt-1 p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors h-min">
-                        <ArrowLeft size={24}/>
-                    </button>
-                    <div>
-                        <div className="flex items-center gap-3 mb-2">
-                            <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${getStageColor(building.stage)}`}>
+        // [ИЗМЕНЕНО] Добавлен accentColor (цветная полоса сверху) и bg-slate-50/50
+        <div className={`bg-slate-50/80 backdrop-blur-sm rounded-xl border border-slate-200 shadow-sm mb-6 sticky top-2 z-30 ${accentColor} border-t-4`}>
+            <div className="flex flex-col md:flex-row items-stretch">
+                
+                {/* ЛЕВАЯ ЧАСТЬ: Кнопка Назад */}
+                <button 
+                    onClick={onBack} 
+                    className="flex items-center justify-center w-14 border-r border-slate-200 hover:bg-white transition-colors text-slate-400 hover:text-slate-700 rounded-bl-xl"
+                    title="Вернуться к списку"
+                >
+                    <ArrowLeft size={20}/>
+                </button>
+
+                {/* ЦЕНТРАЛЬНАЯ ЧАСТЬ: Инфо */}
+                <div className="flex-1 p-4 flex flex-col gap-2">
+                    
+                    {/* Верхняя строка: Название + Статус + ID */}
+                    <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-lg ${iconBg}`}>
+                                <TypeIcon size={18} />
+                            </div>
+                            <h1 className="text-xl font-bold text-slate-800 leading-none">
+                                {building.label}
+                            </h1>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${getStageColor(building.stage)}`}>
                                 {building.stage || 'Проектный'}
                             </span>
-                            <span className="text-xs font-bold text-slate-400">ID: {building.id.slice(-6)}</span>
                         </div>
-                        <h1 className="text-3xl font-bold text-slate-800 mb-2">{building.label}</h1>
-                        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-600">
-                            <div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-400 uppercase">Дом №</span><span className="font-bold bg-slate-100 px-2 py-0.5 rounded">{building.houseNumber}</span></div>
-                            <div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-400 uppercase">Тип</span><span className="font-medium">{building.type}</span></div>
-                            {isParking && <div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-400 uppercase">Вид</span><span className="font-medium">{isUnderground ? 'Подземный' : 'Наземный'} {building.constructionType && ` • ${PARKING_TYPE_LABELS[building.constructionType] || building.constructionType}`}</span></div>}
-                            {isInfrastructure && <div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-400 uppercase">Вид</span><span className="font-medium">{building.infraType || 'Не указан'}</span></div>}
+
+                        {/* ID справа */}
+                        <div className="flex items-center gap-1.5 text-slate-400 select-all font-mono text-[10px] bg-white px-2 py-1 rounded border border-slate-100">
+                            <Hash size={10} />
+                            <span>{building.id.split('-')[0]}...</span>
                         </div>
                     </div>
-                </div>
-                
-                <div className="flex gap-2">
-                    <Button variant="secondary" onClick={onBack}>Закрыть</Button>
+
+                    {/* Нижняя строка: Мета-данные */}
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* 1. Адрес */}
+                        <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded text-xs text-slate-500 font-medium border border-slate-200 shadow-sm">
+                            <MapPin size={12} className="text-slate-400"/>
+                            <span className="max-w-[200px] truncate" title={fullAddress}>{fullAddress}</span>
+                        </div>
+
+                        {/* 2. Номер дома */}
+                        {building.houseNumber && (
+                            <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded text-xs text-slate-700 font-bold border border-slate-200 shadow-sm">
+                                <span className="text-[10px] text-slate-400 uppercase font-normal">Дом</span>
+                                <span>№ {building.houseNumber}</span>
+                            </div>
+                        )}
+
+                        {/* 3. Тип объекта */}
+                        <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded text-xs text-slate-600 font-medium border border-slate-200 shadow-sm">
+                            <Layers size={12} className="opacity-50"/>
+                            <span>{building.type}</span>
+                        </div>
+
+                        {/* 4. Специфика */}
+                        {isParking && (
+                            <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 rounded text-xs text-amber-700 font-medium border border-amber-100">
+                                <span>{isUnderground ? 'Подземный' : 'Наземный'}</span>
+                                {building.constructionType && <span className="opacity-50">• {PARKING_TYPE_LABELS[building.constructionType] || building.constructionType}</span>}
+                            </div>
+                        )}
+                        {isInfrastructure && building.infraType && (
+                            <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 rounded text-xs text-emerald-700 font-medium border border-emerald-100">
+                                <span>{building.infraType}</span>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
