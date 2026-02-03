@@ -77,7 +77,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                     isInfrastructure={isInfrastructure} 
                     isUnderground={isUnderground} 
                     onBack={onBack} 
-                    isSticky={false} // [FIX] Отключаем залипание
+                    isSticky={false} 
                 />
                 <div className="flex flex-col items-center justify-center h-[40vh] text-center space-y-4 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200">
                     <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400"><Ruler size={40} /></div>
@@ -90,7 +90,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
     if (!currentBlock) return <div className="p-8">Блоки не найдены</div>;
     
-    const handleInput = useCallback((floorId, field, value) => { 
+    // [FIX] Добавлен аргумент floorType и его сохранение
+    const handleInput = useCallback((floorId, field, value, floorType) => { 
         if (isReadOnly) return;
         if (value !== '' && (parseFloat(value) < 0 || value.includes('-'))) return;
         const key = `${currentBlock.fullId}_${floorId}`; 
@@ -100,6 +101,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 id: p[key]?.id || crypto.randomUUID(),
                 ...(p[key]||{}), 
                 [field]: value,
+                type: floorType, // [FIX] Явное сохранение типа этажа (attic, roof и т.д.)
                 buildingId: building.id,
                 blockId: currentBlock.id,
             } 
@@ -110,6 +112,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         if (isReadOnly || idx <= 0) return;
         const prevId = floorList[idx - 1].id;
         const currId = floorList[idx].id;
+        const currType = floorList[idx].type;
         const prevKey = `${currentBlock.fullId}_${prevId}`;
         const currKey = `${currentBlock.fullId}_${currId}`;
         
@@ -122,6 +125,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 height: prevData.height, 
                 areaProj: prevData.areaProj, 
                 areaFact: prevData.areaFact,
+                type: currType, // [FIX] Сохраняем тип
                 buildingId: building.id,
                 blockId: currentBlock.id
             }
@@ -138,6 +142,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         const updates = {};
         for (let i = idx + 1; i < floorList.length; i++) {
             const targetId = floorList[i].id;
+            const targetType = floorList[i].type;
             const targetKey = `${currentBlock.fullId}_${targetId}`;
             updates[targetKey] = { 
                 id: floorData[targetKey]?.id || crypto.randomUUID(),
@@ -145,6 +150,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 height: sourceData.height, 
                 areaProj: sourceData.areaProj, 
                 areaFact: sourceData.areaFact,
+                type: targetType, // [FIX] Сохраняем тип
                 buildingId: building.id,
                 blockId: currentBlock.id
             };
@@ -157,9 +163,10 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         if (isReadOnly || idx <= 0) return;
         const prevId = floorList[idx - 1].id;
         const currId = floorList[idx].id;
+        const currType = floorList[idx].type;
         const prevKey = `${currentBlock.fullId}_${prevId}`;
         const val = floorData[prevKey]?.[field];
-        if (val !== undefined) handleInput(currId, field, val);
+        if (val !== undefined) handleInput(currId, field, val, currType);
     };
 
     const fillFieldBelow = (idx, field) => {
@@ -172,11 +179,13 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         const updates = {};
         for (let i = idx + 1; i < floorList.length; i++) {
             const targetId = floorList[i].id;
+            const targetType = floorList[i].type;
             const targetKey = `${currentBlock.fullId}_${targetId}`;
             updates[targetKey] = { 
                 id: floorData[targetKey]?.id || crypto.randomUUID(),
                 ...(floorData[targetKey] || {}), 
                 [field]: val,
+                type: targetType, // [FIX] Сохраняем тип
                 buildingId: building.id,
                 blockId: currentBlock.id
             };
@@ -221,12 +230,16 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         if (isReadOnly || !bulkValue) return;
         const updates = {};
         selectedRows.forEach(floorId => {
+            const floorItem = floorList.find(f => f.id === floorId);
+            if (!floorItem) return;
+
             const key = `${currentBlock.fullId}_${floorId}`;
             const currentData = floorData[key] || {};
             updates[key] = { 
                 id: currentData.id || crypto.randomUUID(),
                 ...currentData, 
                 [field]: bulkValue,
+                type: floorItem.type, // [FIX] Сохраняем тип
                 buildingId: building.id,
                 blockId: currentBlock.id
             };
@@ -254,6 +267,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                     height: h, 
                     areaProj: s_proj, 
                     areaFact: s_proj,
+                    type: f.type, // [FIX] Сохраняем тип
                     buildingId: building.id,
                     blockId: currentBlock.id
                 }; 
@@ -290,7 +304,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 isInfrastructure={isInfrastructure} 
                 isUnderground={isUnderground} 
                 onBack={onBack} 
-                isSticky={false} // [FIX] Отключаем залипание, чтобы не было конфликта
+                isSticky={false} 
              />
 
              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -484,7 +498,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                                 className={`w-full h-full text-center rounded-xl text-sm outline-none transition-all border pr-7 ${bgClass} ${borderClass} ${textClass} ${isReadOnly ? 'cursor-default' : ''}`} 
                                                                 placeholder={field.ph} 
                                                                 value={val[field.id]} 
-                                                                onChange={v => handleInput(f.id, field.id, v)} 
+                                                                // [FIX] Передаем f.type в handleInput
+                                                                onChange={v => handleInput(f.id, field.id, v, f.type)} 
                                                             />
                                                             
                                                             {(finalError || isDiffErr) && !isReadOnly && (

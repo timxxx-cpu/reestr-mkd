@@ -12,7 +12,6 @@ export const ReadOnlyProvider = ({ value, children }) => (
 );
 
 // --- КНОПКА (BUTTON) ---
-// Добавлено: disabled = false по умолчанию
 export const Button = ({ 
     children, 
     variant = 'primary', 
@@ -21,7 +20,7 @@ export const Button = ({
     disabled = false, 
     ...props 
 }) => {
-    const baseStyles = "inline-flex items-center justify-center rounded-xl text-xs font-bold uppercase tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 h-10 px-6 py-2.5 active:scale-95 shadow-md gap-2";
+    const baseStyles = "inline-flex items-center justify-center rounded-xl text-xs font-bold uppercase tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 disabled:pointer-events-none disabled:opacity-50 h-10 px-6 py-2.5 active:scale-95 shadow-md gap-2";
     
     const variants = {
         primary: "bg-primary text-primary-foreground shadow hover:bg-primary/90",
@@ -84,6 +83,14 @@ export const DebouncedInput = React.memo(React.forwardRef((/** @type {any} */ { 
   
       return () => clearTimeout(handler);
     }, [value, delay, initialValue, onChange]);
+
+    // [FIX] Принудительное сохранение при потере фокуса
+    const handleBlur = (e) => {
+        if (String(value) !== String(initialValue || '')) {
+            onChange(value);
+        }
+        if (props.onBlur) props.onBlur(e);
+    };
   
     return (
       <input
@@ -92,6 +99,7 @@ export const DebouncedInput = React.memo(React.forwardRef((/** @type {any} */ { 
         disabled={isDisabled}
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        onBlur={handleBlur} // [FIX] Добавлено
         className={cn(
             "flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold text-foreground ring-offset-background",
             "placeholder:text-muted-foreground",
@@ -135,7 +143,6 @@ export const Select = React.forwardRef((/** @type {any} */ { className = '', chi
 });
 
 // --- КАРТОЧКА (CARD) ---
-// [ИЗМЕНЕНО] border -> border-2 (толще), shadow-sm -> shadow-md (чуть больше тень)
 export const Card = ({ className = '', children, ...props }) => {
     return (
         <div 
@@ -151,7 +158,6 @@ export const Card = ({ className = '', children, ...props }) => {
 };
 
 // --- МЕТКА ПОЛЯ (LABEL) ---
-// Добавлено: required = false по умолчанию
 export const Label = ({ className = '', children, required = false, ...props }) => {
     return (
         <label 
