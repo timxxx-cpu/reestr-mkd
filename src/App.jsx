@@ -26,7 +26,10 @@ import FloorMatrixEditor from './components/editors/FloorMatrixEditor';
 import EntranceMatrixEditor from './components/editors/EntranceMatrixEditor';
 import MopEditor from './components/editors/MopEditor';
 import FlatMatrixEditor from './components/editors/FlatMatrixEditor';
-import UnitRegistry from './components/editors/UnitRegistry'; 
+
+// [UPDATED] Импорт из новой директории
+import UnitRegistry from './components/editors/registry/UnitRegistry'; 
+
 import SummaryDashboard from './components/editors/SummaryDashboard';
 import RegistryView from './components/editors/RegistryView'; 
 import ApplicationsDashboard from './components/ApplicationsDashboard';
@@ -287,7 +290,6 @@ function ProjectEditorRoute({ user }) {
   
     return (
       <ReadOnlyProvider value={effectiveReadOnly}>
-        {/* ДОБАВЛЕНО: overflow-x-hidden, чтобы дочерние элементы (таблицы) не растягивали этот контейнер за пределы экрана */}
         <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
             <Sidebar 
                 currentStep={currentStep} 
@@ -297,7 +299,6 @@ function ProjectEditorRoute({ user }) {
                 onBackToDashboard={handleBackToDashboard} 
                 maxAllowedStep={maxAllowedStep} 
             />
-            {/* ДОБАВЛЕНО: overflow-x-hidden */}
             <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 overflow-x-hidden ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
                 
                 {!isViewMode && (
@@ -337,7 +338,7 @@ function ProjectEditorRoute({ user }) {
                         onBackToStep={() => setEditingBuildingId(null)}
                     />
                 </div>
-                <div className="flex-1 overflow-y-auto px-8 pb-6 scroll-smooth custom-scrollbar">
+                <div className="flex-1 overflow-y-auto pb-6 scroll-smooth custom-scrollbar">
                     {!editingBuildingId && <StepIndicator currentStep={currentStep} />}
                     <React.Suspense fallback={<Loader2 className="animate-spin text-blue-600"/>}>{renderStepContent()}</React.Suspense>
                 </div>
