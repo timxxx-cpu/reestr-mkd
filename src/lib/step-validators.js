@@ -231,11 +231,8 @@ const validateEntrances = (data) => {
             const prefix = `${building.id}_${block.id}`;
             const blockKeys = Object.keys(entrancesData).filter(k => k.startsWith(prefix));
             
-            // [FIX] Проверяем сумму значений, а не просто наличие ключей
-            let totalApts = 0;
-            let totalUnits = 0;
-            let totalMop = 0;
             let hasAnyData = false;
+            let totalApts = 0;
 
             blockKeys.forEach(k => {
                 const item = entrancesData[k];
@@ -244,9 +241,6 @@ const validateEntrances = (data) => {
                 const m = parseInt(item.mopQty) || 0;
                 
                 totalApts += a;
-                totalUnits += u;
-                totalMop += m;
-                
                 if (a > 0 || u > 0 || m > 0) hasAnyData = true;
             });
 
@@ -258,14 +252,11 @@ const validateEntrances = (data) => {
                 return;
             }
 
-            // Для жилых блоков обязательно наличие квартир
-            if (isRes && block.type === 'Ж') {
-                if (totalApts === 0) {
-                    errors.push({
-                        title: `${building.label} (${block.tabLabel})`,
-                        description: "В жилом блоке не указано ни одной квартиры."
-                    });
-                }
+            if (isRes && block.type === 'Ж' && totalApts === 0) {
+                errors.push({
+                    title: `${building.label} (${block.tabLabel})`,
+                    description: "В жилом блоке не указано ни одной квартиры."
+                });
             }
         });
     });
@@ -273,23 +264,132 @@ const validateEntrances = (data) => {
 };
 
 const validateApartments = (data) => {
-    const { flatMatrix } = data;
+    // ВАЖНО: Достаем floorData для проверки флага isDuplex
+    const { flatMatrix, entrancesData, composition, buildingDetails, floorData } = data;
     const errors = [];
     const numbersMap = {};
+    const emptyUnits = [];
 
+    // 1. Проверка на дубликаты (среди СОХРАНЕННЫХ/ВВЕДЕННЫХ)
     Object.values(flatMatrix).forEach(unit => {
-        if (!unit.num || !unit.buildingId) return;
-        const key = `${unit.buildingId}_${unit.num}`;
-        if (numbersMap[key]) {
-            if (!errors.some(e => e.title.includes(unit.buildingId))) {
-                 errors.push({
-                    title: "Дубликаты номеров",
-                    description: `В здании (ID: ...${unit.buildingId.slice(-4)}) обнаружены повторяющиеся номера помещений: ${unit.num}. Исправьте нумерацию.`
-                });
+        if (!unit.buildingId) return;
+        
+        const num = String(unit.num || '').trim();
+        if (num !== '') {
+            const key = `${unit.buildingId}_${num}`;
+            if (numbersMap[key]) {
+                if (!errors.some(e => e.title === "Дубликаты номеров" && e.description.includes(unit.buildingId.slice(-4)) && e.description.includes(num))) {
+                     errors.push({
+                        title: "Дубликаты номеров",
+                        description: `В здании (ID: ...${unit.buildingId.slice(-4)}) обнаружен повторяющийся номер: "${num}".`
+                    });
+                }
             }
+            numbersMap[key] = true;
         }
-        numbersMap[key] = true;
     });
+
+    // 2. Проверка на наличие пустых номеров и ЛОГИКА ДУПЛЕКСОВ
+    composition.forEach(building => {
+        if (!building.category.includes('residential')) return;
+
+        const blocks = getBlocksList(building, buildingDetails);
+        const residentialBlocks = blocks.filter(b => b.type === 'Ж');
+
+        residentialBlocks.forEach(block => {
+            const prefix = `${building.id}_${block.id}`;
+            
+            // --- ПРОВЕРКА ДУПЛЕКСОВ ---
+            // Находим все этажи этого блока, которые помечены как isDuplex
+            const blockFloorKeys = Object.keys(floorData).filter(k => k.startsWith(prefix));
+            
+            blockFloorKeys.forEach(floorKey => {
+                 const floor = floorData[floorKey];
+                 if (floor && floor.isDuplex) {
+                     // [FIX] Надежное извлечение ID. floorKey = prefix + '_' + floorId
+                     // Проверяем, что ключ длиннее префикса и разделителя
+                     if (floorKey.length > prefix.length + 1) {
+                         const floorId = floorKey.substring(prefix.length + 1);
+                         
+                         let hasUnitsOnFloor = false;
+                         let hasDuplexUnit = false;
+
+                         // Ищем все подъезды, которые пересекаются с этим этажом
+                         Object.keys(entrancesData).forEach(entKey => {
+                             // Проверяем: это данные для текущего блока и текущего этажа?
+                             // Используем точное совпадение суффикса
+                             if (entKey.startsWith(prefix) && entKey.endsWith(`_${floorId}`)) {
+                                 const entry = entrancesData[entKey];
+                                 const aptCount = parseInt(entry.apts || 0);
+                                 
+                                 if (aptCount > 0) {
+                                     hasUnitsOnFloor = true;
+                                     
+                                     // Извлекаем индекс подъезда
+                                     // Формат: ..._entX_floorId
+                                     const match = entKey.match(/_ent(\d+)_(.*)$/);
+                                     if (match) {
+                                         const entIndex = match[1];
+                                         // Проверяем каждую квартиру на наличие типа duplex
+                                         for (let i = 0; i < aptCount; i++) {
+                                             const unitKey = `${prefix}_e${entIndex}_f${floorId}_i${i}`;
+                                             const unit = flatMatrix[unitKey];
+                                             if (unit && (unit.type === 'duplex_up' || unit.type === 'duplex_down')) {
+                                                 hasDuplexUnit = true;
+                                             }
+                                         }
+                                     }
+                                 }
+                             }
+                         });
+
+                         if (hasUnitsOnFloor && !hasDuplexUnit) {
+                             const fLabel = floor.label || floorId;
+                             errors.push({
+                                 title: "Ошибка дуплекса",
+                                 description: `Блок "${block.tabLabel}", этаж ${fLabel}: отмечен как "Дуплексный", но не выбрано ни одной двухуровневой квартиры (Верх/Низ).`
+                             });
+                         }
+                     }
+                 }
+            });
+            // --- КОНЕЦ ПРОВЕРКИ ДУПЛЕКСОВ ---
+
+
+            // --- ПРОВЕРКА ПУСТЫХ НОМЕРОВ ---
+            Object.keys(entrancesData).forEach(entKey => {
+                if (entKey.startsWith(prefix)) {
+                    const entry = entrancesData[entKey];
+                    const aptCount = parseInt(entry.apts || 0);
+                    
+                    if (aptCount > 0) {
+                        const match = entKey.match(/_ent(\d+)_(.*)$/);
+                        if (match) {
+                            const entIndex = match[1];
+                            const floorId = match[2];
+                            
+                            for (let i = 0; i < aptCount; i++) {
+                                const unitKey = `${prefix}_e${entIndex}_f${floorId}_i${i}`;
+                                const unit = flatMatrix[unitKey];
+                                const num = unit?.num ? String(unit.num).trim() : '';
+                                
+                                if (!unit || num === '') {
+                                    emptyUnits.push(unitKey); 
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        });
+    });
+
+    if (emptyUnits.length > 0) {
+        errors.push({
+            title: "Незаполненные номера",
+            description: `Обнаружено ${emptyUnits.length} помещений без номера. Введите номера для всех квартир.`
+        });
+    }
 
     return errors;
 };

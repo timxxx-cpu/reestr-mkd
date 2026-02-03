@@ -55,7 +55,6 @@ const TEST_USERS = [
     { id: 'abbos_tech',  name: 'Аббос', role: ROLES.TECHNICIAN, group: 'Аббос' },
 ];
 
-// [ИЗМЕНЕНО] Добавлен проп disabled
 const DevRoleSwitcher = ({ disabled }) => {
     const { activePersona, setActivePersona } = useContext(PersonaContext);
     const [isOpen, setIsOpen] = useState(false);
@@ -70,7 +69,6 @@ const DevRoleSwitcher = ({ disabled }) => {
 
     return (
         <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none">
-            {/* Панель открывается только если не заблокировано */}
             {!disabled && (
                 <div className={`
                     bg-slate-900 border border-slate-700 shadow-2xl rounded-2xl p-4 mb-4 w-72 pointer-events-auto
@@ -209,7 +207,6 @@ function ProjectEditorRoute({ user }) {
     const toast = useToast();
     const initialRedirectDone = useRef(false);
   
-    // 1. Инициализация: Переход на актуальный шаг задачи
     useEffect(() => {
         if (!isViewMode && applicationInfo?.currentStepIndex !== undefined && !initialRedirectDone.current) {
             const targetStep = applicationInfo.currentStepIndex;
@@ -219,16 +216,12 @@ function ProjectEditorRoute({ user }) {
         }
     }, [applicationInfo, isViewMode]);
 
-    // 2. Логика блокировки
     const isTechnician = user.role === ROLES.TECHNICIAN;
     const taskIndex = applicationInfo?.currentStepIndex || 0;
     const isCurrentTask = currentStep === taskIndex;
     
     const effectiveReadOnly = isReadOnly || isViewMode || (isTechnician && !isCurrentTask);
     const maxAllowedStep = isViewMode ? STEPS_CONFIG.length - 1 : (isTechnician ? taskIndex : STEPS_CONFIG.length - 1);
-
-    // [NEW] Индексы шагов интеграции (15: Здания, 16: Юниты)
-    const INTEGRATION_START_IDX = 15;
 
     const canGoToStep = (stepIdx) => {
         if (stepIdx > maxAllowedStep) {
@@ -238,7 +231,6 @@ function ProjectEditorRoute({ user }) {
         return true;
     };
 
-    // [ИЗМЕНЕНО] Добавлен аргумент force для обхода проверки
     const handleBackToDashboard = (force = false) => { 
         if (hasUnsavedChanges && !force) {
             if (!window.confirm("Есть несохраненные изменения! Выйти без сохранения?")) return;
@@ -248,10 +240,6 @@ function ProjectEditorRoute({ user }) {
     };
 
     const onStepChange = (idx) => { 
-        // [ИЗМЕНЕНО] Удалена проверка hasUnsavedChanges.
-        // Теперь навигация по шагам свободная, пока мы внутри редактора.
-        // Сохранение остается на совести пользователя (индикатор горит).
-
         if (canGoToStep(idx)) {
             setEditingBuildingId(null); 
             setCurrentStep(idx);
@@ -299,16 +287,18 @@ function ProjectEditorRoute({ user }) {
   
     return (
       <ReadOnlyProvider value={effectiveReadOnly}>
+        {/* ДОБАВЛЕНО: overflow-x-hidden, чтобы дочерние элементы (таблицы) не растягивали этот контейнер за пределы экрана */}
         <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
             <Sidebar 
                 currentStep={currentStep} 
                 onStepChange={onStepChange} 
                 isOpen={sidebarOpen} 
                 onToggle={() => setSidebarOpen(!sidebarOpen)} 
-                onBackToDashboard={handleBackToDashboard} // [ИЗМЕНЕНО] Передаем функцию как ссылку, чтобы аргументы работали
+                onBackToDashboard={handleBackToDashboard} 
                 maxAllowedStep={maxAllowedStep} 
             />
-            <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
+            {/* ДОБАВЛЕНО: overflow-x-hidden */}
+            <main className={`flex-1 flex flex-col h-full relative transition-all duration-300 overflow-x-hidden ${sidebarOpen ? 'ml-72' : 'ml-20'}`}>
                 
                 {!isViewMode && (
                     <WorkflowBar 
@@ -335,7 +325,6 @@ function ProjectEditorRoute({ user }) {
                     </div>
                 )}
                 
-                {/* [ИЗМЕНЕНО] Блокируем смену ролей внутри задачи */}
                 <DevRoleSwitcher disabled={true} />
 
                 {historyOpen && <HistoryModal history={applicationInfo?.history || []} onClose={() => setHistoryOpen(false)} />}
@@ -387,7 +376,6 @@ const MainLayout = ({ firebaseUser, activePersona }) => {
                 onLogout={handleLogout} 
             />
             
-            {/* [ИЗМЕНЕНО] На дашборде смена ролей активна */}
             <DevRoleSwitcher disabled={false} />
         </div>
     );
@@ -396,7 +384,6 @@ const MainLayout = ({ firebaseUser, activePersona }) => {
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
   
-  // [ИЗМЕНЕНО] Инициализация из localStorage
   const [activePersona, setActivePersona] = useState(() => {
       try {
           const saved = localStorage.getItem('dev_active_persona');
@@ -411,7 +398,6 @@ export default function App() {
 
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
-  // [ИЗМЕНЕНО] Сохранение в localStorage при изменении
   useEffect(() => {
       if (activePersona) {
           localStorage.setItem('dev_active_persona', JSON.stringify(activePersona));
