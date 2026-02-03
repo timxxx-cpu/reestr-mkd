@@ -31,7 +31,7 @@ const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
 );
 
 export default function FloorMatrixEditor({ buildingId, onBack }) {
-    const { composition, floorData, setFloorData } = useProject();
+    const { composition, floorData, setFloorData, buildingDetails } = useProject();
     const isReadOnly = useReadOnly();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
     
@@ -48,7 +48,15 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     const isExcludedType = isGroundOpen || isGroundLight;
 
     const blocksList = useMemo(() => getBlocksList(building), [building]);
-    const { floorList, currentBlock } = useBuildingFloors(buildingId, activeBlockIndex);
+    
+    // Получаем rawFloorList и фильтруем его для этого редактора
+    const { floorList: rawFloorList, currentBlock } = useBuildingFloors(buildingId, activeBlockIndex);
+
+    // Локальная фильтрация: во Внешней инвентаризации скрываем этажи, занятые стилобатом
+    const floorList = useMemo(() => {
+        if (!rawFloorList) return [];
+        return rawFloorList.filter(f => !f.isStylobate);
+    }, [rawFloorList]);
 
     useEffect(() => {
         setSelectedRows(new Set());
@@ -90,7 +98,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
     if (!currentBlock) return <div className="p-8">Блоки не найдены</div>;
     
-    // [FIX] Добавлен аргумент floorType и его сохранение
     const handleInput = useCallback((floorId, field, value, floorType) => { 
         if (isReadOnly) return;
         if (value !== '' && (parseFloat(value) < 0 || value.includes('-'))) return;
@@ -101,7 +108,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 id: p[key]?.id || crypto.randomUUID(),
                 ...(p[key]||{}), 
                 [field]: value,
-                type: floorType, // [FIX] Явное сохранение типа этажа (attic, roof и т.д.)
+                type: floorType, 
                 buildingId: building.id,
                 blockId: currentBlock.id,
             } 
@@ -125,7 +132,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 height: prevData.height, 
                 areaProj: prevData.areaProj, 
                 areaFact: prevData.areaFact,
-                type: currType, // [FIX] Сохраняем тип
+                type: currType, 
                 buildingId: building.id,
                 blockId: currentBlock.id
             }
@@ -150,7 +157,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 height: sourceData.height, 
                 areaProj: sourceData.areaProj, 
                 areaFact: sourceData.areaFact,
-                type: targetType, // [FIX] Сохраняем тип
+                type: targetType, 
                 buildingId: building.id,
                 blockId: currentBlock.id
             };
@@ -185,7 +192,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 id: floorData[targetKey]?.id || crypto.randomUUID(),
                 ...(floorData[targetKey] || {}), 
                 [field]: val,
-                type: targetType, // [FIX] Сохраняем тип
+                type: targetType, 
                 buildingId: building.id,
                 blockId: currentBlock.id
             };
@@ -239,7 +246,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 id: currentData.id || crypto.randomUUID(),
                 ...currentData, 
                 [field]: bulkValue,
-                type: floorItem.type, // [FIX] Сохраняем тип
+                type: floorItem.type, 
                 buildingId: building.id,
                 blockId: currentBlock.id
             };
@@ -267,7 +274,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                     height: h, 
                     areaProj: s_proj, 
                     areaFact: s_proj,
-                    type: f.type, // [FIX] Сохраняем тип
+                    type: f.type, 
                     buildingId: building.id,
                     blockId: currentBlock.id
                 }; 
@@ -309,16 +316,26 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                  <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full shadow-inner border border-slate-700 custom-scrollbar">
-                    {blocksList.map((b,i) => (
-                        <DarkTabButton 
-                            key={b.id} 
-                            active={activeBlockIndex===i} 
-                            onClick={()=>setActiveBlockIndex(i)} 
-                            icon={b.icon}
-                        >
-                            {b.tabLabel}
-                        </DarkTabButton>
-                    ))}
+                    {blocksList.map((b,i) => {
+                        const bKey = `${building.id}_${b.id}`;
+                        const bDetails = buildingDetails[bKey] || {};
+                        const hasCustom = bDetails.hasCustomAddress && bDetails.customHouseNumber;
+                        
+                        const label = hasCustom 
+                            ? `${b.tabLabel} (Дом №${building.houseNumber}) (Корпус ${bDetails.customHouseNumber})` 
+                            : b.tabLabel;
+
+                        return (
+                            <DarkTabButton 
+                                key={b.id} 
+                                active={activeBlockIndex===i} 
+                                onClick={()=>setActiveBlockIndex(i)} 
+                                icon={b.icon}
+                            >
+                                {label}
+                            </DarkTabButton>
+                        );
+                    })}
                 </div>
 
                 <button 

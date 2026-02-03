@@ -48,7 +48,11 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
                     type: 'parking_floor',
                     index: -i,
                     isComm: false,
-                    sortOrder: -i 
+                    sortOrder: -i,
+                    // Поля для типизации:
+                    isStylobate: false,
+                    isSeparator: false,
+                    isInserted: false
                 });
             }
             return list.sort((a, b) => b.sortOrder - a.sortOrder);
@@ -74,7 +78,10 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
                     type: 'basement',
                     isComm: isThisBasementMixed,
                     isSeparator: d === 1,
-                    sortOrder: -1000 - d + (Number(bIdx) * 0.1)
+                    sortOrder: -1000 - d + (Number(bIdx) * 0.1),
+                    // Поля для типизации:
+                    isStylobate: false,
+                    isInserted: false
                 });
             }
         });
@@ -88,25 +95,25 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
                 type: 'tsokol', 
                 isComm: isTsokolMixed,
                 isSeparator: true, 
-                sortOrder: 0 
+                sortOrder: 0,
+                // Поля для типизации:
+                isStylobate: false,
+                isInserted: false
             });
         }
 
         // 3. Стилобат (Карта перекрытий)
-        // Создаем карту: номер этажа -> название нежилого блока, который находится под текущим жилым
         const stylobateMap = {}; 
         if (currentBlock.type === 'Ж') {
             const allBlocks = getBlocksList(building, buildingDetails); 
             allBlocks.forEach(b => {
-                if (b.type === 'Н') { // Нежилой блок
+                if (b.type === 'Н') {
                     // @ts-ignore
                     const bDetails = buildingDetails[`${building.id}_${b.id}`];
-                    // Если этот нежилой блок указан как родитель для текущего жилого
                     if (bDetails?.parentBlocks?.includes(currentBlock.id)) {
                         const h = Number(bDetails.floorsTo || 0);
-                        // Заполняем карту для всех этажей, которые занимает этот нежилой блок
                         for(let k = 1; k <= h; k++) {
-                            stylobateMap[k] = b.tabLabel; // Сохраняем имя блока
+                            stylobateMap[k] = b.tabLabel;
                         }
                     }
                 }
@@ -126,20 +133,22 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
         }
 
         for (let i = start; i <= end; i++) {
-            // Проверка: является ли этаж частью стилобата
             const stylobateSource = stylobateMap[i];
             
             if (stylobateSource) {
-                // Это этаж стилобата (нежилого блока под низом)
+                // Этаж стилобата
                 list.push({
                     id: `floor_${i}`,
                     label: `${i} этаж`,
                     index: i,
-                    type: 'stylobate', // Новый тип!
+                    type: 'stylobate', 
                     isStylobate: true,
-                    stylobateLabel: stylobateSource, // Название блока-источника
-                    isComm: true, // Стилобат обычно коммерческий, поля доступны
-                    sortOrder: i * 10
+                    stylobateLabel: stylobateSource,
+                    isComm: true, 
+                    sortOrder: i * 10,
+                    // Поля для типизации:
+                    isSeparator: false,
+                    isInserted: false
                 });
             } else {
                 // Обычный этаж
@@ -157,7 +166,11 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
                     index: i,
                     type: type,
                     isComm: isMixed || type === 'office',
-                    sortOrder: i * 10
+                    sortOrder: i * 10,
+                    // Поля для типизации:
+                    isStylobate: false,
+                    isSeparator: false,
+                    isInserted: false
                 });
             }
 
@@ -170,7 +183,10 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
                     type: 'technical',
                     isComm: isTechMixed,
                     isInserted: true, 
-                    sortOrder: (i * 10) + 5
+                    sortOrder: (i * 10) + 5,
+                    // Поля для типизации:
+                    isStylobate: false,
+                    isSeparator: false
                 });
             }
         }
@@ -185,21 +201,34 @@ export function useBuildingFloors(buildingId, activeBlockId = 0) {
                  label: `${f} (Тех)`, 
                  type: 'technical', 
                  isComm: false, 
-                 sortOrder: Number(f) * 10 
+                 sortOrder: Number(f) * 10,
+                 // Поля для типизации:
+                 isStylobate: false,
+                 isSeparator: false,
+                 isInserted: false
             });
         });
 
         if (blockDetails.hasAttic) {
             const isAtticMixed = commFloors.includes('attic');
-            list.push({ id: 'attic', label: 'Мансарда', type: 'attic', isComm: isAtticMixed, sortOrder: 50000 });
+            list.push({ 
+                id: 'attic', label: 'Мансарда', type: 'attic', isComm: isAtticMixed, sortOrder: 50000,
+                isStylobate: false, isSeparator: false, isInserted: false
+            });
         }
         if (blockDetails.hasLoft) {
             const isLoftMixed = commFloors.includes('loft');
-            list.push({ id: 'loft', label: 'Чердак', type: 'loft', isComm: isLoftMixed, sortOrder: 55000 });
+            list.push({ 
+                id: 'loft', label: 'Чердак', type: 'loft', isComm: isLoftMixed, sortOrder: 55000,
+                isStylobate: false, isSeparator: false, isInserted: false
+            });
         }
         if (blockDetails.hasExploitableRoof) {
             const isRoofMixed = commFloors.includes('roof');
-            list.push({ id: 'roof', label: 'Эксплуатируемая кровля', type: 'roof', isComm: isRoofMixed, sortOrder: 60000 });
+            list.push({ 
+                id: 'roof', label: 'Эксплуатируемая кровля', type: 'roof', isComm: isRoofMixed, sortOrder: 60000,
+                isStylobate: false, isSeparator: false, isInserted: false
+            });
         }
 
         return list.sort((a, b) => a.sortOrder - b.sortOrder);
