@@ -1,12 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { 
-  Table2, Search, Home, Briefcase, 
-  Layers, MapPin, Car, Building2,
-  FileText, LayoutGrid, Filter, School, Loader2, CheckCircle2
+  Search, Home, Briefcase, 
+  Layers, Car, Building2,
+  FileText, LayoutGrid, Loader2, CheckCircle2, School, Filter,
+  Activity
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, useReadOnly } from '../ui/UIKit';
-import SaveFloatingBar from '../ui/SaveFloatingBar'; 
+import { Card, useReadOnly, Input } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils';
 import UnitInventoryModal from './UnitInventoryModal'; 
 import ParkingEditModal from './ParkingEditModal'; 
@@ -16,43 +16,51 @@ const MODES = {
         title: 'Реестр квартир',
         description: 'Жилой фонд: только квартиры и дуплексы',
         icon: Home,
-        colorClass: 'text-blue-600 dark:text-blue-400',
+        colorClass: 'text-blue-600',
     },
     commercial: {
         title: 'Реестр нежилых помещений',
         description: 'Коммерция, нежилые блоки и инфраструктура',
         icon: Briefcase,
-        colorClass: 'text-emerald-600 dark:text-emerald-400',
+        colorClass: 'text-emerald-600',
     },
     parking: {
         title: 'Реестр машиномест',
         description: 'Парковочные места в паркингах и подвалах',
         icon: Car,
-        colorClass: 'text-indigo-600 dark:text-indigo-400',
+        colorClass: 'text-indigo-600',
     }
 };
 
 const getTypeConfig = (type) => {
     switch(type) {
-        case 'flat': return { label: 'Квартира', color: 'bg-blue-500/10 text-blue-700 border-blue-200/20', icon: Home };
-        case 'duplex_up': return { label: 'Дуплекс (В)', color: 'bg-purple-500/10 text-purple-700 border-purple-200/20', icon: Layers };
-        case 'duplex_down': return { label: 'Дуплекс (Н)', color: 'bg-purple-500/10 text-purple-700 border-purple-200/20', icon: Layers };
-        case 'office': return { label: 'Офис', color: 'bg-emerald-500/10 text-emerald-700 border-emerald-200/20', icon: Briefcase };
-        case 'office_inventory': return { label: 'Нежилое (Инв.)', color: 'bg-teal-500/10 text-teal-700 border-teal-200/20', icon: FileText };
-        case 'non_res_block': return { label: 'Нежилой блок', color: 'bg-amber-500/10 text-amber-700 border-amber-200/20', icon: Building2 };
-        case 'infrastructure': return { label: 'Инфраструктура', color: 'bg-orange-500/10 text-orange-700 border-orange-200/20', icon: School };
+        case 'flat': return { label: 'Квартира', color: 'bg-blue-50 text-blue-700 border-blue-200', icon: Home };
+        case 'duplex_up': return { label: 'Дуплекс (В)', color: 'bg-purple-50 text-purple-700 border-purple-200', icon: Layers };
+        case 'duplex_down': return { label: 'Дуплекс (Н)', color: 'bg-purple-50 text-purple-700 border-purple-200', icon: Layers };
+        case 'office': return { label: 'Офис', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: Briefcase };
+        case 'office_inventory': return { label: 'Нежилое (Инв.)', color: 'bg-teal-50 text-teal-700 border-teal-200', icon: FileText };
+        case 'non_res_block': return { label: 'Нежилой блок', color: 'bg-amber-50 text-amber-700 border-amber-200', icon: Building2 };
+        case 'infrastructure': return { label: 'Инфраструктура', color: 'bg-orange-50 text-orange-700 border-orange-200', icon: School };
         case 'parking_place': return { label: 'М/М', color: 'bg-slate-100 text-slate-700 border-slate-200', icon: Car };
         default: return { label: type, color: 'bg-slate-100 text-slate-600', icon: FileText };
     }
 };
 
-const formatRawFloorId = (id) => {
-    if (!id) return '-';
-    if (id.startsWith('floor_')) return `${id.split('_')[1]} этаж`;
-    if (id.startsWith('level_minus_')) return `Уровень -${id.split('_')[2]}`;
-    if (id.startsWith('base_')) return `Подвал`;
-    return id;
-};
+const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
+    <button
+        onClick={onClick}
+        className={`
+            px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2
+            ${active 
+                ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50 ring-1 ring-blue-400" 
+                : "text-slate-400 hover:text-white hover:bg-slate-700"
+            }
+        `}
+    >
+        {Icon && <Icon size={14} className={active ? "text-blue-200" : "opacity-70"}/>}
+        {children}
+    </button>
+);
 
 const StatCard = ({ label, value, icon: Icon, colorClass, iconBgClass }) => (
     <div className={`p-4 rounded-xl border flex items-center justify-between shadow-sm bg-white ${colorClass}`}>
@@ -66,65 +74,187 @@ const StatCard = ({ label, value, icon: Icon, colorClass, iconBgClass }) => (
     </div>
 );
 
+const FilterSelect = ({ value, onChange, options, placeholder, icon: Icon }) => (
+    <div className="relative w-full md:w-36 lg:w-40">
+        {Icon && <Icon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />}
+        <select
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className={`w-full h-10 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 appearance-none cursor-pointer ${Icon ? 'pl-9' : 'pl-3'} pr-8 truncate transition-all`}
+        >
+            <option value="all">{placeholder}</option>
+            {options.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+            ))}
+        </select>
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-50">
+            <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+        </div>
+    </div>
+);
+
 export default function UnitRegistry({ mode = 'apartments' }) {
-    const { composition, flatMatrix, setFlatMatrix, floorData, parkingPlaces, setParkingPlaces, entrancesData, complexInfo, saveBuildingData, saveData } = useProject();
+    const { 
+        composition, flatMatrix, setFlatMatrix, floorData, 
+        parkingPlaces, setParkingPlaces, entrancesData, 
+        complexInfo, saveProjectImmediate, buildingDetails 
+    } = useProject();
+    
     const isReadOnly = useReadOnly();
     
     const [searchTerm, setSearchTerm] = useState('');
     const [filterBuilding, setFilterBuilding] = useState('all');
     
+    const [filterEntrance, setFilterEntrance] = useState('all');
+    const [filterFloor, setFilterFloor] = useState('all');
+    const [filterStatus, setFilterStatus] = useState('all');
+
     const [editingUnit, setEditingUnit] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
 
     const modeConfig = MODES[mode] || MODES.apartments;
     const ModeIcon = modeConfig.icon;
 
-    // --- Сбор данных ---
+    useEffect(() => {
+        setFilterEntrance('all');
+        setFilterFloor('all');
+        setFilterStatus('all');
+    }, [filterBuilding]);
+
+    // --- ЛОГИКА СБОРА ДАННЫХ ---
     const dataObjects = useMemo(() => {
         const list = [];
-        composition.forEach(building => {
-            const blocks = getBlocksList(building);
+        
+        // 1. Создаем Set для проверки дубликатов (для коммерции)
+        const registeredUnits = new Set();
 
-            // 1. СБОР ИЗ FLAT MATRIX (Реальные объекты)
+        const addToIndex = (item) => {
+            // Нормализуем ключ для индекса
+            const key = `${item.buildingId}_${item.blockId}_${item.entrance}_${item.number}`;
+            registeredUnits.add(key);
+        };
+
+        const isRegistered = (bId, blId, ent, num) => {
+            const key = `${bId}_${blId}_${ent}_${num}`;
+            return registeredUnits.has(key);
+        };
+
+        // Хелпер для поиска названия этажа
+        const resolveFloorLabel = (buildingId, floorId) => {
+            if (!floorId) return '-';
+            // 1. Ищем в базе floorData
+            // Проблема: мы не знаем blockId здесь, поэтому ищем по суффиксу ID
+            const entry = Object.values(floorData).find(f => f.id === floorId && f.buildingId === buildingId);
+            if (entry) return entry.label;
+
+            // 2. Парсим ID
+            if (floorId.includes('floor_')) return `${floorId.replace('floor_', '')} этаж`;
+            if (floorId.includes('minus')) return `Уровень -${floorId.split('minus_')[1]}`;
+            if (floorId.includes('base_')) return 'Подвал';
+            if (floorId === 'roof') return 'Кровля';
+            if (floorId === 'attic') return 'Мансарда';
+            if (floorId === 'tsokol') return 'Цоколь';
+            
+            // Если это просто число
+            if (!isNaN(parseInt(floorId))) return `${floorId} этаж`;
+
+            return '-';
+        };
+
+        composition.forEach(building => {
+            const blocks = getBlocksList(building, buildingDetails);
+
+            // === ШАГ 1: СБОР СОХРАНЕННЫХ ОБЪЕКТОВ (FlatMatrix) ===
             if (mode === 'apartments' || mode === 'commercial') {
                 Object.keys(flatMatrix).forEach(key => {
                     if (!key.startsWith(building.id)) return;
+                    
                     const unit = flatMatrix[key];
                     if (!unit || !unit.num) return; 
 
+                    // Фильтрация по типу
                     const isLiving = ['flat', 'duplex_up', 'duplex_down'].includes(unit.type);
                     const isCommercialType = ['office', 'office_inventory', 'non_res_block', 'infrastructure'].includes(unit.type);
 
                     if (mode === 'apartments' && !isLiving) return;
                     if (mode === 'commercial' && !isCommercialType) return;
 
-                    // Попытка восстановить контекст из ключа или объекта
-                    let blockLabel = unit.blockLabel || 'Секция';
-                    let floorLabel = unit.floorLabel || '-';
+                    // --- ПАРСИНГ КЛЮЧА (ВОССТАНОВЛЕН И УЛУЧШЕН) ---
+                    // Пытаемся получить данные из самого объекта, если нет - из ключа
+                    let entrance = unit.entrance;
+                    let floorId = unit.floorId;
+                    let blockId = unit.blockId;
 
-                    list.push({
-                        ...unit,
-                        id: key, // Ключ из Map (может быть как UUID, так и старый формат)
-                        // Гарантируем наличие UUID внутри объекта
-                        uuid: unit.id || (key.includes('-') && key.length > 30 ? key : null), 
+                    if (!floorId || !entrance || !blockId) {
+                        // Regex: Найти _e(цифры) _f(что-угодно) _i(цифры)
+                        // Это покрывает ключи типа: b1_blk1_e1_f_floor_1_i0 и b1_blk1_e1_f1_i0
+                        const match = key.match(/_e(\d+)_f(.*)_i(\d+)/);
                         
+                        if (match) {
+                            if (!entrance) entrance = match[1];
+                            if (!floorId) floorId = match[2]; // Это может быть "floor_1" или "1"
+
+                            // Пытаемся вытащить blockId (все что между buildingId и _e)
+                            if (!blockId) {
+                                const suffixIndex = key.indexOf(`_e${entrance}_f`);
+                                if (suffixIndex > -1) {
+                                    // key: "dom1_blk1_e1..." -> prefix: "dom1_blk1"
+                                    const prefix = key.substring(0, suffixIndex);
+                                    if (prefix.startsWith(building.id + '_')) {
+                                        blockId = prefix.substring(building.id.length + 1);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Чистка floorId от дублей (если парсер захватил лишнее)
+                    if (floorId && floorId.startsWith('_')) floorId = floorId.substring(1);
+
+                    // Определение названий
+                    const floorLabel = resolveFloorLabel(building.id, floorId);
+                    let blockLabel = unit.blockLabel || 'Секция';
+                    
+                    if (blockId) {
+                        const bObj = blocks.find(b => b.id === blockId);
+                        if (bObj) blockLabel = bObj.tabLabel;
+                    }
+
+                    const item = {
+                        ...unit,
+                        id: key, 
+                        uuid: unit.id || (key.length > 30 ? key : null),
                         buildingId: building.id,
+                        blockId: blockId,
+                        floorId: floorId,
                         houseNumber: building.houseNumber,
                         buildingLabel: building.label,
                         address: complexInfo.street,
                         
                         number: unit.num,
-                        area: unit.area || '0',
+                        area: unit.area || '0',           
+                        livingArea: unit.livingArea || '0', 
+                        usefulArea: unit.usefulArea || '0', 
                         
+                        explication: unit.explication || [], 
+
                         blockLabel: blockLabel,
                         floorLabel: floorLabel,
+                        entrance: entrance || '-',
                         
                         isSaved: true 
-                    });
+                    };
+
+                    list.push(item);
+                    if (blockId && entrance && unit.num) {
+                        addToIndex(item);
+                    }
                 });
             }
 
-            // 2. ГЕНЕРАЦИЯ ВИРТУАЛЬНЫХ ОБЪЕКТОВ (Только для Commercial)
+            // === ШАГ 2: ГЕНЕРАЦИЯ ВИРТУАЛЬНЫХ (Commercial) ===
             if (mode === 'commercial') {
                 const resBlocks = blocks.filter(b => b.type === 'Ж');
                 resBlocks.forEach(block => {
@@ -137,51 +267,72 @@ export default function UnitRegistry({ mode = 'apartments' }) {
                             if (entMatch) {
                                 const entIdx = entMatch[1];
                                 const floorId = entMatch[2];
-                                const floorInfo = floorData[`${block.fullId}_${floorId}`];
-                                const floorLabel = floorInfo?.label || formatRawFloorId(floorId);
+                                const floorLabel = resolveFloorLabel(building.id, floorId);
                                 
                                 for(let i = 1; i <= unitsCount; i++) {
-                                    const virtualId = `${entKey}_unit_${i}`; // Временный ID
-                                    if (list.find(item => item.id === virtualId)) continue;
+                                    const candidateNumber = `НП-${i}`;
+                                    
+                                    // ПРОВЕРКА НА ДУБЛИКАТ
+                                    if (isRegistered(building.id, block.id, entIdx, candidateNumber)) {
+                                        continue; 
+                                    }
 
+                                    const virtualId = `${entKey}_unit_${i}`; 
                                     list.push({
                                         id: virtualId, 
                                         buildingId: building.id,
                                         blockId: block.id,
+                                        floorId: floorId,
                                         houseNumber: building.houseNumber,
                                         buildingLabel: building.label,
                                         address: complexInfo.street,
-                                        number: `НП-${i}`, 
+                                        number: candidateNumber, 
                                         type: 'office_inventory',
                                         area: '0', 
+                                        livingArea: '0',
+                                        usefulArea: '0',
                                         rooms: '-',
+                                        explication: [],
                                         blockLabel: block.tabLabel,
                                         floorLabel: floorLabel,
                                         entrance: entIdx,
-                                        isSaved: false // Флаг виртуальности
+                                        isSaved: false 
                                     });
                                 }
                             }
                         }
                     });
                 });
-
-                // ... Блоки целиком и Инфраструктура (аналогично, пропускаем для краткости, логика та же)
-                // ...
             }
 
-            // 3. ПАРКИНГ
+            // ШАГ 3: ПАРКИНГ
             else if (mode === 'parking') {
                 Object.keys(parkingPlaces).forEach(key => {
                     if (!key.startsWith(building.id) || !key.includes('_place')) return;
                     const place = parkingPlaces[key];
+                    
+                    // Парсинг паркинга проще
+                    let floorId = null;
+                    if (key.includes('level_minus_')) floorId = 'level_minus_' + key.split('level_minus_')[1].split('_')[0];
+                    else if (key.includes('_floor_')) floorId = 'floor_' + key.split('_floor_')[1].split('_')[0];
+                    else if (key.includes('_base_')) {
+                         const m = key.match(/_L(\d+)/);
+                         floorId = m ? `base_L${m[1]}` : 'base';
+                    }
+
+                    const floorLabel = resolveFloorLabel(building.id, floorId) || 'Уровень';
+
                     list.push({
                         ...place,
                         id: key,
                         buildingId: building.id,
                         houseNumber: building.houseNumber,
                         buildingLabel: building.label,
-                        // Если есть UUID, используем его, иначе считаем, что ключ и есть ID (старый формат)
+                        floorLabel: floorLabel,
+                        entrance: '-', 
+                        area: place.area || '13.25',
+                        livingArea: '-',
+                        usefulArea: '-',
                         uuid: place.id || null, 
                         isSaved: true
                     });
@@ -190,17 +341,49 @@ export default function UnitRegistry({ mode = 'apartments' }) {
         });
 
         return list.sort((a, b) => a.number.localeCompare(b.number, undefined, {numeric: true}));
-    }, [composition, flatMatrix, floorData, parkingPlaces, entrancesData, complexInfo, mode]);
+    }, [composition, flatMatrix, floorData, parkingPlaces, entrancesData, complexInfo, mode, buildingDetails]);
 
+    // --- ФИЛЬТРАЦИЯ ---
     const filteredData = useMemo(() => {
         return dataObjects.filter(item => {
             const searchLower = searchTerm.toLowerCase();
             const matchesSearch = String(item.number).toLowerCase().includes(searchLower) || 
                                   String(item.houseNumber).toLowerCase().includes(searchLower);
+            
             const matchesBuilding = filterBuilding === 'all' || item.buildingId === filterBuilding;
-            return matchesSearch && matchesBuilding;
+            const matchesEntrance = filterEntrance === 'all' || String(item.entrance) === String(filterEntrance);
+            const matchesFloor = filterFloor === 'all' || item.floorLabel === filterFloor;
+
+            let matchesStatus = true;
+            if (filterStatus !== 'all') {
+                const isFilled = parseFloat(item.area) > 0;
+                if (filterStatus === 'Готов') matchesStatus = isFilled;
+                else if (filterStatus === 'Не готов') matchesStatus = !isFilled;
+            }
+
+            return matchesSearch && matchesBuilding && matchesEntrance && matchesFloor && matchesStatus;
         });
-    }, [dataObjects, searchTerm, filterBuilding]);
+    }, [dataObjects, searchTerm, filterBuilding, filterEntrance, filterFloor, filterStatus]);
+
+    // --- ОПЦИИ ФИЛЬТРОВ ---
+    const availableOptions = useMemo(() => {
+        const contextData = filterBuilding === 'all' 
+            ? dataObjects 
+            : dataObjects.filter(d => d.buildingId === filterBuilding);
+
+        const entrances = [...new Set(contextData.map(d => d.entrance).filter(e => e && e !== '-'))]
+            .sort((a, b) => parseInt(a) - parseInt(b));
+        
+        const floors = [...new Set(contextData.map(d => d.floorLabel).filter(f => f && f !== '-'))]
+            .sort((a, b) => {
+                const numA = parseInt(a);
+                const numB = parseInt(b);
+                if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+                return a.localeCompare(b);
+            });
+
+        return { entrances, floors };
+    }, [dataObjects, filterBuilding]);
 
     const stats = useMemo(() => {
         const total = filteredData.length;
@@ -208,74 +391,103 @@ export default function UnitRegistry({ mode = 'apartments' }) {
         return { total, totalArea };
     }, [filteredData]);
 
-    const handleSaveUnit = async (updatedUnit) => {
-        if (!updatedUnit.id || isReadOnly) return;
-        
-        // Если это первый раз, когда мы сохраняем виртуальный юнит, генерируем ему UUID
-        const finalId = updatedUnit.uuid || crypto.randomUUID();
-
-        if (mode !== 'parking') {
-            const existingData = flatMatrix[updatedUnit.id] || {}; // updatedUnit.id может быть virtual string
-            const payload = {
-                ...existingData,
-                ...updatedUnit,
-                id: finalId, // ВАЖНО: сохраняем UUID внутри объекта
-                isSaved: true
-            };
-            
-            // Сохраняем в стейт по ключу (для виртуальных - это их строковый ID, для реальных - может быть UUID)
-            // Чтобы не дублировать, если ключ отличается от ID, можно удалить старый ключ, но это сложнее.
-            // Пока оставим ключ как есть, но внутри будет правильный ID.
-            setFlatMatrix(prev => ({ ...prev, [updatedUnit.id]: payload }));
-        } else {
-            const payload = {
-                ...parkingPlaces[updatedUnit.id],
-                ...updatedUnit,
-                id: finalId,
-                isSaved: true
-            };
-            setParkingPlaces(prev => ({ ...prev, [updatedUnit.id]: payload }));
-        }
-        setEditingUnit(null);
-    };
-
-    const handleSave = async () => {
-        if (isReadOnly) return;
+    // --- СОХРАНЕНИЕ ---
+    const handleSaveUnit = async (changes) => {
+        if (!editingUnit || isReadOnly) return;
         setIsSaving(true);
-        try {
-            for (const building of composition) {
-                const bId = building.id;
-                // Сборка данных для сохранения через новые методы сервиса
-                const unitsArray = [];
-                const parkingArray = [];
 
-                Object.keys(flatMatrix).forEach(k => {
-                     if (k.startsWith(bId)) unitsArray.push(flatMatrix[k]);
-                });
-                Object.keys(parkingPlaces).forEach(k => {
-                     if (k.startsWith(bId)) parkingArray.push(parkingPlaces[k]);
-                });
-                
-                if (unitsArray.length > 0) {
-                    await saveBuildingData(bId, 'apartmentsData', flatMatrix); // Контекст сам преобразует в массив
+        const sourceData = mode === 'parking' ? parkingPlaces : flatMatrix;
+        const setSourceData = mode === 'parking' ? setParkingPlaces : setFlatMatrix;
+        
+        // 1. Получаем существующие данные (если есть)
+        const existingData = editingUnit.isSaved ? sourceData[editingUnit.id] : {};
+
+        // 2. Слияние экспликации (комнат)
+        // Приоритет: Changes > EditingUnit > ExistingData > []
+        let finalExplication = [];
+        if (Array.isArray(changes.explication)) finalExplication = changes.explication;
+        else if (Array.isArray(editingUnit.explication)) finalExplication = editingUnit.explication;
+        else if (existingData && Array.isArray(existingData.explication)) finalExplication = existingData.explication;
+
+        const finalId = editingUnit.uuid || crypto.randomUUID();
+
+        // 3. Формируем единый объект (Тройное слияние для надежности)
+        // existingData - чтобы не потерять старые поля
+        // editingUnit - чтобы получить blockId/floorId для новых объектов
+        // changes - чтобы применить новые значения
+        const mergedData = { ...existingData, ...editingUnit, ...changes };
+
+        const cleanPayload = {
+            id: finalId,
+            isSaved: true,
+            
+            num: mergedData.number,
+            number: mergedData.number,
+            area: mergedData.area || '0',
+            livingArea: mergedData.livingArea || '0',
+            usefulArea: mergedData.usefulArea || '0',
+            type: mergedData.type,
+            rooms: mergedData.rooms,
+            
+            explication: finalExplication,
+
+            // Критически важно для привязки
+            buildingId: mergedData.buildingId,
+            blockId: mergedData.blockId,
+            floorId: mergedData.floorId,
+            entrance: mergedData.entrance
+        };
+
+        // Удаляем UI-поля
+        delete cleanPayload.floorLabel;
+        delete cleanPayload.blockLabel;
+        delete cleanPayload.buildingLabel;
+        delete cleanPayload.houseNumber;
+        delete cleanPayload.address;
+        delete cleanPayload.uuid;
+        delete cleanPayload.isInvalid;
+
+        try {
+            // Если это виртуальный объект, мы сохраняем его под UUID,
+            // но в стейте ключом может быть старый строковый ID (editingUnit.id).
+            // Чтобы он заменил виртуальный в списке, мы должны обновить стейт.
+            
+            // Нюанс: если мы сохраняем под UUID, то виртуальный ключ останется в стейте?
+            // Нет, виртуальные ключи генерируются на лету в dataObjects.
+            // Нам нужно просто добавить в flatMatrix запись с ключом = editingUnit.id (чтобы перезаписать)
+            // ИЛИ добавить новую запись.
+            
+            // Если редактировали виртуальный объект (id = "..._unit_1"), лучше сохранить его под этим же ключом,
+            // чтобы он перестал быть "виртуальным" и стал "реальным".
+            // ИЛИ использовать UUID как ключ. 
+            // В нашей системе ключи flatMatrix обычно: buildingId_blockId_...
+            // Давайте сохраним под editingUnit.id, если это "новый" объект, чтобы он перекрыл генерацию.
+            
+            const keyToSave = editingUnit.id; 
+            
+            setSourceData(prev => ({ ...prev, [keyToSave]: cleanPayload }));
+            
+            setTimeout(async () => {
+                try {
+                    await saveProjectImmediate();
+                } catch (e) { 
+                    console.error("Firebase save error:", e); 
                 }
-                if (parkingArray.length > 0) {
-                    await saveBuildingData(bId, 'parkingData', parkingPlaces);
-                }
-            }
-            await saveData({}, true);
-        } catch (e) {
-            console.error(e);
+            }, 300);
+            
+        } catch (error) {
+            console.error("Auto-save failed:", error);
         } finally {
             setIsSaving(false);
+            setEditingUnit(null);
         }
     };
 
     return (
-        <div className="max-w-7xl mx-auto pb-20 animate-in fade-in duration-500 space-y-6">
+        <div className="w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto pb-20 animate-in fade-in duration-500 space-y-6">
             
             {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-end gap-4 border-b border-slate-200 pb-6">
+            <div className="flex flex-col md:flex-row justify-between items-end gap-4 border-b border-slate-200 pb-6 px-4 md:px-0">
                 <div>
                     <h1 className={`text-2xl font-bold flex items-center gap-3 ${modeConfig.colorClass}`}>
                         <ModeIcon /> {modeConfig.title}
@@ -286,119 +498,105 @@ export default function UnitRegistry({ mode = 'apartments' }) {
             </div>
 
             {/* Статистика */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 px-4 md:px-0">
                 <StatCard label={`Всего объектов`} value={stats.total} icon={LayoutGrid} colorClass="border-slate-200 text-slate-800" iconBgClass="bg-slate-100"/>
                 <StatCard label="Общая площадь (м²)" value={stats.totalArea.toLocaleString(undefined, {maximumFractionDigits: 1})} icon={FileText} colorClass="border-blue-100 bg-blue-50 text-blue-700" iconBgClass="bg-blue-200"/>
             </div>
 
-            {/* Фильтры */}
-            <div className="flex flex-wrap gap-3 items-center bg-slate-50 p-3 rounded-2xl border border-slate-200">
-                <div className="flex items-center gap-2 px-2 text-slate-500 border-r border-slate-200 mr-2">
-                    <Filter size={16}/> <span className="text-xs font-bold uppercase">Фильтры</span>
+            {/* Панель фильтров */}
+            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 px-4 md:px-0">
+                 <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-full xl:w-max overflow-x-auto shadow-inner border border-slate-700 custom-scrollbar">
+                    <DarkTabButton active={filterBuilding === 'all'} onClick={() => setFilterBuilding('all')} icon={LayoutGrid}>Все объекты</DarkTabButton>
+                    <div className="w-px h-5 bg-slate-700 mx-1 shrink-0"></div>
+                    {composition.map((b) => (
+                        <DarkTabButton key={b.id} active={filterBuilding === b.id} onClick={() => setFilterBuilding(b.id)} icon={Building2}>
+                            {b.label} <span className="opacity-50 text-[10px] ml-1">#{b.houseNumber}</span>
+                        </DarkTabButton>
+                    ))}
                 </div>
-                <div className="flex flex-col gap-1 min-w-[200px]">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase ml-1">Выбор дома</span>
-                    <select 
-                        value={filterBuilding} 
-                        onChange={e => setFilterBuilding(e.target.value)} 
-                        className="flex h-10 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer transition-all shadow-sm"
-                    >
-                        <option value="all">Все здания комплекса</option>
-                        {composition.map(b => (<option key={b.id} value={b.id}>{b.label} (Дом {b.houseNumber})</option>))}
-                    </select>
-                </div>
-                <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase ml-1">Поиск</span>
-                    <input 
-                        value={searchTerm} 
-                        onChange={e => setSearchTerm(e.target.value)} 
-                        placeholder="Номер..." 
-                        className="flex h-10 w-full rounded-xl border border-slate-200 bg-white pl-3 pr-3 py-2 text-xs shadow-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-100 transition-all"
+
+                <div className="flex flex-col md:flex-row gap-3 w-full xl:w-auto">
+                    {mode !== 'parking' && (
+                        <FilterSelect 
+                            icon={Filter}
+                            value={filterEntrance}
+                            onChange={setFilterEntrance}
+                            options={availableOptions.entrances}
+                            placeholder="Все подъезды"
+                        />
+                    )}
+                    <FilterSelect 
+                        icon={Layers}
+                        value={filterFloor}
+                        onChange={setFilterFloor}
+                        options={availableOptions.floors}
+                        placeholder="Все этажи"
                     />
+                    <FilterSelect 
+                        icon={Activity}
+                        value={filterStatus}
+                        onChange={setFilterStatus}
+                        options={['Готов', 'Не готов']}
+                        placeholder="Любой статус"
+                    />
+                    <div className="relative w-full md:w-48 lg:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <Input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Поиск по номеру..." className="pl-9 h-10 text-xs font-bold w-full"/>
+                    </div>
                 </div>
             </div>
 
             {/* Таблица */}
-            <Card className="overflow-hidden border-0 shadow-lg ring-1 ring-slate-200 rounded-xl">
+            <Card className="overflow-hidden border-0 shadow-lg ring-1 ring-slate-200 rounded-xl mx-4 md:mx-0">
                 <div className="overflow-x-auto max-h-[60vh]">
                     <table className="w-full text-left border-collapse">
-                        <thead className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase font-bold text-slate-500 sticky top-0 z-10 shadow-sm backdrop-blur-md">
+                        <thead className="bg-slate-800 text-slate-200 border-b border-slate-700 text-[10px] uppercase font-bold sticky top-0 z-20 shadow-md">
                             <tr>
-                                <th className="p-4 w-12 text-center">№</th>
+                                <th className="p-4 w-12 text-center text-slate-400">№</th>
                                 <th className="p-4 w-20 text-center">Дом</th>
-                                <th className="p-4 w-28 text-center">Номер</th>
-                                <th className="p-4">Тип</th>
-                                <th className="p-4">Расположение</th>
+                                <th className="p-4 w-20 text-center border-l border-slate-700">Подъезд</th>
+                                <th className="p-4 w-32 text-center border-l border-slate-700">{mode === 'parking' ? 'Номер места' : (mode === 'commercial' ? 'Номер помещения' : 'Номер квартиры')}</th>
+                                <th className="p-4 border-l border-slate-700">Тип</th>
+                                <th className="p-4">Блок/Секция</th>
                                 <th className="p-4 text-center">Этаж</th>
                                 {mode === 'apartments' && <th className="p-4 text-center">Комнат</th>}
-                                <th className="p-4 text-right">Площадь</th>
-                                <th className="p-4 text-center">Статус</th>
+                                <th className="p-4 text-right bg-slate-700/50 text-emerald-300 border-l border-slate-700">Общая площадь (м²)</th>
+                                {mode === 'apartments' && <th className="p-4 text-right border-l border-slate-700">Жилая площадь (м²)</th>}
+                                {mode === 'apartments' && <th className="p-4 text-right border-l border-slate-700">Полезная площадь (м²)</th>}
+                                <th className="p-4 text-center border-l border-slate-700">Статус</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100 bg-white">
+                        <tbody className="divide-y divide-slate-100 bg-white text-sm">
                             {filteredData.length > 0 ? (
                                 filteredData.map((item, idx) => {
                                     const typeConf = getTypeConfig(item.type);
                                     const TypeIcon = typeConf.icon;
                                     const isFilled = parseFloat(item.area) > 0;
-                                    
                                     return (
-                                        <tr 
-                                            key={item.id} 
-                                            onClick={() => setEditingUnit(item)}
-                                            className={`transition-colors group text-sm border-b border-slate-100 last:border-0 hover:bg-blue-50/50 cursor-pointer`}
-                                        >
+                                        <tr key={item.id} onClick={() => setEditingUnit(item)} className={`group cursor-pointer transition-colors border-b border-slate-100 last:border-0 hover:bg-blue-50 relative even:bg-slate-50/50`}>
                                             <td className="p-4 text-xs text-slate-400 text-center font-mono">{idx + 1}</td>
-                                            <td className="p-4 text-center">
-                                                <div className="inline-flex items-center justify-center w-8 h-8 rounded bg-white border border-slate-200 font-bold text-slate-700 text-xs shadow-sm">
-                                                    {item.houseNumber}
-                                                </div>
-                                            </td>
-                                            
-                                            <td className="p-4 text-center relative">
-                                                <span className="font-black text-slate-800 text-base">{item.number}</span>
-                                                {isFilled && <CheckCircle2 size={16} className="text-emerald-500 absolute top-1/2 right-2 -translate-y-1/2" />}
-                                            </td>
-
-                                            <td className="p-4">
-                                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase border ${typeConf.color}`}>
-                                                    <TypeIcon size={12}/> {typeConf.label}
-                                                </span>
-                                            </td>
-                                            <td className="p-4 text-xs text-slate-500">
-                                                <div className="flex flex-col">
-                                                    <span className="font-bold text-slate-700">{item.blockLabel}</span>
-                                                    {item.entrance && item.entrance !== '-' && (
-                                                        <span className="text-[10px] opacity-70">Подъезд {item.entrance}</span>
-                                                    )}
-                                                </div>
-                                            </td>
+                                            <td className="p-4 text-center"><div className="inline-flex items-center justify-center w-8 h-8 rounded bg-white border border-slate-200 font-bold text-slate-700 text-xs shadow-sm">{item.houseNumber}</div></td>
+                                            <td className="p-4 text-center font-bold text-slate-500 border-l border-slate-100">{item.entrance}</td>
+                                            <td className="p-4 text-center relative border-x border-blue-100 bg-blue-50/20 group-hover:bg-blue-100/50 transition-colors"><span className="font-black text-slate-800 text-lg">{item.number}</span></td>
+                                            <td className="p-4"><span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase border ${typeConf.color}`}><TypeIcon size={12}/> {typeConf.label}</span></td>
+                                            <td className="p-4 text-xs text-slate-500"><span className="font-bold text-slate-700">{item.blockLabel}</span></td>
                                             <td className="p-4 text-center font-medium text-slate-700">{item.floorLabel}</td>
                                             {mode === 'apartments' && <td className="p-4 text-center text-slate-500 font-medium">{item.rooms}</td>}
-                                            <td className="p-4 text-right font-mono font-bold text-slate-700">
-                                                {parseFloat(item.area).toFixed(2)} <span className="text-[10px] font-normal text-slate-400">м²</span>
-                                            </td>
-                                            <td className="p-4 text-center">
-                                                {isFilled ? (
-                                                    <div className="inline-flex items-center gap-1 bg-white text-emerald-600 border border-emerald-200/50 px-2 py-0.5 rounded text-[10px] font-bold shadow-sm">
-                                                        <CheckCircle2 size={12}/> Готов
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-xs text-slate-300">-</span>
-                                                )}
-                                            </td>
+                                            <td className="p-4 text-right font-mono font-bold text-slate-800 bg-emerald-50/30 border-l border-emerald-100/50">{parseFloat(item.area).toFixed(2)}</td>
+                                            {mode === 'apartments' && <td className="p-4 text-right font-mono text-slate-600 border-l border-slate-100">{parseFloat(item.livingArea) > 0 ? parseFloat(item.livingArea).toFixed(2) : '-'}</td>}
+                                            {mode === 'apartments' && <td className="p-4 text-right font-mono text-slate-600 border-l border-slate-100">{parseFloat(item.usefulArea) > 0 ? parseFloat(item.usefulArea).toFixed(2) : '-'}</td>}
+                                            <td className="p-4 text-center border-l border-slate-100">{isFilled ? (<div className="inline-flex items-center gap-1.5 text-emerald-600 px-2 py-0.5 rounded-full text-[10px] font-bold"><CheckCircle2 size={14} className="text-emerald-500"/><span>Готов</span></div>) : (<span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded">Не заполнен</span>)}</td>
                                         </tr>
                                     );
                                 })
                             ) : (
-                                <tr><td colSpan={10} className="p-12 text-center text-slate-400">Нет объектов</td></tr>
+                                <tr><td colSpan={12} className="p-12 text-center text-slate-400">Нет объектов</td></tr>
                             )}
                         </tbody>
                     </table>
                 </div>
             </Card>
 
-            {/* МОДАЛКИ */}
             {editingUnit && (mode === 'apartments' || mode === 'commercial') && (
                 <UnitInventoryModal 
                     unit={editingUnit} 
@@ -416,8 +614,6 @@ export default function UnitRegistry({ mode = 'apartments' }) {
                     onSave={handleSaveUnit}
                 />
             )}
-
-            <SaveFloatingBar onSave={handleSave} />
         </div>
     );
 }
