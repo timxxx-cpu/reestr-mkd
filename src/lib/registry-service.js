@@ -1,57 +1,143 @@
-import { 
-  doc, collection, setDoc, getDoc, deleteDoc, 
-  onSnapshot, writeBatch, arrayUnion, getDocs 
-} from 'firebase/firestore';
-import { db, APP_ID } from './firebase';
-import { APP_STATUS } from './constants';
-
-const getUserRoot = (scope) => `artifacts/${APP_ID}/users/${scope}`;
-const getProjectRef = (scope, id) => doc(db, `${getUserRoot(scope)}/registry_data/project_${id}`);
-const getBuildingsRef = (scope, projectId) => collection(db, `${getUserRoot(scope)}/registry_data/project_${projectId}/buildings`);
-const getBuildingDocRef = (scope, projectId, buildingId) => doc(db, `${getUserRoot(scope)}/registry_data/project_${projectId}/buildings/${buildingId}`);
-const getMetaListRef = (scope) => doc(db, `${getUserRoot(scope)}/registry_data/projects_meta`);
+import { supabase } from './supabase';
 
 export const RegistryService = {
   
+  // Получить список проектов (из таблицы projects)
   getProjectsList: async (scope) => {
-    try {
-        const snap = await getDoc(getMetaListRef(scope));
-        return snap.exists() ? snap.data().list || [] : [];
-    } catch (error) {
-        console.error("[RegistryService] Error fetching projects:", error);
-        throw error;
-    }
+    const { data, error } = await supabase
+      .from('projects')
+      .select('id, name, status, updated_at, meta')
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Мапим данные обратно в формат, который ждет фронтенд
+    return data.map(p => ({
+      id: p.id,
+      name: p.name,
+      status: p.status,
+      lastModified: p.updated_at,
+      ...p.meta // Распаковываем meta (complexInfo, applicationInfo и т.д.)
+    }));
   },
 
+  // Получить один проект
   getProjectMeta: async (scope, projectId) => {
-    try {
-        const snap = await getDoc(getProjectRef(scope, projectId));
-        return snap.exists() ? snap.data() : null;
-    } catch (error) {
-        console.error("[RegistryService] Error fetching project meta:", error);
-        throw error;
-    }
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('id', projectId)
+      .single();
+
+    if (error) return null;
+
+    return {
+      id: data.id,
+      name: data.name,
+      status: data.status,
+      lastModified: data.updated_at,
+      ...data.meta
+    };
   },
 
+  // Получить здания проекта
   getBuildings: async (scope, projectId) => {
-    try {
-        const snapshot = await getDocs(getBuildingsRef(scope, projectId));
-        const buildings = {};
-        snapshot.forEach(doc => {
-            buildings[doc.id] = doc.data();
-        });
-        return buildings;
-    } catch (error) {
-        console.error("[RegistryService] Error fetching buildings:", error);
-        throw error;
+    const { data, error } = await supabase
+      .from('buildings')
+      .select('id, data')
+      .eq('project_id', projectId);
+
+    if (error) throw error;
+
+    // Превращаем массив строк БД в объект { buildingId: buildingData }
+    const buildingsMap = {};
+    data.forEach(row => {
+      buildingsMap[row.id] = row.data;
+    });
+    return buildingsMap;
+  },
+
+  // СОХРАНЕНИЕ (Универсальный метод)
+  saveData: async (scope, projectId, payload) => {
+    const { buildingSpecificData, ...generalData } = payload;
+    const updates = [];
+
+    // 1. Сохраняем общие данные проекта в таблицу projects
+    if (Object.keys(generalData).length > 0) {
+      const { data: currentProject } = await supabase
+        .from('projects')
+        .select('meta')
+        .eq('id', projectId)
+        .single();
+
+      const currentMeta = currentProject?.meta || {};
+      
+      const topLevelUpdates = {};
+      if (generalData.complexInfo?.name) topLevelUpdates.name = generalData.complexInfo.name;
+      if (generalData.complexInfo?.status) topLevelUpdates.status = generalData.complexInfo.status;
+      
+      const newMeta = { ...currentMeta, ...generalData };
+
+      updates.push(
+        supabase
+          .from('projects')
+          .update({ 
+            ...topLevelUpdates,
+            meta: newMeta,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', projectId)
+      );
     }
+
+    // 2. Сохраняем данные зданий в таблицу buildings
+    if (buildingSpecificData) {
+      for (const [bId, bData] of Object.entries(buildingSpecificData)) {
+        const { data: currentBuilding } = await supabase
+          .from('buildings')
+          .select('data')
+          .eq('id', bId)
+          .single();
+
+        const currentData = currentBuilding?.data || {};
+        const newData = { ...currentData, ...bData };
+
+        updates.push(
+          supabase
+            .from('buildings')
+            .upsert({
+              id: bId,
+              project_id: projectId,
+              data: newData
+            })
+        );
+      }
+    }
+
+    await Promise.all(updates);
   },
 
-  getExternalApplications: async () => {
-      // Возвращаем пустой список, так как генерируем кнопкой "Эмуляция"
-      return []; 
+  // Создание нового проекта
+  createProject: async (scope, projectMeta, initialContent) => {
+    const { error } = await supabase
+      .from('projects')
+      .insert({
+        id: projectMeta.id,
+        name: projectMeta.name,
+        status: projectMeta.status,
+        meta: {
+            applicationInfo: projectMeta.applicationInfo,
+            complexInfo: projectMeta.complexInfo,
+            composition: projectMeta.composition,
+            participants: {}, 
+            documents: []
+        }
+      });
+
+    if (error) throw error;
   },
 
+  // [ВОССТАНОВЛЕНО] Метод для создания из заявки
   createProjectFromApplication: async (scope, application, user) => {
       const projectId = crypto.randomUUID();
       const now = new Date().toISOString();
@@ -60,8 +146,6 @@ export const RegistryService = {
           id: projectId,
           name: `ЖК по заявке ${application.externalId}`,
           status: 'Проектный',
-          author: user.name,
-          lastModified: now,
           
           applicationInfo: {
               internalNumber: application.id,
@@ -70,7 +154,7 @@ export const RegistryService = {
               applicant: application.applicant,
               landCadastre: application.cadastre,
               submissionDate: application.submissionDate,
-              status: APP_STATUS.DRAFT, 
+              status: 'DRAFT', 
               assignee: user.id,
               assigneeName: user.name,
               currentStage: 1, 
@@ -79,7 +163,7 @@ export const RegistryService = {
               history: [
                   { 
                       date: now, 
-                      status: APP_STATUS.DRAFT, 
+                      status: 'DRAFT', 
                       user: user.name, 
                       comment: 'Заявление принято в работу (Этап 1)' 
                   }
@@ -97,207 +181,40 @@ export const RegistryService = {
           composition: []
       };
 
-      const initialContent = {
-          complexInfo: projectMeta.complexInfo,
-          composition: [],
-          applicationInfo: projectMeta.applicationInfo
-      };
-
-      await RegistryService.createProject(scope, projectMeta, initialContent);
+      await RegistryService.createProject(scope, projectMeta);
       return projectId;
   },
 
-  subscribeProjectMeta: (scope, projectId, callback) => {
-    return onSnapshot(getProjectRef(scope, projectId), (snap) => {
-      callback(snap.exists() ? snap.data() : null);
-    });
-  },
-
-  subscribeBuildings: (scope, projectId, callback) => {
-    return onSnapshot(getBuildingsRef(scope, projectId), (snapshot) => {
-      const buildings = {};
-      snapshot.forEach(doc => {
-          buildings[doc.id] = doc.data();
-      });
-      callback(buildings);
-    });
-  },
-
-  subscribeProjectsList: (scope, callback) => {
-      return onSnapshot(getMetaListRef(scope), (snap) => {
-          callback(snap.exists() ? snap.data().list || [] : []);
-      });
-  },
-
-  /**
-   * Универсальный метод сохранения (Legacy support + Internal usage)
-   */
-  saveData: async (scope, projectId, payload) => {
-    try {
-      const batch = writeBatch(db);
-      const { buildingSpecificData, ...generalData } = payload;
-
-      if (Object.keys(generalData).length > 0) {
-        batch.set(getProjectRef(scope, projectId), generalData, { merge: true });
-      }
-
-      if (buildingSpecificData) {
-        Object.entries(buildingSpecificData).forEach(([bId, data]) => {
-          batch.set(getBuildingDocRef(scope, projectId, bId), data, { merge: true });
-        });
-      }
-
-      await batch.commit();
-
-      if (generalData.complexInfo || generalData.applicationInfo) {
-          await RegistryService._syncDashboardItem(scope, projectId, generalData);
-      }
-    } catch (error) {
-      console.error("[RegistryService] Save failed:", error);
-      throw error;
-    }
-  },
-
-  // --- НОВЫЕ МЕТОДЫ (SQL-READY) ---
-  
-  /**
-   * Сохранение списка помещений (FlatMatrix) для конкретного здания.
-   * Принимает массив объектов, преобразует в Map для Firestore.
-   */
-  saveUnits: async (scope, projectId, buildingId, unitsArray) => {
-      const unitsMap = {};
-      unitsArray.forEach(u => {
-          // Генерируем составной ключ для обратной совместимости, если его нет
-          // Но лучше использовать u.id, если он совпадает с ключом
-          const key = u.id || `unknown_${crypto.randomUUID()}`; 
-          unitsMap[key] = u;
-      });
-      
-      const payload = {
-          buildingSpecificData: {
-              [buildingId]: { apartmentsData: unitsMap }
-          }
-      };
-      return RegistryService.saveData(scope, projectId, payload);
-  },
-
-  saveFloors: async (scope, projectId, buildingId, floorsArray) => {
-      const floorsMap = {};
-      floorsArray.forEach(f => {
-          const key = f.legacyKey || f.id; // Используем legacyKey для совместимости ключей
-          floorsMap[key] = f;
-      });
-
-      const payload = {
-          buildingSpecificData: {
-              [buildingId]: { floorData: floorsMap }
-          }
-      };
-      return RegistryService.saveData(scope, projectId, payload);
-  },
-
-  saveParkingPlaces: async (scope, projectId, buildingId, placesArray) => {
-      const placesMap = {};
-      placesArray.forEach(p => {
-          const key = p.legacyKey || p.id;
-          placesMap[key] = p;
-      });
-
-      const payload = {
-          buildingSpecificData: {
-              [buildingId]: { parkingData: placesMap }
-          }
-      };
-      return RegistryService.saveData(scope, projectId, payload);
-  },
-
-  saveCommonAreas: async (scope, projectId, buildingId, mopMap) => {
-      // МОПы пока оставим как Map, так как они хранятся массивами внутри ключей этажей
-      const payload = {
-          buildingSpecificData: {
-              [buildingId]: { commonAreasData: mopMap }
-          }
-      };
-      return RegistryService.saveData(scope, projectId, payload);
-  },
-
-  // --------------------------------
-
-  updateProject: async (scope, projectId, data) => {
-      return RegistryService.saveData(scope, projectId, data);
-  },
-
-  createProject: async (scope, projectMeta, initialContent) => {
-      try {
-        const batch = writeBatch(db);
-        batch.set(getMetaListRef(scope), { list: arrayUnion(projectMeta) }, { merge: true });
-        batch.set(getProjectRef(scope, projectMeta.id), initialContent);
-        await batch.commit();
-      } catch (error) {
-        console.error("[RegistryService] Create failed:", error);
-        throw error;
-      }
-  },
-
-  deleteBuilding: async (scope, projectId, buildingId, generalUpdates) => {
-    try {
-      const batch = writeBatch(db);
-      batch.update(getProjectRef(scope, projectId), generalUpdates);
-      batch.delete(getBuildingDocRef(scope, projectId, buildingId));
-      await batch.commit();
-    } catch (error) {
-      console.error("[RegistryService] Delete building failed:", error);
-      throw error;
-    }
-  },
-
+  // Удаление
   deleteProject: async (scope, projectId) => {
-      try {
-        const listRef = getMetaListRef(scope);
-        const snap = await getDoc(listRef);
-        if (snap.exists()) {
-            const list = snap.data().list || [];
-            const newList = list.filter(p => p.id !== projectId);
-            await setDoc(listRef, { list: newList });
-        }
-        await deleteDoc(getProjectRef(scope, projectId));
-      } catch (error) {
-        console.error("[RegistryService] Delete project failed:", error);
-        throw error;
-      }
+    const { error } = await supabase.from('projects').delete().eq('id', projectId);
+    if (error) throw error;
+  },
+  
+  deleteBuilding: async (scope, projectId, buildingId, generalUpdates) => {
+      await supabase.from('buildings').delete().eq('id', buildingId);
+      await RegistryService.saveData(scope, projectId, generalUpdates);
   },
 
-  _syncDashboardItem: async (scope, projectId, data) => {
-      const listRef = getMetaListRef(scope);
-      const snap = await getDoc(listRef);
-      if (snap.exists()) {
-          const list = snap.data().list || [];
-          const idx = list.findIndex(p => p.id === projectId);
-          if (idx !== -1) {
-              const item = list[idx];
-              let changed = false;
-              const newItem = { ...item, lastModified: new Date().toISOString() };
-              
-              if (data.complexInfo) {
-                  const info = data.complexInfo;
-                  if (info.name && info.name !== item.name) { newItem.name = info.name; changed = true; }
-                  if (info.status && info.status !== item.status) { newItem.status = info.status; changed = true; }
-                  if (info.street && info.street !== item.address) { newItem.address = info.street; changed = true; }
-              }
+  // Заглушки для методов матриц
+  saveUnits: (s, pId, bId, units) => RegistryService.saveData(s, pId, { buildingSpecificData: { [bId]: { apartmentsData: units } } }),
+  saveFloors: (s, pId, bId, floors) => RegistryService.saveData(s, pId, { buildingSpecificData: { [bId]: { floorData: floors } } }),
+  saveParkingPlaces: (s, pId, bId, places) => RegistryService.saveData(s, pId, { buildingSpecificData: { [bId]: { parkingData: places } } }),
+  saveCommonAreas: (s, pId, bId, mopMap) => RegistryService.saveData(s, pId, { buildingSpecificData: { [bId]: { commonAreasData: mopMap } } }),
 
-              if (data.applicationInfo) {
-                  newItem.applicationInfo = {
-                      ...item.applicationInfo,
-                      ...data.applicationInfo
-                  };
-                  changed = true;
-              }
-
-              if (changed) {
-                  list[idx] = newItem;
-                  await setDoc(listRef, { list }, { merge: true });
-              }
-          }
-      }
-  }
+  // Realtime заглушки 
+  subscribeProjectMeta: (scope, projectId, callback) => {
+      RegistryService.getProjectMeta(scope, projectId).then(callback);
+      return () => {}; 
+  },
+  subscribeBuildings: (scope, projectId, callback) => {
+      RegistryService.getBuildings(scope, projectId).then(callback);
+      return () => {};
+  },
+  subscribeProjectsList: (scope, callback) => {
+      RegistryService.getProjectsList(scope).then(callback);
+      return () => {};
+  },
+  
+  getExternalApplications: async () => []
 };

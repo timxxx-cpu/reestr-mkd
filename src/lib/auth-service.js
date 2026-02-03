@@ -1,43 +1,36 @@
-import { signInAnonymously, onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth } from './firebase';
-
-/**
- * Сервис аутентификации.
- * Абстрагирует работу с Firebase Auth.
- */
+// src/lib/auth-service.js
 export const AuthService = {
-  /**
-   * Анонимный вход (для демо/разработки)
-   */
+  // Эмуляция входа
   signInDemo: async () => {
-    try {
-      return await signInAnonymously(auth);
-    } catch (error) {
-      console.error("Auth Error:", error);
-      throw error;
-    }
+    const user = {
+        uid: 'test-user-id',
+        email: 'dev@reestr.uz',
+        displayName: 'Разработчик',
+        role: 'admin'
+    };
+    localStorage.setItem('mock_user', JSON.stringify(user));
+    return user;
   },
 
-  /**
-   * Выход из системы
-   */
   logout: async () => {
-    await signOut(auth);
+    localStorage.removeItem('mock_user');
+    window.location.reload();
   },
 
-  /**
-   * Подписка на изменение статуса авторизации
-   * @param {function(object|null): void} callback 
-   * @returns {import('firebase/auth').Unsubscribe} Функция отписки
-   */
+  // Эмуляция подписки на состояние
   subscribe: (callback) => {
-    return onAuthStateChanged(auth, (user) => {
-      callback(user); 
-    });
+    const saved = localStorage.getItem('mock_user');
+    const user = saved ? JSON.parse(saved) : null;
+    
+    // Сразу возвращаем юзера (или null)
+    callback(user);
+    
+    // Возвращаем пустую функцию отписки
+    return () => {};
   },
   
-  /**
-   * Получить текущего юзера синхронно (если уже загружен)
-   */
-  getCurrentUser: () => auth.currentUser
+  getCurrentUser: () => {
+      const saved = localStorage.getItem('mock_user');
+      return saved ? JSON.parse(saved) : null;
+  }
 };
