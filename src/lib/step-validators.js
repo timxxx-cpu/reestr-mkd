@@ -25,7 +25,7 @@ const FIELD_NAMES = {
  */
 const getBuildingErrors = (building, buildingDetails, mode) => {
     const errors = [];
-    const blocks = getBlocksList(building);
+    const blocks = getBlocksList(building, buildingDetails); // Добавили buildingDetails для корректных названий
     
     // Определяем тип здания
     const isParking = building.category === 'parking_separate';
@@ -219,13 +219,19 @@ const validateEntrances = (data) => {
     const errors = [];
 
     composition.forEach(building => {
-        // Проверяем жилые дома и подземные паркинги
-        const isUnderground = building.parkingType === 'underground';
+        // Уточняем тип паркинга: это должен быть именно отдельный паркинг подземного типа
+        const isParking = building.category === 'parking_separate';
+        const isUnderground = isParking && building.parkingType === 'underground';
         const isRes = building.category.includes('residential');
+
+        // Пропускаем типы, для которых этот шаг не актуален (Инфраструктура, Наземные паркинги)
         if (!isRes && !isUnderground) return;
 
         const blocks = getBlocksList(building, buildingDetails);
-        const targetBlocks = blocks.filter(b => b.type === 'Ж' || isUnderground);
+        
+        // Фильтруем блоки: Оставляем только Жилые ('Ж') или Подземный паркинг.
+        // Нежилые блоки ('Н') в составе МКД и Инфраструктуру исключаем из проверки.
+        const targetBlocks = blocks.filter(b => b.type === 'Ж' || (isParking && isUnderground));
 
         targetBlocks.forEach(block => {
             const prefix = `${building.id}_${block.id}`;
@@ -305,18 +311,13 @@ const validateEntrances = (data) => {
                             totalUnits += parseInt(item.units) || 0;
                         });
 
+                        // Разрешаем смешанный этаж, если на нем есть ХОТЯ БЫ что-то (квартиры или офисы)
                         if (totalUnits === 0 && totalApts === 0) {
                              errors.push({
                                 title: `${building.label} (${block.tabLabel})`,
                                 description: `${floorLabel}: Отмечен как нежилой/смешанный, но не указаны помещения.`
                             });
-                        } else if (totalUnits === 0) {
-                             // Если этаж смешанный, должны быть офисы
-                             errors.push({
-                                title: `${building.label} (${block.tabLabel})`,
-                                description: `${floorLabel}: Отмечен как нежилой/смешанный, но не указано ни одного нежилого помещения.`
-                            });
-                        }
+                        } 
                     }
                     // Б. Проверка Жилого этажа (ОБЯЗАТЕЛЬНОЕ НАЛИЧИЕ КВАРТИР В КАЖДОМ ПОДЪЕЗДЕ)
                     else {
@@ -326,6 +327,7 @@ const validateEntrances = (data) => {
                                 const entKey = `${prefix}_ent${e}_${floorId}`;
                                 const item = entrancesData[entKey] || {};
                                 const aptCount = parseInt(item.apts) || 0;
+                                const mopCount = parseInt(item.mopQty) || 0;
 
                                 if (aptCount === 0) {
                                     // Если квартир нет, проверяем, не дуплекс ли это (второй свет)
@@ -342,7 +344,8 @@ const validateEntrances = (data) => {
                                         }
                                     }
 
-                                    if (!isExtensionOfDuplex) {
+                                    // Ошибка только если нет квартир, это не дуплекс И нет МОП
+                                    if (!isExtensionOfDuplex && mopCount === 0) {
                                         errors.push({
                                             title: `${building.label} (${block.tabLabel})`,
                                             description: `${floorLabel} (Подъезд ${e}): Не указано количество квартир.`
