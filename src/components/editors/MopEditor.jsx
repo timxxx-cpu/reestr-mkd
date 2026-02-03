@@ -1,15 +1,15 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   ArrowLeft, Wand2, ArrowDown, Trash2, 
-  DoorOpen, Ban, Copy, X, AlertCircle 
+  DoorOpen, Ban, Copy, AlertCircle, MoreHorizontal, ChevronLeft, ChevronsRight 
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, DebouncedInput, TabButton, Button, useReadOnly } from '../ui/UIKit';
-import SaveFloatingBar from '../ui/SaveFloatingBar'; 
+import { Card, DebouncedInput, useReadOnly } from '../ui/UIKit';
 import { getBlocksList } from '../../lib/utils';
 import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 import { MopItemSchema } from '../../lib/schemas';
 import { useBuildingType } from '../../hooks/useBuildingType';
+import ConfigHeader from './configurator/ConfigHeader';
 
 const MOP_TYPES = [
     'Лестничная клетка', 'Межквартирный коридор', 'Лифтовой холл', 'Тамбур', 'Вестибюль', 
@@ -19,8 +19,29 @@ const MOP_TYPES = [
     'Паркинг (зона проезда)', 'Рампа', 'Кладовая', 'Техническое помещение', 'Другое'
 ];
 
+// Кастомная кнопка таба в темном стиле (для унификации с FloorMatrixEditor)
+const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
+    <button
+        onClick={onClick}
+        className={`
+            px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2
+            ${active 
+                ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50 ring-1 ring-blue-400" 
+                : "text-slate-400 hover:text-white hover:bg-slate-700"
+            }
+        `}
+    >
+        {Icon && <Icon size={14} className={active ? "text-blue-200" : "opacity-70"}/>}
+        {children}
+    </button>
+);
+
 export default function MopEditor({ buildingId, onBack }) {
-    const { composition, buildingDetails, entrancesData, mopData, setMopData, saveBuildingData, saveData } = useProject();
+    const { 
+        composition, buildingDetails, entrancesData, 
+        mopData, setMopData 
+    } = useProject();
+    
     const isReadOnly = useReadOnly();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
     const [dataNormalized, setDataNormalized] = useState(false);
@@ -28,7 +49,8 @@ export default function MopEditor({ buildingId, onBack }) {
     const inputsRef = useRef({});
 
     const building = composition.find(c => c.id === buildingId);
-    const { isUnderground } = useBuildingType(building);
+    const typeInfo = useBuildingType(building);
+    const { isUnderground, isParking, isInfrastructure } = typeInfo;
 
     const blocksList = useMemo(() => getBlocksList(building), [building]);
     const { floorList, currentBlock } = useBuildingFloors(buildingId, activeBlockIndex);
@@ -37,7 +59,7 @@ export default function MopEditor({ buildingId, onBack }) {
         inputsRef.current = {};
     }, [activeBlockIndex]);
 
-    // --- НОРМАЛИЗАЦИЯ ДАННЫХ (Внедрение ID и FK в существующие данные) ---
+    // --- НОРМАЛИЗАЦИЯ ДАННЫХ ---
     useEffect(() => {
         if (!currentBlock || dataNormalized) return;
 
@@ -46,8 +68,6 @@ export default function MopEditor({ buildingId, onBack }) {
 
         Object.keys(mopData).forEach(key => {
             if (key.startsWith(currentBlock.fullId)) {
-                // Извлекаем метаданные из ключа для миграции старых данных
-                // Ключ вида: buildingId_res_0_ent1_floor_1_mops
                 const parts = key.match(/_ent(\d+)_(.*)_mops$/);
                 const entIdx = parts ? parseInt(parts[1]) : 1;
                 const floorId = parts ? parts[2] : 'unknown';
@@ -58,9 +78,7 @@ export default function MopEditor({ buildingId, onBack }) {
                         const fixed = { ...m };
                         let changed = false;
                         
-                        // 1. UUID
                         if (!fixed.id) { fixed.id = crypto.randomUUID(); changed = true; }
-                        // 2. Внешние ключи (FK)
                         if (!fixed.buildingId) { fixed.buildingId = building.id; changed = true; }
                         if (!fixed.blockId) { fixed.blockId = currentBlock.id; changed = true; }
                         if (!fixed.floorId) { fixed.floorId = floorId; changed = true; }
@@ -118,7 +136,6 @@ export default function MopEditor({ buildingId, onBack }) {
                 id: crypto.randomUUID(), 
                 type: '', 
                 area: '',
-                // FKs для новой записи
                 buildingId: building.id,
                 blockId: currentBlock.id,
                 floorId: floorId,
@@ -140,8 +157,16 @@ export default function MopEditor({ buildingId, onBack }) {
         floorList.forEach(f => {
             entrancesList.forEach(e => {
                 const targetQty = getTargetMopCount(e, f.id);
+                const mops = getMops(e, f.id);
+                
+                // Проверка 1: Количество записей
+                if (mops.length < targetQty) {
+                    isValid = false;
+                    missingCount += (targetQty - mops.length);
+                }
+
+                // Проверка 2: Заполненность полей
                 if (targetQty > 0) {
-                    const mops = getMops(e, f.id);
                     for (let i = 0; i < targetQty; i++) {
                         const mop = mops[i] || {};
                         const result = MopItemSchema.safeParse(mop);
@@ -156,7 +181,7 @@ export default function MopEditor({ buildingId, onBack }) {
         return { isValid, missingCount };
     }, [floorList, entrancesList, mopData, entrancesData, showEditor]);
 
-    // --- ФУНКЦИИ ДЕЙСТВИЙ ---
+    // --- ДЕЙСТВИЯ ---
 
     const autoFillMops = () => { 
         if (isReadOnly) return;
@@ -184,7 +209,6 @@ export default function MopEditor({ buildingId, onBack }) {
                                 id: newMops[i]?.id || crypto.randomUUID(), 
                                 type: type, 
                                 area: newMops[i]?.area || '15',
-                                // FKs
                                 buildingId: building.id,
                                 blockId: currentBlock.id,
                                 floorId: f.id,
@@ -214,7 +238,6 @@ export default function MopEditor({ buildingId, onBack }) {
             entrancesList.forEach(e => {
                 if (templateData[e]) {
                     const key = `${currentBlock.fullId}_e${e}_f${f.id}_mops`;
-                    // Копируем, но генерируем новые ID и обновляем floorId
                     updates[key] = templateData[e].map(m => ({ 
                         ...m, 
                         id: crypto.randomUUID(),
@@ -243,66 +266,68 @@ export default function MopEditor({ buildingId, onBack }) {
 
     const renderBadge = (type) => {
         const map = {
-            residential: { color: 'bg-blue-100 text-blue-700', label: 'Жилой' },
-            mixed: { color: 'bg-violet-100 text-violet-700', label: 'Смеш.' },
-            technical: { color: 'bg-amber-100 text-amber-700', label: 'Тех.' },
-            basement: { color: 'bg-slate-200 text-slate-600', label: 'Подвал' },
-            tsokol: { color: 'bg-purple-100 text-purple-700', label: 'Цоколь' },
-            parking_floor: { color: 'bg-indigo-100 text-indigo-700', label: 'Паркинг' }
+            residential: { color: 'bg-blue-50 text-blue-600 border-blue-100', label: 'Жилой' },
+            mixed: { color: 'bg-violet-50 text-violet-600 border-violet-100', label: 'Смеш.' },
+            technical: { color: 'bg-amber-50 text-amber-600 border-amber-100', label: 'Тех.' },
+            basement: { color: 'bg-slate-100 text-slate-600 border-slate-200', label: 'Подвал' },
+            tsokol: { color: 'bg-purple-50 text-purple-600 border-purple-100', label: 'Цоколь' },
+            attic: { color: 'bg-teal-50 text-teal-600 border-teal-100', label: 'Манс.' },
+            loft: { color: 'bg-gray-100 text-gray-600 border-gray-200', label: 'Чердак' },
+            roof: { color: 'bg-sky-50 text-sky-600 border-sky-100', label: 'Кровля' },
+            parking_floor: { color: 'bg-indigo-50 text-indigo-600 border-indigo-100', label: 'Паркинг' },
+            stylobate: { color: 'bg-orange-50 text-orange-700 border-orange-100', label: 'Нежилой блок' }
         };
         const style = map[type] || map.residential;
-        return <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${style.color}`}>{style.label}</span>
+        return <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase border ${style.color}`}>{style.label}</span>
     }
 
-    const handleSave = async () => { 
-        const specificData = {};
-        Object.keys(mopData).forEach(k => { if (k.startsWith(building.id)) specificData[k] = mopData[k]; });
-        // ProjectContext (обновленный) теперь может сам разрулить это, но мы используем явный метод
-        // В данном случае, так как mopData - это массивы, мы просто сохраняем как есть через универсальный метод
-        // В будущем можно будет добавить saveCommonAreas в контекст, если понадобится трансформация
-        await saveBuildingData(building.id, 'commonAreasData', specificData);
-        await saveData({}, true); 
-    };
-
     return (
-        <div className="space-y-6 pb-20 w-full animate-in fade-in duration-500">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-6 mb-4">
-                <div className="flex gap-4 items-center">
-                    <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><ArrowLeft size={24}/></button>
-                    <div>
-                        <h2 className="text-2xl font-bold text-slate-800 leading-tight">{building.label}</h2>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 items-center">
-                             <p className="text-slate-400 text-xs font-bold uppercase tracking-wider">Инвентаризация МОП</p>
-                             <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-0.5 rounded text-xs text-slate-600"><span className="font-bold text-slate-400 uppercase text-[9px]">Дом</span><span className="font-bold">{building.houseNumber}</span></div>
-                        </div>
-                    </div>
+        <div className="space-y-6 pb-20 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in duration-500 relative">
+            {/* ШАПКА */}
+            <ConfigHeader 
+                building={building} 
+                isParking={isParking} 
+                isInfrastructure={isInfrastructure} 
+                isUnderground={isUnderground} 
+                onBack={onBack} 
+                isSticky={false}
+            />
+
+            {/* ПАНЕЛЬ ИНСТРУМЕНТОВ */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                 <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full shadow-inner border border-slate-700 custom-scrollbar">
+                    {blocksList.map((b,i) => (
+                        <DarkTabButton 
+                            key={b.id} 
+                            active={activeBlockIndex===i} 
+                            onClick={()=>setActiveBlockIndex(i)} 
+                            icon={b.icon}
+                        >
+                            {b.tabLabel}
+                        </DarkTabButton>
+                    ))}
                 </div>
-                <div className="flex gap-2">
-                    <button onClick={clearAllMops} disabled={!showEditor || isReadOnly} className={`px-4 py-2 bg-red-50 text-red-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-100'}`} title="Очистить все данные МОП">
+
+                <div className="flex items-center gap-3">
+                    <button onClick={clearAllMops} disabled={!showEditor || isReadOnly} className={`px-4 py-2.5 bg-red-50 text-red-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border border-red-100 shadow-sm ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-100'}`} title="Очистить все данные МОП">
                         <Trash2 size={14}/> Очистить
                     </button>
 
-                    <button onClick={copyFirstFloorToAll} disabled={isReadOnly} className={`px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'}`} title="Скопировать 1-й этаж на все остальные">
+                    <button onClick={copyFirstFloorToAll} disabled={isReadOnly} className={`px-4 py-2.5 bg-white text-slate-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border border-slate-200 shadow-sm ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50 hover:text-blue-600'}`} title="Скопировать 1-й этаж на все остальные">
                         <Copy size={14}/> Дублировать 1-й эт.
                     </button>
-                    <button onClick={autoFillMops} disabled={!showEditor || isReadOnly} className={`px-4 py-2 bg-purple-50 text-purple-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors ${showEditor && !isReadOnly ? 'hover:bg-purple-100' : 'opacity-50 cursor-not-allowed'}`}>
+                    
+                    <button onClick={autoFillMops} disabled={!showEditor || isReadOnly} className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border shadow-sm ${showEditor && !isReadOnly ? 'bg-white text-purple-600 border-purple-100 hover:bg-purple-50' : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed'}`}>
                         <Wand2 size={14}/> Авто-генерация
                     </button>
-                    
-                    <Button variant="secondary" onClick={onBack}>Закрыть</Button>
                 </div>
             </div>
 
-            <div className="flex gap-2 p-1 bg-slate-200/50 rounded-xl w-max overflow-x-auto max-w-full mb-6 scrollbar-none">
-                {blocksList.map((b,i) => (
-                    <TabButton key={b.id} active={activeBlockIndex===i} onClick={()=>setActiveBlockIndex(i)}>{b.icon && <b.icon size={14} className="mr-1.5 opacity-70"/>}{b.tabLabel}</TabButton>
-                ))}
-            </div>
-
+            {/* ОСНОВНОЙ КОНТЕНТ */}
             {showEditor ? (
                 <>
-                    {!validationState.isValid && !isReadOnly && (
-                        <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-xl flex items-center gap-2 text-xs text-red-600 animate-in slide-in-from-top-2">
+                    {(!validationState.isValid && !isReadOnly) && (
+                        <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex items-center gap-2 text-xs text-red-600 animate-in slide-in-from-top-2">
                             <AlertCircle size={16}/>
                             <span className="font-bold">Внимание!</span>
                             <span>Заполните данные для всех {validationState.missingCount} помещений. Используйте "Авто-генерацию" или "Дублирование" для ускорения.</span>
@@ -323,7 +348,18 @@ export default function MopEditor({ buildingId, onBack }) {
                                     {floorList.map((f, fIdx) => (
                                         <tr key={f.id} className="group hover:bg-slate-50/50 focus-within:bg-blue-50/50 transition-colors duration-200">
                                             <td className="p-3 w-36 min-w-[140px] sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 border-r align-top relative z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
-                                                <div className="flex flex-col gap-1.5"><span className="font-bold text-sm text-slate-700">{f.label}</span>{renderBadge(f.type)}</div>
+                                                <div className="flex flex-col gap-1.5">
+                                                    {f.isStylobate && (
+                                                        <div className="flex items-center gap-1 text-[9px] text-orange-700 font-bold bg-orange-50 border border-orange-100 px-1.5 rounded-sm w-fit mb-0.5" title="Этаж относится к нежилому блоку под домом">
+                                                            {/* Warehouse icon could go here */}
+                                                            {f.stylobateLabel}
+                                                        </div>
+                                                    )}
+                                                    <div className="flex items-center justify-between h-full px-1">
+                                                        <span className="font-bold text-sm text-slate-700">{f.label}</span>
+                                                        {renderBadge(f.type)}
+                                                    </div>
+                                                </div>
                                             </td>
                                             {entrancesList.map((e, eIdx) => {
                                                 const targetQty = getTargetMopCount(e, f.id);
@@ -388,8 +424,6 @@ export default function MopEditor({ buildingId, onBack }) {
                     <p className="text-slate-500 max-w-md">Инвентаризация МОП производится только для жилых блоков и подземных паркингов.</p>
                 </div>
             )}
-
-            <SaveFloatingBar onSave={handleSave} disabled={!validationState.isValid} />
         </div>
     );
 }

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Save, Car, CheckCircle2 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, Button, Input, useReadOnly } from '../ui/UIKit'; // Input вместо DebouncedInput
+import { Card, Button, Input, useReadOnly } from '../ui/UIKit'; 
 import { getBlocksList } from '../../lib/utils';
 // ВАЛИДАЦИЯ
 import { ParkingLevelConfigSchema } from '../../lib/schemas';
@@ -197,11 +197,24 @@ export default function ParkingConfigurator({ buildingId }) {
         }
 
         const keyEnabled = `${lvl.fullId}_${lvl.id}_enabled`;
+        const keyMeta = `${lvl.fullId}_${lvl.id}_meta`;
         const currentCount = parseInt(getPlacesCount(lvl) || '0');
 
         setParkingPlaces(prev => {
             const next = { ...prev, [keyEnabled]: newValue };
-            return syncPlacesInState(next, lvl, currentCount, newValue);
+            
+            if (!newValue) {
+                // Если ВЫКЛЮЧИЛИ чекбокс:
+                // 1. Сбрасываем количество в мета-данных
+                if (next[keyMeta]) {
+                    next[keyMeta] = { ...next[keyMeta], count: '' };
+                }
+                // 2. Удаляем все места (передаем 0 и false)
+                return syncPlacesInState(next, lvl, 0, false);
+            } else {
+                // Если ВКЛЮЧИЛИ:
+                return syncPlacesInState(next, lvl, currentCount, true);
+            }
         });
     };
 
