@@ -104,12 +104,51 @@ export const RegistryService = {
     const composition = [];
     const buildingDetails = {};
 
+    const buildingIds = (buildingsRes.data || []).map(b => b.id);
+    let featuresMap = {};
+    if (buildingIds.length > 0) {
+        const { data: basementsData } = await supabase
+            .from('basements')
+            .select('id, building_id, block_id, depth, has_parking')
+            .in('building_id', buildingIds);
+        const basementIds = (basementsData || []).map(b => b.id);
+        let parkingLevelsMap = {};
+        if (basementIds.length > 0) {
+            const { data: levelsData } = await supabase
+                .from('basement_parking_levels')
+                .select('basement_id, depth_level, is_enabled')
+                .in('basement_id', basementIds);
+            parkingLevelsMap = (levelsData || []).reduce((acc, level) => {
+                if (!acc[level.basement_id]) acc[level.basement_id] = {};
+                acc[level.basement_id][level.depth_level] = level.is_enabled;
+                return acc;
+            }, {});
+        }
+        (basementsData || []).forEach(base => {
+            if (!featuresMap[base.building_id]) {
+                featuresMap[base.building_id] = { basements: [], exploitableRoofs: [] };
+            }
+            featuresMap[base.building_id].basements.push({
+                id: base.id,
+                depth: base.depth,
+                hasParking: base.has_parking,
+                parkingLevels: parkingLevelsMap[base.id] || {},
+                blocks: [base.block_id],
+                buildingId: base.building_id,
+                blockId: base.block_id
+            });
+        });
+    }
+
     (buildingsRes.data || []).forEach(b => {
         composition.push(mapBuildingFromDB(b, b.building_blocks));
         b.building_blocks.forEach(block => {
             const uiKey = `${b.id}_${block.id}`;
             buildingDetails[uiKey] = mapBlockDetailsFromDB(b, block);
         });
+        if (featuresMap[b.id]) {
+            buildingDetails[`${b.id}_features`] = featuresMap[b.id];
+        }
     });
 
     return { ...projectData, composition, buildingDetails };
@@ -281,7 +320,12 @@ export const RegistryService = {
 
     // 4. BLOCK DETAILS
     if (generalData.buildingDetails) {
+        const featureEntries = [];
         for (const [blockKey, details] of Object.entries(generalData.buildingDetails)) {
+            if (blockKey.endsWith('_features')) {
+                featureEntries.push([blockKey, details]);
+                continue;
+            }
             const parts = blockKey.split('_');
             if (parts.length >= 2) {
                 let blockId = parts[parts.length - 1];
@@ -346,6 +390,77 @@ export const RegistryService = {
                                 .then(({ error }) => { if (error) console.error("Error saving engineering:", error, engData); })
                         );
                     }
+                }
+            }
+        }
+        for (const [featureKey, featureData] of featureEntries) {
+            const buildingId = featureKey.replace(/_features$/, '');
+            if (!buildingId) continue;
+            const basements = featureData?.basements || [];
+            const basementIds = basements.map(b => b.id).filter(Boolean);
+            const basementsPayload = basements.map(b => ({
+                id: b.id,
+                building_id: buildingId,
+                block_id: b.blockId || (b.blocks ? b.blocks[0] : null),
+                depth: parseInt(b.depth) || 1,
+                has_parking: !!b.hasParking,
+                updated_at: new Date()
+            })).filter(b => b.block_id);
+            if (basementsPayload.length) {
+                promises.push(supabase.from('basements').upsert(basementsPayload));
+            }
+            if (basementIds.length > 0) {
+                promises.push(
+                    supabase
+                        .from('basements')
+                        .delete()
+                        .eq('building_id', buildingId)
+                        .not('id', 'in', `(${basementIds.join(',')})`)
+                );
+            } else {
+                promises.push(
+                    supabase
+                        .from('basements')
+                        .delete()
+                        .eq('building_id', buildingId)
+                );
+            }
+            for (const base of basements) {
+                if (!base.id) continue;
+                const levels = base.parkingLevels || {};
+                const levelEntries = Object.entries(levels);
+                const levelPayload = levelEntries.map(([depthLevel, isEnabled]) => ({
+                    basement_id: base.id,
+                    depth_level: parseInt(depthLevel),
+                    is_enabled: !!isEnabled
+                })).filter(item => !Number.isNaN(item.depth_level));
+                if (levelPayload.length) {
+                    promises.push(
+                        supabase
+                            .from('basement_parking_levels')
+                            .upsert(levelPayload, { onConflict: 'basement_id, depth_level' })
+                    );
+                }
+                if (levelEntries.length > 0) {
+                    const levelIds = levelEntries
+                        .map(([depthLevel]) => parseInt(depthLevel))
+                        .filter(val => !Number.isNaN(val));
+                    if (levelIds.length > 0) {
+                        promises.push(
+                            supabase
+                                .from('basement_parking_levels')
+                                .delete()
+                                .eq('basement_id', base.id)
+                                .not('depth_level', 'in', `(${levelIds.join(',')})`)
+                        );
+                    }
+                } else {
+                    promises.push(
+                        supabase
+                            .from('basement_parking_levels')
+                            .delete()
+                            .eq('basement_id', base.id)
+                    );
                 }
             }
         }

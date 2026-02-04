@@ -20,6 +20,8 @@ DROP TABLE IF EXISTS floors CASCADE;
 DROP TABLE IF EXISTS block_engineering CASCADE;
 DROP TABLE IF EXISTS block_construction CASCADE;
 DROP TABLE IF EXISTS building_blocks CASCADE;
+DROP TABLE IF EXISTS basement_parking_levels CASCADE;
+DROP TABLE IF EXISTS basements CASCADE;
 DROP TABLE IF EXISTS buildings CASCADE;
 DROP TABLE IF EXISTS project_documents CASCADE;
 DROP TABLE IF EXISTS project_participants CASCADE;
@@ -152,6 +154,30 @@ CREATE TABLE buildings (
     photo_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Таблица: basements
+-- Описание: Подвальные помещения, привязанные к блоку здания.
+CREATE TABLE basements (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    building_id UUID REFERENCES buildings(id) ON DELETE CASCADE,
+    block_id UUID REFERENCES building_blocks(id) ON DELETE CASCADE,
+    depth INT NOT NULL DEFAULT 1,
+    has_parking BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Таблица: basement_parking_levels
+-- Описание: Уровни парковки внутри подвала.
+CREATE TABLE basement_parking_levels (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    basement_id UUID REFERENCES basements(id) ON DELETE CASCADE,
+    depth_level INT NOT NULL,
+    is_enabled BOOLEAN DEFAULT FALSE,
+    UNIQUE(basement_id, depth_level)
+);
+
+CREATE INDEX basements_building_id_idx ON basements(building_id);
+CREATE INDEX basements_block_id_idx ON basements(block_id);
 
 -- Таблица: building_blocks
 -- Описание: Секция здания. Основная единица конфигурации этажности.
@@ -308,6 +334,8 @@ ALTER TABLE application_steps ENABLE ROW LEVEL SECURITY;
 ALTER TABLE project_participants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE project_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE buildings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE basements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE basement_parking_levels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE building_blocks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE block_construction ENABLE ROW LEVEL SECURITY;
 ALTER TABLE block_engineering ENABLE ROW LEVEL SECURITY;
@@ -325,6 +353,8 @@ CREATE POLICY "Public All" ON application_steps FOR ALL USING (true) WITH CHECK 
 CREATE POLICY "Public All" ON project_participants FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON project_documents FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON buildings FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public All" ON basements FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public All" ON basement_parking_levels FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON building_blocks FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON block_construction FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON block_engineering FOR ALL USING (true) WITH CHECK (true);
