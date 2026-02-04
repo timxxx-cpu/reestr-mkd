@@ -8,72 +8,12 @@ import {
     mapMopFromDB
 } from './db-mappers';
 
-// --- HELPER: Generate Blocks Payload ---
-function generateBlocksPayload(b) {
-    if (b.blocks && Array.isArray(b.blocks)) {
-        return b.blocks.map(block => ({
-            id: block.id,
-            building_id: b.id,
-            label: block.label,
-            type: mapBlockTypeToDB(block.type)
-            // [FIX] Убрали floors_count: 1, чтобы не перезатирать данные при сохранении состава
-            // БД сама поставит DEFAULT 1 для новых блоков
-        }));
-    }
-    return [];
-}
-
 function mapBlockTypeToDB(uiType) {
     if (uiType === 'residential') return 'Ж';
     if (uiType === 'non_residential') return 'Н';
     if (uiType === 'parking') return 'Parking';
     if (uiType === 'infrastructure') return 'Infra';
     return uiType;
-}
-
-// --- HELPER: Sync Entrances Table ---
-async function syncEntrances(buildingSpecificData) {
-    // Эта функция работает с buildingSpecificData, так как данные о подъездах
-    // часто приходят в контексте матриц, но может потребоваться и buildingDetails.
-    // Оставляем как есть, так как entrances генерируются корректно.
-    const entrancesToUpsert = [];
-    for (const [bId, bData] of Object.entries(buildingSpecificData)) {
-        // Здесь bData.buildingDetails может быть undefined, если данные пришли в корне payload.
-        // Но для syncEntrances мы обычно рассчитываем на buildingDetails из контекста.
-        // В текущей архитектуре syncEntrances может не найти новые подъезды, если details в корне.
-        // Но пока оставим, чтобы не ломать логику матриц.
-        if (bData.buildingDetails) {
-            for (const [blockKey, details] of Object.entries(bData.buildingDetails)) {
-                const parts = blockKey.split('_');
-                const blockId = parts[parts.length - 1];
-                if (blockId.length > 30) { 
-                    const count = parseInt(details.entrances || details.inputs || 1);
-                    for (let i = 1; i <= count; i++) {
-                        entrancesToUpsert.push({ block_id: blockId, number: i });
-                    }
-                }
-            }
-        }
-    }
-    if (entrancesToUpsert.length === 0) return {};
-
-    const blockIds = [...new Set(entrancesToUpsert.map(e => e.block_id))];
-    const { data: existing } = await supabase.from('entrances').select('id, block_id, number').in('block_id', blockIds);
-    const existingMap = {};
-    existing?.forEach(e => { existingMap[`${e.block_id}_${e.number}`] = e.id; });
-
-    const newEntrances = [];
-    entrancesToUpsert.forEach(e => {
-        const key = `${e.block_id}_${e.number}`;
-        if (!existingMap[key]) {
-            const newId = crypto.randomUUID();
-            existingMap[key] = newId; 
-            newEntrances.push({ id: newId, block_id: e.block_id, number: e.number });
-        }
-    });
-
-    if (newEntrances.length > 0) await supabase.from('entrances').upsert(newEntrances);
-    return existingMap;
 }
 
 export const RegistryService = {
@@ -86,7 +26,10 @@ export const RegistryService = {
       .select(`*, projects (name, region, address)`)
       .order('updated_at', { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+        console.error("Error fetching projects:", error);
+        throw error;
+    }
 
     return data.map(app => ({
       id: app.project_id,
@@ -123,7 +66,7 @@ export const RegistryService = {
         .single();
         
     if (appError) {
-        console.error("App not found for project", projectId);
+        console.warn("App not found:", appError);
         return null;
     }
 
@@ -131,12 +74,24 @@ export const RegistryService = {
         supabase.from('projects').select('*').eq('id', projectId).single(),
         supabase.from('project_participants').select('*').eq('project_id', projectId),
         supabase.from('project_documents').select('*').eq('project_id', projectId),
-        supabase.from('buildings').select('*, building_blocks(*)').eq('project_id', projectId),
+        supabase.from('buildings')
+            .select(`
+                *, 
+                building_blocks (
+                    *,
+                    block_construction (*),
+                    block_engineering (*)
+                )
+            `)
+            .eq('project_id', projectId),
         supabase.from('application_history').select('*').eq('application_id', app.id),
         supabase.from('application_steps').select('*').eq('application_id', app.id)
     ]);
 
-    if (pRes.error) return null;
+    if (pRes.error) {
+        console.error("Error loading project:", pRes.error);
+        return null;
+    }
 
     const projectData = mapProjectAggregate(
         pRes.data, app, historyRes.data || [], stepsRes.data || [], partsRes.data || [], docsRes.data || []
@@ -191,29 +146,35 @@ export const RegistryService = {
 
         block.floors.forEach(f => {
             const floorKey = `${bId}_${block.id}_${f.id}`;
-            result[bId].floorData[floorKey] = mapFloorFromDB(f);
+            result[bId].floorData[floorKey] = mapFloorFromDB(f, bId, block.id);
 
             const floorUnits = allUnits.filter(u => u.floor_id === f.id);
             const floorMops = allMops.filter(m => m.floor_id === f.id);
             const statsByEntrance = {}; 
             
-            block.entrances.forEach(e => { statsByEntrance[e.number] = { apts: 0, units: 0, mops: 0, id: crypto.randomUUID() }; });
+            block.entrances.forEach(e => { 
+                statsByEntrance[e.number] = { apts: 0, units: 0, mops: 0, id: crypto.randomUUID() }; 
+            });
 
             floorUnits.forEach(u => {
-                const unitMapped = mapUnitFromDB(u, u.rooms, entranceMap);
-                const unitKey = u.id; 
-                if (u.type === 'parking_place') result[bId].parkingData[unitKey] = unitMapped;
-                else result[bId].apartmentsData[unitKey] = unitMapped;
+                const unitMapped = mapUnitFromDB(u, u.rooms, entranceMap, bId, block.id);
+                const unitKey = u.id;
+                
+                if (u.unit_type === 'parking_place') {
+                    result[bId].parkingData[unitKey] = unitMapped;
+                } else {
+                    result[bId].apartmentsData[unitKey] = unitMapped;
+                }
 
                 const entNum = unitMapped.entranceIndex;
                 if (statsByEntrance[entNum]) {
-                    if (['flat', 'duplex_up', 'duplex_down'].includes(u.type)) statsByEntrance[entNum].apts++;
-                    else if (['office', 'pantry'].includes(u.type)) statsByEntrance[entNum].units++;
+                    if (['flat', 'duplex_up', 'duplex_down'].includes(u.unit_type)) statsByEntrance[entNum].apts++;
+                    else if (['office', 'pantry'].includes(u.unit_type)) statsByEntrance[entNum].units++;
                 }
             });
 
             floorMops.forEach(m => {
-                const mopMapped = mapMopFromDB(m, entranceMap);
+                const mopMapped = mapMopFromDB(m, entranceMap, bId, block.id);
                 const entNum = mopMapped.entranceIndex;
                 const mopKey = `${bId}_${block.id}_e${entNum}_f${f.id}_mops`;
                 if (!result[bId].commonAreasData[mopKey]) result[bId].commonAreasData[mopKey] = [];
@@ -236,162 +197,202 @@ export const RegistryService = {
   // --- WRITE ---
 
   saveData: async (scope, projectId, payload) => {
-    // ВАЖНО: buildingDetails обычно находится в корне payload (generalData), а не в buildingSpecificData
     const { buildingSpecificData, ...generalData } = payload;
     const promises = [];
+
+    // 1. PROJECT & APP
+    if (generalData.complexInfo) {
+        const ci = generalData.complexInfo;
+        promises.push(supabase.from('projects').update({
+            name: ci.name, construction_status: ci.status, region: ci.region, district: ci.district, address: ci.street,
+            date_start_project: ci.dateStartProject || null, date_end_project: ci.dateEndProject || null, 
+            date_start_fact: ci.dateStartFact || null, date_end_fact: ci.dateEndFact || null, updated_at: new Date()
+        }).eq('id', projectId));
+    }
 
     const { data: app } = await supabase.from('applications').select('id').eq('project_id', projectId).single();
     const appId = app?.id;
 
-    if (generalData.complexInfo) {
-        const ci = generalData.complexInfo;
-        const updatePayload = {
-            name: ci.name,
-            construction_status: ci.status,
-            region: ci.region,
-            district: ci.district,
-            address: ci.street,
-            date_start_project: ci.dateStartProject || null,
-            date_end_project: ci.dateEndProject || null,
-            date_start_fact: ci.dateStartFact || null,
-            date_end_fact: ci.dateEndFact || null,
-            updated_at: new Date()
-        };
-        promises.push(supabase.from('projects').update(updatePayload).eq('id', projectId));
-    }
-
     if (generalData.applicationInfo && appId) {
         const info = generalData.applicationInfo;
-        const appUpdates = {
-            updated_at: new Date(),
-            status: info.status,
-            current_step: info.currentStepIndex,
-            current_stage: info.currentStage,
-            assignee_name: info.assigneeName
-        };
-        promises.push(supabase.from('applications').update(appUpdates).eq('id', appId));
-
+        promises.push(supabase.from('applications').update({
+            status: info.status, current_step: info.currentStepIndex, current_stage: info.currentStage, assignee_name: info.assigneeName, updated_at: new Date()
+        }).eq('id', appId));
+        
         if (info.completedSteps) {
-             const stepsToUpsert = info.completedSteps.map(idx => ({
-                 application_id: appId,
-                 step_index: idx,
-                 is_completed: true
-             }));
-             if (stepsToUpsert.length) promises.push(supabase.from('application_steps').upsert(stepsToUpsert, { onConflict: 'application_id, step_index' }));
+             const steps = info.completedSteps.map(idx => ({ application_id: appId, step_index: idx, is_completed: true }));
+             if (steps.length > 0) promises.push(supabase.from('application_steps').upsert(steps, { onConflict: 'application_id, step_index' }));
         }
     }
 
+    // 2. PARTICIPANTS
     if (generalData.participants) {
         for (const [role, data] of Object.entries(generalData.participants)) {
-            if (data.id) {
-                promises.push(supabase.from('project_participants').upsert({ id: data.id, project_id: projectId, role: role, name: data.name, inn: data.inn }));
+            if (data.id) promises.push(supabase.from('project_participants').upsert({ id: data.id, project_id: projectId, role, name: data.name, inn: data.inn }));
+        }
+    }
+
+    // 3. BUILDINGS & BLOCKS (Structure)
+    // Важно: сначала сохраняем структуру, чтобы блоки существовали для шага 4
+    if (generalData.composition) {
+        for (const b of generalData.composition) {
+            await supabase.from('buildings').upsert({ 
+                id: b.id, project_id: projectId, label: b.label, house_number: b.houseNumber, 
+                category: b.category, construction_type: b.constructionType, parking_type: b.parkingType, infra_type: b.infraType 
+            });
+            if (b.blocks?.length) {
+                const blocksPayload = b.blocks.map(block => ({
+                    id: block.id, building_id: b.id, label: block.label, type: mapBlockTypeToDB(block.type)
+                }));
+                // Ждем сохранения блоков, чтобы они точно были в БД перед обновлением деталей
+                if (blocksPayload.length > 0) await supabase.from('building_blocks').upsert(blocksPayload);
             }
         }
     }
 
-    if (generalData.composition) {
-        for (const b of generalData.composition) {
-            await supabase.from('buildings').upsert({ id: b.id, project_id: projectId, label: b.label, house_number: b.houseNumber, category: b.category, construction_type: b.constructionType, parking_type: b.parkingType, infra_type: b.infraType });
-            const blocksPayload = generateBlocksPayload(b);
-            if (blocksPayload.length > 0) await supabase.from('building_blocks').upsert(blocksPayload);
-        }
-    }
-
-    // [FIX] СОХРАНЕНИЕ ДЕТАЛЕЙ БЛОКА (Конструктив + Инженерия)
-    // Мы берем данные из generalData.buildingDetails, так как React Context хранит их на верхнем уровне
+    // 4. BLOCK DETAILS (Construction & Engineering)
     if (generalData.buildingDetails) {
         for (const [blockKey, details] of Object.entries(generalData.buildingDetails)) {
             const parts = blockKey.split('_');
             if (parts.length >= 2) {
-                const blockId = parts[parts.length - 1];
-                if (blockId.length > 30) {
-                    // Собираем полный апдейт для БЛОКА
-                    const updatePayload = {
-                        // Геометрия
-                        floors_count: parseInt(details.floorsCount) || 0,
-                        entrances_count: parseInt(details.entrances || details.inputs) || 0,
-                        elevators_count: parseInt(details.elevators) || 0,
-                        vehicle_entries: parseInt(details.vehicleEntries) || 0,
-                        levels_depth: parseInt(details.levelsDepth) || 0,
+                let blockId = parts[parts.length - 1];
+                const buildingId = parts[0];
+
+                // Логика поиска ID для старых/виртуальных блоков
+                if (blockId.length < 10 && buildingId) {
+                    const { data: realBlocks } = await supabase.from('building_blocks').select('id').eq('building_id', buildingId).limit(1);
+                    if (realBlocks && realBlocks.length > 0) {
+                        blockId = realBlocks[0].id;
+                    }
+                }
+
+                if (blockId && blockId.length === 36) {
+                    // А. Обновляем основные параметры
+                    const blockUpdate = {
+                        floors_count: parseInt(details.floorsCount)||0,
+                        entrances_count: parseInt(details.entrances || details.inputs)||0,
+                        elevators_count: parseInt(details.elevators)||0,
+                        vehicle_entries: parseInt(details.vehicleEntries)||0,
+                        levels_depth: parseInt(details.levelsDepth)||0,
                         light_structure_type: details.lightStructureType,
-                        floors_from: parseInt(details.floorsFrom) || 1,
-                        floors_to: parseInt(details.floorsTo) || parseInt(details.floorsCount),
-                        
-                        // Флаги этажей
+                        floors_from: parseInt(details.floorsFrom)||1,
+                        floors_to: parseInt(details.floorsTo)||parseInt(details.floorsCount),
                         has_basement: details.hasBasementFloor,
                         has_attic: details.hasAttic,
                         has_loft: details.hasLoft,
                         has_roof_expl: details.hasExploitableRoof,
-
-                        // Конструктив -> пишем в building_blocks
-                        foundation: details.foundation,
-                        walls: details.walls,
-                        slabs: details.slabs,
-                        roof: details.roof,
-                        seismicity: parseInt(details.seismicity) || 0
+                        has_custom_address: details.hasCustomAddress,
+                        custom_house_number: details.customHouseNumber
                     };
+                    promises.push(supabase.from('building_blocks').update(blockUpdate).eq('id', blockId));
 
-                    // Инженерия -> пишем в building_blocks
+                    // Б. Сохраняем Конструктив
+                    const constructionData = {
+                        block_id: blockId,
+                        // Используем явные дефолтные значения (null или пустая строка), чтобы поля не пропадали
+                        foundation: details.foundation || null,
+                        walls: details.walls || null,
+                        slabs: details.slabs || null,
+                        roof: details.roof || null,
+                        seismicity: parseInt(details.seismicity) || null
+                    };
+                    // Добавляем обработчик ошибок
+                    promises.push(
+                        supabase.from('block_construction')
+                            .upsert(constructionData, { onConflict: 'block_id' })
+                            .then(({ error }) => { if (error) console.error("Error saving construction:", error, constructionData); })
+                    );
+
+                    // В. Сохраняем Инженерию
                     if (details.engineering) {
-                        updatePayload.has_electricity = details.engineering.electricity;
-                        updatePayload.has_water = details.engineering.hvs;
-                        updatePayload.has_sewerage = details.engineering.sewerage;
-                        updatePayload.has_gas = details.engineering.gas;
-                        updatePayload.has_heating = details.engineering.heating;
-                        updatePayload.has_ventilation = details.engineering.ventilation;
-                        updatePayload.has_firefighting = details.engineering.firefighting;
-                        updatePayload.has_lowcurrent = details.engineering.lowcurrent;
+                        const engData = {
+                            block_id: blockId,
+                            has_electricity: !!details.engineering.electricity,
+                            has_water: !!details.engineering.hvs,
+                            has_hot_water: !!details.engineering.gvs,
+                            has_sewerage: !!details.engineering.sewerage,
+                            has_gas: !!details.engineering.gas,
+                            has_heating: !!details.engineering.heating,
+                            has_ventilation: !!details.engineering.ventilation,
+                            has_firefighting: !!details.engineering.firefighting,
+                            has_lowcurrent: !!details.engineering.lowcurrent
+                        };
+                        promises.push(
+                            supabase.from('block_engineering')
+                                .upsert(engData, { onConflict: 'block_id' })
+                                .then(({ error }) => { if (error) console.error("Error saving engineering:", error, engData); })
+                        );
                     }
-
-                    promises.push(supabase.from('building_blocks').update(updatePayload).eq('id', blockId));
                 }
             }
         }
     }
 
+    // 5. MATRICES
     if (buildingSpecificData) {
-        // Если нужен syncEntrances, его можно вызвать, но он требует buildingDetails.
-        // Если в payload buildingDetails лежит отдельно (в generalData), 
-        // то нужно передать объединенный объект, если syncEntrances этого требует.
-        // Для простоты оставим как есть, так как syncEntrances в основном нужен для матриц.
-        const entrancesMap = await syncEntrances(buildingSpecificData);
+        const bIds = Object.keys(buildingSpecificData);
+        const { data: existingEntrances } = await supabase
+            .from('entrances')
+            .select('id, block_id, number')
+            .in('block_id', (generalData.composition || []).filter(b => bIds.includes(b.id)).flatMap(b => (b.blocks || []).map(bk => bk.id)));
+            
+        const entranceMap = {}; 
+        existingEntrances?.forEach(e => { entranceMap[`${e.block_id}_${e.number}`] = e.id; });
 
         for (const [bId, bData] of Object.entries(buildingSpecificData)) {
+            // A. FLOORS
             if (bData.floorData) {
-                const floors = Object.values(bData.floorData).map(f => ({ id: f.id, block_id: f.blockId, index: f.sortOrder || 0, label: f.label, floor_type: f.type, height: parseFloat(f.height)||0, area_proj: parseFloat(f.areaProj)||0, area_fact: parseFloat(f.areaFact)||0, is_duplex: f.isDuplex||false }));
+                const floors = Object.values(bData.floorData).map(f => ({ 
+                    id: f.id, block_id: f.blockId, index: f.sortOrder||0, label: f.label, floor_type: f.type, 
+                    height: parseFloat(f.height)||0, area_proj: parseFloat(f.areaProj)||0, area_fact: parseFloat(f.areaFact)||0, is_duplex: f.isDuplex||false 
+                }));
                 if (floors.length) promises.push(supabase.from('floors').upsert(floors));
             }
 
+            // B. AUTO-CREATE ENTRANCES
+            const neededEntrances = new Set();
+            const collect = (list) => Object.values(list).forEach(u => {
+                const n = u.entrance || u.entranceIndex;
+                if (u.blockId && n) neededEntrances.add(`${u.blockId}_${n}`);
+            });
+            if (bData.apartmentsData) collect(bData.apartmentsData);
+            if (bData.parkingData) collect(bData.parkingData);
+            
+            const newEnts = [];
+            neededEntrances.forEach(key => {
+                if (!entranceMap[key]) {
+                    const [blId, num] = key.split('_');
+                    const newId = crypto.randomUUID();
+                    entranceMap[key] = newId; 
+                    newEnts.push({ id: newId, block_id: blId, number: parseInt(num) });
+                }
+            });
+            if (newEnts.length > 0) await supabase.from('entrances').upsert(newEnts);
+
+            // C. UNITS
             const unitsPayload = [];
             const roomsPayload = [];
             
             const processUnit = (u) => {
-                const entNum = u.entrance || u.entranceIndex;
-                const entKey = `${u.blockId}_${entNum}`;
-                const entranceUUID = entrancesMap[entKey] || null;
-
+                const entKey = `${u.blockId}_${u.entrance || u.entranceIndex}`;
                 unitsPayload.push({
                     id: u.id,
                     floor_id: u.floorId,
-                    entrance_id: entranceUUID,
+                    entrance_id: entranceMap[entKey] || null,
                     number: u.num || u.number,
-                    type: u.type,
+                    unit_type: u.type,
                     status: u.isSold ? 'sold' : 'free',
-                    total_area: parseFloat(u.area) || 0,
-                    living_area: parseFloat(u.livingArea) || 0,
-                    useful_area: parseFloat(u.usefulArea) || 0,
-                    rooms_count: u.rooms || 0,
+                    total_area: parseFloat(u.area)||0,
+                    living_area: parseFloat(u.livingArea)||0,
+                    useful_area: parseFloat(u.usefulArea)||0,
+                    rooms_count: u.rooms||0,
                     cadastre_number: u.cadastreNumber
                 });
-                if (u.explication && Array.isArray(u.explication)) {
+                if (u.explication) {
                     u.explication.forEach(r => {
                         roomsPayload.push({
-                            id: r.id || crypto.randomUUID(),
-                            unit_id: u.id,
-                            room_type: r.type,
-                            name: r.label, 
-                            area: parseFloat(r.area) || 0,
-                            level: parseInt(r.level) || 1
+                            id: r.id || crypto.randomUUID(), unit_id: u.id, room_type: r.type, name: r.label, 
+                            area: parseFloat(r.area)||0, level: parseInt(r.level)||1
                         });
                     });
                 }
@@ -400,29 +401,29 @@ export const RegistryService = {
             if (bData.apartmentsData) Object.values(bData.apartmentsData).forEach(processUnit);
             if (bData.parkingData) Object.values(bData.parkingData).forEach(processUnit);
 
-            if (unitsPayload.length > 0) promises.push(supabase.from('units').upsert(unitsPayload));
-            if (roomsPayload.length > 0) promises.push(supabase.from('rooms').upsert(roomsPayload));
+            if (unitsPayload.length) promises.push(supabase.from('units').upsert(unitsPayload));
+            if (roomsPayload.length) promises.push(supabase.from('rooms').upsert(roomsPayload));
 
+            // D. MOPS
             if (bData.commonAreasData) {
-                const mopPayload = [];
+                const mops = [];
                 Object.values(bData.commonAreasData).flat().forEach(m => {
-                    const entNum = m.entranceIndex;
-                    const entKey = `${m.blockId}_${entNum}`;
-                    const entranceUUID = entrancesMap[entKey];
-                    if (entranceUUID && m.floorId) {
-                        mopPayload.push({ id: m.id, floor_id: m.floorId, entrance_id: entranceUUID, type: m.type, area: parseFloat(m.area)||0 });
+                    const entKey = `${m.blockId}_${m.entranceIndex}`;
+                    if (entranceMap[entKey] && m.floorId) {
+                        mops.push({ id: m.id, floor_id: m.floorId, entrance_id: entranceMap[entKey], type: m.type, area: parseFloat(m.area)||0 });
                     }
                 });
-                if (mopPayload.length > 0) promises.push(supabase.from('common_areas').upsert(mopPayload));
+                if (mops.length) promises.push(supabase.from('common_areas').upsert(mops));
             }
         }
     }
 
     await Promise.all(promises);
     
-    if (generalData.applicationInfo && generalData.applicationInfo.history && generalData.applicationInfo.history.length > 0) {
+    // History
+    if (generalData.applicationInfo?.history?.length > 0) {
          const lastItem = generalData.applicationInfo.history[0];
-         if (new Date().getTime() - new Date(lastItem.date).getTime() < 5000) {
+         if (new Date().getTime() - new Date(lastItem.date).getTime() < 10000 && appId) {
              await supabase.from('application_history').insert({
                  application_id: appId,
                  action: lastItem.action,
@@ -436,54 +437,23 @@ export const RegistryService = {
     }
   },
 
+  // ... (createProjectFromApplication и остальные функции без изменений)
   createProjectFromApplication: async (scope, app, user) => {
       const pId = crypto.randomUUID();
       const appId = crypto.randomUUID();
-      
       await supabase.from('projects').insert({
-          id: pId,
-          name: `ЖК по заявке ${app.externalId}`, 
-          address: app.address,
-          cadastre_number: app.cadastre,
-          construction_status: 'Проектный'
+          id: pId, name: `ЖК по заявке ${app.externalId}`, address: app.address, cadastre_number: app.cadastre, construction_status: 'Проектный'
       });
-      
       await supabase.from('applications').insert({
-          id: appId,
-          project_id: pId,
-          internal_number: app.id,
-          external_source: app.source,
-          external_id: app.externalId,
-          applicant: app.applicant,
-          submission_date: app.submissionDate,
-          assignee_name: user.name,
-          status: 'DRAFT'
+          id: appId, project_id: pId, internal_number: app.id, external_source: app.source, external_id: app.externalId, applicant: app.applicant, submission_date: app.submissionDate, assignee_name: user.name, status: 'DRAFT'
       });
-      
       return pId;
   },
 
-  deleteProject: async (scope, id) => {
-      await supabase.from('projects').delete().eq('id', id);
-  },
-  
-  deleteBuilding: async (scope, pId, bId) => {
-      await supabase.from('buildings').delete().eq('id', bId);
-  },
-
-  saveUnits: async () => {}, 
-  saveFloors: async () => {},
-  saveParkingPlaces: async () => {},
-  
-  getExternalApplications: async () => [
-    {
-        id: '10239', 
-        source: 'EPIGU', 
-        externalId: 'EP-2026-9912', 
-        applicant: 'ООО "Golden House"', 
-        submissionDate: new Date().toISOString(), 
-        cadastre: '11:01:02:03:0044', 
-        address: 'г. Ташкент, Шайхантахурский р-н, ул. Навои, 12'
-    }
-  ]
+  deleteProject: async (scope, id) => { await supabase.from('projects').delete().eq('id', id); },
+  deleteBuilding: async (scope, pId, bId) => { await supabase.from('buildings').delete().eq('id', bId); },
+  saveUnits: async () => {}, saveFloors: async () => {}, saveParkingPlaces: async () => {},
+  getExternalApplications: async () => [{
+      id: '10239', source: 'EPIGU', externalId: 'EP-2026-9912', applicant: 'ООО "Golden House"', submissionDate: new Date().toISOString(), cadastre: '11:01:02:03:0044', address: 'г. Ташкент, Шайхантахурский р-н, ул. Навои, 12'
+  }]
 };

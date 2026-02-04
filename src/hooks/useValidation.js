@@ -7,18 +7,18 @@ import { useState, useCallback, useEffect } from 'react';
  * @param {boolean} [validateOnChange=true] - Валидировать ли при каждом изменении
  */
 export function useValidation(schema, data, validateOnChange = true) {
-    // ИСПРАВЛЕНИЕ: Явно указываем тип стейта, чтобы VS Code понимал, 
-    // что внутри могут быть любые поля (name, street и т.д.)
     /** @type {[Object.<string, string>, React.Dispatch<React.SetStateAction<Object.<string, string>>>]} */
     const [errors, setErrors] = useState({});
-    
     const [isValid, setIsValid] = useState(true);
+
+    // 1. Сериализуем данные в строку для сравнения содержимого, а не ссылок
+    const dataJson = JSON.stringify(data);
 
     const validate = useCallback(() => {
         const result = schema.safeParse(data);
+        
         if (!result.success) {
             const formattedErrors = result.error.format();
-            // Преобразуем формат Zod в плоский объект { fieldName: "Error message" }
             /** @type {Object.<string, string>} */
             const simpleErrors = {};
             
@@ -29,22 +29,35 @@ export function useValidation(schema, data, validateOnChange = true) {
                     simpleErrors[key] = formattedErrors[key]._errors[0];
                 }
             });
-            setErrors(simpleErrors);
-            setIsValid(false);
+            
+            // 2. State Guard: Обновляем стейт ТОЛЬКО если объект ошибок реально изменился
+            // Это предотвращает бесконечный цикл ре-рендеров
+            setErrors(prev => {
+                if (JSON.stringify(prev) !== JSON.stringify(simpleErrors)) {
+                    return simpleErrors;
+                }
+                return prev;
+            });
+            
+            setIsValid(prev => (prev === false ? prev : false));
             return false;
         } else {
-            setErrors({});
-            setIsValid(true);
+            setErrors(prev => {
+                if (Object.keys(prev).length === 0) return prev;
+                return {};
+            });
+            setIsValid(prev => (prev === true ? prev : true));
             return true;
         }
-    }, [schema, data]);
+    }, [schema, dataJson]); // Зависим от строки JSON, а не от объекта data
 
     // Автоматическая валидация при изменении данных
     useEffect(() => {
         if (validateOnChange) {
             validate();
         }
-    }, [data, validateOnChange, validate]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dataJson, validateOnChange]); // Убрали validate из зависимостей, чтобы разорвать цикл
 
     return { errors, isValid, validate };
 }

@@ -1,6 +1,10 @@
 /**
  * Утилиты для маппинга данных между БД (Snake_case) и UI (CamelCase/Nested)
+ * UPDATED: Fix for 1:1 relations and Parent ID injection
  */
+
+// Хелпер для безопасного извлечения (Supabase может вернуть массив или объект)
+const getOne = (val) => Array.isArray(val) ? (val[0] || {}) : (val || {});
 
 // --- 1. PROJECT + APPLICATION ---
 export const mapProjectAggregate = (project, app, history = [], steps = [], parts = [], docs = []) => {
@@ -91,53 +95,63 @@ export const mapBuildingFromDB = (b, blocks = []) => {
     };
 };
 
-// --- 3. DETAILS ---
-export const mapBlockDetailsFromDB = (b, block) => ({
-    // Геометрия
-    floorsCount: block.floors_count || 0,
-    entrances: block.entrances_count || 0,
-    inputs: block.entrances_count || 0,
-    elevators: block.elevators_count || 0,
-    
-    // Специфичные поля
-    vehicleEntries: block.vehicle_entries || 0,
-    levelsDepth: block.levels_depth || 0,
-    lightStructureType: block.light_structure_type || "", 
-    floorsFrom: block.floors_from || 1,
-    floorsTo: block.floors_to || (block.floors_count || 1),
-    
-    // [FIX] Конструктив: Читаем из block, защищаем от null
-    foundation: block.foundation || "",
-    walls: block.walls || "",
-    slabs: block.slabs || "",
-    roof: block.roof || "",
-    seismicity: block.seismicity ? parseInt(block.seismicity) : 0,
-    
-    // [FIX] Инженерия: Читаем из block
-    engineering: {
-        electricity: !!block.has_electricity,
-        hvs: !!block.has_water,
-        sewerage: !!block.has_sewerage,
-        gas: !!block.has_gas,
-        heating: !!block.has_heating,
-        ventilation: !!block.has_ventilation,
-        firefighting: !!block.has_firefighting,
-        lowcurrent: !!block.has_lowcurrent
-    },
+// --- 3. DETAILS (BLOCK CONFIG) ---
+export const mapBlockDetailsFromDB = (b, block) => {
+    // [FIX] Используем getOne для надежности
+    const constr = getOne(block.block_construction);
+    const eng = getOne(block.block_engineering);
 
-    // Флаги
-    hasBasementFloor: !!block.has_basement,
-    hasAttic: !!block.has_attic,
-    hasLoft: !!block.has_loft,
-    hasExploitableRoof: !!block.has_roof_expl,
-    
-    technicalFloors: [],
-    commercialFloors: []
-});
+    return {
+        // Геометрия
+        floorsCount: block.floors_count || 0,
+        entrances: block.entrances_count || 0,
+        inputs: block.entrances_count || 0,
+        elevators: block.elevators_count || 0,
+        vehicleEntries: block.vehicle_entries || 0,
+        levelsDepth: block.levels_depth || 0,
+        lightStructureType: block.light_structure_type || "", 
+        floorsFrom: block.floors_from || 1,
+        floorsTo: block.floors_to || (block.floors_count || 1),
+        
+        hasBasementFloor: !!block.has_basement,
+        hasAttic: !!block.has_attic,
+        hasLoft: !!block.has_loft,
+        hasExploitableRoof: !!block.has_roof_expl,
+        
+        hasCustomAddress: block.has_custom_address,
+        customHouseNumber: block.custom_house_number,
+
+        // Конструктив
+        foundation: constr.foundation || "",
+        walls: constr.walls || "",
+        slabs: constr.slabs || "",
+        roof: constr.roof || "",
+        seismicity: constr.seismicity ? parseInt(constr.seismicity) : 0,
+        
+        // Инженерия
+        engineering: {
+            electricity: !!eng.has_electricity,
+            hvs: !!eng.has_water,
+            gvs: !!eng.has_hot_water,
+            sewerage: !!eng.has_sewerage,
+            gas: !!eng.has_gas,
+            heating: !!eng.has_heating,
+            ventilation: !!eng.has_ventilation,
+            firefighting: !!eng.has_firefighting,
+            lowcurrent: !!eng.has_lowcurrent
+        },
+
+        technicalFloors: [], 
+        commercialFloors: []
+    };
+};
 
 // --- 4. FLOORS ---
-export const mapFloorFromDB = (f) => ({
+// [FIX] Добавлены buildingId и blockId
+export const mapFloorFromDB = (f, buildingId, blockId) => ({
     id: f.id,
+    buildingId, // ВАЖНО для фильтрации
+    blockId,    // ВАЖНО для фильтрации
     label: f.label,
     type: f.floor_type,
     height: f.height,
@@ -148,11 +162,14 @@ export const mapFloorFromDB = (f) => ({
 });
 
 // --- 5. UNITS ---
-export const mapUnitFromDB = (u, rooms = [], entranceMap = {}) => ({
+// [FIX] Добавлены buildingId и blockId
+export const mapUnitFromDB = (u, rooms = [], entranceMap = {}, buildingId, blockId) => ({
     id: u.id,
+    buildingId, // ВАЖНО
+    blockId,    // ВАЖНО
     num: u.number,
     number: u.number,
-    type: u.type,
+    type: u.unit_type || 'flat',
     area: u.total_area,
     livingArea: u.living_area,
     usefulArea: u.useful_area,
@@ -172,8 +189,10 @@ export const mapUnitFromDB = (u, rooms = [], entranceMap = {}) => ({
 });
 
 // --- 6. MOP ---
-export const mapMopFromDB = (m, entranceMap = {}) => ({
+export const mapMopFromDB = (m, entranceMap = {}, buildingId, blockId) => ({
     id: m.id,
+    buildingId,
+    blockId,
     type: m.type,
     area: m.area,
     floorId: m.floor_id,
