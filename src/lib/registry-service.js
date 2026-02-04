@@ -354,7 +354,17 @@ export const RegistryService = {
                 const blocksPayload = b.blocks.map(block => ({
                     id: block.id, building_id: b.id, label: block.label, type: mapBlockTypeToDB(block.type)
                 }));
-                if (blocksPayload.length > 0) await supabase.from('building_blocks').upsert(blocksPayload);
+                if (blocksPayload.length > 0) {
+                    await supabase.from('building_blocks').upsert(blocksPayload);
+                    const blockIds = blocksPayload.map(block => `'${block.id}'`).join(',');
+                    await supabase
+                        .from('building_blocks')
+                        .delete()
+                        .eq('building_id', b.id)
+                        .not('id', 'in', `(${blockIds})`);
+                }
+            } else {
+                await supabase.from('building_blocks').delete().eq('building_id', b.id);
             }
         }
     }
