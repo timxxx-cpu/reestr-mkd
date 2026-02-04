@@ -39,7 +39,7 @@ export default function StandardView({ building, mode }) {
     const { buildingDetails, setBuildingDetails, complexInfo } = useProject();
     const isReadOnly = useReadOnly();
     
-    const blocksList = useMemo(() => getBlocksList(building), [building]);
+    const blocksList = useMemo(() => getBlocksList(building, buildingDetails), [building, buildingDetails]);
 
     const visibleBlocks = useMemo(() => {
         if (mode === 'res') return blocksList.filter(b => b.type === 'Ж');

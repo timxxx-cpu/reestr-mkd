@@ -20,6 +20,53 @@ const FIELD_NAMES = {
     lightStructureType: "Тип конструкции"
 };
 
+const NUMERIC_FIELDS = [
+    'entrances',
+    'floorsFrom',
+    'floorsTo',
+    'elevators',
+    'inputs',
+    'vehicleEntries',
+    'floorsCount',
+    'levelsDepth',
+    'seismicity'
+];
+
+const normalizeNumericDetails = (details) => {
+    const normalized = { ...details };
+    const invalidFields = new Set();
+
+    NUMERIC_FIELDS.forEach((field) => {
+        if (!(field in details)) return;
+        const raw = details[field];
+        if (raw === '' || raw === null || raw === undefined) {
+            delete normalized[field];
+            return;
+        }
+        if (typeof raw === 'string') {
+            const trimmed = raw.trim();
+            if (trimmed === '') {
+                delete normalized[field];
+                return;
+            }
+            const num = Number(trimmed);
+            if (Number.isNaN(num)) {
+                invalidFields.add(field);
+                delete normalized[field];
+                return;
+            }
+            normalized[field] = num;
+            return;
+        }
+        if (typeof raw === 'number' && Number.isNaN(raw)) {
+            invalidFields.add(field);
+            delete normalized[field];
+        }
+    });
+
+    return { normalized, invalidFields };
+};
+
 /**
  * Вспомогательная функция для сбора ошибок по конфигурации здания
  */
@@ -47,6 +94,7 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
     for (const block of relevantBlocks) {
         const detailsKey = `${building.id}_${block.id}`;
         const details = buildingDetails[detailsKey] || {};
+        const { normalized: normalizedDetails, invalidFields } = normalizeNumericDetails(details);
         
         let blockName = block.tabLabel;
         if (blockName === 'main') blockName = 'Основной блок';
@@ -70,7 +118,7 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
 
         // 2. Проверяем заполненность обязательных полей
         requiredFields.forEach(field => {
-            const val = details[field];
+            const val = normalizedDetails[field];
             if (val === undefined || val === '' || val === null) {
                 errors.push({
                     title: contextTitle,
@@ -81,19 +129,19 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
         
         if (isParking && building.constructionType === 'capital') {
              if (isUnderground) {
-                 if (!details.levelsDepth) errors.push({ title: contextTitle, description: "Не указана глубина подземного паркинга." });
+                 if (!normalizedDetails.levelsDepth) errors.push({ title: contextTitle, description: "Не указана глубина подземного паркинга." });
              } else {
-                 if (!details.floorsCount) errors.push({ title: contextTitle, description: "Не указано количество этажей паркинга." });
+                 if (!normalizedDetails.floorsCount) errors.push({ title: contextTitle, description: "Не указано количество этажей паркинга." });
              }
         }
 
         // 3. Валидация Zod
-        const validation = BuildingConfigSchema.safeParse(details);
+        const validation = BuildingConfigSchema.safeParse(normalizedDetails);
         
         if (!validation.success) {
             validation.error.issues.forEach(issue => {
                 const rawField = String(issue.path[0]);
-                const rawValue = details[rawField];
+                const rawValue = normalizedDetails[rawField];
                 const isFieldPresent = rawValue !== undefined
                     && rawValue !== ''
                     && rawValue !== null
@@ -110,12 +158,21 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
                 }
             });
         }
+        invalidFields.forEach((field) => {
+            if (requiredFields.includes(field)) {
+                const fieldName = FIELD_NAMES[field] || field;
+                errors.push({
+                    title: contextTitle,
+                    description: `Поле "${fieldName}": Содержит ошибку.`
+                });
+            }
+        });
 
         // 4. Проверка лифтов
         if (building.constructionType !== 'light' && !isInfra) {
-             const floorsToCheck = details.floorsTo || details.floorsCount || 1;
+             const floorsToCheck = normalizedDetails.floorsTo || normalizedDetails.floorsCount || 1;
              const hasElevatorIssue = Validators.elevatorRequirement(
-                isParking, isInfra, floorsToCheck, details.elevators || 0
+                isParking, isInfra, floorsToCheck, normalizedDetails.elevators || 0
             );
 
             if (hasElevatorIssue) {

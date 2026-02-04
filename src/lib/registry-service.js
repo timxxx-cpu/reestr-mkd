@@ -307,7 +307,8 @@ export const RegistryService = {
         for (const b of generalData.composition) {
             await supabase.from('buildings').upsert({ 
                 id: b.id, project_id: projectId, label: b.label, house_number: b.houseNumber, 
-                category: b.category, construction_type: b.constructionType, parking_type: b.parkingType, infra_type: b.infraType 
+                category: b.category, construction_type: b.constructionType, parking_type: b.parkingType, infra_type: b.infraType,
+                has_non_res_part: !!b.hasNonResPart
             });
             if (b.blocks?.length) {
                 const blocksPayload = b.blocks.map(block => ({
