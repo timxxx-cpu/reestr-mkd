@@ -354,7 +354,9 @@ export const RegistryService = {
                         has_loft: details.hasLoft,
                         has_roof_expl: details.hasExploitableRoof,
                         has_custom_address: details.hasCustomAddress,
-                        custom_house_number: details.customHouseNumber
+                        custom_house_number: details.customHouseNumber,
+                        technical_floors: details.technicalFloors || [],
+                        commercial_floors: details.commercialFloors || []
                     };
                     promises.push(supabase.from('building_blocks').update(blockUpdate).eq('id', blockId));
 

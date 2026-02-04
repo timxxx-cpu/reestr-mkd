@@ -165,6 +165,10 @@ CREATE TABLE building_blocks (
     has_attic BOOLEAN DEFAULT FALSE,
     has_loft BOOLEAN DEFAULT FALSE,
     has_roof_expl BOOLEAN DEFAULT FALSE,
+
+    -- Дополнительные этажи
+    technical_floors JSONB DEFAULT '[]',        -- Список технических этажей
+    commercial_floors JSONB DEFAULT '[]',       -- Список этажей с коммерцией
     
     -- Настройки адресации
     has_custom_address BOOLEAN DEFAULT FALSE,
