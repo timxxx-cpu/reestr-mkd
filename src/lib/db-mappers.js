@@ -84,7 +84,7 @@ export const mapBuildingFromDB = (b, blocks = []) => {
         parkingType: b.parking_type,
         constructionType: b.construction_type,
         infraType: b.infra_type,
-        hasNonResPart: nonResBlocksCount > 0,
+        hasNonResPart: b.has_non_res_part ?? nonResBlocksCount > 0,
         blocks: blocks.map(bl => ({
             id: bl.id,
             buildingId: b.id,

@@ -150,6 +150,7 @@ CREATE TABLE buildings (
     construction_type TEXT,                     -- capital, light, open (для паркингов)
     parking_type TEXT,                          -- underground, ground (для паркингов)
     infra_type TEXT,                            -- Школа, Сад, Котельная (для инфраструктуры)
+    has_non_res_part BOOLEAN DEFAULT FALSE,     -- Признак встроенной коммерции
     
     photo_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

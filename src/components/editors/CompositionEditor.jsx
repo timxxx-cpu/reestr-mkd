@@ -374,12 +374,33 @@ export default function CompositionEditor() {
          if (modal.editingId) {
              const updated = composition.map(c => {
                  if (c.id === modal.editingId) {
-                     const isStructureChanged = c.resBlocks !== modal.resBlocks || c.nonResBlocks !== modal.nonResBlocks || c.category !== modal.category;
+                     const isCategoryChanged = c.category !== modal.category;
+                     const isStructureChanged = c.resBlocks !== modal.resBlocks || c.nonResBlocks !== modal.nonResBlocks || isCategoryChanged;
                      let blocks = c.blocks || [];
                      
                      if (isStructureChanged) {
                          if (!window.confirm("Изменение структуры блоков приведет к потере данных (этажи, квартиры) в удаленных блоках. Продолжить?")) return c;
                          blocks = generateBlocks(c.id, modal);
+                         setBuildingDetails(prev => {
+                             const next = { ...prev };
+                             const nextBlockIds = new Set(blocks.map(block => block.id));
+                             (c.blocks || []).forEach(block => {
+                                 if (!nextBlockIds.has(block.id)) {
+                                     delete next[`${c.id}_${block.id}`];
+                                 }
+                             });
+                             return next;
+                         });
+                     }
+                     if (isCategoryChanged) {
+                         setBuildingDetails(prev => {
+                             const next = { ...prev };
+                             (c.blocks || []).forEach(block => {
+                                 delete next[`${c.id}_${block.id}`];
+                             });
+                             delete next[`${c.id}_features`];
+                             return next;
+                         });
                      }
                      return { ...c, ...newItemBase, blocks };
                  }

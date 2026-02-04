@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useToast } from './ToastContext';
 import { RegistryService } from '../lib/registry-service';
+import { cleanBuildingDetails } from '../lib/building-details';
 import { useProjectData } from '../hooks/useProjectData';
 import { ROLES, APP_STATUS, WORKFLOW_STAGES, STEPS_CONFIG } from '../lib/constants';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -214,12 +215,19 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
                   }
               });
 
-              // 2. Сохраняем общие данные в документ проекта
+              // 2. Очистка мусорных значений в конфигурации блоков
+              if (changes.buildingDetails) {
+                  const cleanedDetails = cleanBuildingDetails(mergedState.composition, changes.buildingDetails);
+                  changes.buildingDetails = cleanedDetails;
+                  setProjectMeta(prev => ({ ...prev, buildingDetails: cleanedDetails }));
+              }
+
+              // 3. Сохраняем общие данные в документ проекта
               if (Object.keys(changes).length > 0) {
                   await RegistryService.saveData(dbScope, projectId, changes);
               }
 
-              // 3. Сохраняем данные зданий в подколлекции
+              // 4. Сохраняем данные зданий в подколлекции
               const buildingPromises = Object.entries(buildingUpdates).map(([bId, bData]) => {
                   // Проверяем, есть ли что сохранять для этого здания
                   const hasData = Object.values(bData).some(val => Object.keys(val).length > 0);
