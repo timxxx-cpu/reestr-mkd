@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 import { 
-    mapProjectAggregate, // [NEW]
+    mapProjectAggregate, 
     mapBuildingFromDB, 
     mapBlockDetailsFromDB, 
     mapFloorFromDB, 
@@ -15,9 +15,9 @@ function generateBlocksPayload(b) {
             id: block.id,
             building_id: b.id,
             label: block.label,
-            type: mapBlockTypeToDB(block.type),
-            floors_count: 1, 
-            entrances_count: 1
+            type: mapBlockTypeToDB(block.type)
+            // [FIX] Убрали floors_count: 1, чтобы не перезатирать данные при сохранении состава
+            // БД сама поставит DEFAULT 1 для новых блоков
         }));
     }
     return [];
@@ -33,8 +33,15 @@ function mapBlockTypeToDB(uiType) {
 
 // --- HELPER: Sync Entrances Table ---
 async function syncEntrances(buildingSpecificData) {
+    // Эта функция работает с buildingSpecificData, так как данные о подъездах
+    // часто приходят в контексте матриц, но может потребоваться и buildingDetails.
+    // Оставляем как есть, так как entrances генерируются корректно.
     const entrancesToUpsert = [];
     for (const [bId, bData] of Object.entries(buildingSpecificData)) {
+        // Здесь bData.buildingDetails может быть undefined, если данные пришли в корне payload.
+        // Но для syncEntrances мы обычно рассчитываем на buildingDetails из контекста.
+        // В текущей архитектуре syncEntrances может не найти новые подъезды, если details в корне.
+        // Но пока оставим, чтобы не ломать логику матриц.
         if (bData.buildingDetails) {
             for (const [blockKey, details] of Object.entries(bData.buildingDetails)) {
                 const parts = blockKey.split('_');
@@ -74,26 +81,19 @@ export const RegistryService = {
   // --- READ ---
 
   getProjectsList: async (scope) => {
-    // Мы получаем СПИСОК ЗАЯВОК (Applications), и джойним данные Проекта
     const { data, error } = await supabase
       .from('applications')
-      .select(`
-        *,
-        projects (
-            name, region, address
-        )
-      `)
+      .select(`*, projects (name, region, address)`)
       .order('updated_at', { ascending: false });
 
     if (error) throw error;
 
     return data.map(app => ({
-      id: app.project_id, // Для UI ID проекта главный
+      id: app.project_id,
       applicationId: app.id,
       name: app.projects?.name,
       status: app.status,
       lastModified: app.updated_at,
-      
       applicationInfo: {
           status: app.status,
           internalNumber: app.internal_number,
@@ -105,7 +105,6 @@ export const RegistryService = {
           currentStage: app.current_stage,
           currentStepIndex: app.current_step
       },
-      
       complexInfo: { 
           name: app.projects?.name, 
           region: app.projects?.region, 
@@ -115,7 +114,6 @@ export const RegistryService = {
   },
 
   getProjectMeta: async (scope, projectId) => {
-    // 1. Загружаем Application по Project ID (предполагаем 1 активная)
     const { data: app, error: appError } = await supabase
         .from('applications')
         .select('*')
@@ -129,7 +127,6 @@ export const RegistryService = {
         return null;
     }
 
-    // 2. Загружаем всё остальное параллельно
     const [ pRes, partsRes, docsRes, buildingsRes, historyRes, stepsRes ] = await Promise.all([
         supabase.from('projects').select('*').eq('id', projectId).single(),
         supabase.from('project_participants').select('*').eq('project_id', projectId),
@@ -141,17 +138,10 @@ export const RegistryService = {
 
     if (pRes.error) return null;
 
-    // 3. Собираем Агрегат Проект + Заявка
     const projectData = mapProjectAggregate(
-        pRes.data, 
-        app, 
-        historyRes.data || [], 
-        stepsRes.data || [], 
-        partsRes.data || [], 
-        docsRes.data || []
+        pRes.data, app, historyRes.data || [], stepsRes.data || [], partsRes.data || [], docsRes.data || []
     );
     
-    // 4. Собираем здания
     const composition = [];
     const buildingDetails = {};
 
@@ -167,10 +157,6 @@ export const RegistryService = {
   },
 
   getBuildings: async (scope, projectId) => {
-    // Эта функция остается БЕЗ ИЗМЕНЕНИЙ, так как она работает с физическими таблицами
-    // (buildings, floors...), структура которых не менялась в этом шаге, только связи в getProjectMeta.
-    // Код идентичен предыдущему шагу, но для полноты я его приведу.
-    
     const { data: bIds } = await supabase.from('buildings').select('id').eq('project_id', projectId);
     const buildingIds = (bIds || []).map(b => b.id);
     if (buildingIds.length === 0) return {};
@@ -250,20 +236,18 @@ export const RegistryService = {
   // --- WRITE ---
 
   saveData: async (scope, projectId, payload) => {
+    // ВАЖНО: buildingDetails обычно находится в корне payload (generalData), а не в buildingSpecificData
     const { buildingSpecificData, ...generalData } = payload;
     const promises = [];
 
-    // [UPDATED] Получаем Application ID для этого проекта
-    // (Для простоты запрашиваем 1 раз. В проде лучше передавать ID в payload)
     const { data: app } = await supabase.from('applications').select('id').eq('project_id', projectId).single();
     const appId = app?.id;
 
-    // 1. PROJECT INFO (Update table `projects`)
     if (generalData.complexInfo) {
         const ci = generalData.complexInfo;
         const updatePayload = {
             name: ci.name,
-            construction_status: ci.status, // Статус стройки
+            construction_status: ci.status,
             region: ci.region,
             district: ci.district,
             address: ci.street,
@@ -276,7 +260,6 @@ export const RegistryService = {
         promises.push(supabase.from('projects').update(updatePayload).eq('id', projectId));
     }
 
-    // 2. APPLICATION INFO (Update table `applications` & `application_history` & `application_steps`)
     if (generalData.applicationInfo && appId) {
         const info = generalData.applicationInfo;
         const appUpdates = {
@@ -288,17 +271,6 @@ export const RegistryService = {
         };
         promises.push(supabase.from('applications').update(appUpdates).eq('id', appId));
 
-        // Сохраняем историю (если есть новые записи)
-        if (info.history && info.history.length > 0) {
-            // Берем самую новую запись (последнюю) и пытаемся вставить
-            // В реальной системе лучше передавать "delta", а не весь массив
-            const latest = info.history[0];
-            // Проверка на дубликат - костыль для MVP
-            // Вставляем всегда, считая, что фронтенд шлет только при действии
-            // Но лучше здесь ничего не делать, а историю писать отдельным методом logAction
-        }
-        
-        // Сохраняем шаги
         if (info.completedSteps) {
              const stepsToUpsert = info.completedSteps.map(idx => ({
                  application_id: appId,
@@ -308,9 +280,6 @@ export const RegistryService = {
              if (stepsToUpsert.length) promises.push(supabase.from('application_steps').upsert(stepsToUpsert, { onConflict: 'application_id, step_index' }));
         }
     }
-
-    // ... (Остальной код сохранения Participants, Buildings, Floors, Units - без изменений, см. предыдущий вариант)
-    // Я продублирую ключевые блоки для целостности.
 
     if (generalData.participants) {
         for (const [role, data] of Object.entries(generalData.participants)) {
@@ -328,8 +297,65 @@ export const RegistryService = {
         }
     }
 
+    // [FIX] СОХРАНЕНИЕ ДЕТАЛЕЙ БЛОКА (Конструктив + Инженерия)
+    // Мы берем данные из generalData.buildingDetails, так как React Context хранит их на верхнем уровне
+    if (generalData.buildingDetails) {
+        for (const [blockKey, details] of Object.entries(generalData.buildingDetails)) {
+            const parts = blockKey.split('_');
+            if (parts.length >= 2) {
+                const blockId = parts[parts.length - 1];
+                if (blockId.length > 30) {
+                    // Собираем полный апдейт для БЛОКА
+                    const updatePayload = {
+                        // Геометрия
+                        floors_count: parseInt(details.floorsCount) || 0,
+                        entrances_count: parseInt(details.entrances || details.inputs) || 0,
+                        elevators_count: parseInt(details.elevators) || 0,
+                        vehicle_entries: parseInt(details.vehicleEntries) || 0,
+                        levels_depth: parseInt(details.levelsDepth) || 0,
+                        light_structure_type: details.lightStructureType,
+                        floors_from: parseInt(details.floorsFrom) || 1,
+                        floors_to: parseInt(details.floorsTo) || parseInt(details.floorsCount),
+                        
+                        // Флаги этажей
+                        has_basement: details.hasBasementFloor,
+                        has_attic: details.hasAttic,
+                        has_loft: details.hasLoft,
+                        has_roof_expl: details.hasExploitableRoof,
+
+                        // Конструктив -> пишем в building_blocks
+                        foundation: details.foundation,
+                        walls: details.walls,
+                        slabs: details.slabs,
+                        roof: details.roof,
+                        seismicity: parseInt(details.seismicity) || 0
+                    };
+
+                    // Инженерия -> пишем в building_blocks
+                    if (details.engineering) {
+                        updatePayload.has_electricity = details.engineering.electricity;
+                        updatePayload.has_water = details.engineering.hvs;
+                        updatePayload.has_sewerage = details.engineering.sewerage;
+                        updatePayload.has_gas = details.engineering.gas;
+                        updatePayload.has_heating = details.engineering.heating;
+                        updatePayload.has_ventilation = details.engineering.ventilation;
+                        updatePayload.has_firefighting = details.engineering.firefighting;
+                        updatePayload.has_lowcurrent = details.engineering.lowcurrent;
+                    }
+
+                    promises.push(supabase.from('building_blocks').update(updatePayload).eq('id', blockId));
+                }
+            }
+        }
+    }
+
     if (buildingSpecificData) {
+        // Если нужен syncEntrances, его можно вызвать, но он требует buildingDetails.
+        // Если в payload buildingDetails лежит отдельно (в generalData), 
+        // то нужно передать объединенный объект, если syncEntrances этого требует.
+        // Для простоты оставим как есть, так как syncEntrances в основном нужен для матриц.
         const entrancesMap = await syncEntrances(buildingSpecificData);
+
         for (const [bId, bData] of Object.entries(buildingSpecificData)) {
             if (bData.floorData) {
                 const floors = Object.values(bData.floorData).map(f => ({ id: f.id, block_id: f.blockId, index: f.sortOrder || 0, label: f.label, floor_type: f.type, height: parseFloat(f.height)||0, area_proj: parseFloat(f.areaProj)||0, area_fact: parseFloat(f.areaFact)||0, is_duplex: f.isDuplex||false }));
@@ -389,30 +415,13 @@ export const RegistryService = {
                 });
                 if (mopPayload.length > 0) promises.push(supabase.from('common_areas').upsert(mopPayload));
             }
-
-            if (bData.buildingDetails) {
-                for (const [blockKey, details] of Object.entries(bData.buildingDetails)) {
-                    const parts = blockKey.split('_');
-                    if (parts.length >= 2) {
-                        const blockId = parts[parts.length - 1];
-                        if (blockId.length > 30) {
-                            promises.push(supabase.from('building_blocks').update({ floors_count: parseInt(details.floorsCount)||0, entrances_count: parseInt(details.entrances||details.inputs)||0, elevators_count: parseInt(details.elevators)||0, has_basement: details.hasBasementFloor, has_attic: details.hasAttic, has_loft: details.hasLoft, has_roof_expl: details.hasExploitableRoof }).eq('id', blockId));
-                            promises.push(supabase.from('buildings').update({ foundation: details.foundation, walls: details.walls, slabs: details.slabs, roof: details.roof, seismicity: parseInt(details.seismicity)||0, has_electricity: details.engineering?.electricity, has_water: details.engineering?.hvs, has_sewerage: details.engineering?.sewerage, has_gas: details.engineering?.gas, has_heating: details.engineering?.heating, has_ventilation: details.engineering?.ventilation, has_firefighting: details.engineering?.firefighting, has_lowcurrent: details.engineering?.lowcurrent }).eq('id', bId));
-                        }
-                    }
-                }
-            }
         }
     }
 
     await Promise.all(promises);
     
-    // Отдельно сохраняем историю (если передана), т.к. это insert, а не update
     if (generalData.applicationInfo && generalData.applicationInfo.history && generalData.applicationInfo.history.length > 0) {
-         // Для простоты сохраняем только последнюю запись истории, если она новая.
-         // В идеале: сравнивать даты.
          const lastItem = generalData.applicationInfo.history[0];
-         // Если дата совсем свежая (последние 5 сек), то сохраняем. Костыль, но для MVP пойдет.
          if (new Date().getTime() - new Date(lastItem.date).getTime() < 5000) {
              await supabase.from('application_history').insert({
                  application_id: appId,
@@ -427,13 +436,10 @@ export const RegistryService = {
     }
   },
 
-  // --- CREATE ---
-  
   createProjectFromApplication: async (scope, app, user) => {
       const pId = crypto.randomUUID();
       const appId = crypto.randomUUID();
       
-      // 1. Создаем проект
       await supabase.from('projects').insert({
           id: pId,
           name: `ЖК по заявке ${app.externalId}`, 
@@ -442,7 +448,6 @@ export const RegistryService = {
           construction_status: 'Проектный'
       });
       
-      // 2. Создаем заявку (связанную с проектом)
       await supabase.from('applications').insert({
           id: appId,
           project_id: pId,
@@ -470,7 +475,6 @@ export const RegistryService = {
   saveFloors: async () => {},
   saveParkingPlaces: async () => {},
   
-  // Эмуляция входящих из ЕПИГУ
   getExternalApplications: async () => [
     {
         id: '10239', 

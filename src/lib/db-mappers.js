@@ -3,26 +3,17 @@
  */
 
 // --- 1. PROJECT + APPLICATION ---
-// Мы объединяем данные из двух таблиц в один объект ProjectMeta, 
-// который ожидает UI (через поля applicationInfo и complexInfo)
-
 export const mapProjectAggregate = (project, app, history = [], steps = [], parts = [], docs = []) => {
-    // Формируем списки шагов
     const completedSteps = steps.filter(s => s.is_completed).map(s => s.step_index);
     const verifiedSteps = steps.filter(s => s.is_verified).map(s => s.step_index);
 
     return {
-        id: project.id, // ID проекта
-        applicationId: app.id, // ID заявки (сохраняем для API)
-        
+        id: project.id,
+        applicationId: app.id,
         name: project.name,
-        // UI использует status из заявки для управления доступом, 
-        // но отображает статус стройки в паспорте. Разделим их.
         status: project.construction_status, 
-        
         lastModified: app.updated_at,
         
-        // Данные Заявки (Workflow)
         applicationInfo: {
             id: app.id,
             internalNumber: app.internal_number,
@@ -30,27 +21,22 @@ export const mapProjectAggregate = (project, app, history = [], steps = [], part
             externalId: app.external_id,
             applicant: app.applicant,
             submissionDate: app.submission_date,
-            
             status: app.status,
             assigneeName: app.assignee_name,
-            
             currentStepIndex: app.current_step,
             currentStage: app.current_stage,
-            
             completedSteps,
             verifiedSteps,
-            
             history: history.map(h => ({
                 date: h.created_at,
                 user: h.user_name,
                 action: h.action,
-                status: h.next_status, // для совместимости
+                status: h.next_status,
                 comment: h.comment,
                 prevStatus: h.prev_status
-           })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+            })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         },
         
-        // Данные Проекта (Passport)
         complexInfo: {
             name: project.name,
             status: project.construction_status,
@@ -65,26 +51,14 @@ export const mapProjectAggregate = (project, app, history = [], steps = [], part
         },
 
         participants: parts.reduce((acc, part) => {
-            acc[part.role] = {
-                id: part.id,
-                name: part.name,
-                inn: part.inn,
-                role: part.role
-            };
+            acc[part.role] = { id: part.id, name: part.name, inn: part.inn, role: part.role };
             return acc;
         }, {}),
 
-        cadastre: {
-            number: project.cadastre_number
-        },
+        cadastre: { number: project.cadastre_number },
 
         documents: docs.map(d => ({
-            id: d.id,
-            name: d.name,
-            type: d.doc_type,
-            date: d.doc_date,
-            number: d.doc_number,
-            url: d.file_url
+            id: d.id, name: d.name, type: d.doc_type, date: d.doc_date, number: d.doc_number, url: d.file_url
         }))
     };
 };
@@ -100,15 +74,13 @@ export const mapBuildingFromDB = (b, blocks = []) => {
         houseNumber: b.house_number,
         category: b.category,
         type: mapCategoryToLabel(b.category),
-        stage: 'Проектный', // Это поле можно добавить в buildings, если нужно
-        
+        stage: 'Проектный',
         resBlocks: resBlocksCount,
         nonResBlocks: nonResBlocksCount,
         parkingType: b.parking_type,
         constructionType: b.construction_type,
         infraType: b.infra_type,
         hasNonResPart: nonResBlocksCount > 0,
-        
         blocks: blocks.map(bl => ({
             id: bl.id,
             buildingId: b.id,
@@ -121,32 +93,43 @@ export const mapBuildingFromDB = (b, blocks = []) => {
 
 // --- 3. DETAILS ---
 export const mapBlockDetailsFromDB = (b, block) => ({
-    floorsCount: block.floors_count,
-    entrances: block.entrances_count,
-    inputs: block.entrances_count,
-    elevators: block.elevators_count,
+    // Геометрия
+    floorsCount: block.floors_count || 0,
+    entrances: block.entrances_count || 0,
+    inputs: block.entrances_count || 0,
+    elevators: block.elevators_count || 0,
     
-    foundation: b.foundation,
-    walls: b.walls,
-    slabs: b.slabs,
-    roof: b.roof,
-    seismicity: b.seismicity,
+    // Специфичные поля
+    vehicleEntries: block.vehicle_entries || 0,
+    levelsDepth: block.levels_depth || 0,
+    lightStructureType: block.light_structure_type || "", 
+    floorsFrom: block.floors_from || 1,
+    floorsTo: block.floors_to || (block.floors_count || 1),
     
+    // [FIX] Конструктив: Читаем из block, защищаем от null
+    foundation: block.foundation || "",
+    walls: block.walls || "",
+    slabs: block.slabs || "",
+    roof: block.roof || "",
+    seismicity: block.seismicity ? parseInt(block.seismicity) : 0,
+    
+    // [FIX] Инженерия: Читаем из block
     engineering: {
-        electricity: b.has_electricity,
-        hvs: b.has_water,
-        sewerage: b.has_sewerage,
-        gas: b.has_gas,
-        heating: b.has_heating,
-        ventilation: b.has_ventilation,
-        firefighting: b.has_firefighting,
-        lowcurrent: b.has_lowcurrent
+        electricity: !!block.has_electricity,
+        hvs: !!block.has_water,
+        sewerage: !!block.has_sewerage,
+        gas: !!block.has_gas,
+        heating: !!block.has_heating,
+        ventilation: !!block.has_ventilation,
+        firefighting: !!block.has_firefighting,
+        lowcurrent: !!block.has_lowcurrent
     },
 
-    hasBasementFloor: block.has_basement,
-    hasAttic: block.has_attic,
-    hasLoft: block.has_loft,
-    hasExploitableRoof: block.has_roof_expl,
+    // Флаги
+    hasBasementFloor: !!block.has_basement,
+    hasAttic: !!block.has_attic,
+    hasLoft: !!block.has_loft,
+    hasExploitableRoof: !!block.has_roof_expl,
     
     technicalFloors: [],
     commercialFloors: []
@@ -179,7 +162,6 @@ export const mapUnitFromDB = (u, rooms = [], entranceMap = {}) => ({
     floorId: u.floor_id,
     entranceIndex: u.entrance_id ? (entranceMap[u.entrance_id] || 1) : 1,
     entranceId: u.entrance_id,
-    
     explication: rooms.map(r => ({
         id: r.id,
         type: r.room_type,
