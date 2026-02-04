@@ -92,3 +92,50 @@ Units (1) -> (*) Rooms (Экспликация)
 - `name`: Название (Кухня, Спальня)
 - `area`: Площадь
 - `coefficient`: Коэффициент (1.0, 0.5 для балконов)
+
+# Структура базы данных (v2 - Разделение Проекта и Заявки)
+
+## Основные сущности
+
+### 1. `projects` (Физический объект)
+Описывает Жилой Комплекс как объект недвижимости.
+- `id`: UUID (PK)
+- `name`: Название ЖК
+- `region`, `district`, `address`, `landmark`: География
+- `cadastre_number`: Кадастр земельного участка
+- `construction_status`: Статус стройки (Проект, Стройка, Сдан)
+- `date_start`, `date_end`: Сроки
+
+### 2. `applications` (Заявка / Транзакция)
+Описывает процесс работы над объектом в системе.
+- `id`: UUID (PK)
+- `project_id`: FK -> projects (1:1 или N:1)
+- `internal_number`: Внутренний номер дела
+- `external_source`: Источник (ЕПИГУ, ДХМ)
+- `external_id`: Номер внешней заявки
+- `applicant`: Заявитель
+- `submission_date`: Дата подачи
+- `status`: Статус процесса (DRAFT, REVIEW, INTEGRATION...)
+- `assignee_name`: Исполнитель
+- `current_step`: Индекс текущего шага
+- `current_stage`: Номер текущего этапа
+
+### 3. `application_history` (История)
+Лог действий по заявке.
+- `id`: UUID
+- `application_id`: FK -> applications
+- `action`: Действие (Смена статуса, Комментарий)
+- `user_name`: Кто сделал
+- `comment`: Комментарий
+- `created_at`: Время
+
+### 4. `application_steps` (Прогресс)
+Статус выполнения конкретных шагов визарда.
+- `application_id`: FK -> applications
+- `step_index`: Номер шага
+- `is_completed`: Завершен техником
+- `is_verified`: Проверен бригадиром
+
+---
+## Дочерние сущности Проекта (без изменений)
+`buildings`, `building_blocks`, `floors`, `entrances`, `units`, `rooms`, `common_areas` ссылаются на `project_id` (через цепочку).

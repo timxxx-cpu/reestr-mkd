@@ -2,60 +2,95 @@
  * Утилиты для маппинга данных между БД (Snake_case) и UI (CamelCase/Nested)
  */
 
-// --- 1. PROJECT & META ---
+// --- 1. PROJECT + APPLICATION ---
+// Мы объединяем данные из двух таблиц в один объект ProjectMeta, 
+// который ожидает UI (через поля applicationInfo и complexInfo)
 
-export const mapProjectFromDB = (p, parts = [], docs = []) => ({
-    id: p.id,
-    name: p.name,
-    status: p.status,
-    lastModified: p.updated_at,
-    
-    complexInfo: {
-        name: p.name,
-        status: p.status,
-        region: p.region,
-        district: p.district,
-        street: p.address,
-        landmark: p.landmark,
-        dateStartProject: p.date_start_project,
-        dateEndProject: p.date_end_project,
-        dateStartFact: p.date_start_fact,
-        dateEndFact: p.date_end_fact
-    },
+export const mapProjectAggregate = (project, app, history = [], steps = [], parts = [], docs = []) => {
+    // Формируем списки шагов
+    const completedSteps = steps.filter(s => s.is_completed).map(s => s.step_index);
+    const verifiedSteps = steps.filter(s => s.is_verified).map(s => s.step_index);
 
-    participants: parts.reduce((acc, part) => {
-        acc[part.role] = {
-            id: part.id,
-            name: part.name,
-            inn: part.inn,
-            role: part.role
-        };
-        return acc;
-    }, {}),
+    return {
+        id: project.id, // ID проекта
+        applicationId: app.id, // ID заявки (сохраняем для API)
+        
+        name: project.name,
+        // UI использует status из заявки для управления доступом, 
+        // но отображает статус стройки в паспорте. Разделим их.
+        status: project.construction_status, 
+        
+        lastModified: app.updated_at,
+        
+        // Данные Заявки (Workflow)
+        applicationInfo: {
+            id: app.id,
+            internalNumber: app.internal_number,
+            externalSource: app.external_source,
+            externalId: app.external_id,
+            applicant: app.applicant,
+            submissionDate: app.submission_date,
+            
+            status: app.status,
+            assigneeName: app.assignee_name,
+            
+            currentStepIndex: app.current_step,
+            currentStage: app.current_stage,
+            
+            completedSteps,
+            verifiedSteps,
+            
+            history: history.map(h => ({
+                date: h.created_at,
+                user: h.user_name,
+                action: h.action,
+                status: h.next_status, // для совместимости
+                comment: h.comment,
+                prevStatus: h.prev_status
+           })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        },
+        
+        // Данные Проекта (Passport)
+        complexInfo: {
+            name: project.name,
+            status: project.construction_status,
+            region: project.region,
+            district: project.district,
+            street: project.address,
+            landmark: project.landmark,
+            dateStartProject: project.date_start_project,
+            dateEndProject: project.date_end_project,
+            dateStartFact: project.date_start_fact,
+            dateEndFact: project.date_end_fact
+        },
 
-    cadastre: {
-        number: p.cadastre_number
-    },
+        participants: parts.reduce((acc, part) => {
+            acc[part.role] = {
+                id: part.id,
+                name: part.name,
+                inn: part.inn,
+                role: part.role
+            };
+            return acc;
+        }, {}),
 
-    documents: docs.map(d => ({
-        id: d.id,
-        name: d.name,
-        type: d.doc_type,
-        date: d.doc_date,
-        number: d.doc_number,
-        url: d.file_url
-    })),
+        cadastre: {
+            number: project.cadastre_number
+        },
 
-    applicationInfo: {
-        status: p.status === 'Проектный' ? 'DRAFT' : 'NEW', 
-        history: [] 
-    }
-});
+        documents: docs.map(d => ({
+            id: d.id,
+            name: d.name,
+            type: d.doc_type,
+            date: d.doc_date,
+            number: d.doc_number,
+            url: d.file_url
+        }))
+    };
+};
 
-// --- 2. BUILDINGS & CONFIG ---
-
+// --- 2. BUILDINGS ---
 export const mapBuildingFromDB = (b, blocks = []) => {
-    // Подсчет типов для старых полей конфигурации (для совместимости)
     const resBlocksCount = blocks.filter(bl => bl.type === 'Ж').length;
     const nonResBlocksCount = blocks.filter(bl => bl.type === 'Н').length;
 
@@ -65,7 +100,7 @@ export const mapBuildingFromDB = (b, blocks = []) => {
         houseNumber: b.house_number,
         category: b.category,
         type: mapCategoryToLabel(b.category),
-        stage: 'Проектный',
+        stage: 'Проектный', // Это поле можно добавить в buildings, если нужно
         
         resBlocks: resBlocksCount,
         nonResBlocks: nonResBlocksCount,
@@ -74,58 +109,50 @@ export const mapBuildingFromDB = (b, blocks = []) => {
         infraType: b.infra_type,
         hasNonResPart: nonResBlocksCount > 0,
         
-        // Возвращаем массив блоков обратно в структуру UI
         blocks: blocks.map(bl => ({
             id: bl.id,
             buildingId: b.id,
             label: bl.label,
-            type: mapDBTypeToUI(bl.type), // Обратный маппинг типов (Ж -> residential)
+            type: mapDBTypeToUI(bl.type),
             index: 0
         }))
     };
 };
 
-export const mapBlockDetailsFromDB = (b, block) => {
-    // Собираем конфиг для конкретного блока
-    return {
-        // Геометрия
-        floorsCount: block.floors_count,
-        entrances: block.entrances_count,
-        inputs: block.entrances_count, // Синоним для инфры/паркингов
-        elevators: block.elevators_count,
-        
-        // Конструктив (общий на здание)
-        foundation: b.foundation,
-        walls: b.walls,
-        slabs: b.slabs,
-        roof: b.roof,
-        seismicity: b.seismicity,
-        
-        // Инженерия (общая на здание)
-        engineering: {
-            electricity: b.has_electricity,
-            hvs: b.has_water,
-            sewerage: b.has_sewerage,
-            gas: b.has_gas,
-            heating: b.has_heating,
-            ventilation: b.has_ventilation,
-            firefighting: b.has_firefighting,
-            lowcurrent: b.has_lowcurrent
-        },
+// --- 3. DETAILS ---
+export const mapBlockDetailsFromDB = (b, block) => ({
+    floorsCount: block.floors_count,
+    entrances: block.entrances_count,
+    inputs: block.entrances_count,
+    elevators: block.elevators_count,
+    
+    foundation: b.foundation,
+    walls: b.walls,
+    slabs: b.slabs,
+    roof: b.roof,
+    seismicity: b.seismicity,
+    
+    engineering: {
+        electricity: b.has_electricity,
+        hvs: b.has_water,
+        sewerage: b.has_sewerage,
+        gas: b.has_gas,
+        heating: b.has_heating,
+        ventilation: b.has_ventilation,
+        firefighting: b.has_firefighting,
+        lowcurrent: b.has_lowcurrent
+    },
 
-        // Флаги блока
-        hasBasementFloor: block.has_basement,
-        hasAttic: block.has_attic,
-        hasLoft: block.has_loft,
-        hasExploitableRoof: block.has_roof_expl,
-        
-        technicalFloors: [],
-        commercialFloors: []
-    };
-};
+    hasBasementFloor: block.has_basement,
+    hasAttic: block.has_attic,
+    hasLoft: block.has_loft,
+    hasExploitableRoof: block.has_roof_expl,
+    
+    technicalFloors: [],
+    commercialFloors: []
+});
 
-// --- 3. MATRICES ---
-
+// --- 4. FLOORS ---
 export const mapFloorFromDB = (f) => ({
     id: f.id,
     label: f.label,
@@ -137,7 +164,7 @@ export const mapFloorFromDB = (f) => ({
     sortOrder: f.index
 });
 
-// [UPDATED] Добавлен entranceMap для преобразования ID -> Номер
+// --- 5. UNITS ---
 export const mapUnitFromDB = (u, rooms = [], entranceMap = {}) => ({
     id: u.id,
     num: u.number,
@@ -150,10 +177,7 @@ export const mapUnitFromDB = (u, rooms = [], entranceMap = {}) => ({
     isSold: u.status === 'sold',
     cadastreNumber: u.cadastre_number,
     floorId: u.floor_id,
-    
-    // Преобразуем UUID входа обратно в номер (1, 2, 3...), если он есть в карте
     entranceIndex: u.entrance_id ? (entranceMap[u.entrance_id] || 1) : 1,
-    // Сохраняем и оригинальный ID на всякий случай
     entranceId: u.entrance_id,
     
     explication: rooms.map(r => ({
@@ -165,13 +189,12 @@ export const mapUnitFromDB = (u, rooms = [], entranceMap = {}) => ({
     }))
 });
 
-// [NEW] Маппер для МОП
+// --- 6. MOP ---
 export const mapMopFromDB = (m, entranceMap = {}) => ({
     id: m.id,
     type: m.type,
     area: m.area,
     floorId: m.floor_id,
-    // Маппим UUID входа в номер
     entranceIndex: m.entrance_id ? (entranceMap[m.entrance_id] || 1) : 1,
     entranceId: m.entrance_id
 });
