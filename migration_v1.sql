@@ -154,31 +154,6 @@ CREATE TABLE buildings (
     photo_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
-
--- Таблица: basements
--- Описание: Подвальные помещения, привязанные к блоку здания.
-CREATE TABLE basements (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    building_id UUID REFERENCES buildings(id) ON DELETE CASCADE,
-    block_id UUID REFERENCES building_blocks(id) ON DELETE CASCADE,
-    depth INT NOT NULL DEFAULT 1,
-    has_parking BOOLEAN DEFAULT FALSE,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Таблица: basement_parking_levels
--- Описание: Уровни парковки внутри подвала.
-CREATE TABLE basement_parking_levels (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    basement_id UUID REFERENCES basements(id) ON DELETE CASCADE,
-    depth_level INT NOT NULL,
-    is_enabled BOOLEAN DEFAULT FALSE,
-    UNIQUE(basement_id, depth_level)
-);
-
-CREATE INDEX basements_building_id_idx ON basements(building_id);
-CREATE INDEX basements_block_id_idx ON basements(block_id);
-
 -- Таблица: building_blocks
 -- Описание: Секция здания. Основная единица конфигурации этажности.
 CREATE TABLE building_blocks (
@@ -212,6 +187,31 @@ CREATE TABLE building_blocks (
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+-- Таблица: basements
+-- Описание: Подвальные помещения, привязанные к блоку здания.
+CREATE TABLE basements (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    building_id UUID REFERENCES buildings(id) ON DELETE CASCADE,
+    block_id UUID REFERENCES building_blocks(id) ON DELETE CASCADE,
+    depth INT NOT NULL DEFAULT 1,
+    has_parking BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Таблица: basement_parking_levels
+-- Описание: Уровни парковки внутри подвала.
+CREATE TABLE basement_parking_levels (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    basement_id UUID REFERENCES basements(id) ON DELETE CASCADE,
+    depth_level INT NOT NULL,
+    is_enabled BOOLEAN DEFAULT FALSE,
+    UNIQUE(basement_id, depth_level)
+);
+
+CREATE INDEX basements_building_id_idx ON basements(building_id);
+CREATE INDEX basements_block_id_idx ON basements(block_id);
+
+
 
 -- Таблица: block_construction
 -- Описание: Конструктивные характеристики блока (1:1 к building_blocks).
