@@ -145,12 +145,11 @@ export default function ParkingView({ building, typeInfo }) {
                     errorBorder={errorBorder}
                     availableParents={availableParents}
                     toggleParentBlock={toggleParentBlock}
-                    // Убираем пропсы подвала отсюда, так как перенесли логику
-                    canAddBasement={false} 
-                    createBasement={() => {}}
-                    blockBasements={[]}
-                    updateBasement={() => {}}
-                    removeBasement={() => {}}
+                    canAddBasement={canAddBasement}
+                    createBasement={createBlockBasement}
+                    blockBasements={blockBasements}
+                    updateBasement={updateBasement}
+                    removeBasement={removeBasement}
                     increment={increment}
                     decrement={decrement}
                     renderCounterValue={renderCounterValue}
