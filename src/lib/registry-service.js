@@ -7,6 +7,8 @@ import {
     mapUnitFromDB,
     mapMopFromDB
 } from './db-mappers';
+import { buildFloorList } from './floor-utils';
+import { getBlocksList } from './utils';
 
 function mapBlockTypeToDB(uiType) {
     if (uiType === 'residential') return 'Ж';
@@ -109,17 +111,35 @@ export const RegistryService = {
     const technicalFloorsMap = {};
     const commercialFloorsMap = {};
     if (blockIds.length > 0) {
-        const [techFloorsRes, commercialFloorsRes] = await Promise.all([
-            supabase.from('block_technical_floors').select('block_id, floor_number').in('block_id', blockIds),
-            supabase.from('block_commercial_floors').select('block_id, floor_label, basement_id').in('block_id', blockIds)
-        ]);
-        (techFloorsRes.data || []).forEach(row => {
-            if (!technicalFloorsMap[row.block_id]) technicalFloorsMap[row.block_id] = [];
-            technicalFloorsMap[row.block_id].push(row.floor_number);
-        });
-        (commercialFloorsRes.data || []).forEach(row => {
-            if (!commercialFloorsMap[row.block_id]) commercialFloorsMap[row.block_id] = [];
-            commercialFloorsMap[row.block_id].push(row.floor_label);
+        const { data: floorsData } = await supabase
+            .from('floors')
+            .select('block_id, index, floor_type, parent_floor_index, is_commercial, is_technical, is_attic, is_loft, is_roof, basement_id')
+            .in('block_id', blockIds);
+
+        (floorsData || []).forEach(row => {
+            if (row.is_technical && row.parent_floor_index !== null && row.parent_floor_index !== undefined) {
+                if (!technicalFloorsMap[row.block_id]) technicalFloorsMap[row.block_id] = new Set();
+                technicalFloorsMap[row.block_id].add(row.parent_floor_index);
+            }
+
+            if (!row.is_commercial) return;
+            if (!commercialFloorsMap[row.block_id]) commercialFloorsMap[row.block_id] = new Set();
+
+            if (row.floor_type === 'basement' && row.basement_id) {
+                commercialFloorsMap[row.block_id].add(`basement_${row.basement_id}`);
+            } else if (row.floor_type === 'tsokol') {
+                commercialFloorsMap[row.block_id].add('tsokol');
+            } else if (row.floor_type === 'attic' || row.is_attic) {
+                commercialFloorsMap[row.block_id].add('attic');
+            } else if (row.floor_type === 'loft' || row.is_loft) {
+                commercialFloorsMap[row.block_id].add('loft');
+            } else if (row.floor_type === 'roof' || row.is_roof) {
+                commercialFloorsMap[row.block_id].add('roof');
+            } else if (row.floor_type === 'technical' && row.parent_floor_index !== null && row.parent_floor_index !== undefined) {
+                commercialFloorsMap[row.block_id].add(`${row.parent_floor_index}-Т`);
+            } else if (row.index !== null && row.index !== undefined) {
+                commercialFloorsMap[row.block_id].add(String(row.index));
+            }
         });
     }
     let featuresMap = {};
@@ -162,8 +182,8 @@ export const RegistryService = {
         b.building_blocks.forEach(block => {
             const uiKey = `${b.id}_${block.id}`;
             const mapped = mapBlockDetailsFromDB(b, block);
-            mapped.technicalFloors = technicalFloorsMap[block.id] || [];
-            mapped.commercialFloors = commercialFloorsMap[block.id] || [];
+            mapped.technicalFloors = Array.from(technicalFloorsMap[block.id] || []);
+            mapped.commercialFloors = Array.from(commercialFloorsMap[block.id] || []);
             buildingDetails[uiKey] = mapped;
         });
         if (featuresMap[b.id]) {
@@ -378,33 +398,66 @@ export const RegistryService = {
                     };
                     promises.push(supabase.from('building_blocks').update(blockUpdate).eq('id', blockId));
 
-                    const technicalFloors = (details.technicalFloors || [])
-                        .map(val => Number(val))
-                        .filter(val => Number.isInteger(val));
-                    const commercialFloors = (details.commercialFloors || [])
-                        .map(val => String(val));
-
-                    promises.push(
-                        supabase.from('block_technical_floors').delete().eq('block_id', blockId)
-                    );
-                    if (technicalFloors.length > 0) {
-                        const techPayload = technicalFloors.map(floorNumber => ({
-                            block_id: blockId,
-                            floor_number: floorNumber
-                        }));
-                        promises.push(supabase.from('block_technical_floors').upsert(techPayload));
+                    let building = (generalData.composition || []).find(item => item.id === buildingId);
+                    if (!building) {
+                        const { data: buildingRes } = await supabase
+                            .from('buildings')
+                            .select('*, building_blocks (*)')
+                            .eq('id', buildingId)
+                            .limit(1)
+                            .maybeSingle();
+                        if (buildingRes) {
+                            building = mapBuildingFromDB(buildingRes, buildingRes.building_blocks || []);
+                        }
                     }
 
-                    promises.push(
-                        supabase.from('block_commercial_floors').delete().eq('block_id', blockId)
-                    );
-                    if (commercialFloors.length > 0) {
-                        const commPayload = commercialFloors.map(label => ({
-                            block_id: blockId,
-                            floor_label: label,
-                            basement_id: label.startsWith('basement_') ? label.replace('basement_', '') : null
-                        }));
-                        promises.push(supabase.from('block_commercial_floors').upsert(commPayload));
+                    if (building) {
+                        const blocks = getBlocksList(building, generalData.buildingDetails || {});
+                        const currentBlock = blocks.find(b => b.id === blockId);
+                        if (currentBlock) {
+                            const floorList = buildFloorList(building, currentBlock, generalData.buildingDetails || {});
+                            const existingFloorsRes = await supabase
+                                .from('floors')
+                                .select('id, block_id, floor_key')
+                                .eq('block_id', blockId);
+                            const existingFloors = existingFloorsRes.data || [];
+                            const existingByKey = new Map(existingFloors.map(f => [f.floor_key, f.id]));
+
+                            const floorsPayload = floorList.map(floor => ({
+                                id: existingByKey.get(floor.floorKey) || crypto.randomUUID(),
+                                block_id: blockId,
+                                floor_key: floor.floorKey,
+                                basement_id: floor.basementId || null,
+                                index: Number.isFinite(floor.index) ? floor.index : floor.sortOrder || 0,
+                                label: floor.label,
+                                floor_type: floor.type,
+                                parent_floor_index: floor.parentFloorIndex ?? null,
+                                is_technical: !!floor.flags?.isTechnical,
+                                is_commercial: !!floor.flags?.isCommercial,
+                                is_stylobate: !!floor.flags?.isStylobate,
+                                is_basement: !!floor.flags?.isBasement,
+                                is_attic: !!floor.flags?.isAttic,
+                                is_loft: !!floor.flags?.isLoft,
+                                is_roof: !!floor.flags?.isRoof
+                            }));
+
+                            if (floorsPayload.length) {
+                                promises.push(
+                                    supabase.from('floors').upsert(floorsPayload, { onConflict: 'block_id,floor_key' })
+                                );
+
+                                const floorKeys = floorsPayload.map(item => `'${item.floor_key}'`).join(',');
+                                if (floorKeys.length > 0) {
+                                    promises.push(
+                                        supabase
+                                            .from('floors')
+                                            .delete()
+                                            .eq('block_id', blockId)
+                                            .not('floor_key', 'in', `(${floorKeys})`)
+                                    );
+                                }
+                            }
+                        }
                     }
 
                     const constructionData = {
@@ -530,10 +583,29 @@ export const RegistryService = {
         for (const [bId, bData] of Object.entries(buildingSpecificData)) {
             if (bData.floorData) {
                 const floors = Object.values(bData.floorData).map(f => ({ 
-                    id: f.id, block_id: f.blockId, index: f.sortOrder||0, label: f.label, floor_type: f.type, 
-                    height: parseFloat(f.height)||0, area_proj: parseFloat(f.areaProj)||0, area_fact: parseFloat(f.areaFact)||0, is_duplex: f.isDuplex||false 
+                    id: f.id,
+                    block_id: f.blockId,
+                    floor_key: f.floorKey || f.floor_key || f.legacyKey || f.id,
+                    basement_id: f.basementId || null,
+                    index: (f.index ?? f.sortOrder) || 0,
+                    label: f.label || f.floorLabel || '',
+                    floor_type: f.type,
+                    parent_floor_index: f.parentFloorIndex ?? null,
+                    is_technical: !!f.flags?.isTechnical,
+                    is_commercial: !!f.flags?.isCommercial,
+                    is_stylobate: !!f.flags?.isStylobate,
+                    is_basement: !!f.flags?.isBasement,
+                    is_attic: !!f.flags?.isAttic,
+                    is_loft: !!f.flags?.isLoft,
+                    is_roof: !!f.flags?.isRoof,
+                    height: parseFloat(f.height)||0,
+                    area_proj: parseFloat(f.areaProj)||0,
+                    area_fact: parseFloat(f.areaFact)||0,
+                    is_duplex: f.isDuplex||false 
                 }));
-                if (floors.length) promises.push(supabase.from('floors').upsert(floors));
+                if (floors.length) {
+                    promises.push(supabase.from('floors').upsert(floors, { onConflict: 'block_id,floor_key' }));
+                }
             }
 
             const neededEntrances = new Set();

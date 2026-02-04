@@ -168,7 +168,8 @@ export default function FloorsCard({
                         
                         {/* Этажи */}
                         {floorRange.map((f, idx) => { 
-                            const isComm = details.commercialFloors?.includes(f); 
+                            const floorKey = String(f);
+                            const isComm = details.commercialFloors?.includes(floorKey) || details.commercialFloors?.includes(f); 
                             const isCommTech = details.commercialFloors?.includes(`${f}-Т`); 
                             const isLockedByStylobate = f <= stylobateHeightUnderCurrentBlock; 
                             const isDisabled = isLockedByStylobate || isReadOnly;
@@ -177,7 +178,7 @@ export default function FloorsCard({
                                     {idx > 0 && idx % 10 === 0 && <div className="w-3"></div>}
                                     <button 
                                         disabled={isDisabled} 
-                                        onClick={() => toggleFloorAttribute('commercialFloors', f)} 
+                                        onClick={() => toggleFloorAttribute('commercialFloors', floorKey)} 
                                         className={`
                                             w-8 h-8 rounded-md text-xs font-bold shadow-sm transition-all border relative 
                                             ${isLockedByStylobate ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed' : 

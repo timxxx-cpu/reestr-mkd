@@ -98,7 +98,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
     if (!currentBlock) return <div className="p-8">Блоки не найдены</div>;
     
-    const handleInput = useCallback((floorId, field, value, floorType) => { 
+    const handleInput = useCallback((floorId, field, value, floorType, floorKey, floorFlags = {}, meta = {}) => { 
         if (isReadOnly) return;
         if (value !== '' && (parseFloat(value) < 0 || value.includes('-'))) return;
         const key = `${currentBlock.fullId}_${floorId}`; 
@@ -109,8 +109,12 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 ...(p[key]||{}), 
                 [field]: value,
                 type: floorType, 
+                floorKey: floorKey || p[key]?.floorKey,
+                flags: floorFlags || p[key]?.flags,
+                label: meta.label || p[key]?.label,
                 buildingId: building.id,
                 blockId: currentBlock.id,
+                ...meta
             } 
         })); 
     }, [currentBlock.fullId, setFloorData, isReadOnly, building.id, currentBlock.id]);
@@ -118,8 +122,9 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     const copyRowFromPrev = (idx) => {
         if (isReadOnly || idx <= 0) return;
         const prevId = floorList[idx - 1].id;
-        const currId = floorList[idx].id;
-        const currType = floorList[idx].type;
+        const curr = floorList[idx];
+        const currId = curr.id;
+        const currType = curr.type;
         const prevKey = `${currentBlock.fullId}_${prevId}`;
         const currKey = `${currentBlock.fullId}_${currId}`;
         
@@ -133,6 +138,11 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 areaProj: prevData.areaProj, 
                 areaFact: prevData.areaFact,
                 type: currType, 
+                floorKey: curr.floorKey || p[currKey]?.floorKey,
+                flags: curr.flags || p[currKey]?.flags,
+                label: curr.label || p[currKey]?.label,
+                parentFloorIndex: curr.parentFloorIndex,
+                basementId: curr.basementId,
                 buildingId: building.id,
                 blockId: currentBlock.id
             }
@@ -148,8 +158,9 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         
         const updates = {};
         for (let i = idx + 1; i < floorList.length; i++) {
-            const targetId = floorList[i].id;
-            const targetType = floorList[i].type;
+            const target = floorList[i];
+            const targetId = target.id;
+            const targetType = target.type;
             const targetKey = `${currentBlock.fullId}_${targetId}`;
             updates[targetKey] = { 
                 id: floorData[targetKey]?.id || crypto.randomUUID(),
@@ -158,6 +169,11 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 areaProj: sourceData.areaProj, 
                 areaFact: sourceData.areaFact,
                 type: targetType, 
+                floorKey: target.floorKey || floorData[targetKey]?.floorKey,
+                flags: target.flags || floorData[targetKey]?.flags,
+                label: target.label || floorData[targetKey]?.label,
+                parentFloorIndex: target.parentFloorIndex,
+                basementId: target.basementId,
                 buildingId: building.id,
                 blockId: currentBlock.id
             };
@@ -169,11 +185,15 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     const copyFieldFromPrev = (idx, field) => {
         if (isReadOnly || idx <= 0) return;
         const prevId = floorList[idx - 1].id;
-        const currId = floorList[idx].id;
-        const currType = floorList[idx].type;
+        const curr = floorList[idx];
+        const currId = curr.id;
+        const currType = curr.type;
+        const currFloorKey = floorList[idx].floorKey;
+        const currFlags = floorList[idx].flags || {};
+        const currMeta = { parentFloorIndex: floorList[idx].parentFloorIndex, basementId: floorList[idx].basementId, label: floorList[idx].label };
         const prevKey = `${currentBlock.fullId}_${prevId}`;
         const val = floorData[prevKey]?.[field];
-        if (val !== undefined) handleInput(currId, field, val, currType);
+        if (val !== undefined) handleInput(currId, field, val, currType, currFloorKey, currFlags, currMeta);
     };
 
     const fillFieldBelow = (idx, field) => {
@@ -185,14 +205,20 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
         const updates = {};
         for (let i = idx + 1; i < floorList.length; i++) {
-            const targetId = floorList[i].id;
-            const targetType = floorList[i].type;
+            const target = floorList[i];
+            const targetId = target.id;
+            const targetType = target.type;
             const targetKey = `${currentBlock.fullId}_${targetId}`;
             updates[targetKey] = { 
                 id: floorData[targetKey]?.id || crypto.randomUUID(),
                 ...(floorData[targetKey] || {}), 
                 [field]: val,
                 type: targetType, 
+                floorKey: target.floorKey || floorData[targetKey]?.floorKey,
+                flags: target.flags || floorData[targetKey]?.flags,
+                label: target.label || floorData[targetKey]?.label,
+                parentFloorIndex: target.parentFloorIndex,
+                basementId: target.basementId,
                 buildingId: building.id,
                 blockId: currentBlock.id
             };
@@ -516,7 +542,15 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                                 placeholder={field.ph} 
                                                                 value={val[field.id]} 
                                                                 // [FIX] Передаем f.type в handleInput
-                                                                onChange={v => handleInput(f.id, field.id, v, f.type)} 
+                                                                onChange={v => handleInput(
+                                                                    f.id,
+                                                                    field.id,
+                                                                    v,
+                                                                    f.type,
+                                                                    f.floorKey,
+                                                                    f.flags || {},
+                                                                    { parentFloorIndex: f.parentFloorIndex, basementId: f.basementId, label: f.label }
+                                                                )} 
                                                             />
                                                             
                                                             {(finalError || isDiffErr) && !isReadOnly && (
