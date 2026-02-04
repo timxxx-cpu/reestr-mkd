@@ -23,6 +23,7 @@ export const UnitSchema = z.object({
 
 export const FloorDataSchema = z.object({
   id: z.string().uuid().optional(),
+  floorKey: z.string().optional(),
   height: z.coerce.number().min(0, "Высота не может быть отрицательной"),
   areaProj: z.coerce.number().nonnegative("Площадь не может быть отрицательной"),
   areaFact: z.coerce.number().nonnegative().optional(),
@@ -30,6 +31,17 @@ export const FloorDataSchema = z.object({
   buildingId: z.string().uuid().optional(),
   blockId: z.string().optional(),
   levelIndex: z.number().int().optional(),
+  parentFloorIndex: z.number().int().optional(),
+  basementId: z.string().uuid().optional(),
+  flags: z.object({
+    isTechnical: z.boolean().optional(),
+    isCommercial: z.boolean().optional(),
+    isStylobate: z.boolean().optional(),
+    isBasement: z.boolean().optional(),
+    isAttic: z.boolean().optional(),
+    isLoft: z.boolean().optional(),
+    isRoof: z.boolean().optional()
+  }).optional(),
 });
 
 export const EntranceDataSchema = z.object({

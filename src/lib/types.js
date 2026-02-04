@@ -121,10 +121,15 @@
 /**
  * Данные одного этажа
  * @typedef {Object} FloorData
+ * @property {string} [floorKey] - Уникальный ключ этажа внутри блока
+ * @property {number} [index] - Логический индекс этажа
+ * @property {number} [parentFloorIndex] - Базовый этаж для тех. этажа
+ * @property {string} [basementId] - Привязанный подвал (если есть)
  * @property {string} height - Высота потолка (м)
  * @property {string} areaProj - Площадь проектная
  * @property {string} areaFact - Площадь фактическая
  * @property {boolean} [isDuplex] - Является ли двухуровневым
+ * @property {Object} [flags] - Признаки этажей
  */
 
 /**

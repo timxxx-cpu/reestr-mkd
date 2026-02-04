@@ -152,13 +152,25 @@ export const mapFloorFromDB = (f, buildingId, blockId) => ({
     id: f.id,
     buildingId, // ВАЖНО для фильтрации
     blockId,    // ВАЖНО для фильтрации
+    floorKey: f.floor_key,
     label: f.label,
     type: f.floor_type,
     height: f.height,
     areaProj: f.area_proj,
     areaFact: f.area_fact,
     isDuplex: f.is_duplex,
-    sortOrder: f.index
+    sortOrder: f.index,
+    parentFloorIndex: f.parent_floor_index,
+    basementId: f.basement_id,
+    flags: {
+        isTechnical: !!f.is_technical,
+        isCommercial: !!f.is_commercial,
+        isStylobate: !!f.is_stylobate,
+        isBasement: !!f.is_basement,
+        isAttic: !!f.is_attic,
+        isLoft: !!f.is_loft,
+        isRoof: !!f.is_roof
+    }
 });
 
 // --- 5. UNITS ---
