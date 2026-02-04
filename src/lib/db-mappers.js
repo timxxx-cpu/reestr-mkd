@@ -141,8 +141,8 @@ export const mapBlockDetailsFromDB = (b, block) => {
             lowcurrent: !!eng.has_lowcurrent
         },
 
-        technicalFloors: block.technical_floors || [], 
-        commercialFloors: block.commercial_floors || []
+        technicalFloors: [], 
+        commercialFloors: []
     };
 };
 
