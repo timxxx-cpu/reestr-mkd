@@ -7,6 +7,7 @@ import { useReadOnly } from '../../../ui/UIKit'; // TabButton убрал из и
 import { getBlocksList } from '../../../../lib/utils';
 import { Validators } from '../../../../lib/validators'; 
 import { BuildingConfigSchema } from '../../../../lib/schemas';
+import { cleanBlockDetails } from '../../../../lib/building-details';
 import { useValidation } from '../../../../hooks/useValidation';
 
 // Карточки
@@ -88,6 +89,14 @@ export default function StandardView({ building, mode }) {
 
     const details = { ...defaultDetails, ...(buildingDetails[detailsKey] || {}) };
     const { errors } = useValidation(BuildingConfigSchema, details);
+
+    useEffect(() => {
+        if (!currentBlock || !detailsKey || isReadOnly) return;
+        const cleaned = cleanBlockDetails(building, currentBlock, details);
+        if (JSON.stringify(cleaned) !== JSON.stringify(details)) {
+            setBuildingDetails(prev => ({ ...prev, [detailsKey]: cleaned }));
+        }
+    }, [building, currentBlock, details, detailsKey, isReadOnly, setBuildingDetails]);
 
     const updateDetail = (key, val) => {
         if (isReadOnly) return;
