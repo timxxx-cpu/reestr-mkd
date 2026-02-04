@@ -105,6 +105,23 @@ export const RegistryService = {
     const buildingDetails = {};
 
     const buildingIds = (buildingsRes.data || []).map(b => b.id);
+    const blockIds = (buildingsRes.data || []).flatMap(b => (b.building_blocks || []).map(block => block.id));
+    const technicalFloorsMap = {};
+    const commercialFloorsMap = {};
+    if (blockIds.length > 0) {
+        const [techFloorsRes, commercialFloorsRes] = await Promise.all([
+            supabase.from('block_technical_floors').select('block_id, floor_number').in('block_id', blockIds),
+            supabase.from('block_commercial_floors').select('block_id, floor_label, basement_id').in('block_id', blockIds)
+        ]);
+        (techFloorsRes.data || []).forEach(row => {
+            if (!technicalFloorsMap[row.block_id]) technicalFloorsMap[row.block_id] = [];
+            technicalFloorsMap[row.block_id].push(row.floor_number);
+        });
+        (commercialFloorsRes.data || []).forEach(row => {
+            if (!commercialFloorsMap[row.block_id]) commercialFloorsMap[row.block_id] = [];
+            commercialFloorsMap[row.block_id].push(row.floor_label);
+        });
+    }
     let featuresMap = {};
     if (buildingIds.length > 0) {
         const { data: basementsData } = await supabase
@@ -144,7 +161,10 @@ export const RegistryService = {
         composition.push(mapBuildingFromDB(b, b.building_blocks));
         b.building_blocks.forEach(block => {
             const uiKey = `${b.id}_${block.id}`;
-            buildingDetails[uiKey] = mapBlockDetailsFromDB(b, block);
+            const mapped = mapBlockDetailsFromDB(b, block);
+            mapped.technicalFloors = technicalFloorsMap[block.id] || [];
+            mapped.commercialFloors = commercialFloorsMap[block.id] || [];
+            buildingDetails[uiKey] = mapped;
         });
         if (featuresMap[b.id]) {
             buildingDetails[`${b.id}_features`] = featuresMap[b.id];
@@ -357,6 +377,35 @@ export const RegistryService = {
                         custom_house_number: details.customHouseNumber
                     };
                     promises.push(supabase.from('building_blocks').update(blockUpdate).eq('id', blockId));
+
+                    const technicalFloors = (details.technicalFloors || [])
+                        .map(val => Number(val))
+                        .filter(val => Number.isInteger(val));
+                    const commercialFloors = (details.commercialFloors || [])
+                        .map(val => String(val));
+
+                    promises.push(
+                        supabase.from('block_technical_floors').delete().eq('block_id', blockId)
+                    );
+                    if (technicalFloors.length > 0) {
+                        const techPayload = technicalFloors.map(floorNumber => ({
+                            block_id: blockId,
+                            floor_number: floorNumber
+                        }));
+                        promises.push(supabase.from('block_technical_floors').upsert(techPayload));
+                    }
+
+                    promises.push(
+                        supabase.from('block_commercial_floors').delete().eq('block_id', blockId)
+                    );
+                    if (commercialFloors.length > 0) {
+                        const commPayload = commercialFloors.map(label => ({
+                            block_id: blockId,
+                            floor_label: label,
+                            basement_id: label.startsWith('basement_') ? label.replace('basement_', '') : null
+                        }));
+                        promises.push(supabase.from('block_commercial_floors').upsert(commPayload));
+                    }
 
                     const constructionData = {
                         block_id: blockId,

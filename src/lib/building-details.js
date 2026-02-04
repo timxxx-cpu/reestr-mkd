@@ -71,6 +71,14 @@ export const cleanBlockDetails = (building, block, details) => {
             'technicalFloors',
             'hasTechnicalFloor'
         ]);
+    } else {
+        cleaned = dropFields(cleaned, [
+            'inputs',
+            'vehicleEntries',
+            'levelsDepth',
+            'floorsCount',
+            'lightStructureType'
+        ]);
     }
 
     return cleaned;

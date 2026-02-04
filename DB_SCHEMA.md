@@ -165,7 +165,7 @@ CREATE TABLE building_blocks (
     has_attic BOOLEAN DEFAULT FALSE,
     has_loft BOOLEAN DEFAULT FALSE,
     has_roof_expl BOOLEAN DEFAULT FALSE,
-    
+
     -- Настройки адресации
     has_custom_address BOOLEAN DEFAULT FALSE,
     custom_house_number TEXT,
@@ -196,6 +196,24 @@ CREATE TABLE basement_parking_levels (
 
 CREATE INDEX basements_building_id_idx ON basements(building_id);
 CREATE INDEX basements_block_id_idx ON basements(block_id);
+
+
+-- Таблица: block_technical_floors
+-- Описание: Технические этажи (этаж, над которым вставлен тех. этаж).
+CREATE TABLE block_technical_floors (
+    block_id UUID REFERENCES building_blocks(id) ON DELETE CASCADE,
+    floor_number INT NOT NULL,
+    PRIMARY KEY (block_id, floor_number)
+);
+
+-- Таблица: block_commercial_floors
+-- Описание: Этажи/уровни, отмеченные как коммерческие.
+CREATE TABLE block_commercial_floors (
+    block_id UUID REFERENCES building_blocks(id) ON DELETE CASCADE,
+    floor_label TEXT NOT NULL,                  -- "1", "2", "tsokol", "attic", "basement_<id>", "3-Т"
+    basement_id UUID REFERENCES basements(id) ON DELETE SET NULL,
+    PRIMARY KEY (block_id, floor_label)
+);
 
 
 -- Таблица: block_construction
@@ -324,6 +342,8 @@ ALTER TABLE basement_parking_levels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE building_blocks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE block_construction ENABLE ROW LEVEL SECURITY;
 ALTER TABLE block_engineering ENABLE ROW LEVEL SECURITY;
+ALTER TABLE block_technical_floors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE block_commercial_floors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE floors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE entrances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE units ENABLE ROW LEVEL SECURITY;
@@ -343,6 +363,8 @@ CREATE POLICY "Public All" ON basement_parking_levels FOR ALL USING (true) WITH 
 CREATE POLICY "Public All" ON building_blocks FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON block_construction FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON block_engineering FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public All" ON block_technical_floors FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public All" ON block_commercial_floors FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON floors FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON entrances FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON units FOR ALL USING (true) WITH CHECK (true);
