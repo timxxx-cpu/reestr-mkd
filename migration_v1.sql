@@ -37,6 +37,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Описание: Физический объект строительства (ЖК). Корневая сущность.
 CREATE TABLE projects (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    scope_id TEXT NOT NULL,                     -- Идентификатор владельца/тенанта
     name TEXT NOT NULL,                         -- Название ЖК
     construction_status TEXT DEFAULT 'Проектный', -- Статус стройки
     
@@ -60,6 +61,7 @@ CREATE TABLE projects (
 CREATE TABLE applications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    scope_id TEXT NOT NULL,                     -- Идентификатор владельца/тенанта
     
     internal_number TEXT,                       -- Внутренний номер дела
     external_source TEXT,                       -- Источник (ЕПИГУ, ДХМ)
@@ -76,6 +78,9 @@ CREATE TABLE applications (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE INDEX projects_scope_id_idx ON projects(scope_id);
+CREATE INDEX applications_scope_id_idx ON applications(scope_id);
 
 -- Таблица: application_history
 -- Описание: Лог действий (смена статусов, комментарии).
