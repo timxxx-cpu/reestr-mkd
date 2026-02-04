@@ -1,4 +1,5 @@
 import { getBlocksList } from './utils';
+import { cleanBlockDetails } from './building-details';
 import { BuildingConfigSchema } from './schemas';
 import { Validators } from './validators';
 
@@ -95,6 +96,7 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
         const detailsKey = `${building.id}_${block.id}`;
         const details = buildingDetails[detailsKey] || {};
         const { normalized: normalizedDetails, invalidFields } = normalizeNumericDetails(details);
+        let cleanedDetails = cleanBlockDetails(building, block, normalizedDetails);
         
         let blockName = block.tabLabel;
         if (blockName === 'main') blockName = 'Основной блок';
@@ -116,9 +118,19 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
             }
         }
 
+        if (isParking) {
+            if (isUnderground) {
+                cleanedDetails = { ...cleanedDetails };
+                delete cleanedDetails.floorsCount;
+            } else {
+                cleanedDetails = { ...cleanedDetails };
+                delete cleanedDetails.levelsDepth;
+            }
+        }
+
         // 2. Проверяем заполненность обязательных полей
         requiredFields.forEach(field => {
-            const val = normalizedDetails[field];
+            const val = cleanedDetails[field];
             if (val === undefined || val === '' || val === null) {
                 errors.push({
                     title: contextTitle,
@@ -129,19 +141,19 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
         
         if (isParking && building.constructionType === 'capital') {
              if (isUnderground) {
-                 if (!normalizedDetails.levelsDepth) errors.push({ title: contextTitle, description: "Не указана глубина подземного паркинга." });
+                 if (!cleanedDetails.levelsDepth) errors.push({ title: contextTitle, description: "Не указана глубина подземного паркинга." });
              } else {
-                 if (!normalizedDetails.floorsCount) errors.push({ title: contextTitle, description: "Не указано количество этажей паркинга." });
+                 if (!cleanedDetails.floorsCount) errors.push({ title: contextTitle, description: "Не указано количество этажей паркинга." });
              }
         }
 
         // 3. Валидация Zod
-        const validation = BuildingConfigSchema.safeParse(normalizedDetails);
+        const validation = BuildingConfigSchema.safeParse(cleanedDetails);
         
         if (!validation.success) {
             validation.error.issues.forEach(issue => {
                 const rawField = String(issue.path[0]);
-                const rawValue = normalizedDetails[rawField];
+                const rawValue = cleanedDetails[rawField];
                 const isFieldPresent = rawValue !== undefined
                     && rawValue !== ''
                     && rawValue !== null
@@ -159,7 +171,7 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
             });
         }
         invalidFields.forEach((field) => {
-            if (requiredFields.includes(field)) {
+            if (requiredFields.includes(field) && field in cleanedDetails) {
                 const fieldName = FIELD_NAMES[field] || field;
                 errors.push({
                     title: contextTitle,
@@ -170,9 +182,9 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
 
         // 4. Проверка лифтов
         if (building.constructionType !== 'light' && !isInfra) {
-             const floorsToCheck = normalizedDetails.floorsTo || normalizedDetails.floorsCount || 1;
+             const floorsToCheck = cleanedDetails.floorsTo || cleanedDetails.floorsCount || 1;
              const hasElevatorIssue = Validators.elevatorRequirement(
-                isParking, isInfra, floorsToCheck, normalizedDetails.elevators || 0
+                isParking, isInfra, floorsToCheck, cleanedDetails.elevators || 0
             );
 
             if (hasElevatorIssue) {
