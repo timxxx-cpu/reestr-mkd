@@ -45,6 +45,16 @@
  */
 
 /**
+ * Метаданные блока (секции)
+ * @typedef {Object} BlockMeta
+ * @property {string} id - UUID блока
+ * @property {string} buildingId - UUID родительского здания
+ * @property {string} label - Название секции
+ * @property {'residential' | 'non_residential' | 'parking' | 'infrastructure'} type - Тип блока
+ * @property {number} index - Порядковый номер
+ */
+
+/**
  * Краткая информация о здании (для списка composition)
  * @typedef {Object} BuildingMeta
  * @property {string} id - ID здания (например, "b_1700000000_1")
@@ -63,6 +73,7 @@
  * @property {string} [infraType]
  * @property {any} [icon]
  * @property {string} [subLabel]
+ * @property {Array<BlockMeta>} [blocks] - Список реальных блоков (секций)
  */
 
 /**

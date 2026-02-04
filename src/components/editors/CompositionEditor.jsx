@@ -6,7 +6,6 @@ import {
 import { useProject } from '../../context/ProjectContext';
 import { Button, Input, Select, Label, SectionTitle, useReadOnly } from '../ui/UIKit';
 import { calculateProgress, getStageColor } from '../../lib/utils';
-// ВАЛИДАЦИЯ
 import { BuildingModalSchema } from '../../lib/schemas';
 import { useValidation } from '../../hooks/useValidation';
 
@@ -21,6 +20,61 @@ const PARKING_CONSTRUCTION_NAMES = {
     capital: "Капитальный",
     light: "Из легких конструкций",
     open: "Открытый"
+};
+
+// Хелпер для генерации блоков (Секций) с UUID
+const generateBlocks = (buildingId, params) => {
+    const blocks = [];
+    const { category, resBlocks, nonResBlocks, infraType, parkingType } = params;
+
+    // 1. Жилой дом / МКД
+    if (category.includes('residential')) {
+        const rCount = parseInt(resBlocks) || 0;
+        const nCount = parseInt(nonResBlocks) || 0;
+
+        // Жилые блоки
+        for (let i = 0; i < rCount; i++) {
+            blocks.push({
+                id: crypto.randomUUID(),
+                buildingId,
+                type: 'residential',
+                label: rCount > 1 ? `Жилая секция ${i + 1}` : 'Жилой дом',
+                index: i
+            });
+        }
+        // Нежилые блоки
+        for (let i = 0; i < nCount; i++) {
+            blocks.push({
+                id: crypto.randomUUID(),
+                buildingId,
+                type: 'non_residential',
+                label: `Нежилая секция ${i + 1}`,
+                index: rCount + i
+            });
+        }
+    } 
+    // 2. Паркинг
+    else if (category === 'parking_separate') {
+        blocks.push({
+            id: crypto.randomUUID(),
+            buildingId,
+            type: 'parking',
+            label: parkingType === 'underground' ? 'Подземный паркинг' : 'Наземный паркинг',
+            index: 0
+        });
+    } 
+    // 3. Инфраструктура
+    else if (category === 'infrastructure') {
+        blocks.push({
+            id: crypto.randomUUID(),
+            buildingId,
+            type: 'infrastructure',
+            label: infraType || 'Объект инфраструктуры',
+            index: 0
+        });
+    }
+
+    return blocks;
 };
 
 const BuildingModal = ({ modal, setModal, onCommit }) => {
@@ -43,7 +97,6 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
     });
 
     const isMultiblockError = modal.category === 'residential_multiblock' && (modal.resBlocks < 1 || modal.nonResBlocks < 1);
-
     const ErrorMsg = ({ field }) => errors[field] ? <span className="text-[9px] text-red-500 font-bold ml-1 animate-in fade-in">{errors[field]}</span> : null;
 
     return (
@@ -60,11 +113,9 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                 </div>
                 
                 <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-                    
                     {/* ЛЕВАЯ КОЛОНКА */}
                     <div className="space-y-5">
                         <SectionTitle icon={Hash}>Идентификация</SectionTitle>
-                        
                         <div className="space-y-1.5">
                             <Label>Номер дома / Корпус <span className="text-red-500">*</span> <ErrorMsg field="houseNumber"/></Label>
                             <div className="relative">
@@ -78,7 +129,6 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                                 />
                             </div>
                         </div>
-
                         <div className="space-y-1.5">
                             <Label>Наименование <ErrorMsg field="baseName"/></Label>
                             <Input 
@@ -88,7 +138,6 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                                 className={errors.baseName ? 'border-red-300 bg-red-50' : ''}
                             />
                         </div>
-
                         {!modal.editingId && (
                             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
                                 <div className="flex justify-between items-center">
@@ -106,8 +155,6 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                     {/* ПРАВАЯ КОЛОНКА */}
                     <div className="space-y-5">
                         <SectionTitle icon={Clock}>Параметры и Сроки</SectionTitle>
-
-                        {/* ДИНАМИЧЕСКИЕ ПОЛЯ */}
                         {modal.category === 'residential_multiblock' && (
                             <div className={`flex flex-col gap-3 p-3 rounded-xl border transition-colors animate-in fade-in ${isMultiblockError ? 'bg-red-50 border-red-200' : 'bg-indigo-50 border-indigo-100'}`}>
                                 <div className="grid grid-cols-2 gap-3">
@@ -128,7 +175,6 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                                 )}
                             </div>
                         )}
-
                         {modal.category === 'parking_separate' && (
                             <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-in fade-in">
                                 <div className="space-y-1.5">
@@ -150,7 +196,6 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                                 )}
                             </div>
                         )}
-
                         {modal.category === 'infrastructure' && (
                             <div className="space-y-1.5 p-3 bg-amber-50 rounded-xl border border-amber-100 animate-in fade-in">
                                 <Label>Тип объекта</Label>
@@ -163,7 +208,6 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                                 </Select>
                             </div>
                         )}
-
                         <div className="space-y-1.5">
                             <Label>Текущая стадия</Label>
                             <Select value={modal.stage} onChange={e => setModal(m => ({...m, stage: e.target.value}))}>
@@ -173,7 +217,6 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                                 <option value="Архив">📦 Архив</option>
                             </Select>
                         </div>
-
                         <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-1.5">
                                 <Label>Начало работ</Label>
@@ -184,7 +227,6 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                                 <Input type="date" value={modal.dateEnd} onChange={(e) => setModal(m => ({...m, dateEnd: e.target.value}))} className="text-xs font-bold"/>
                             </div>
                         </div>
-
                         {modal.category?.includes('residential') && (
                             <div className="pt-2 border-t border-slate-100 mt-2">
                                 <label className={`flex items-start gap-3 group ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
@@ -225,26 +267,13 @@ export default function CompositionEditor() {
     const isReadOnly = useReadOnly();
 
     const [modal, setModal] = useState({ 
-        isOpen: false, 
-        category: null, 
-        quantity: 1, 
-        resBlocks: 1, 
-        nonResBlocks: 0, 
-        hasNonResPart: false, 
-        baseName: "", 
-        houseNumber: "",    
-        dateStart: "",      
-        dateEnd: "",        
-        stage: "Проектный",
-        editingId: null, 
-        parkingType: 'underground', 
-        parkingConstruction: 'capital', 
-        infraType: 'Котельная' 
+        isOpen: false, category: null, quantity: 1, 
+        resBlocks: 1, nonResBlocks: 0, hasNonResPart: false, 
+        baseName: "", houseNumber: "", dateStart: "", dateEnd: "", stage: "Проектный",
+        editingId: null, parkingType: 'underground', parkingConstruction: 'capital', infraType: 'Котельная' 
     });
 
-    const hasResidential = useMemo(() => {
-        return composition.some(c => c.category.includes('residential'));
-    }, [composition]);
+    const hasResidential = useMemo(() => composition.some(c => c.category.includes('residential')), [composition]);
 
     const generateDemoComplex = () => {
         if (!window.confirm("Создать демо-данные? Текущий список будет дополнен.")) return;
@@ -253,84 +282,79 @@ export default function CompositionEditor() {
             { 
                 id: crypto.randomUUID(), label: 'Корпус "Доминанта"', houseNumber: "1", stage: "Строящийся", 
                 dateStart: "2023-01-01", dateEnd: "2025-12-31", 
-                type: TYPE_NAMES.residential,
-                category: 'residential', resBlocks: 1, nonResBlocks: 0, hasNonResPart: true,
+                type: TYPE_NAMES.residential, category: 'residential', 
+                resBlocks: 1, nonResBlocks: 0, hasNonResPart: true,
                 parkingType: '', constructionType: '', infraType: ''
             },
             { 
                 id: crypto.randomUUID(), label: 'Паркинг "Север"', houseNumber: "P-1", stage: "Введенный", 
                 dateStart: "2022-06-01", dateEnd: "2023-06-01", 
-                type: TYPE_NAMES.parking_separate,
-                category: 'parking_separate', parkingType: 'ground', constructionType: 'capital',
+                type: TYPE_NAMES.parking_separate, category: 'parking_separate', 
+                parkingType: 'ground', constructionType: 'capital',
                 resBlocks: 0, nonResBlocks: 0, hasNonResPart: false, infraType: ''
             },
             { 
                 id: crypto.randomUUID(), label: 'Детский сад', houseNumber: "12", stage: "Проектный", 
                 dateStart: "2024-09-01", dateEnd: "2025-09-01", 
-                type: TYPE_NAMES.infrastructure,
-                category: 'infrastructure', infraType: 'Детский сад',
+                type: TYPE_NAMES.infrastructure, category: 'infrastructure', 
+                infraType: 'Детский сад',
                 resBlocks: 0, nonResBlocks: 0, hasNonResPart: false, parkingType: '', constructionType: ''
             },
         ];
         
+        // Генерация блоков для демо
+        const demoBuildingsWithBlocks = demoBuildings.map(b => ({
+            ...b,
+            blocks: generateBlocks(b.id, {
+                category: b.category,
+                resBlocks: b.resBlocks,
+                nonResBlocks: b.nonResBlocks,
+                infraType: b.infraType,
+                parkingType: b.parkingType
+            })
+        }));
+
         const demoDetails = {};
-        demoBuildings.forEach(b => {
-             demoDetails[`${b.id}_main`] = { floorsFrom: 10, floorsTo: 10, entrances: 2, hasBasementFloor: true };
+        demoBuildingsWithBlocks.forEach(b => {
+             // Используем реальные ID блоков для ключей
+             b.blocks.forEach(block => {
+                 demoDetails[`${b.id}_${block.id}`] = { floorsFrom: 10, floorsTo: 10, entrances: 2, hasBasementFloor: true };
+             });
              demoDetails[`${b.id}_features`] = { basements: [] };
         });
 
-        const newComposition = [...composition, ...demoBuildings];
-        
-        setComposition(newComposition);
+        setComposition([...composition, ...demoBuildingsWithBlocks]);
         setBuildingDetails(prev => ({ ...prev, ...demoDetails }));
     };
 
     const openPlanning = (category) => {
         const defaultName = TYPE_NAMES[category] || "Новый объект";
-
         setModal({ 
-            isOpen: true, 
-            category, 
-            quantity: 1, 
+            isOpen: true, category, quantity: 1, 
             resBlocks: category.includes('multiblock') ? 1 : (category.includes('residential') ? 1 : 0), 
             nonResBlocks: category.includes('multiblock') ? 1 : 0, 
-            hasNonResPart: false, 
-            baseName: defaultName,
-            houseNumber: "",
-            dateStart: "",
-            dateEnd: "",
-            stage: "Проектный",
-            parkingType: 'underground', 
-            parkingConstruction: 'capital', 
-            infraType: 'Котельная', 
-            editingId: null 
+            hasNonResPart: false, baseName: defaultName, houseNumber: "",
+            dateStart: "", dateEnd: "", stage: "Проектный",
+            parkingType: 'underground', parkingConstruction: 'capital', infraType: 'Котельная', editingId: null 
         });
     };
 
     const openEditing = (item) => {
         setModal({ 
-            isOpen: true, 
-            category: item.category,
-            quantity: 1,
-            resBlocks: item.resBlocks || 0,
-            nonResBlocks: item.nonResBlocks || 0,
-            hasNonResPart: item.hasNonResPart || false,
-            baseName: item.label,
-            houseNumber: item.houseNumber,
-            dateStart: item.dateStart || "",
-            dateEnd: item.dateEnd || "",
-            stage: item.stage || "Проектный",
-            parkingType: item.parkingType || 'underground',
-            parkingConstruction: item.constructionType || 'capital',
+            isOpen: true, editingId: item.id,
+            category: item.category, quantity: 1,
+            resBlocks: item.resBlocks || 0, nonResBlocks: item.nonResBlocks || 0,
+            hasNonResPart: item.hasNonResPart || false, baseName: item.label, houseNumber: item.houseNumber,
+            dateStart: item.dateStart || "", dateEnd: item.dateEnd || "", stage: item.stage || "Проектный",
+            parkingType: item.parkingType || 'underground', parkingConstruction: item.constructionType || 'capital',
             infraType: item.infraType || 'Котельная',
-            editingId: item.id
         });
     };
     
     const commitPlanning = () => {
          const itemType = TYPE_NAMES[modal.category];
          
-         const newItemData = {
+         const newItemBase = {
              label: modal.baseName,
              houseNumber: modal.houseNumber,
              dateStart: modal.dateStart,
@@ -348,45 +372,49 @@ export default function CompositionEditor() {
          };
 
          if (modal.editingId) {
-             const updated = composition.map(c => c.id === modal.editingId ? { ...c, ...newItemData } : c);
+             const updated = composition.map(c => {
+                 if (c.id === modal.editingId) {
+                     const isStructureChanged = c.resBlocks !== modal.resBlocks || c.nonResBlocks !== modal.nonResBlocks || c.category !== modal.category;
+                     let blocks = c.blocks || [];
+                     
+                     if (isStructureChanged) {
+                         if (!window.confirm("Изменение структуры блоков приведет к потере данных (этажи, квартиры) в удаленных блоках. Продолжить?")) return c;
+                         blocks = generateBlocks(c.id, modal);
+                     }
+                     return { ...c, ...newItemBase, blocks };
+                 }
+                 return c;
+             });
              setComposition(updated);
          } else {
-             const newItems = Array.from({length: modal.quantity}).map((_, i) => ({
-                 id: crypto.randomUUID(), // UUID
-                 ...newItemData,
-                 label: modal.quantity > 1 ? `${modal.baseName} ${i+1}` : modal.baseName, 
-             }));
-             const newList = [...composition, ...newItems];
-             setComposition(newList);
+             const newItems = Array.from({length: modal.quantity}).map((_, i) => {
+                 const bId = crypto.randomUUID();
+                 return {
+                     id: bId,
+                     ...newItemBase,
+                     label: modal.quantity > 1 ? `${modal.baseName} ${i+1}` : modal.baseName, 
+                     blocks: generateBlocks(bId, modal) // Генерация реальных блоков с UUID
+                 };
+             });
+             setComposition([...composition, ...newItems]);
          }
          setModal(prev => ({...prev, isOpen: false}));
     };
     
-    const deleteItem = (id) => {
-        deleteProjectBuilding(id);
-    };
+    const deleteItem = (id) => deleteProjectBuilding(id);
 
     return (
         <div className="w-full px-6 pb-20 animate-in fade-in duration-500">
             <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 mb-2 gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800">Состав комплекса</h1>
-                    <p className="text-slate-500 text-sm mt-1 flex items-center gap-2">
-                        Создание и управление перечнем строений
-                    </p>
+                    <p className="text-slate-500 text-sm mt-1 flex items-center gap-2">Создание и управление перечнем строений</p>
                 </div>
                 <div className="flex gap-3">
-                     <Button 
-                        onClick={generateDemoComplex} 
-                        disabled={isReadOnly}
-                        variant="secondary" 
-                        className={`bg-white border border-slate-200 transition-all shadow-sm ${isReadOnly ? 'opacity-50 cursor-not-allowed text-slate-400' : 'hover:bg-purple-50 hover:text-purple-600'}`}
-                     >
+                     <Button onClick={generateDemoComplex} disabled={isReadOnly} variant="secondary" className={`bg-white border border-slate-200 transition-all shadow-sm ${isReadOnly ? 'opacity-50 cursor-not-allowed text-slate-400' : 'hover:bg-purple-50 hover:text-purple-600'}`}>
                         <Sparkles size={16} /> Демо-данные
                     </Button>
-                     <div className="h-10 px-4 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center shadow-lg shadow-slate-900/20">
-                        {composition.length} объектов
-                    </div>
+                     <div className="h-10 px-4 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center shadow-lg shadow-slate-900/20">{composition.length} объектов</div>
                 </div>
             </div>
 
@@ -400,13 +428,8 @@ export default function CompositionEditor() {
                             { id: 'parking_separate', label: 'Паркинг', icon: Car, color: 'text-slate-700 bg-white border-slate-200 hover:border-slate-400 hover:text-slate-900 hover:shadow-md' },
                             { id: 'infrastructure', label: 'Инфраструктура', icon: Box, color: 'text-slate-700 bg-white border-slate-200 hover:border-amber-400 hover:text-amber-600 hover:shadow-md' }
                         ].map(btn => (
-                            <button 
-                                key={btn.id} 
-                                onClick={() => openPlanning(btn.id)} 
-                                className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all active:scale-95 shadow-sm ${btn.color}`}
-                            >
-                                <btn.icon size={14} />
-                                {btn.label}
+                            <button key={btn.id} onClick={() => openPlanning(btn.id)} className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all active:scale-95 shadow-sm ${btn.color}`}>
+                                <btn.icon size={14} />{btn.label}
                             </button>
                         ))}
                     </div>
@@ -415,13 +438,8 @@ export default function CompositionEditor() {
 
             {!hasResidential && (
                 <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-600 animate-in fade-in">
-                    <div className="p-2 bg-white rounded-full shadow-sm border border-red-100 text-red-500">
-                        <AlertCircle size={20} />
-                    </div>
-                    <div>
-                        <h4 className="text-sm font-bold">Необходимо добавить жилой дом</h4>
-                        <p className="text-xs opacity-80 mt-0.5">В проекте должен быть минимум один жилой или многоблочный дом для продолжения работы.</p>
-                    </div>
+                    <div className="p-2 bg-white rounded-full shadow-sm border border-red-100 text-red-500"><AlertCircle size={20} /></div>
+                    <div><h4 className="text-sm font-bold">Необходимо добавить жилой дом</h4><p className="text-xs opacity-80 mt-0.5">В проекте должен быть минимум один жилой или многоблочный дом для продолжения работы.</p></div>
                 </div>
             )}
 
@@ -437,9 +455,7 @@ export default function CompositionEditor() {
 
                 {composition.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-20 text-center">
-                        <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4 text-slate-300">
-                            <Building2 size={32} />
-                        </div>
+                        <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4 text-slate-300"><Building2 size={32} /></div>
                         <h3 className="text-sm font-bold text-slate-700">Список объектов пуст</h3>
                         <p className="text-xs text-slate-400 mt-1">Используйте кнопки сверху для создания</p>
                     </div>
@@ -449,7 +465,6 @@ export default function CompositionEditor() {
                     {composition.map((item, idx) => {
                         const progress = calculateProgress(item.dateStart, item.dateEnd);
                         const isRes = item.category.includes('residential');
-                        
                         let detailsBadge = null;
                         if (item.category === 'parking_separate') {
                             const pType = item.parkingType === 'ground' ? 'Наземный' : 'Подземный';
@@ -460,68 +475,41 @@ export default function CompositionEditor() {
                         return (
                             <div key={item.id} className="grid grid-cols-12 items-center py-4 px-6 hover:bg-blue-50/50 transition-colors group even:bg-slate-50/50">
                                 <div className="col-span-1 text-xs font-bold text-slate-400 text-center">{idx + 1}</div>
-                                
                                 <div className="col-span-1 flex justify-center">
-                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-sm shadow-sm border ${isRes ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-200 text-amber-700'}`}>
-                                        {item.houseNumber || '?'}
-                                    </div>
+                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-sm shadow-sm border ${isRes ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-200 text-amber-700'}`}>{item.houseNumber || '?'}</div>
                                 </div>
-
                                 <div className="col-span-3 pr-4">
                                     <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">{item.label}</div>
                                     <div className="text-[10px] text-slate-400 mt-0.5">{item.type}</div>
                                 </div>
-
                                 <div className="col-span-3 pr-4 flex flex-col justify-center gap-1.5">
                                     <div className="flex flex-wrap gap-1">
-                                        {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
-                                            <span className="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-[10px] font-bold text-slate-600">
-                                                {item.resBlocks} жил. / {item.nonResBlocks} нежил.
-                                            </span>
-                                        )}
+                                        {(item.resBlocks > 0 || item.nonResBlocks > 0) && <span className="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-[10px] font-bold text-slate-600">{item.resBlocks} жил. / {item.nonResBlocks} нежил.</span>}
                                         {item.hasNonResPart && <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">Коммерция</span>}
                                         {item.category === 'infrastructure' && <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold">{item.infraType}</span>}
                                         {detailsBadge && <span className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold">{detailsBadge}</span>}
                                     </div>
                                 </div>
-
                                 <div className="col-span-3 pr-8">
                                     <div className="flex items-center justify-between mb-1.5">
-                                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}>
-                                            {item.stage || 'Проект'}
-                                        </span>
+                                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}>{item.stage || 'Проект'}</span>
                                         <span className="text-[10px] font-bold text-slate-400">{Math.round(progress)}%</span>
                                     </div>
-                                    
-                                    <div className="h-1 w-full bg-slate-200 rounded-full overflow-hidden">
-                                        <div 
-                                            className={`h-full rounded-full transition-all duration-1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} 
-                                            style={{ width: `${progress}%` }} 
-                                        />
-                                    </div>
-                                    
+                                    <div className="h-1 w-full bg-slate-200 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${progress}%` }} /></div>
                                     <div className="flex justify-between text-[9px] text-slate-400 mt-1 font-mono">
                                         <span>{item.dateStart ? new Date(item.dateStart).toLocaleDateString('ru-RU') : '...'}</span>
                                         <span>{item.dateEnd ? new Date(item.dateEnd).toLocaleDateString('ru-RU') : '...'}</span>
                                     </div>
                                 </div>
-
                                 <div className="col-span-1 flex justify-end gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => openEditing(item)} title={isReadOnly ? "Просмотр" : "Редактировать"} className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                                        {isReadOnly ? <Eye size={16}/> : <Pencil size={16}/>}
-                                    </button>
-                                    {!isReadOnly && (
-                                        <button onClick={() => deleteItem(item.id)} className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                                            <Trash2 size={16}/>
-                                        </button>
-                                    )}
+                                    <button onClick={() => openEditing(item)} title={isReadOnly ? "Просмотр" : "Редактировать"} className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">{isReadOnly ? <Eye size={16}/> : <Pencil size={16}/>}</button>
+                                    {!isReadOnly && <button onClick={() => deleteItem(item.id)} className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>}
                                 </div>
                             </div>
                         );
                     })}
                 </div>
             </div>
-
             {modal.isOpen && <BuildingModal modal={modal} setModal={setModal} onCommit={commitPlanning} />}
         </div>
     );

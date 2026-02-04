@@ -1,105 +1,65 @@
 import { Building2, Store, Car, Box } from 'lucide-react';
 
 /**
- * Генерирует список блоков для здания на основе его конфигурации.
- * Используется в BuildingConfigurator, EntranceMatrix, FloorMatrix и др.
+ * Возвращает список блоков для здания.
+ * Работает с реальными объектами блоков (UUID), хранящимися в building.blocks
  * @param {import('./types').BuildingMeta} building
  * @param {Object} [buildingDetails] - Детальные настройки (для получения кастомных адресов)
  */
 export function getBlocksList(building, buildingDetails = {}) {
     if (!building) return [];
-    const list = [];
     
-    // Хелпер для формирования названия с номером дома
-    const getLabelWithAddress = (baseLabel, fullId, defaultHouseNumber) => {
-        const details = buildingDetails[fullId];
-        // Если есть кастомный номер
-        if (details?.hasCustomAddress && details?.customHouseNumber) {
-            return `${baseLabel} (№${details.customHouseNumber})`;
-        }
-        // Иначе наследуем общий (для наглядности в многоблочных домах)
-        return `${baseLabel} (№${defaultHouseNumber})`;
-    };
-
-    // 1. ЖИЛЫЕ БЛОКИ
-    if (building.category && building.category.includes('residential')) {
-        const count = building.resBlocks || (building.category === 'residential' ? 1 : 0);
-        const isMultiblock = count > 1 || building.nonResBlocks > 0;
-
-        for(let i=0; i < count; i++) {
-            const fullId = `${building.id}_res_${i}`;
-            const baseLabel = count > 1 ? `Жилой Блок ${i+1}` : `Жилой дом`;
+    // Приоритет: Реальные блоки из БД/Стейта (массив объектов)
+    if (building.blocks && Array.isArray(building.blocks) && building.blocks.length > 0) {
+        return building.blocks.map((block, index) => {
+            // Определяем иконку и подпись для UI
+            let Icon = Building2;
+            let typeLabel = 'Ж';
             
-            // Если блоков несколько, добавляем номер дома к названию
-            const tabLabel = isMultiblock 
-                ? getLabelWithAddress(baseLabel, fullId, building.houseNumber) 
-                : baseLabel;
+            if (block.type === 'residential') { Icon = Building2; typeLabel = 'Ж'; }
+            else if (block.type === 'non_residential') { Icon = Store; typeLabel = 'Н'; }
+            else if (block.type === 'parking') { Icon = Car; typeLabel = 'П'; }
+            else if (block.type === 'infrastructure') { Icon = Box; typeLabel = 'И'; }
 
-            list.push({ 
-                id: `res_${i}`, 
-                type: 'Ж', 
-                index: i, 
-                fullId: fullId,
-                tabLabel: tabLabel,
-                icon: Building2
-            });
-        }
-    }
+            // Формируем уникальный ключ для buildingDetails
+            // Используем ID блока (UUID)
+            const detailsKey = `${building.id}_${block.id}`;
+            const details = buildingDetails[detailsKey];
+            
+            // Формируем красивое название (tabLabel)
+            let displayLabel = block.label;
+            
+            // Если есть кастомный номер дома для этого блока
+            if (details?.hasCustomAddress && details?.customHouseNumber) {
+                displayLabel = `${displayLabel} (№${details.customHouseNumber})`;
+            } else if (building.houseNumber) {
+                // Если это МКД, добавляем номер дома для контекста
+                displayLabel = `${displayLabel} (№${building.houseNumber})`;
+            }
 
-    // 2. НЕЖИЛЫЕ БЛОКИ
-    if (building.nonResBlocks > 0) {
-         for(let i=0; i < building.nonResBlocks; i++) {
-             const fullId = `${building.id}_non_${i}`;
-             const baseLabel = `Нежилой Блок ${i+1}`;
-             
-             // Для нежилых блоков в составе ЖК всегда показываем номер
-             const tabLabel = getLabelWithAddress(baseLabel, fullId, building.houseNumber);
-
-             list.push({ 
-                 id: `non_${i}`, 
-                 type: 'Н', 
-                 index: i, 
-                 fullId: fullId,
-                 tabLabel: tabLabel,
-                 icon: Store
-             });
-         }
-    }
-
-    // 3. СПЕЦИАЛЬНЫЕ ТИПЫ (Паркинги, Инфраструктура)
-    if (building.category === 'parking_separate') {
-         list.push({ 
-             id: 'main', 
-             type: 'Паркинг', 
-             index: 0, 
-             fullId: `${building.id}_main`,
-             tabLabel: 'Паркинг',
-             icon: Car 
-        });
-    } else if (building.category === 'infrastructure') {
-         list.push({ 
-             id: 'main', 
-             type: 'Инфра', 
-             index: 0, 
-             fullId: `${building.id}_main`,
-             tabLabel: building.infraType || 'Объект',
-             icon: Box
+            return {
+                id: block.id,        // Реальный UUID блока
+                type: typeLabel,     // 'Ж', 'Н' для UI
+                index: index,
+                fullId: detailsKey,  // Ключ для поиска в buildingDetails
+                tabLabel: displayLabel,
+                icon: Icon,
+                originalType: block.type // Сохраняем оригинальный тип для логики
+            };
         });
     }
 
-    // Фолбек
-    if (list.length === 0) {
-        list.push({ 
-            id: 'main', 
-            type: 'Основной', 
-            index: 0, 
-            fullId: `${building.id}_main`,
-            tabLabel: 'Основной корпус',
-            icon: Building2
-        });
-    }
-    
-    return list;
+    // Fallback: Если блоков нет (например, только что созданный объект без блоков или старые данные)
+    // Возвращаем заглушку, чтобы UI не падал
+    return [{
+        id: 'main', 
+        type: 'Основной', 
+        index: 0, 
+        fullId: `${building.id}_main`,
+        tabLabel: building.label || 'Основной корпус',
+        icon: Building2,
+        originalType: 'residential'
+    }];
 }
 
 /**
@@ -115,7 +75,7 @@ export const calculateProgress = (start, end) => {
 };
 
 /**
- * Возвращает CSS классы для бейджика статуса (Проектный, Строящийся и т.д.).
+ * Возвращает CSS классы для бейджика статуса.
  */
 export const getStageColor = (stage) => {
     switch(stage) {
