@@ -153,7 +153,8 @@ export const ProjectSchema = z.object({
   name: z.string().min(3, "Минимум 3 символа"),
   status: z.string(),
   author: z.string().optional(),
-  lastModified: z.string().datetime().optional(),
+  // [FIX] Используем nullish() вместо optional(), чтобы разрешить null из БД
+  lastModified: z.string().nullish(), 
   complexInfo: z.record(z.string(), z.any()).optional(),
   composition: z.array(BuildingMetaSchema).default([]),
 });
