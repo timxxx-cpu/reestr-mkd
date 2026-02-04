@@ -19,7 +19,8 @@ export default function ParkingView({ building, typeInfo }) {
     
     const { isGroundOpen, isGroundLight, isCapitalStructure, isUnderground } = typeInfo;
 
-    const detailsKey = `${building.id}_main`; 
+    const blockId = building.blocks?.[0]?.id || 'main';
+    const detailsKey = `${building.id}_${blockId}`; 
     const featuresKey = `${building.id}_features`;
     
     const features = buildingDetails[featuresKey] || { basements: [] };
@@ -46,12 +47,12 @@ export default function ParkingView({ building, typeInfo }) {
     };
 
     // Логика подвала (для паркингов это редкость, но архитектурно оставим)
-    const blockBasements = (features.basements || []).filter(b => b.blockId === 'main' || b.blocks?.includes('main'));
+    const blockBasements = (features.basements || []).filter(b => b.blockId === blockId || b.blocks?.includes(blockId));
     const canAddBasement = blockBasements.length < 1; 
 
     const createBlockBasement = () => {
         if (isReadOnly || !canAddBasement) return;
-        const newB = { id: crypto.randomUUID(), depth: 1, blocks: ['main'], buildingId: building.id, blockId: 'main' };
+        const newB = { id: crypto.randomUUID(), depth: 1, blocks: [blockId], buildingId: building.id, blockId };
         updateFeatures({ basements: [...(features.basements || []), newB] });
     };
 
@@ -144,12 +145,11 @@ export default function ParkingView({ building, typeInfo }) {
                     errorBorder={errorBorder}
                     availableParents={availableParents}
                     toggleParentBlock={toggleParentBlock}
-                    // Убираем пропсы подвала отсюда, так как перенесли логику
-                    canAddBasement={false} 
-                    createBasement={() => {}}
-                    blockBasements={[]}
-                    updateBasement={() => {}}
-                    removeBasement={() => {}}
+                    canAddBasement={canAddBasement}
+                    createBasement={createBlockBasement}
+                    blockBasements={blockBasements}
+                    updateBasement={updateBasement}
+                    removeBasement={removeBasement}
                     increment={increment}
                     decrement={decrement}
                     renderCounterValue={renderCounterValue}

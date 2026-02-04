@@ -16,7 +16,8 @@ export default function InfrastructureView({ building }) {
     const { buildingDetails, setBuildingDetails } = useProject();
     const isReadOnly = useReadOnly();
 
-    const detailsKey = `${building.id}_main`;
+    const blockId = building.blocks?.[0]?.id || 'main';
+    const detailsKey = `${building.id}_${blockId}`;
     const featuresKey = `${building.id}_features`;
     const features = buildingDetails[featuresKey] || { basements: [] };
 
@@ -57,12 +58,12 @@ export default function InfrastructureView({ building }) {
     };
 
     // --- Логика Подвала ---
-    const blockBasements = (features.basements || []).filter(b => b.blockId === 'main');
+    const blockBasements = (features.basements || []).filter(b => b.blockId === blockId);
     const canAddBasement = blockBasements.length < 3;
 
     const createBlockBasement = () => {
         if (isReadOnly || !canAddBasement) return;
-        const newB = { id: crypto.randomUUID(), depth: 1, blocks: ['main'], buildingId: building.id, blockId: 'main' };
+        const newB = { id: crypto.randomUUID(), depth: 1, blocks: [blockId], buildingId: building.id, blockId };
         updateFeatures({ basements: [...(features.basements || []), newB] });
     };
 

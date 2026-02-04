@@ -21,9 +21,11 @@ export const RegistryService = {
   // --- READ ---
 
   getProjectsList: async (scope) => {
+    if (!scope) return [];
     const { data, error } = await supabase
       .from('applications')
       .select(`*, projects (name, region, address)`)
+      .eq('scope_id', scope)
       .order('updated_at', { ascending: false });
 
     if (error) {
@@ -57,10 +59,12 @@ export const RegistryService = {
   },
 
   getProjectMeta: async (scope, projectId) => {
+    if (!scope) return null;
     const { data: app, error: appError } = await supabase
         .from('applications')
         .select('*')
         .eq('project_id', projectId)
+        .eq('scope_id', scope)
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
@@ -71,7 +75,7 @@ export const RegistryService = {
     }
 
     const [ pRes, partsRes, docsRes, buildingsRes, historyRes, stepsRes ] = await Promise.all([
-        supabase.from('projects').select('*').eq('id', projectId).single(),
+        supabase.from('projects').select('*').eq('id', projectId).eq('scope_id', scope).single(),
         supabase.from('project_participants').select('*').eq('project_id', projectId),
         supabase.from('project_documents').select('*').eq('project_id', projectId),
         supabase.from('buildings')
@@ -112,6 +116,14 @@ export const RegistryService = {
   },
 
   getBuildings: async (scope, projectId) => {
+    if (!scope) return {};
+    const { data: scopedProject } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('id', projectId)
+        .eq('scope_id', scope)
+        .single();
+    if (!scopedProject) return {};
     const { data: bIds } = await supabase.from('buildings').select('id').eq('project_id', projectId);
     const buildingIds = (bIds || []).map(b => b.id);
     if (buildingIds.length === 0) return {};
@@ -197,6 +209,7 @@ export const RegistryService = {
   // --- WRITE ---
 
   saveData: async (scope, projectId, payload) => {
+    if (!scope) return;
     const { buildingSpecificData, ...generalData } = payload;
     const promises = [];
 
@@ -215,10 +228,15 @@ export const RegistryService = {
             date_end_fact: ci.dateEndFact || null,
             updated_at: new Date()
         };
-        promises.push(supabase.from('projects').update(updatePayload).eq('id', projectId));
+        promises.push(supabase.from('projects').update(updatePayload).eq('id', projectId).eq('scope_id', scope));
     }
 
-    const { data: app } = await supabase.from('applications').select('id').eq('project_id', projectId).single();
+    const { data: app } = await supabase
+        .from('applications')
+        .select('id')
+        .eq('project_id', projectId)
+        .eq('scope_id', scope)
+        .single();
     const appId = app?.id;
 
     if (generalData.applicationInfo && appId) {
@@ -441,18 +459,22 @@ export const RegistryService = {
   },
 
   createProjectFromApplication: async (scope, app, user) => {
+      if (!scope) return null;
       const pId = crypto.randomUUID();
       const appId = crypto.randomUUID();
       await supabase.from('projects').insert({
-          id: pId, name: `ЖК по заявке ${app.externalId}`, address: app.address, cadastre_number: app.cadastre, construction_status: 'Проектный'
+          id: pId, scope_id: scope, name: `ЖК по заявке ${app.externalId}`, address: app.address, cadastre_number: app.cadastre, construction_status: 'Проектный'
       });
       await supabase.from('applications').insert({
-          id: appId, project_id: pId, internal_number: app.id, external_source: app.source, external_id: app.externalId, applicant: app.applicant, submission_date: app.submissionDate, assignee_name: user.name, status: 'DRAFT'
+          id: appId, project_id: pId, scope_id: scope, internal_number: app.id, external_source: app.source, external_id: app.externalId, applicant: app.applicant, submission_date: app.submissionDate, assignee_name: user.name, status: 'DRAFT'
       });
       return pId;
   },
 
-  deleteProject: async (scope, id) => { await supabase.from('projects').delete().eq('id', id); },
+  deleteProject: async (scope, id) => {
+      if (!scope) return;
+      await supabase.from('projects').delete().eq('id', id).eq('scope_id', scope);
+  },
   
   deleteBuilding: async (scope, pId, bId, extraData = {}) => {
       await supabase.from('buildings').delete().eq('id', bId);
