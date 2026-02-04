@@ -398,6 +398,19 @@ export const RegistryService = {
                     };
                     promises.push(supabase.from('building_blocks').update(blockUpdate).eq('id', blockId));
 
+                    let building = (generalData.composition || []).find(item => item.id === buildingId);
+                    if (!building) {
+                        const { data: buildingRes } = await supabase
+                            .from('buildings')
+                            .select('*, building_blocks (*)')
+                            .eq('id', buildingId)
+                            .limit(1)
+                            .maybeSingle();
+                        if (buildingRes) {
+                            building = mapBuildingFromDB(buildingRes, buildingRes.building_blocks || []);
+                        }
+                    }
+
                     const building = (generalData.composition || []).find(item => item.id === buildingId);
                     if (building) {
                         const blocks = getBlocksList(building, generalData.buildingDetails || {});
