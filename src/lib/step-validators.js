@@ -93,7 +93,12 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
         if (!validation.success) {
             validation.error.issues.forEach(issue => {
                 const rawField = String(issue.path[0]);
-                const isFieldPresent = details[rawField] !== undefined && details[rawField] !== '';
+                const rawValue = details[rawField];
+                const isFieldPresent = rawValue !== undefined
+                    && rawValue !== ''
+                    && rawValue !== null
+                    && rawValue !== false
+                    && !(typeof rawValue === 'number' && Number.isNaN(rawValue));
                 if (isFieldPresent) {
                     const fieldName = FIELD_NAMES[rawField] || rawField;
                     let message = issue.message;
