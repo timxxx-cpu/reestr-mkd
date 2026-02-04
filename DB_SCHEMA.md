@@ -198,24 +198,6 @@ CREATE INDEX basements_building_id_idx ON basements(building_id);
 CREATE INDEX basements_block_id_idx ON basements(block_id);
 
 
--- Таблица: block_technical_floors
--- Описание: Технические этажи (этаж, над которым вставлен тех. этаж).
-CREATE TABLE block_technical_floors (
-    block_id UUID REFERENCES building_blocks(id) ON DELETE CASCADE,
-    floor_number INT NOT NULL,
-    PRIMARY KEY (block_id, floor_number)
-);
-
--- Таблица: block_commercial_floors
--- Описание: Этажи/уровни, отмеченные как коммерческие.
-CREATE TABLE block_commercial_floors (
-    block_id UUID REFERENCES building_blocks(id) ON DELETE CASCADE,
-    floor_label TEXT NOT NULL,                  -- "1", "2", "tsokol", "attic", "basement_<id>", "3-Т"
-    basement_id UUID REFERENCES basements(id) ON DELETE SET NULL,
-    PRIMARY KEY (block_id, floor_label)
-);
-
-
 -- Таблица: block_construction
 -- Описание: Конструктивные характеристики блока (1:1 к building_blocks).
 CREATE TABLE block_construction (
@@ -255,10 +237,22 @@ CREATE TABLE block_engineering (
 CREATE TABLE floors (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     block_id UUID REFERENCES building_blocks(id) ON DELETE CASCADE,
+    floor_key TEXT NOT NULL,                    -- Уникальный ключ этажа внутри блока
+    basement_id UUID REFERENCES basements(id) ON DELETE SET NULL,
     
     index INT NOT NULL,                         -- Логический номер для сортировки (-1, 0, 1...)
     label TEXT NOT NULL,                        -- Отображаемое название ("1 этаж", "Подвал")
     floor_type TEXT NOT NULL,                   -- residential, basement, technical, attic...
+    parent_floor_index INT,                     -- Базовый этаж для тех. этажа (если есть)
+    
+    -- Признаки этажей
+    is_technical BOOLEAN DEFAULT FALSE,
+    is_commercial BOOLEAN DEFAULT FALSE,
+    is_stylobate BOOLEAN DEFAULT FALSE,
+    is_basement BOOLEAN DEFAULT FALSE,
+    is_attic BOOLEAN DEFAULT FALSE,
+    is_loft BOOLEAN DEFAULT FALSE,
+    is_roof BOOLEAN DEFAULT FALSE,
     
     height DECIMAL(5, 2),                       -- Высота потолка
     area_proj DECIMAL(10, 2),                   -- Площадь проектная
@@ -267,6 +261,8 @@ CREATE TABLE floors (
     is_duplex BOOLEAN DEFAULT FALSE,            -- Флаг двухуровневого этажа
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX floors_block_key_idx ON floors(block_id, floor_key);
 
 -- Таблица: entrances
 -- Описание: Подъезды (вертикали).
@@ -342,8 +338,6 @@ ALTER TABLE basement_parking_levels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE building_blocks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE block_construction ENABLE ROW LEVEL SECURITY;
 ALTER TABLE block_engineering ENABLE ROW LEVEL SECURITY;
-ALTER TABLE block_technical_floors ENABLE ROW LEVEL SECURITY;
-ALTER TABLE block_commercial_floors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE floors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE entrances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE units ENABLE ROW LEVEL SECURITY;
@@ -363,8 +357,6 @@ CREATE POLICY "Public All" ON basement_parking_levels FOR ALL USING (true) WITH 
 CREATE POLICY "Public All" ON building_blocks FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON block_construction FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON block_engineering FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public All" ON block_technical_floors FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public All" ON block_commercial_floors FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON floors FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON entrances FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON units FOR ALL USING (true) WITH CHECK (true);
