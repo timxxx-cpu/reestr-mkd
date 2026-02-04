@@ -411,6 +411,7 @@ export const RegistryService = {
                         }
                     }
 
+                    const building = (generalData.composition || []).find(item => item.id === buildingId);
                     if (building) {
                         const blocks = getBlocksList(building, generalData.buildingDetails || {});
                         const currentBlock = blocks.find(b => b.id === blockId);
