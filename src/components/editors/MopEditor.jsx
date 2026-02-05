@@ -148,38 +148,36 @@ export default function MopEditor({ buildingId, onBack }) {
     };
 
     // --- ВАЛИДАЦИЯ ---
-    const validationState = useMemo(() => {
+    let validationState = { isValid: true, missingCount: 0 };
+    if (showEditor) {
         let isValid = true;
         let missingCount = 0;
-        
-        if (!showEditor) return { isValid: true, missingCount: 0 };
-        
+
         floorList.forEach(f => {
             entrancesList.forEach(e => {
                 const targetQty = getTargetMopCount(e, f.id);
                 const mops = getMops(e, f.id);
-                
-                // Проверка 1: Количество записей
+
                 if (mops.length < targetQty) {
                     isValid = false;
                     missingCount += (targetQty - mops.length);
                 }
 
-                // Проверка 2: Заполненность полей
                 if (targetQty > 0) {
                     for (let i = 0; i < targetQty; i++) {
                         const mop = mops[i] || {};
                         const result = MopItemSchema.safeParse(mop);
-                        if (!result.success) { 
-                            isValid = false; 
-                            missingCount++; 
+                        if (!result.success) {
+                            isValid = false;
+                            missingCount++;
                         }
                     }
                 }
             });
         });
-        return { isValid, missingCount };
-    }, [floorList, entrancesList, mopData, entrancesData, showEditor]);
+
+        validationState = { isValid, missingCount };
+    }
 
     // --- ДЕЙСТВИЯ ---
 

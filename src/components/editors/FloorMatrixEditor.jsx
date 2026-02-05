@@ -74,39 +74,38 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    if (!building) return <div className="p-8 text-center">Объект не найден</div>;
 
-    if (isExcludedType) {
-        return (
-            <div className="space-y-6 pb-20 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in">
-                <ConfigHeader 
-                    building={building} 
-                    isParking={isParking} 
-                    isInfrastructure={isInfrastructure} 
-                    isUnderground={isUnderground} 
-                    onBack={onBack} 
-                    isSticky={false} 
-                />
-                <div className="flex flex-col items-center justify-center h-[40vh] text-center space-y-4 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200">
-                    <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400"><Ruler size={40} /></div>
-                    <h3 className="text-xl font-bold text-slate-700">Внешняя инвентаризация не требуется</h3>
-                    <p className="text-slate-500 max-w-md">Для паркингов открытого типа или легких конструкций обмеры этажей не производятся.</p>
-                </div>
-            </div>
+    const resolveFloorStorageKey = useCallback((data, floorId, floorKey) => {
+        const blockFullId = currentBlock?.fullId || '';
+        const directKey = `${blockFullId}_${floorId}`;
+        if (data[directKey]) return directKey;
+
+        if (!floorKey) return directKey;
+
+        const prefix = `${blockFullId}_`;
+        const fallback = Object.entries(data).find(([entryKey, entryVal]) =>
+            entryKey.startsWith(prefix) && entryVal?.floorKey === floorKey
         );
-    }
 
-    if (!currentBlock) return <div className="p-8">Блоки не найдены</div>;
-    
+        return fallback?.[0] || directKey;
+    }, [currentBlock?.fullId]);
+
+    const getFloorEntry = useCallback((floor) => {
+        const key = resolveFloorStorageKey(floorData, floor.id, floor.floorKey);
+        return { key, value: floorData[key] || {} };
+    }, [floorData, resolveFloorStorageKey]);
+
+
     const handleInput = useCallback((floorId, field, value, floorType, floorKey, floorFlags = {}, meta = {}) => { 
         if (isReadOnly) return;
         if (value !== '' && (parseFloat(value) < 0 || value.includes('-'))) return;
-        const key = `${currentBlock.fullId}_${floorId}`; 
-        setFloorData(p => ({
-            ...p, 
-            [key]: { 
-                id: p[key]?.id || crypto.randomUUID(),
-                ...(p[key]||{}), 
+        setFloorData(p => {
+            const key = resolveFloorStorageKey(p, floorId, floorKey);
+            return {
+                ...p, 
+                [key]: { 
+                    id: p[key]?.id || crypto.randomUUID(),
+                    ...(p[key]||{}), 
                 [field]: value,
                 type: floorType, 
                 floorKey: floorKey || p[key]?.floorKey,
@@ -116,8 +115,9 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 blockId: currentBlock.id,
                 ...meta
             } 
-        })); 
-    }, [currentBlock.fullId, setFloorData, isReadOnly, building.id, currentBlock.id]);
+            };
+        }); 
+    }, [setFloorData, isReadOnly, building.id, currentBlock.id, resolveFloorStorageKey]);
 
     const copyRowFromPrev = (idx) => {
         if (isReadOnly || idx <= 0) return;
@@ -125,8 +125,9 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         const curr = floorList[idx];
         const currId = curr.id;
         const currType = curr.type;
-        const prevKey = `${currentBlock.fullId}_${prevId}`;
-        const currKey = `${currentBlock.fullId}_${currId}`;
+        const prevFloor = floorList[idx - 1];
+        const prevKey = resolveFloorStorageKey(floorData, prevId, prevFloor.floorKey);
+        const currKey = resolveFloorStorageKey(floorData, currId, curr.floorKey);
         
         const prevData = floorData[prevKey] || {};
         setFloorData(p => ({
@@ -153,7 +154,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     const fillRowsBelow = (idx) => {
         if (isReadOnly) return;
         const sourceId = floorList[idx].id;
-        const sourceKey = `${currentBlock.fullId}_${sourceId}`;
+        const sourceFloor = floorList[idx];
+        const sourceKey = resolveFloorStorageKey(floorData, sourceId, sourceFloor.floorKey);
         const sourceData = floorData[sourceKey] || {};
         
         const updates = {};
@@ -161,7 +163,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
             const target = floorList[i];
             const targetId = target.id;
             const targetType = target.type;
-            const targetKey = `${currentBlock.fullId}_${targetId}`;
+            const targetKey = resolveFloorStorageKey(floorData, targetId, target.floorKey);
             updates[targetKey] = { 
                 id: floorData[targetKey]?.id || crypto.randomUUID(),
                 ...(floorData[targetKey] || {}), 
@@ -191,7 +193,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         const currFloorKey = floorList[idx].floorKey;
         const currFlags = floorList[idx].flags || {};
         const currMeta = { parentFloorIndex: floorList[idx].parentFloorIndex, basementId: floorList[idx].basementId, label: floorList[idx].label };
-        const prevKey = `${currentBlock.fullId}_${prevId}`;
+        const prevFloor = floorList[idx - 1];
+        const prevKey = resolveFloorStorageKey(floorData, prevId, prevFloor.floorKey);
         const val = floorData[prevKey]?.[field];
         if (val !== undefined) handleInput(currId, field, val, currType, currFloorKey, currFlags, currMeta);
     };
@@ -199,7 +202,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     const fillFieldBelow = (idx, field) => {
         if (isReadOnly) return;
         const sourceId = floorList[idx].id;
-        const sourceKey = `${currentBlock.fullId}_${sourceId}`;
+        const sourceFloor = floorList[idx];
+        const sourceKey = resolveFloorStorageKey(floorData, sourceId, sourceFloor.floorKey);
         const val = floorData[sourceKey]?.[field];
         if (val === undefined) return;
 
@@ -208,7 +212,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
             const target = floorList[i];
             const targetId = target.id;
             const targetType = target.type;
-            const targetKey = `${currentBlock.fullId}_${targetId}`;
+            const targetKey = resolveFloorStorageKey(floorData, targetId, target.floorKey);
             updates[targetKey] = { 
                 id: floorData[targetKey]?.id || crypto.randomUUID(),
                 ...(floorData[targetKey] || {}), 
@@ -266,7 +270,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
             const floorItem = floorList.find(f => f.id === floorId);
             if (!floorItem) return;
 
-            const key = `${currentBlock.fullId}_${floorId}`;
+            const key = resolveFloorStorageKey(floorData, floorId, floorItem.floorKey);
             const currentData = floorData[key] || {};
             updates[key] = { 
                 id: currentData.id || crypto.randomUUID(),
@@ -284,7 +288,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         if (isReadOnly) return;
         const updates = {}; 
         floorList.forEach(f => { 
-            const key = `${currentBlock.fullId}_${f.id}`; 
+            const key = resolveFloorStorageKey(floorData, f.id, f.floorKey); 
             let h = '3.00'; let s_proj = '500.00';
             if (f.type === 'basement') { h = '2.50'; s_proj = '450.00'; }
             if (f.type === 'parking_floor') { h = '2.70'; s_proj = '1000.00'; }
@@ -308,6 +312,31 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         }); 
         setFloorData(p => ({...p, ...updates})); 
     };
+
+
+    if (!building) return <div className="p-8 text-center">Объект не найден</div>;
+
+    if (isExcludedType) {
+        return (
+            <div className="space-y-6 pb-20 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in">
+                <ConfigHeader 
+                    building={building} 
+                    isParking={isParking} 
+                    isInfrastructure={isInfrastructure} 
+                    isUnderground={isUnderground} 
+                    onBack={onBack} 
+                    isSticky={false} 
+                />
+                <div className="flex flex-col items-center justify-center h-[40vh] text-center space-y-4 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200">
+                    <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400"><Ruler size={40} /></div>
+                    <h3 className="text-xl font-bold text-slate-700">Внешняя инвентаризация не требуется</h3>
+                    <p className="text-slate-500 max-w-md">Для паркингов открытого типа или легких конструкций обмеры этажей не производятся.</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!currentBlock) return <div className="p-8">Блоки не найдены</div>;
 
     const renderTypeBadge = (type) => {
         const styles = {
@@ -431,8 +460,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                         </thead>
                         <tbody className="divide-y divide-slate-200 bg-white">
                             {floorList.map((f, idx) => {
-                                const key = `${currentBlock.fullId}_${f.id}`; 
-                                const val = (floorData[key] || {});
+                                const floorEntry = getFloorEntry(f);
+                                const val = floorEntry.value;
                                 const isSelected = selectedRows.has(f.id);
                                 
                                 const validationResult = FloorDataSchema.safeParse(val);

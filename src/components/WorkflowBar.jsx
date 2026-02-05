@@ -102,6 +102,34 @@ const CompleteTaskModal = ({ onCancel, onConfirm, message }) => (
     </div>
 );
 
+const SaveProgressModal = ({ status, message, onOk }) => {
+    const isSaving = status === 'saving';
+    const isError = status === 'error';
+
+    return (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5">
+                <div className="p-6 text-center">
+                    <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 ring-8 ${isError ? 'bg-red-50 text-red-500 ring-red-50/60' : 'bg-blue-50 text-blue-600 ring-blue-50/60'}`}>
+                        {isSaving ? <Loader2 size={26} className="animate-spin"/> : (isError ? <XCircle size={26} /> : <CheckCircle2 size={26} />)}
+                    </div>
+                    <h3 className="text-lg font-black text-slate-800 mb-2 leading-tight">
+                        {isSaving ? 'Идет запись данных' : (isError ? 'Запись не произведена' : 'Запись выполнена')}
+                    </h3>
+                    <p className="text-xs text-slate-500 mb-6 leading-relaxed">{message}</p>
+                    <Button
+                        onClick={onOk}
+                        disabled={isSaving}
+                        className="w-full bg-slate-900 text-white hover:bg-slate-800 h-10 disabled:opacity-50"
+                    >
+                        ОК
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit, onOpenHistory }) {
   const projectContext = useProject();
   const { 
@@ -120,6 +148,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   // Состояния модалок
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
+  const [saveNotice, setSaveNotice] = useState({ open: false, status: 'saving', message: '', onOk: null });
   
   // [NEW] Состояние для списка ошибок
   const [validationErrors, setValidationErrors] = useState([]);
@@ -137,7 +166,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   const isTechnician = user.role === ROLES.TECHNICIAN;
 
   const currentStageNum = getStepStage(currentStep);
-  // eslint-disable-next-line no-unused-vars
+   
   const stageConfig = WORKFLOW_STAGES[currentStageNum];
   const isStageBoundary = stageConfig && stageConfig.lastStepIndex === currentStep;
   const isLastStepGlobal = currentStep === STEPS_CONFIG.length - 1;
@@ -161,12 +190,13 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
 
   const handleSave = async () => {
       setIsLoading(true);
+      setSaveNotice({ open: true, status: 'saving', message: 'Пожалуйста, дождитесь окончания записи. Переход по шагам и кнопки временно заблокированы.', onOk: null });
       try {
           await saveProjectImmediate();
-          toast.success("Изменения сохранены");
+          setSaveNotice({ open: true, status: 'success', message: 'Данные успешно записаны. Нажмите ОК, чтобы продолжить работу.', onOk: null });
       } catch (e) {
           console.error(e);
-          toast.error("Ошибка сохранения");
+          setSaveNotice({ open: true, status: 'error', message: 'Ошибка: запись не произведена. Проверьте данные и повторите попытку.', onOk: null });
       } finally {
           setIsLoading(false);
       }
@@ -174,12 +204,19 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
 
   const handleSaveAndExit = async () => {
       setIsLoading(true);
+      setSaveNotice({ open: true, status: 'saving', message: 'Пожалуйста, дождитесь окончания записи. Переход по шагам и кнопки временно заблокированы.', onOk: null });
       try {
           await saveProjectImmediate();
-          onExit(true); 
+          setSaveNotice({
+              open: true,
+              status: 'success',
+              message: 'Данные успешно записаны. Нажмите ОК для выхода из задачи.',
+              onOk: () => onExit(true)
+          });
       } catch (e) {
           console.error(e);
-          toast.error("Ошибка сохранения");
+          setSaveNotice({ open: true, status: 'error', message: 'Ошибка: запись не произведена. Выход отменен.', onOk: null });
+      } finally {
           setIsLoading(false);
       }
   };
@@ -218,22 +255,36 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   const performCompletion = async () => {
       setShowCompleteConfirm(false);
       setIsLoading(true);
+      setSaveNotice({ open: true, status: 'saving', message: 'Пожалуйста, дождитесь окончания записи. Переход по шагам и кнопки временно заблокированы.', onOk: null });
       try {
           const nextIndex = await completeTask(currentStep);
-          
-          if (isStageBoundary || isLastStepGlobal) {
-              toast.success(isLastStepGlobal ? "Проект завершен!" : "Отправлено на проверку");
-              onExit(true);
-          } else {
-              toast.success("Задача завершена");
-              setCurrentStep(nextIndex); 
-          }
+          setSaveNotice({
+              open: true,
+              status: 'success',
+              message: isStageBoundary || isLastStepGlobal
+                  ? 'Данные записаны. Нажмите ОК для возврата в список задач.'
+                  : 'Данные записаны. Нажмите ОК для перехода к следующей задаче.',
+              onOk: () => {
+                  if (isStageBoundary || isLastStepGlobal) {
+                      onExit(true);
+                  } else {
+                      setCurrentStep(nextIndex);
+                  }
+              }
+          });
       } catch (e) {
           console.error(e);
-          toast.error("Ошибка завершения задачи");
+          setSaveNotice({ open: true, status: 'error', message: 'Ошибка: запись не произведена. Завершение задачи отменено.', onOk: null });
       } finally {
           setIsLoading(false);
       }
+  };
+
+  const handleSaveNoticeOk = () => {
+      if (saveNotice.status === 'saving') return;
+      const callback = saveNotice.onOk;
+      setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+      if (typeof callback === 'function') callback();
   };
 
   const handleRollback = async () => {
@@ -285,6 +336,8 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
 
   if (isReviewMode && isController) {
       return (
+          <>
+          {saveNotice.open && <SaveProgressModal status={saveNotice.status} message={saveNotice.message} onOk={handleSaveNoticeOk} />}
           <div className="bg-indigo-900 border-b border-indigo-800 px-8 py-4 flex items-center justify-between sticky top-0 z-30 shadow-xl animate-in slide-in-from-top-2 text-white">
               <div className="flex items-center gap-4">
                   <div className="flex flex-col">
@@ -308,11 +361,12 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
                   </Button>
               </div>
           </div>
+          </>
       );
   }
 
   if ((isTechnician || user.role === ROLES.ADMIN) && !isReviewMode && isCurrentTask && !isReadOnly) {
-      const isActionDisabled = isLoading || !isTechnician;
+      const isActionDisabled = isLoading || !isTechnician || saveNotice.open;
 
       return (
         <>
@@ -339,6 +393,14 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
                 />
             )}
 
+            {saveNotice.open && (
+                <SaveProgressModal 
+                    status={saveNotice.status}
+                    message={saveNotice.message}
+                    onOk={handleSaveNoticeOk}
+                />
+            )}
+
             <div className="bg-slate-900 border-b border-slate-800 px-8 py-4 flex items-center justify-between sticky top-0 z-30 shadow-xl shadow-slate-900/10 animate-in slide-in-from-top-2 text-white">
                 <div className="flex items-center gap-4">
                     {canGoBack && !isIntegrationStage && (
@@ -353,7 +415,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <Button variant="ghost" onClick={onOpenHistory} disabled={isLoading} className="text-slate-400 hover:text-white hover:bg-white/10 px-2 h-9" title="История действий">
+                    <Button variant="ghost" onClick={onOpenHistory} disabled={isActionDisabled} className="text-slate-400 hover:text-white hover:bg-white/10 px-2 h-9" title="История действий">
                         <History size={18} />
                     </Button>
 
