@@ -77,48 +77,61 @@ export const ApiService = {
     // [UPDATED] Получить список проектов с джойном заявки (замена RegistryService.getProjectsList)
     getProjectsList: async (scope) => {
         if (!scope) return [];
-        // Запрашиваем через applications, так как это точка входа в процесс
-        const { data, error } = await supabase
-            .from('applications')
-            .select(`
-                *,
-                projects (
-                    id, name, region, address, construction_status, 
-                    updated_at, created_at
-                )
-            `)
-            .eq('scope_id', scope)
-            .order('updated_at', { ascending: false });
 
-        if (error) throw error;
+        // Загружаем проекты и заявки отдельно, чтобы не терять проекты,
+        // у которых пока нет строки в applications (частый кейс на DEV при миграциях).
+        const [projectsRes, appsRes] = await Promise.all([
+            supabase
+                .from('projects')
+                .select('id, name, region, address, construction_status, updated_at, created_at')
+                .eq('scope_id', scope)
+                .order('updated_at', { ascending: false }),
+            supabase
+                .from('applications')
+                .select('*')
+                .eq('scope_id', scope)
+                .order('updated_at', { ascending: false })
+        ]);
 
-        return data.map(app => ({
-            id: app.project_id, // Основной ID для навигации
-            applicationId: app.id,
-            name: app.projects?.name || 'Без названия',
-            status: app.projects?.construction_status,
-            lastModified: app.updated_at,
-            
-            // Данные для карточки
-            applicationInfo: {
-                status: app.status,
-                internalNumber: app.internal_number,
-                externalSource: app.external_source,
-                externalId: app.external_id,
-                applicant: app.applicant,
-                submissionDate: app.submission_date,
-                assigneeName: app.assignee_name,
-                currentStage: app.current_stage,
-                currentStepIndex: app.current_step,
-                rejectionReason: app.integration_data?.rejectionReason // Если храним там
-            },
-            complexInfo: { 
-                name: app.projects?.name, 
-                region: app.projects?.region, 
-                street: app.projects?.address 
-            },
-            composition: [] // Заглушка для списка, если нужно кол-во объектов, нужно джойнить buildings count
-        }));
+        if (projectsRes.error) throw projectsRes.error;
+        if (appsRes.error) throw appsRes.error;
+
+        const appsByProject = (appsRes.data || []).reduce((acc, app) => {
+            // На всякий случай берем самую свежую заявку по проекту
+            if (!acc[app.project_id]) acc[app.project_id] = app;
+            return acc;
+        }, {});
+
+        return (projectsRes.data || []).map(project => {
+            const app = appsByProject[project.id];
+
+            return {
+                id: project.id,
+                applicationId: app?.id || null,
+                name: project.name || 'Без названия',
+                status: project.construction_status,
+                lastModified: app?.updated_at || project.updated_at,
+
+                applicationInfo: {
+                    status: app?.status,
+                    internalNumber: app?.internal_number,
+                    externalSource: app?.external_source,
+                    externalId: app?.external_id,
+                    applicant: app?.applicant,
+                    submissionDate: app?.submission_date,
+                    assigneeName: app?.assignee_name,
+                    currentStage: app?.current_stage,
+                    currentStepIndex: app?.current_step,
+                    rejectionReason: app?.integration_data?.rejectionReason
+                },
+                complexInfo: {
+                    name: project.name,
+                    region: project.region,
+                    street: project.address
+                },
+                composition: []
+            };
+        });
     },
 
     // [NEW] Mock внешних заявок
@@ -208,11 +221,10 @@ export const ApiService = {
             .select('*')
             .eq('project_id', projectId)
             .eq('scope_id', scope)
-            .single();
+            .maybeSingle();
             
         if (appError) {
-            console.warn("App not found:", appError);
-            return null;
+            throw appError;
         }
 
         // 2. Параллельная загрузка таблиц
@@ -231,15 +243,38 @@ export const ApiService = {
                 `)
                 .eq('project_id', projectId)
                 .order('created_at', { ascending: true }),
-            supabase.from('application_history').select('*').eq('application_id', app.id).order('created_at', { ascending: false }),
-            supabase.from('application_steps').select('*').eq('application_id', app.id)
+            app?.id
+                ? supabase.from('application_history').select('*').eq('application_id', app.id).order('created_at', { ascending: false })
+                : Promise.resolve({ data: [], error: null }),
+            app?.id
+                ? supabase.from('application_steps').select('*').eq('application_id', app.id)
+                : Promise.resolve({ data: [], error: null })
         ]);
 
         if (pRes.error) throw pRes.error;
 
         // 3. Агрегация через маппер
+        const fallbackApp = app || {
+            id: null,
+            updated_at: pRes.data.updated_at,
+            internal_number: null,
+            external_source: null,
+            external_id: null,
+            applicant: null,
+            submission_date: null,
+            status: 'DRAFT',
+            assignee_name: null,
+            current_step: 0,
+            current_stage: 1
+        };
+
         const projectData = mapProjectAggregate(
-            pRes.data, app, historyRes.data || [], stepsRes.data || [], partsRes.data || [], docsRes.data || []
+            pRes.data,
+            fallbackApp,
+            historyRes.data || [],
+            stepsRes.data || [],
+            partsRes.data || [],
+            docsRes.data || []
         );
 
         // 4. Сборка composition и buildingDetails (нужно для UI конфигуратора)
@@ -341,6 +376,148 @@ export const ApiService = {
         });
 
         return { ...projectData, composition, buildingDetails };
+    },
+
+
+    // --- PROJECT PASSPORT ---
+    getProjectDetails: async (projectId) => {
+        if (!projectId) return null;
+
+        const [projectRes, partsRes, docsRes] = await Promise.all([
+            supabase.from('projects').select('*').eq('id', projectId).single(),
+            supabase.from('project_participants').select('*').eq('project_id', projectId),
+            supabase.from('project_documents').select('*').eq('project_id', projectId).order('doc_date', { ascending: false })
+        ]);
+
+        if (projectRes.error) throw projectRes.error;
+        if (partsRes.error) throw partsRes.error;
+        if (docsRes.error) throw docsRes.error;
+
+        const project = projectRes.data;
+
+        return {
+            complexInfo: {
+                name: project.name,
+                status: project.construction_status,
+                region: project.region,
+                district: project.district,
+                street: project.address,
+                landmark: project.landmark,
+                dateStartProject: project.date_start_project,
+                dateEndProject: project.date_end_project,
+                dateStartFact: project.date_start_fact,
+                dateEndFact: project.date_end_fact
+            },
+            cadastre: {
+                number: project.cadastre_number
+            },
+            participants: (partsRes.data || []).reduce((acc, part) => {
+                acc[part.role] = {
+                    id: part.id,
+                    name: part.name,
+                    inn: part.inn,
+                    role: part.role
+                };
+                return acc;
+            }, {}),
+            documents: (docsRes.data || []).map(d => ({
+                id: d.id,
+                name: d.name,
+                type: d.doc_type,
+                date: d.doc_date,
+                number: d.doc_number,
+                url: d.file_url
+            }))
+        };
+    },
+
+    createProject: async (name, street = '', scope = 'shared_dev_env') => {
+        const appData = {
+            source: 'MANUAL',
+            externalId: null,
+            applicant: name,
+            address: street,
+            cadastre: '',
+            submissionDate: new Date()
+        };
+
+        const user = { name: 'System', role: 'admin' };
+        return ApiService.createProjectFromApplication(scope, appData, user);
+    },
+
+    updateProjectInfo: async (projectId, info = {}, cadastreData = {}) => {
+        if (!projectId) return null;
+
+        const payload = {
+            name: info.name,
+            construction_status: info.status,
+            region: info.region,
+            district: info.district,
+            address: info.street,
+            landmark: info.landmark,
+            date_start_project: info.dateStartProject,
+            date_end_project: info.dateEndProject,
+            date_start_fact: info.dateStartFact,
+            date_end_fact: info.dateEndFact,
+            cadastre_number: cadastreData.number,
+            updated_at: new Date()
+        };
+
+        const { data, error } = await supabase
+            .from('projects')
+            .update(payload)
+            .eq('id', projectId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    },
+
+    upsertParticipant: async (projectId, role, data = {}) => {
+        const payload = {
+            id: data.id || crypto.randomUUID(),
+            project_id: projectId,
+            role,
+            name: data.name || '',
+            inn: data.inn || ''
+        };
+
+        const { data: result, error } = await supabase
+            .from('project_participants')
+            .upsert(payload)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return result;
+    },
+
+    upsertDocument: async (projectId, doc = {}) => {
+        const payload = {
+            id: doc.id || crypto.randomUUID(),
+            project_id: projectId,
+            name: doc.name || '',
+            doc_type: doc.type || '',
+            doc_date: doc.date || null,
+            doc_number: doc.number || '',
+            file_url: doc.url || null
+        };
+
+        const { data, error } = await supabase
+            .from('project_documents')
+            .upsert(payload)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    },
+
+    deleteDocument: async (id) => {
+        if (!id) return;
+        const { error } = await supabase.from('project_documents').delete().eq('id', id);
+        if (error) throw error;
     },
 
     // --- STANDARD API METHODS (Existing ones preserved) ---
@@ -826,35 +1003,56 @@ export const ApiService = {
         }
 
         if (generalData.applicationInfo) {
-            // Находим ID заявки
-            const { data: app } = await supabase.from('applications').select('id').eq('project_id', projectId).single();
-            if (app) {
-                const ai = generalData.applicationInfo;
+            const ai = generalData.applicationInfo;
+
+            // Находим заявку; если ее нет (частый кейс при миграции), создаем техническую запись,
+            // чтобы Workflow (статус/шаги/история) продолжал корректно работать.
+            const { data: appFound } = await supabase
+                .from('applications')
+                .select('id')
+                .eq('project_id', projectId)
+                .maybeSingle();
+
+            let applicationId = appFound?.id || null;
+
+            if (!applicationId) {
+                const { data: createdApp, error: createAppError } = await supabase
+                    .from('applications')
+                    .insert({
+                        project_id: projectId,
+                        scope_id: scope,
+                        internal_number: `AUTO-${Date.now().toString().slice(-6)}`,
+                        external_source: 'MIGRATION_FIX',
+                        external_id: null,
+                        applicant: null,
+                        submission_date: new Date(),
+                        assignee_name: null,
+                        status: ai.status || 'DRAFT',
+                        current_step: ai.currentStepIndex ?? 0,
+                        current_stage: ai.currentStage ?? 1
+                    })
+                    .select('id')
+                    .single();
+
+                if (createAppError) throw createAppError;
+                applicationId = createdApp?.id;
+            }
+
+            if (applicationId) {
                 promises.push(supabase.from('applications').update({
                     status: ai.status,
                     current_step: ai.currentStepIndex,
                     current_stage: ai.currentStage,
                     updated_at: new Date()
-                }).eq('id', app.id));
-                
+                }).eq('id', applicationId));
+
                 // History & Steps
                 if (ai.history && ai.history.length > 0) {
                     const last = ai.history[0];
-                    // Простая проверка "свежести" (чтобы не дублировать старые), 
-                    // но лучше бы передавать только новую запись.
-                    // Для надежности просто пишем последнюю запись, если она "новая" (текущая минута?)
-                    // Или просто полагаемся на createHistoryEntry который вызывается в Context при действии.
-                    // В Context `completeTask` вызывает saveData с полной историей.
-                    // Лучше бы сделать отдельный метод `addHistoryItem`.
-                    // Но для совместимости оставим:
-                    // (Тут сложно дедуплицировать без ID, поэтому оставим пока пуcтым, история пишется отдельно через completeTask logic?)
-                    // Нет, в completeTask мы просто обновляем JSON в Context и зовем saveData.
-                    // В новой БД история - отдельная таблица. 
-                    // => Нам нужно вычленить ПОСЛЕДНЮЮ запись и вставить её.
                     const isFresh = new Date().getTime() - new Date(last.date).getTime() < 5000;
                     if (isFresh) {
                         promises.push(supabase.from('application_history').insert({
-                            application_id: app.id,
+                            application_id: applicationId,
                             action: last.action,
                             prev_status: last.prevStatus,
                             next_status: last.nextStatus || ai.status,
@@ -864,10 +1062,10 @@ export const ApiService = {
                         }));
                     }
                 }
-                
+
                 if (ai.completedSteps) {
                     const stepsPayload = ai.completedSteps.map(idx => ({
-                        application_id: app.id,
+                        application_id: applicationId,
                         step_index: idx,
                         is_completed: true
                     }));
