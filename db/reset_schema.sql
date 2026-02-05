@@ -18,6 +18,7 @@ drop table if exists entrance_matrix cascade;
 drop table if exists entrances cascade;
 drop table if exists floors cascade;
 drop table if exists basements cascade;
+drop table if exists block_floor_markers cascade;
 drop table if exists block_engineering cascade;
 drop table if exists block_construction cascade;
 drop table if exists building_blocks cascade;
@@ -218,6 +219,22 @@ create table basements (
 );
 create index idx_basements_building on basements(building_id);
 create index idx_basements_block on basements(block_id);
+
+create table block_floor_markers (
+  id uuid primary key default gen_random_uuid(),
+  block_id uuid not null references building_blocks(id) on delete cascade,
+  marker_key text not null,
+  marker_type text not null,
+  floor_index int,
+  parent_floor_index int,
+  is_technical boolean not null default false,
+  is_commercial boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(block_id, marker_key),
+  check (marker_type in ('floor', 'technical', 'special', 'basement'))
+);
+create index idx_block_floor_markers_block on block_floor_markers(block_id);
 
 create table basement_parking_levels (
   id uuid primary key default gen_random_uuid(),
