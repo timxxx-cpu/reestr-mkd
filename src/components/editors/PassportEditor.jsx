@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   MapPin,
@@ -55,11 +55,13 @@ export default function PassportEditor() {
     area: ''
   });
 
-  const dataLoadedRef = useRef(false);
-  const safeComplexInfo = /** @type {any} */ (complexInfo || {});
-  const safeCadastre = /** @type {any} */ (cadastre || {});
+  const [isInitialDataLoaded, setIsInitialDataLoaded] = useState(false);
+
   useEffect(() => {
-    if (!isLoading && Object.keys(safeComplexInfo).length > 0 && !dataLoadedRef.current) {
+    const safeComplexInfo = /** @type {any} */ (complexInfo || {});
+    const safeCadastre = /** @type {any} */ (cadastre || {});
+
+    if (!isLoading && Object.keys(safeComplexInfo).length > 0 && !isInitialDataLoaded) {
       setLocalInfo((prev) => ({
         ...prev,
         ...safeComplexInfo,
@@ -85,19 +87,19 @@ export default function PassportEditor() {
         }));
       }
 
-      dataLoadedRef.current = true;
+      setIsInitialDataLoaded(true);
     }
-  }, [complexInfo, cadastre, isLoading]);
+  }, [complexInfo, cadastre, isLoading, isInitialDataLoaded]);
 
   useEffect(() => {
-    if (!dataLoadedRef.current || isReadOnly) return;
+    if (!isInitialDataLoaded || isReadOnly) return;
 
     const timer = setTimeout(() => {
       updateProjectInfo({ info: localInfo, cadastreData: localCadastre });
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [localInfo, localCadastre, updateProjectInfo, isReadOnly]);
+  }, [localInfo, localCadastre, updateProjectInfo, isReadOnly, isInitialDataLoaded]);
 
   const handleInfoChange = (field, value) => setLocalInfo((prev) => ({ ...prev, [field]: value }));
   const handleCadastreChange = (field, value) => setLocalCadastre((prev) => ({ ...prev, [field]: value }));
@@ -124,7 +126,7 @@ export default function PassportEditor() {
   const StatusIcon = statusConfig?.icon || LayoutDashboard;
   const progress = calculateProgress(localInfo.dateStartProject, localInfo.dateEndProject);
 
-  if (isLoading && !dataLoadedRef.current) {
+  if (isLoading && !isInitialDataLoaded) {
     return (
       <div className="p-20 text-center">
         <Loader2 className="animate-spin mx-auto text-blue-600" />

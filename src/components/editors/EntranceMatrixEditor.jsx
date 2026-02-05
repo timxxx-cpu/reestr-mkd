@@ -56,12 +56,12 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     // Фильтруем этажи (без стилобатов в этом виде)
     const floors = useMemo(() => rawFloors.filter(f => !f.isStylobate), [rawFloors]);
 
-    const { entrances, matrixMap, updateCell, syncEntrances } = useDirectMatrix(currentBlock?.id);
+    const { entrances, matrixMap, updateCell, _syncEntrances } = useDirectMatrix(currentBlock?.id);
 
     // Локальный стейт UI
-    const [openMenuId, setOpenMenuId] = useState(null);
-    const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
-    const inputsRef = useRef({});
+    const [_openMenuId, setOpenMenuId] = useState(null);
+    const [_menuPosition, _setMenuPosition] = useState({ top: 0, left: 0 });
+    const _inputsRef = useRef({});
     const menuRef = useRef(null);
 
     // Авто-создание подъездов, если их нет в БД, но они есть в конфиге (если нужно)

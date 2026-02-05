@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Inbox, Briefcase, Search, ListTodo, ShieldCheck, 
   HardHat, Archive, Eye, PlayCircle, MapPin, 
@@ -36,7 +36,7 @@ const VisualProgress = ({ current, total }) => {
 };
 
 // --- КОМПОНЕНТ KPI КАРТОЧКИ ---
-function MetricCard({ label, value, icon: Icon, color, isActive, onClick }) {
+function MetricCard({ label, value, icon: _Icon, color, isActive, onClick }) {
     const activeClass = isActive 
         ? `ring-2 ring-offset-1 ring-${color.split('-')[1]}-500 border-${color.split('-')[1]}-500 bg-white` 
         : 'border-slate-200 hover:border-blue-300 bg-slate-50/50 hover:bg-white';
@@ -50,7 +50,7 @@ function MetricCard({ label, value, icon: Icon, color, isActive, onClick }) {
             `}
         >
             <div className={`w-12 h-12 rounded-lg flex items-center justify-center bg-white shadow-sm border border-slate-100 ${color}`}>
-                <Icon size={24} />
+                <_Icon size={24} />
             </div>
             <div>
                 <div className="text-2xl font-black text-slate-800 leading-none">{value}</div>
@@ -104,9 +104,9 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
         if (activeTab === 'inbox' && canViewInbox) {
             loadInbox();
         }
-    }, [activeTab, canViewInbox]);
+    }, [activeTab, canViewInbox, loadInbox]);
 
-   const loadInbox = async () => {
+   const loadInbox = useCallback(async () => {
         setIsLoadingApps(true);
         try {
             const data = await ApiService.getExternalApplications(); // CHANGED
@@ -117,7 +117,7 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
         } finally {
             setIsLoadingApps(false);
         }
-    };
+    }, [toast]);
 
     const handleEmulateIncoming = () => {
         setIsLoadingApps(true);

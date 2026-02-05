@@ -2,14 +2,14 @@
 import React from 'react';
 import { LayoutGrid, FileText, CheckCircle2 } from 'lucide-react';
 
-const StatCard = ({ label, value, icon: Icon, colorClass, iconBgClass }) => (
+const StatCard = ({ label, value, icon: _Icon, colorClass, iconBgClass }) => (
     <div className={`p-4 rounded-xl border flex items-center justify-between shadow-sm bg-white ${colorClass}`}>
         <div>
             <p className="text-[10px] font-bold uppercase tracking-wider opacity-70">{label}</p>
             <p className="text-2xl font-black mt-1">{value}</p>
         </div>
         <div className={`p-2 rounded-lg ${iconBgClass || 'bg-slate-100'}`}>
-            <Icon size={20} className="opacity-80"/>
+            <_Icon size={20} className="opacity-80"/>
         </div>
     </div>
 );

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { getBlocksList } from '../../lib/utils';
 
@@ -17,13 +17,13 @@ export function useApartmentsData() {
 
     const [searchTerm, setSearchTerm] = useState('');
 
-    const resolveFloorLabel = (buildingId, floorId) => {
+    const resolveFloorLabel = useCallback((buildingId, floorId) => {
         if (!floorId) return '-';
         // Ищем этаж по ID, игнорируя префикс ключа
         const entry = Object.values(floorData).find(f => f.id === floorId);
         if (entry) return entry.label;
         return floorId; // Fallback
-    };
+    }, [floorData]);
 
     const allObjects = useMemo(() => {
         const list = [];
@@ -78,7 +78,7 @@ export function useApartmentsData() {
         });
 
         return list.sort((a, b) => a.number.localeCompare(b.number, undefined, {numeric: true}));
-    }, [composition, flatMatrix, floorData, buildingDetails, complexInfo]);
+    }, [composition, flatMatrix, buildingDetails, complexInfo, resolveFloorLabel]);
 
     const filteredData = useMemo(() => {
         return allObjects.filter(item => {

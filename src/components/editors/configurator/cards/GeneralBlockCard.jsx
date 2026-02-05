@@ -8,7 +8,7 @@ export default function GeneralBlockCard({
     building, 
     currentBlock, 
     hasElevatorIssue, 
-    errorBorder 
+    _errorBorder 
 }) {
     const isReadOnly = useReadOnly();
     const isResidential = currentBlock?.type === 'Ж';

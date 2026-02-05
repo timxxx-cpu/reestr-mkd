@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Database, Send, Loader2, CheckCircle2, AlertTriangle, 
   Home, Car, Briefcase, RefreshCw, Hash, ArrowRight,
@@ -57,7 +57,7 @@ export default function IntegrationUnits() {
 
         // Квартиры и офисы
         units.forEach(u => {
-            const bLabel = bMap[u.buildingId] || 'Объект'; // buildingId нужно прокинуть из API
+            const _bLabel = bMap[u.buildingId] || 'Объект'; // buildingId нужно прокинуть из API
             // Внимание: API getProjectFullRegistry возвращает юниты без buildingId (join сложный).
             // Но мы можем найти buildingId через floor -> block -> building.
             // Упрощение: в API getProjectFullRegistry мы не джойнили buildingId.

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { getStageColor } from '../lib/utils'; 
 
-export default function ProjectsDashboard({ projects = [], onSelect, onCreate, onDelete }) {
+export default function ProjectsDashboard({ projects = [], onSelect, _onCreate, onDelete }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState('grid');
     const [statusFilter, setStatusFilter] = useState('all');
@@ -228,14 +228,14 @@ export default function ProjectsDashboard({ projects = [], onSelect, onCreate, o
     );
 }
 
-function MetricCard({ label, value, icon: Icon, color }) {
+function MetricCard({ label, value, icon: _Icon, color }) {
     return (
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between h-28 relative overflow-hidden group hover:border-blue-300 transition-colors">
             <div className={`absolute top-0 right-0 p-4 opacity-10 ${color} transform scale-150 group-hover:scale-125 transition-transform`}>
-                <Icon size={64} />
+                <_Icon size={64} />
             </div>
             <div className={`text-slate-400 mb-2 ${color}`}>
-                <Icon size={24} />
+                <_Icon size={24} />
             </div>
             <div>
                 <div className="text-2xl font-bold text-slate-800">{value}</div>

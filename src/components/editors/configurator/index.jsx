@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useProject } from '../../../context/ProjectContext'; 
 import { useBuildingType } from '../../../hooks/useBuildingType';
 
