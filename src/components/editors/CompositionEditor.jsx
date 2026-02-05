@@ -8,6 +8,7 @@ import { Button, Input, Select, Label, SectionTitle, useReadOnly } from '../ui/U
 import { calculateProgress, getStageColor } from '../../lib/utils';
 import { BuildingModalSchema } from '../../lib/schemas';
 import { useValidation } from '../../hooks/useValidation';
+import { useCatalog } from '../../hooks/useCatalogs';
 
 const TYPE_NAMES = {
     residential: "Отдельный жилой дом", 
@@ -77,7 +78,7 @@ const generateBlocks = (buildingId, params) => {
     return blocks;
 };
 
-const BuildingModal = ({ modal, setModal, onCommit }) => {
+const BuildingModal = ({ modal, setModal, onCommit, parkingTypeOptions, parkingConstructionOptions, infraTypeOptions, projectStageOptions }) => {
     const isReadOnly = useReadOnly();
     
     const { errors, isValid } = useValidation(BuildingModalSchema, {
@@ -180,17 +181,14 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                                 <div className="space-y-1.5">
                                     <Label>Тип паркинга</Label>
                                     <Select value={modal.parkingType} onChange={e => setModal(m => ({...m, parkingType: e.target.value}))}>
-                                        <option value="underground">Подземный</option>
-                                        <option value="ground">Наземный</option>
+                                        {parkingTypeOptions.map(opt => <option key={opt.code} value={opt.code}>{opt.label}</option>)}
                                     </Select>
                                 </div>
                                 {modal.parkingType === 'ground' && (
                                     <div className="space-y-1.5 animate-in slide-in-from-top-2">
                                         <Label>Конструктив</Label>
                                         <Select value={modal.parkingConstruction} onChange={e => setModal(m => ({...m, parkingConstruction: e.target.value}))}>
-                                            <option value="capital">Капитальный</option>
-                                            <option value="light">Из легких конструкций</option>
-                                            <option value="open">Открытый</option>
+                                            {parkingConstructionOptions.map(opt => <option key={opt.code} value={opt.code}>{opt.label}</option>)}
                                         </Select>
                                     </div>
                                 )}
@@ -200,21 +198,14 @@ const BuildingModal = ({ modal, setModal, onCommit }) => {
                             <div className="space-y-1.5 p-3 bg-amber-50 rounded-xl border border-amber-100 animate-in fade-in">
                                 <Label>Тип объекта</Label>
                                 <Select value={modal.infraType} onChange={(e) => setModal(m => ({...m, infraType: e.target.value}))}>
-                                    <option value="Котельная">Котельная</option>
-                                    <option value="ТП">ТП</option>
-                                    <option value="Детский сад">Детский сад</option>
-                                    <option value="Школа">Школа</option>
-                                    <option value="КПП">КПП</option>
+                                    {infraTypeOptions.map(opt => <option key={opt.code} value={opt.label}>{opt.label}</option>)}
                                 </Select>
                             </div>
                         )}
                         <div className="space-y-1.5">
                             <Label>Текущая стадия</Label>
                             <Select value={modal.stage} onChange={e => setModal(m => ({...m, stage: e.target.value}))}>
-                                <option value="Проектный">📁 Проектный</option>
-                                <option value="Строящийся">🏗️ Строящийся</option>
-                                <option value="Введенный">🔑 Введенный</option>
-                                <option value="Архив">📦 Архив</option>
+                                {projectStageOptions.map(opt => <option key={opt.code} value={opt.label}>{opt.label}</option>)}
                             </Select>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
@@ -274,6 +265,11 @@ export default function CompositionEditor() {
     });
 
     const hasResidential = useMemo(() => composition.some(c => c.category.includes('residential')), [composition]);
+
+    const { options: parkingTypeOptions } = useCatalog('dict_parking_types', ['Подземный', 'Наземный']);
+    const { options: parkingConstructionOptions } = useCatalog('dict_parking_construction_types', ['Капитальный', 'Из легких конструкций', 'Открытый']);
+    const { options: infraTypeOptions } = useCatalog('dict_infra_types', ['Котельная', 'ТП', 'Детский сад', 'Школа', 'КПП']);
+    const { options: projectStageOptions } = useCatalog('dict_project_statuses', ['Проектный', 'Строящийся', 'Введенный', 'Архив']);
 
     const generateDemoComplex = () => {
         if (!window.confirm("Создать демо-данные? Текущий список будет дополнен.")) return;
@@ -531,7 +527,7 @@ export default function CompositionEditor() {
                     })}
                 </div>
             </div>
-            {modal.isOpen && <BuildingModal modal={modal} setModal={setModal} onCommit={commitPlanning} />}
+            {modal.isOpen && <BuildingModal modal={modal} setModal={setModal} onCommit={commitPlanning} parkingTypeOptions={parkingTypeOptions} parkingConstructionOptions={parkingConstructionOptions} infraTypeOptions={infraTypeOptions} projectStageOptions={projectStageOptions} />}
         </div>
     );
 }

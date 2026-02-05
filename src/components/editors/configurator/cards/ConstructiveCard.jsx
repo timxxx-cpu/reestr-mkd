@@ -1,17 +1,23 @@
 import React from 'react';
 import { Hammer, Activity, AlertCircle } from 'lucide-react';
 import { Card, SectionTitle, Label, Select, useReadOnly } from '../../../ui/UIKit';
+import { useCatalog } from '../../../../hooks/useCatalogs';
 
 export default function ConstructiveCard({ details, updateDetail, errors }) {
     const isReadOnly = useReadOnly();
     // Защита от undefined, если errors не передан
     const safeErrors = errors || {};
 
+    const { options: foundationOptions } = useCatalog('dict_foundations', ['Монолитная плита', 'Свайный', 'Ленточный']);
+    const { options: wallOptions } = useCatalog('dict_wall_materials', ['Монолитный ж/б', 'Кирпич', 'Газоблок', 'Панель']);
+    const { options: slabOptions } = useCatalog('dict_slab_types', ['Монолитные ж/б', 'Сборные плиты', 'Деревянные']);
+    const { options: roofOptions } = useCatalog('dict_roof_types', ['Плоская рулонная', 'Скатная', 'Эксплуатируемая']);
+
     const fields = [
-        { key: 'foundation', label: 'Фундамент', options: 'Монолитная плита,Свайный,Ленточный' },
-        { key: 'walls', label: 'Стены', options: 'Монолитный ж/б,Кирпич,Газоблок,Панель' },
-        { key: 'slabs', label: 'Перекрытия', options: 'Монолитные ж/б,Сборные плиты,Деревянные' },
-        { key: 'roof', label: 'Крыша', options: 'Плоская рулонная,Скатная,Эксплуатируемая' }
+        { key: 'foundation', label: 'Фундамент', options: foundationOptions },
+        { key: 'walls', label: 'Стены', options: wallOptions },
+        { key: 'slabs', label: 'Перекрытия', options: slabOptions },
+        { key: 'roof', label: 'Крыша', options: roofOptions }
     ];
 
     // Проверяем, есть ли ошибки в этой карточке
@@ -47,7 +53,7 @@ export default function ConstructiveCard({ details, updateDetail, errors }) {
                                 disabled={isReadOnly}
                             >
                                 <option value="" disabled>Не выбрано</option>
-                                {options.split(',').map(o => <option key={o}>{o}</option>)}
+                                {(options || []).map(o => <option key={o.code} value={o.label}>{o.label}</option>)}
                             </Select>
                             {/* Текст ошибки */}
                             {safeErrors[key] && (

@@ -9,7 +9,42 @@
   3. Strict Foreign Keys с каскадным удалением.
 */
 
--- 1. СБРОС (Удаление старых таблиц в правильном порядке)
+-- 1. СБРОС (Полный hard-reset схемы public)
+
+DO $$
+DECLARE
+    obj RECORD;
+BEGIN
+    FOR obj IN SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+    LOOP
+        EXECUTE format('DROP TABLE IF EXISTS public.%I CASCADE', obj.tablename);
+    END LOOP;
+
+    FOR obj IN SELECT viewname FROM pg_views WHERE schemaname = 'public'
+    LOOP
+        EXECUTE format('DROP VIEW IF EXISTS public.%I CASCADE', obj.viewname);
+    END LOOP;
+
+    FOR obj IN SELECT matviewname FROM pg_matviews WHERE schemaname = 'public'
+    LOOP
+        EXECUTE format('DROP MATERIALIZED VIEW IF EXISTS public.%I CASCADE', obj.matviewname);
+    END LOOP;
+
+    FOR obj IN SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'
+    LOOP
+        EXECUTE format('DROP SEQUENCE IF EXISTS public.%I CASCADE', obj.sequencename);
+    END LOOP;
+
+    FOR obj IN
+        SELECT p.proname,
+               pg_get_function_identity_arguments(p.oid) AS args
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public'
+    LOOP
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(%s) CASCADE', obj.proname, obj.args);
+    END LOOP;
+END $$;
 
 -- Включаем расширение для генерации UUID
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -296,6 +331,7 @@ CREATE TABLE units (
     
     rooms_count INT DEFAULT 0,
     cadastre_number TEXT,                       -- Присвоенный кадастровый номер
+    source_step TEXT DEFAULT 'manual',          -- manual | entrances
     
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -319,7 +355,23 @@ CREATE TABLE common_areas (
     floor_id UUID REFERENCES floors(id) ON DELETE CASCADE,
     entrance_id UUID REFERENCES entrances(id) ON DELETE CASCADE,
     type TEXT,                                  -- Коридор, Лестница, Лифт
-    area DECIMAL(10, 2)
+    area DECIMAL(10, 2),
+    source_step TEXT DEFAULT 'manual'           -- manual | entrances
+);
+
+-- Таблица: entrance_matrix
+-- Описание: Нормализованная матрица шага "Инвентаризация подъездов".
+CREATE TABLE entrance_matrix (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    block_id UUID REFERENCES building_blocks(id) ON DELETE CASCADE,
+    floor_id UUID REFERENCES floors(id) ON DELETE CASCADE,
+    entrance_number INT NOT NULL,
+    apartments_count INT DEFAULT 0,
+    commercial_count INT DEFAULT 0,
+    mop_count INT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(block_id, floor_id, entrance_number)
 );
 
 -- ==========================================
@@ -343,6 +395,7 @@ ALTER TABLE entrances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE units ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rooms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE common_areas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE entrance_matrix ENABLE ROW LEVEL SECURITY;
 
 -- Политики для анонимного доступа (тестовый режим)
 CREATE POLICY "Public All" ON projects FOR ALL USING (true) WITH CHECK (true);
@@ -362,6 +415,7 @@ CREATE POLICY "Public All" ON entrances FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON units FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON rooms FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public All" ON common_areas FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public All" ON entrance_matrix FOR ALL USING (true) WITH CHECK (true);
 
 -- Гранты
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;

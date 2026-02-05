@@ -10,12 +10,13 @@ import { useBuildingFloors } from '../../hooks/useBuildingFloors';
 import { MopItemSchema } from '../../lib/schemas';
 import { useBuildingType } from '../../hooks/useBuildingType';
 import ConfigHeader from './configurator/ConfigHeader';
+import { useCatalog } from '../../hooks/useCatalogs';
 
-const MOP_TYPES = [
-    'Лестничная клетка', 'Межквартирный коридор', 'Лифтовой холл', 'Тамбур', 'Вестибюль', 
-    'Колясочная', 'Комната охраны', 'Санузел', 'ПУИ (Уборочная)', 'Электрощитовая', 
-    'Слаботочная ниша', 'Мусорокамера', 'Техническое подполье', 'Технический этаж', 
-    'Венткамера', 'ИТП', 'Насосная', 'Машинное отделение лифтов', 'Кровля', 
+const MOP_TYPES_FALLBACK = [
+    'Лестничная клетка', 'Межквартирный коридор', 'Лифтовой холл', 'Тамбур', 'Вестибюль',
+    'Колясочная', 'Комната охраны', 'Санузел', 'ПУИ (Уборочная)', 'Электрощитовая',
+    'Слаботочная ниша', 'Мусорокамера', 'Техническое подполье', 'Технический этаж',
+    'Венткамера', 'ИТП', 'Насосная', 'Машинное отделение лифтов', 'Кровля',
     'Паркинг (зона проезда)', 'Рампа', 'Кладовая', 'Техническое помещение', 'Другое'
 ];
 
@@ -45,7 +46,8 @@ export default function MopEditor({ buildingId, onBack }) {
     const isReadOnly = useReadOnly();
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
     const [dataNormalized, setDataNormalized] = useState(false);
-    
+    const { options: mopTypeOptions } = useCatalog('dict_mop_types', MOP_TYPES_FALLBACK);
+
     const inputsRef = useRef({});
 
     const building = composition.find(c => c.id === buildingId);
@@ -384,7 +386,7 @@ export default function MopEditor({ buildingId, onBack }) {
                                                                                 disabled={isReadOnly}
                                                                             >
                                                                                 <option value="" disabled>Выберите тип</option>
-                                                                                {MOP_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+                                                                                {mopTypeOptions.map(t => <option key={t.code} value={t.label}>{t.label}</option>)}
                                                                             </select>
                                                                             <div className="w-px h-4 bg-slate-200 shrink-0"/>
                                                                             <div className="relative w-16 shrink-0">
