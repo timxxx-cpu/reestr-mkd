@@ -61,6 +61,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   
   const saveTimeoutRef = useRef(null);
   const pendingUpdatesRef = useRef({});
+  const validationSnapshotRef = useRef({});
 
   // Единый эффект инициализации
   useEffect(() => {
@@ -116,6 +117,12 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     return combined;
   }, [projectMeta, buildingsState]);
 
+  useEffect(() => {
+      validationSnapshotRef.current = { ...mergedState };
+  }, [mergedState]);
+
+  const getValidationSnapshot = useCallback(() => validationSnapshotRef.current, []);
+
   const isReadOnly = useMemo(() => {
       if (!userProfile) return true;
       const role = userProfile.role;
@@ -156,7 +163,8 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     }
   }, [dbScope, projectId, toast, isReadOnly]);
 
-  const saveProjectImmediate = useCallback(async () => {
+  const saveProjectImmediate = useCallback(async (options = {}) => {
+      const { shouldRefetch = true } = options;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       
       const changes = /** @type {any} */ ({ ...pendingUpdatesRef.current });
@@ -237,14 +245,18 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       } finally {
           setIsSyncing(false);
           setHasUnsavedChanges(false);
-          // Обновляем данные с сервера, чтобы синхронизировать состояние
-          refetch();
+          // Обновляем данные с сервера, чтобы синхронизировать состояние.
+          // Для переходов между шагами делаем refetch контролируемо (после записи статуса шага),
+          // чтобы избежать гонки и краткого read-only режима следующего шага.
+          if (shouldRefetch) {
+              await refetch();
+          }
       }
   }, [dbScope, projectId, mergedState.composition, refetch, toast]);
 
   const completeTask = useCallback(async (currentIndex) => {
       // Сначала сохраняем всё, что есть в буфере
-      await saveProjectImmediate();
+      await saveProjectImmediate({ shouldRefetch: false });
 
       // @ts-ignore
       const currentAppInfo = mergedState.applicationInfo;
@@ -307,12 +319,13 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
       setProjectMeta(prev => ({ ...prev, ...updates }));
       await ApiService.saveData(dbScope, projectId, updates);
+      await refetch();
       
       return nextStepIndex;
-  }, [dbScope, projectId, mergedState, saveProjectImmediate, userProfile]);
+  }, [dbScope, projectId, mergedState, saveProjectImmediate, userProfile, refetch]);
 
   const rollbackTask = useCallback(async () => {
-      await saveProjectImmediate();
+      await saveProjectImmediate({ shouldRefetch: false });
 
       // @ts-ignore
       const currentAppInfo = mergedState.applicationInfo;
@@ -349,9 +362,10 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
       setProjectMeta(prev => ({ ...prev, ...updates }));
       await ApiService.saveData(dbScope, projectId, updates);
+      await refetch();
 
       return prevIndex;
-  }, [dbScope, projectId, mergedState, saveProjectImmediate, userProfile]);
+  }, [dbScope, projectId, mergedState, saveProjectImmediate, userProfile, refetch]);
 
   const reviewStage = useCallback(async (action, comment = '') => {
       // @ts-ignore
@@ -413,9 +427,10 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
       setProjectMeta(prev => ({ ...prev, ...updates }));
       await ApiService.saveData(dbScope, projectId, updates);
+      await refetch();
       
       return newStepIndex;
-  }, [dbScope, projectId, mergedState, userProfile]);
+  }, [dbScope, projectId, mergedState, userProfile, refetch]);
 
   // Адаптеры для совместимости
   const saveBuildingData = useCallback(async (buildingId, dataKey, dataVal) => {
@@ -522,6 +537,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     updateStatus, 
     isSyncing,
     refetch,
+    getValidationSnapshot,
     // [NEW] Установить ID проекта (для PassportEditor при создании)
     setProjectId: (id) => window.location.href = `/project/${id}` // Грубый, но рабочий редирект на созданный проект
   };

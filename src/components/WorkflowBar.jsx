@@ -141,7 +141,8 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       rollbackTask, 
       reviewStage, 
       isReadOnly,
-      hasUnsavedChanges
+      hasUnsavedChanges,
+      getValidationSnapshot
   } = projectContext;
   
   const toast = useToast();
@@ -233,15 +234,34 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   };
 
   // --- COMPLETE TASK HANDLERS (AUTOMATIC) ---
-  const handleCompleteTaskClick = () => {
-      const currentStepId = STEPS_CONFIG[currentStep]?.id;
-      const errors = validateStepCompletion(currentStepId, projectContext);
-      
-      if (errors && errors.length > 0) {
-          setValidationErrors(errors);
-          return;
+  const handleCompleteTaskClick = async () => {
+      setIsLoading(true);
+      setSaveNotice({ open: true, status: 'saving', message: 'Сохранение и проверка данных перед завершением...', onOk: null });
+
+      try {
+          await saveProjectImmediate();
+          // Даем React применить обновленный контекст после refetch,
+          // чтобы валидация увидела свежие данные текущего шага.
+          await new Promise(resolve => setTimeout(resolve, 0));
+
+          const currentStepId = STEPS_CONFIG[currentStep]?.id;
+          const validationData = typeof getValidationSnapshot === 'function' ? getValidationSnapshot() : projectContext;
+          const errors = validateStepCompletion(currentStepId, validationData);
+
+          setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+
+          if (errors && errors.length > 0) {
+              setValidationErrors(errors);
+              return;
+          }
+
+          setShowCompleteConfirm(true);
+      } catch (e) {
+          console.error(e);
+          setSaveNotice({ open: true, status: 'error', message: 'Ошибка: запись или проверка не выполнена.', onOk: () => setSaveNotice({ open: false, status: 'saving', message: '', onOk: null }) });
+      } finally {
+          setIsLoading(false);
       }
-      setShowCompleteConfirm(true);
   };
 
   const performCompletion = async () => {
