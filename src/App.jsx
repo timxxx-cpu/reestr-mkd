@@ -33,6 +33,7 @@ import UnitRegistry from './components/editors/registry/UnitRegistry';
 import SummaryDashboard from './components/editors/SummaryDashboard';
 import RegistryView from './components/editors/RegistryView'; 
 import ApplicationsDashboard from './components/ApplicationsDashboard';
+import CatalogsAdminPanel from './components/admin/CatalogsAdminPanel';
 import IntegrationBuildings from './components/editors/IntegrationBuildings';
 import IntegrationUnits from './components/editors/IntegrationUnits'; 
 
@@ -375,6 +376,7 @@ const MainLayout = ({ firebaseUser, activePersona }) => {
                 dbScope={DB_SCOPE}
                 onSelectProject={(id, mode) => navigate(`/project/${id}${mode === 'view' ? '?mode=view' : ''}`)}
                 onLogout={handleLogout} 
+                onOpenCatalogs={() => navigate('/admin/catalogs')}
             />
             
             <DevRoleSwitcher disabled={false} />
@@ -432,6 +434,7 @@ export default function App() {
         <ToastProvider>
             <Routes>
                 <Route path="/" element={<MainLayout firebaseUser={firebaseUser} activePersona={activePersona} />} />
+                <Route path="/admin/catalogs" element={<CatalogsAdminPanel />} />
                 <Route path="/project/:projectId" element={
                     <ProjectProviderWrapper firebaseUser={firebaseUser} dbScope={DB_SCOPE} activePersona={activePersona}>
                         <ProjectEditorRoute user={activePersona} />

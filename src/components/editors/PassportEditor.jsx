@@ -10,6 +10,7 @@ import { Card, SectionTitle, Label, Input, Button, useReadOnly } from '../ui/UIK
 import { calculateProgress } from '../../lib/utils';
 import { ComplexInfoSchema } from '../../lib/schemas';
 import { useValidation } from '../../hooks/useValidation';
+import { useCatalog } from '../../hooks/useCatalogs';
 
 function getDuration(start, end) {
     if (!start || !end) return null;
@@ -40,6 +41,7 @@ export default function PassportEditor() {
     const [loadingCadastre, setLoadingCadastre] = useState(false);
 
     const { errors, isValid } = useValidation(ComplexInfoSchema, complexInfo);
+    const { options: projectStatusOptions } = useCatalog('dict_project_statuses', Object.keys(STATUS_CONFIG));
 
     const fetchCadastreInfo = () => {
         if (!cadastre.number) return;
@@ -166,7 +168,7 @@ export default function PassportEditor() {
                                     onChange={e => setComplexInfo({...complexInfo, status: e.target.value})}
                                     className={`bg-transparent text-sm font-bold text-white outline-none appearance-none transition-colors ${isReadOnly ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:text-blue-300'}`}
                                 >
-                                    {Object.keys(STATUS_CONFIG).map(s => <option key={s} value={s} className="text-slate-900">{s}</option>)}
+                                    {projectStatusOptions.map(s => <option key={s.code} value={s.label} className="text-slate-900">{s.label}</option>)}
                                 </select>
                             </div>
                         </div>

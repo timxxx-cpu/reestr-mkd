@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { RegistryService } from '../lib/registry-service';
 import { ROLES, APP_STATUS, EXTERNAL_SYSTEMS, APP_STATUS_LABELS, STEPS_CONFIG } from '../lib/constants';
+import { useCatalog } from '../hooks/useCatalogs';
 import { Button, Input, Badge, Card, SectionTitle } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
 import { getStageColor } from '../lib/utils';
@@ -74,7 +75,7 @@ const UserAvatar = ({ name, role }) => {
     );
 };
 
-export default function ApplicationsDashboard({ user, projects, dbScope, onSelectProject, onLogout }) {
+export default function ApplicationsDashboard({ user, projects, dbScope, onSelectProject, onLogout, onOpenCatalogs }) {
     const [activeTab, setActiveTab] = useState('my_tasks'); 
     const [taskFilter, setTaskFilter] = useState('work'); 
     
@@ -83,6 +84,7 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
     const [searchTerm, setSearchTerm] = useState('');
     
     const toast = useToast();
+    const { options: externalSystemOptions } = useCatalog('dict_external_systems', Object.values(EXTERNAL_SYSTEMS).map(x => x.id));
 
     const isAdmin = user.role === ROLES.ADMIN;
     const canViewInbox = isAdmin;
@@ -123,7 +125,9 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
             const randomId = Math.floor(1000 + Math.random() * 9000);
             
             // Выбор случайного источника
-            const sources = Object.values(EXTERNAL_SYSTEMS);
+            const sources = externalSystemOptions.length > 0
+                ? externalSystemOptions.map(s => ({ id: s.code, label: s.label }))
+                : Object.values(EXTERNAL_SYSTEMS);
             const randomSource = sources[Math.floor(Math.random() * sources.length)];
             
             const newApp = {
@@ -243,6 +247,9 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                     </div>
 
                     <div className="flex items-center gap-3">
+                        {isAdmin && onOpenCatalogs && (
+                            <button onClick={onOpenCatalogs} className="px-3 py-2 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700">Справочники</button>
+                        )}
                         {/* ВКЛАДКИ */}
                         <div className="flex bg-slate-950/50 p-1 rounded-xl border border-white/5 backdrop-blur-sm">
                             <button 

@@ -216,14 +216,18 @@ export const RegistryService = {
     
     let allUnits = [];
     let allMops = [];
+    let allEntranceMatrix = [];
 
     if (floorIds.length > 0) {
-        const [unitsRes, mopsRes] = await Promise.all([
+        const blockIds = (allBlocks || []).map(b => b.id);
+        const [unitsRes, mopsRes, matrixRes] = await Promise.all([
             supabase.from('units').select('*, rooms(*)').in('floor_id', floorIds),
-            supabase.from('common_areas').select('*').in('floor_id', floorIds)
+            supabase.from('common_areas').select('*').in('floor_id', floorIds),
+            supabase.from('entrance_matrix').select('*').in('block_id', blockIds)
         ]);
         allUnits = unitsRes.data || [];
         allMops = mopsRes.data || [];
+        allEntranceMatrix = matrixRes.data || [];
     }
 
     const result = {};
@@ -241,26 +245,16 @@ export const RegistryService = {
 
             const floorUnits = allUnits.filter(u => u.floor_id === f.id);
             const floorMops = allMops.filter(m => m.floor_id === f.id);
-            const statsByEntrance = {}; 
-            
-            block.entrances.forEach(e => { 
-                statsByEntrance[e.number] = { apts: 0, units: 0, mops: 0, id: crypto.randomUUID() }; 
-            });
+            const floorMatrix = allEntranceMatrix.filter(m => m.block_id === block.id && m.floor_id === f.id);
 
             floorUnits.forEach(u => {
                 const unitMapped = mapUnitFromDB(u, u.rooms, entranceMap, bId, block.id);
                 const unitKey = u.id;
-                
+
                 if (u.unit_type === 'parking_place') {
                     result[bId].parkingData[unitKey] = unitMapped;
                 } else {
                     result[bId].apartmentsData[unitKey] = unitMapped;
-                }
-
-                const entNum = unitMapped.entranceIndex;
-                if (statsByEntrance[entNum]) {
-                    if (['flat', 'duplex_up', 'duplex_down'].includes(u.unit_type)) statsByEntrance[entNum].apts++;
-                    else if (['office', 'pantry'].includes(u.unit_type)) statsByEntrance[entNum].units++;
                 }
             });
 
@@ -270,16 +264,56 @@ export const RegistryService = {
                 const mopKey = `${bId}_${block.id}_e${entNum}_f${f.id}_mops`;
                 if (!result[bId].commonAreasData[mopKey]) result[bId].commonAreasData[mopKey] = [];
                 result[bId].commonAreasData[mopKey].push(mopMapped);
-                if (statsByEntrance[entNum]) statsByEntrance[entNum].mops++;
             });
 
-            Object.entries(statsByEntrance).forEach(([entNum, stats]) => {
-                const entKey = `${bId}_${block.id}_ent${entNum}_${f.id}`;
-                result[bId].entrancesData[entKey] = {
-                    id: stats.id, buildingId: bId, blockId: block.id, floorId: f.id, entranceIndex: parseInt(entNum),
-                    apts: stats.apts, units: stats.units, mopQty: stats.mops
-                };
-            });
+            if (floorMatrix.length > 0) {
+                floorMatrix.forEach(row => {
+                    const entKey = `${bId}_${block.id}_ent${row.entrance_number}_${f.id}`;
+                    result[bId].entrancesData[entKey] = {
+                        id: row.id,
+                        buildingId: bId,
+                        blockId: block.id,
+                        floorId: f.id,
+                        entranceIndex: row.entrance_number,
+                        apts: row.apartments_count || 0,
+                        units: row.commercial_count || 0,
+                        mopQty: row.mop_count || 0
+                    };
+                });
+            } else {
+                const fallbackStats = {};
+                block.entrances.forEach(e => {
+                    fallbackStats[e.number] = { apts: 0, units: 0, mops: 0, id: crypto.randomUUID() };
+                });
+
+                floorUnits.forEach(u => {
+                    const unitMapped = mapUnitFromDB(u, u.rooms, entranceMap, bId, block.id);
+                    const entNum = unitMapped.entranceIndex;
+                    if (!fallbackStats[entNum]) return;
+                    if (['flat', 'duplex_up', 'duplex_down'].includes(u.unit_type)) fallbackStats[entNum].apts++;
+                    else if (['office', 'pantry'].includes(u.unit_type)) fallbackStats[entNum].units++;
+                });
+
+                floorMops.forEach(m => {
+                    const mopMapped = mapMopFromDB(m, entranceMap, bId, block.id);
+                    const entNum = mopMapped.entranceIndex;
+                    if (fallbackStats[entNum]) fallbackStats[entNum].mops++;
+                });
+
+                Object.entries(fallbackStats).forEach(([entNum, stats]) => {
+                    const entKey = `${bId}_${block.id}_ent${entNum}_${f.id}`;
+                    result[bId].entrancesData[entKey] = {
+                        id: stats.id,
+                        buildingId: bId,
+                        blockId: block.id,
+                        floorId: f.id,
+                        entranceIndex: parseInt(entNum),
+                        apts: stats.apts,
+                        units: stats.units,
+                        mopQty: stats.mops
+                    };
+                });
+            }
         });
     });
     return result;
@@ -625,6 +659,7 @@ export const RegistryService = {
             });
             if (bData.apartmentsData) collect(bData.apartmentsData);
             if (bData.parkingData) collect(bData.parkingData);
+            if (bData.entrancesData) collect(bData.entrancesData);
             
             const newEnts = [];
             neededEntrances.forEach(key => {
@@ -636,6 +671,94 @@ export const RegistryService = {
                 }
             });
             if (newEnts.length > 0) await supabase.from('entrances').upsert(newEnts);
+
+            if (bData.entrancesData) {
+                const matrixRows = [];
+                const generatedUnits = [];
+                const generatedMops = [];
+
+                Object.values(bData.entrancesData).forEach(row => {
+                    const entranceNumber = parseInt(row.entranceIndex || row.entrance || 0);
+                    if (!row.blockId || !row.floorId || !entranceNumber) return;
+
+                    const apartmentsCount = Math.max(0, parseInt(row.apts) || 0);
+                    const commercialCount = Math.max(0, parseInt(row.units) || 0);
+                    const mopCount = Math.max(0, parseInt(row.mopQty) || 0);
+
+                    matrixRows.push({
+                        id: row.id || crypto.randomUUID(),
+                        block_id: row.blockId,
+                        floor_id: row.floorId,
+                        entrance_number: entranceNumber,
+                        apartments_count: apartmentsCount,
+                        commercial_count: commercialCount,
+                        mop_count: mopCount,
+                        updated_at: new Date().toISOString()
+                    });
+
+                    const entId = entranceMap[`${row.blockId}_${entranceNumber}`] || null;
+                    if (!entId) return;
+
+                    for (let i = 1; i <= apartmentsCount; i++) {
+                        generatedUnits.push({
+                            id: crypto.randomUUID(),
+                            floor_id: row.floorId,
+                            entrance_id: entId,
+                            unit_type: 'flat',
+                            number: `AUTO-F-${entranceNumber}-${i}`,
+                            status: 'free',
+                            total_area: 0,
+                            living_area: 0,
+                            useful_area: 0,
+                            rooms_count: 0,
+                            source_step: 'entrances'
+                        });
+                    }
+
+                    for (let i = 1; i <= commercialCount; i++) {
+                        generatedUnits.push({
+                            id: crypto.randomUUID(),
+                            floor_id: row.floorId,
+                            entrance_id: entId,
+                            unit_type: 'office',
+                            number: `AUTO-C-${entranceNumber}-${i}`,
+                            status: 'free',
+                            total_area: 0,
+                            living_area: 0,
+                            useful_area: 0,
+                            rooms_count: 0,
+                            source_step: 'entrances'
+                        });
+                    }
+
+                    for (let i = 1; i <= mopCount; i++) {
+                        generatedMops.push({
+                            id: crypto.randomUUID(),
+                            floor_id: row.floorId,
+                            entrance_id: entId,
+                            type: 'Другое',
+                            area: 0,
+                            source_step: 'entrances'
+                        });
+                    }
+                });
+
+                if (matrixRows.length) {
+                    const blockIdsToReplace = [...new Set(matrixRows.map(r => r.block_id))];
+                    const floorIdsToReplace = [...new Set(matrixRows.map(r => r.floor_id))];
+
+                    promises.push((async () => {
+                        await supabase.from('entrance_matrix').delete().in('block_id', blockIdsToReplace).in('floor_id', floorIdsToReplace);
+                        await supabase.from('entrance_matrix').upsert(matrixRows, { onConflict: 'block_id,floor_id,entrance_number' });
+
+                        await supabase.from('units').delete().in('floor_id', floorIdsToReplace).eq('source_step', 'entrances');
+                        await supabase.from('common_areas').delete().in('floor_id', floorIdsToReplace).eq('source_step', 'entrances');
+
+                        if (generatedUnits.length) await supabase.from('units').insert(generatedUnits);
+                        if (generatedMops.length) await supabase.from('common_areas').insert(generatedMops);
+                    })());
+                }
+            }
 
             const unitsPayload = [];
             const roomsPayload = [];
@@ -653,7 +776,8 @@ export const RegistryService = {
                     living_area: parseFloat(u.livingArea)||0,
                     useful_area: parseFloat(u.usefulArea)||0,
                     rooms_count: u.rooms||0,
-                    cadastre_number: u.cadastreNumber
+                    cadastre_number: u.cadastreNumber,
+                    source_step: 'manual'
                 });
                 if (u.explication) {
                     u.explication.forEach(r => {
@@ -676,7 +800,7 @@ export const RegistryService = {
                 Object.values(bData.commonAreasData).flat().forEach(m => {
                     const entKey = `${m.blockId}_${m.entranceIndex}`;
                     if (entranceMap[entKey] && m.floorId) {
-                        mops.push({ id: m.id, floor_id: m.floorId, entrance_id: entranceMap[entKey], type: m.type, area: parseFloat(m.area)||0 });
+                        mops.push({ id: m.id, floor_id: m.floorId, entrance_id: entranceMap[entKey], type: m.type, area: parseFloat(m.area)||0, source_step: 'manual' });
                     }
                 });
                 if (mops.length) promises.push(supabase.from('common_areas').upsert(mops));
