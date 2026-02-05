@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Trash2, Copy, AlertCircle, Wand2, DoorOpen, Ban,
   Building2, Car, Box, Store, LayoutGrid
@@ -57,13 +57,18 @@ export default function MopEditor({ buildingId, onBack }) {
     const { isUnderground, isParking, isInfrastructure } = typeInfo;
 
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
+    const draftMopIdsRef = useRef({});
     const currentBlock = useMemo(() => building?.blocks?.[activeBlockIndex], [building, activeBlockIndex]);
 
     // 2. Data Hooks
     const { floors: rawFloors } = useDirectFloors(currentBlock?.id);
     const { entrances, matrixMap } = useDirectMatrix(currentBlock?.id);
-    const { mops, upsertMop, _deleteMop, clearAllMops } = useDirectCommonAreas(currentBlock?.id);
+    const { mops, upsertMop, clearAllMops } = useDirectCommonAreas(currentBlock?.id);
     const { options: mopTypeOptions } = useCatalog('dict_mop_types', MOP_TYPES_FALLBACK);
+
+    useEffect(() => {
+        draftMopIdsRef.current = {};
+    }, [activeBlockIndex]);
 
     // 3. Logic
     const floors = useMemo(() => {
@@ -91,18 +96,17 @@ export default function MopEditor({ buildingId, onBack }) {
     }, [mops]);
 
     // Actions
-    const updateMop = (mopId, floorId, entranceId, field, val) => {
+    const updateMop = (mopId, floorId, entranceId, slotIndex, field, val) => {
         if (isReadOnly) return;
-        
-        // Находим текущий объект или создаем структуру
-        // ВАЖНО: Если mopId не передан, это значит мы создаем новый.
-        // Но нам нужно знать, какой это по счету МОП в ячейке, чтобы обновлять правильный,
-        // если пользователь редактирует только что созданную строку.
-        // Здесь мы полагаемся на то, что компоненты рендерятся на основе mopGrid.
-        
-        const existingMop = mops.find(m => m.id === mopId);
+
+        const slotKey = `${floorId}_${entranceId}_${slotIndex}`;
+        const stableDraftId = draftMopIdsRef.current[slotKey] || crypto.randomUUID();
+        draftMopIdsRef.current[slotKey] = stableDraftId;
+
+        const currentMops = mopGrid[floorId]?.[entranceId] || [];
+        const existingMop = (mopId && mops.find(m => m.id === mopId)) || currentMops[slotIndex];
         const payload = {
-            id: mopId,
+            id: existingMop?.id || stableDraftId,
             floorId,
             entranceId,
             type: existingMop?.type,
@@ -143,7 +147,11 @@ export default function MopEditor({ buildingId, onBack }) {
                     if (!isUnderground && idx === 1) type = 'Лифтовой холл';
                     if (!isUnderground && idx === 2) type = 'Межквартирный коридор';
 
+                    const slotKey = `${f.id}_${e.id}_${idx}`;
+                    const stableDraftId = draftMopIdsRef.current[slotKey] || crypto.randomUUID();
+                    draftMopIdsRef.current[slotKey] = stableDraftId;
                     promises.push(upsertMop({
+                        id: stableDraftId,
                         floorId: f.id,
                         entranceId: e.id,
                         type,
@@ -284,7 +292,7 @@ export default function MopEditor({ buildingId, onBack }) {
                                                                             <select 
                                                                                 className={`bg-transparent text-[10px] font-bold w-full outline-none truncate ${isReadOnly ? 'cursor-default text-slate-700 appearance-none' : 'cursor-pointer hover:text-blue-600 focus:text-blue-700'}`} 
                                                                                 value={mop.type || ''} 
-                                                                                onChange={ev => updateMop(mop.id, f.id, e.id, 'type', ev.target.value)} 
+                                                                                onChange={ev => updateMop(mop.id, f.id, e.id, mIdx, 'type', ev.target.value)} 
                                                                                 title={mop.type}
                                                                                 disabled={isReadOnly}
                                                                             >
@@ -299,7 +307,7 @@ export default function MopEditor({ buildingId, onBack }) {
                                                                                     className={`w-full bg-slate-50 border rounded px-1 py-0.5 text-[10px] font-medium text-center focus:bg-white focus:border-blue-300 outline-none transition-all ${!mop.area ? 'border-red-200' : 'border-slate-100'} ${isReadOnly ? 'cursor-default bg-transparent border-transparent' : ''}`} 
                                                                                     placeholder="м²" 
                                                                                     value={mop.area || ''} 
-                                                                                    onChange={val => updateMop(mop.id, f.id, e.id, 'area', val)} 
+                                                                                    onChange={val => updateMop(mop.id, f.id, e.id, mIdx, 'area', val)} 
                                                                                     disabled={isReadOnly}
                                                                                 />
                                                                             </div>

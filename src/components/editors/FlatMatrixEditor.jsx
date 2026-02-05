@@ -69,10 +69,12 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     const [isSelectionMode, setIsSelectionMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState(new Set());
     const inputsRef = useRef({});
+    const draftUnitIdsRef = useRef({});
 
     useEffect(() => {
         setSelectedIds(new Set());
         inputsRef.current = {};
+        draftUnitIdsRef.current = {};
     }, [activeBlockIndex]);
 
     // 5. Data Processing
@@ -175,10 +177,13 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     const updateApt = (floorId, entranceId, index, field, val) => {
         if (isReadOnly) return;
         const currentUnit = getUnitForCell(floorId, entranceId, index);
-        
+        const draftKey = `${floorId}_${entranceId}_${index}`;
+        const stableDraftId = draftUnitIdsRef.current[draftKey] || crypto.randomUUID();
+        draftUnitIdsRef.current[draftKey] = stableDraftId;
+
         const newData = {
             ...currentUnit,
-            id: currentUnit.id || crypto.randomUUID(), // Генерим ID, если новый
+            id: currentUnit.id || stableDraftId,
             [field]: val
         };
 
@@ -241,8 +246,12 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                     // Пропускаем офисы и кладовые при нумерации квартир? Обычно да.
                     if (existing && (existing.type === 'office' || existing.type === 'pantry')) continue;
                     
+                    const draftKey = `${f.id}_${e.id}_${i}`;
+                    const stableDraftId = draftUnitIdsRef.current[draftKey] || crypto.randomUUID();
+                    draftUnitIdsRef.current[draftKey] = stableDraftId;
+
                     const unitData = existing || {
-                        id: crypto.randomUUID(),
+                        id: stableDraftId,
                         floorId: f.id,
                         entranceId: e.id,
                         type: 'flat'
