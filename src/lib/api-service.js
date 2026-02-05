@@ -7,6 +7,8 @@ import {
     mapUnitFromDB, 
     mapMopFromDB 
 } from './db-mappers';
+import { buildFloorList } from './floor-utils';
+import { getBlocksList } from './utils';
 
 // ... (Оставляем существующие функции mapBuildingToDb, mapBlockToDb, mapBlockTypeToDb, mapDbTypeToUi без изменений) ...
 // ... (Оставляем хелперы inferFloorKey, mapFloorKeyToVirtualId без изменений) ...
@@ -50,6 +52,62 @@ const _inferFloorKey = (id) => {
 const normalizeDateInput = (value) => {
     if (value === '' || value === undefined) return null;
     return value;
+};
+
+const syncFloorsForBlockFromDetails = async (building, currentBlock, buildingDetails) => {
+    if (!building?.id || !currentBlock?.id) return;
+
+    const desiredFloors = buildFloorList(building, currentBlock, buildingDetails);
+    const desiredByKey = new Map();
+
+    desiredFloors.forEach(f => {
+        if (!f?.floorKey) return;
+        desiredByKey.set(f.floorKey, {
+            block_id: currentBlock.id,
+            floor_key: f.floorKey,
+            index: Number(f.index ?? 0),
+            label: f.label || null,
+            floor_type: f.type || 'residential',
+            parent_floor_index: f.parentFloorIndex ?? null,
+            basement_id: f.basementId ?? null,
+            is_technical: !!(f.flags?.isTechnical),
+            is_commercial: !!(f.flags?.isCommercial),
+            is_stylobate: !!(f.flags?.isStylobate),
+            is_basement: !!(f.flags?.isBasement),
+            is_attic: !!(f.flags?.isAttic),
+            is_loft: !!(f.flags?.isLoft),
+            is_roof: !!(f.flags?.isRoof),
+            updated_at: new Date()
+        });
+    });
+
+    const { data: existingRows, error: existingErr } = await supabase
+        .from('floors')
+        .select('id, floor_key')
+        .eq('block_id', currentBlock.id);
+
+    if (existingErr) throw existingErr;
+
+    const existingMap = new Map((existingRows || []).map(r => [r.floor_key, r]));
+    const desiredKeys = new Set(desiredByKey.keys());
+    const toDeleteIds = (existingRows || [])
+        .filter(r => !desiredKeys.has(r.floor_key))
+        .map(r => r.id);
+
+    if (toDeleteIds.length) {
+        const { error: delErr } = await supabase.from('floors').delete().in('id', toDeleteIds);
+        if (delErr) throw delErr;
+    }
+
+    const upsertPayload = Array.from(desiredByKey.entries()).map(([floorKey, row]) => ({
+        ...row,
+        id: existingMap.get(floorKey)?.id || crypto.randomUUID()
+    }));
+
+    if (upsertPayload.length) {
+        const { error: upsertErr } = await supabase.from('floors').upsert(upsertPayload, { onConflict: 'id' });
+        if (upsertErr) throw upsertErr;
+    }
 };
 
 const _mapFloorKeyToVirtualId = (key) => {
@@ -292,6 +350,26 @@ export const ApiService = {
         
         const technicalFloorsMap = {};
         const commercialFloorsMap = {};
+
+        if (blockIds.length > 0) {
+            const { data: markerRows } = await supabase
+                .from('block_floor_markers')
+                .select('block_id, marker_key, is_technical, is_commercial')
+                .in('block_id', blockIds);
+
+            (markerRows || []).forEach(row => {
+                if (row.is_technical) {
+                    if (!technicalFloorsMap[row.block_id]) technicalFloorsMap[row.block_id] = new Set();
+                    const parsed = parseInt(String(row.marker_key).replace('-Т', ''), 10);
+                    if (Number.isFinite(parsed)) technicalFloorsMap[row.block_id].add(parsed);
+                }
+
+                if (row.is_commercial) {
+                    if (!commercialFloorsMap[row.block_id]) commercialFloorsMap[row.block_id] = new Set();
+                    commercialFloorsMap[row.block_id].add(String(row.marker_key));
+                }
+            });
+        }
         
         if (blockIds.length > 0) {
             // Оптимизация: берем только нужные поля
@@ -369,8 +447,10 @@ export const ApiService = {
             b.building_blocks.forEach(block => {
                 const uiKey = `${b.id}_${block.id}`;
                 const mapped = mapBlockDetailsFromDB(b, block);
-                mapped.technicalFloors = Array.from(technicalFloorsMap[block.id] || []);
-                mapped.commercialFloors = Array.from(commercialFloorsMap[block.id] || []);
+                const derivedTechnicalFloors = Array.from(technicalFloorsMap[block.id] || []);
+                const derivedCommercialFloors = Array.from(commercialFloorsMap[block.id] || []);
+                mapped.technicalFloors = (mapped.technicalFloors?.length ? mapped.technicalFloors : derivedTechnicalFloors);
+                mapped.commercialFloors = (mapped.commercialFloors?.length ? mapped.commercialFloors : derivedCommercialFloors);
                 buildingDetails[uiKey] = mapped;
             });
 
@@ -990,6 +1070,7 @@ export const ApiService = {
         if (!scope) return;
         const { buildingSpecificData, ...generalData } = payload;
         const promises = [];
+        const floorSyncTargets = [];
 
         // 1. Обновление Project/App Info
         if (generalData.complexInfo) {
@@ -1117,6 +1198,7 @@ export const ApiService = {
                 const blockId = parts[parts.length - 1]; // UUID is last
                 // Проверка на валидный UUID
                 if (blockId && blockId.length === 36) {
+                    const buildingId = parts[0];
                     const blockUpdate = {
                         floors_count: details.floorsCount,
                         entrances_count: details.entrances || details.inputs,
@@ -1134,6 +1216,43 @@ export const ApiService = {
                         custom_house_number: details.customHouseNumber
                     };
                     promises.push(supabase.from('building_blocks').update(blockUpdate).eq('id', blockId));
+                    floorSyncTargets.push({ buildingId, blockId });
+
+                    const markerTechSet = new Set(
+                        (details.technicalFloors || [])
+                            .map(v => Number(v))
+                            .filter(v => Number.isFinite(v))
+                            .map(v => String(v))
+                    );
+                    const markerCommSet = new Set((details.commercialFloors || []).map(v => String(v)));
+
+                    const markerPayload = Array.from(new Set([...markerTechSet, ...markerCommSet])).map(markerKey => ({
+                        block_id: blockId,
+                        marker_key: markerKey,
+                        marker_type: markerKey.startsWith('basement_')
+                            ? 'basement'
+                            : markerKey.includes('-Т')
+                                ? 'technical'
+                                : ['attic', 'loft', 'roof', 'tsokol'].includes(markerKey)
+                                    ? 'special'
+                                    : 'floor',
+                        floor_index: markerKey.includes('-Т')
+                            ? parseInt(markerKey.replace('-Т', ''), 10)
+                            : (/^-?\d+$/.test(markerKey) ? parseInt(markerKey, 10) : null),
+                        parent_floor_index: markerKey.includes('-Т')
+                            ? parseInt(markerKey.replace('-Т', ''), 10)
+                            : null,
+                        is_technical: markerTechSet.has(markerKey),
+                        is_commercial: markerCommSet.has(markerKey),
+                        updated_at: new Date()
+                    }));
+
+                    promises.push(supabase.from('block_floor_markers').delete().eq('block_id', blockId));
+                    if (markerPayload.length) {
+                        promises.push(
+                            supabase.from('block_floor_markers').upsert(markerPayload, { onConflict: 'block_id,marker_key' })
+                        );
+                    }
                     
                     if (details.foundation || details.walls) {
                         promises.push(supabase.from('block_construction').upsert({
@@ -1177,5 +1296,52 @@ export const ApiService = {
         }
 
         await Promise.all(promises);
+
+        if (floorSyncTargets.length > 0 && generalData.buildingDetails) {
+            const uniqueBuildingIds = Array.from(new Set(floorSyncTargets.map(t => t.buildingId)));
+
+            const { data: buildingsRows, error: buildingsErr } = await supabase
+                .from('buildings')
+                .select('id, category, house_number, parking_type, construction_type')
+                .in('id', uniqueBuildingIds);
+            if (buildingsErr) throw buildingsErr;
+
+            const { data: blocksRows, error: blocksErr } = await supabase
+                .from('building_blocks')
+                .select('id, building_id, label, type')
+                .in('building_id', uniqueBuildingIds);
+            if (blocksErr) throw blocksErr;
+
+            const blocksByBuilding = (blocksRows || []).reduce((acc, row) => {
+                if (!acc[row.building_id]) acc[row.building_id] = [];
+                acc[row.building_id].push({
+                    id: row.id,
+                    label: row.label,
+                    type: mapDbTypeToUi(row.type)
+                });
+                return acc;
+            }, {});
+
+            const buildingMap = (buildingsRows || []).reduce((acc, row) => {
+                acc[row.id] = {
+                    id: row.id,
+                    category: row.category,
+                    houseNumber: row.house_number,
+                    parkingType: row.parking_type,
+                    constructionType: row.construction_type,
+                    blocks: blocksByBuilding[row.id] || []
+                };
+                return acc;
+            }, {});
+
+            for (const target of floorSyncTargets) {
+                const building = buildingMap[target.buildingId];
+                if (!building) continue;
+                const blocksList = getBlocksList(building, generalData.buildingDetails || {});
+                const currentBlock = blocksList.find(b => b.id === target.blockId);
+                if (!currentBlock) continue;
+                await syncFloorsForBlockFromDetails(building, currentBlock, generalData.buildingDetails || {});
+            }
+        }
     }
 };
