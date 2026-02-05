@@ -116,6 +116,15 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
             } else if (building.constructionType === 'light') {
                 requiredFields.push('lightStructureType');
             }
+
+            // Для наземных некапитальных паркингов (light/open) не валидируем
+            // поля, которые неприменимы по бизнес-логике.
+            if (building.parkingType !== 'underground' && building.constructionType !== 'capital') {
+                cleanedDetails = { ...cleanedDetails };
+                delete cleanedDetails.seismicity;
+                delete cleanedDetails.vehicleEntries;
+                delete cleanedDetails.inputs;
+            }
         }
 
         if (isParking) {
