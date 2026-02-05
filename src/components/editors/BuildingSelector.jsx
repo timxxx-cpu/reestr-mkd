@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
-import { ArrowRight, Building2, Search } from 'lucide-react';
-import { useProject } from '../../context/ProjectContext';
+import { ArrowRight, Building2, Search, Loader2 } from 'lucide-react';
+import { useProject } from '../../context/ProjectContext'; // Оставляем только для projectId
+import { useDirectBuildings } from '../../hooks/api/useDirectBuildings'; // Новый хук
 import { STEPS_CONFIG } from '../../lib/constants';
 import { calculateProgress, getStageColor } from '../../lib/utils';
 
@@ -14,10 +15,12 @@ const PARKING_CONSTRUCTION_NAMES = {
  * @param {{ stepId: string, onSelect: (id: string) => void }} props
  */
 export default function BuildingSelector({ stepId, onSelect }) {
-    const { composition } = useProject();
+    const { projectId } = useProject();
+    // [FIX] Читаем напрямую из БД
+    const { buildings, isLoading } = useDirectBuildings(projectId);
 
     const filteredItems = useMemo(() => {
-        return composition.filter(item => {
+        return buildings.filter(item => {
             if (stepId === 'registry_nonres') {
                 if (item.category === 'residential') return false; 
                 return item.category === 'infrastructure' || 
@@ -34,11 +37,12 @@ export default function BuildingSelector({ stepId, onSelect }) {
             }
             return true; 
         });
-    }, [composition, stepId]);
+    }, [buildings, stepId]);
 
-    // ИСПРАВЛЕНИЕ: Безопасный доступ к конфигу шага
     const currentStepConfig = STEPS_CONFIG.find(s => s.id === stepId);
     const StepIcon = currentStepConfig?.icon || Building2;
+
+    if (isLoading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-600"/></div>;
 
     return (
         <div className="w-full px-6 pb-20 animate-in fade-in duration-500">

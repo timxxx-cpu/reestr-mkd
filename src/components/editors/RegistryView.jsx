@@ -1,35 +1,37 @@
 import React, { useMemo } from 'react';
 import { 
-  ScrollText, Building2, Warehouse, Car, Printer, 
-  MapPin, AlertTriangle, CheckCircle2, Hash, Calendar,
-  TrendingUp
+  Printer, MapPin, AlertTriangle, CheckCircle2, Hash, Calendar,
+  Building2, Warehouse, Loader2
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
+import { useDirectIntegration } from '../../hooks/api/useDirectIntegration';
 import { Card, Badge } from '../ui/UIKit';
-import { getBlocksList, calculateProgress, getStageColor } from '../../lib/utils';
+import { calculateProgress, getStageColor } from '../../lib/utils';
 
 /**
- * Расчет статистики для конкретного Блока или Здания
+ * Агрегация статистики по блоку на основе плоских списков из БД
  */
-const calculateBlockStats = (building, block, floorData, flatMatrix, parkingPlaces) => {
-    const blockPrefix = `${building.id}_${block.id}`;
+const aggregateBlockStats = (building, block, allFloors, allUnits) => {
+    const blockFloors = allFloors.filter(f => f.blockId === block.id);
+    const floorIds = new Set(blockFloors.map(f => f.id));
     
-    // Для инфраструктуры и паркингов часто используется 'main' как ID блока
-    const searchPrefix = (building.category === 'infrastructure' || building.category === 'parking_separate') 
-        ? `${building.id}_` 
-        : blockPrefix;
+    // Юниты, относящиеся к этому блоку (через этажи)
+    const blockUnits = allUnits.filter(u => floorIds.has(u.floorId));
 
     const stats = {
-        label: block.tabLabel || building.label,
-        type: block.type,
-        floorsCount: 0,
-        areaProj: 0,
-        areaFact: 0,
-        // Метаданные родительского здания
-        cadastreNumber: building.cadastreNumber,
+        id: `${building.id}_${block.id}`,
+        label: block.tabLabel || block.label,
+        subLabel: building.label, // Для группировки
+        category: building.category,
+        
+        floorsCount: blockFloors.length, // Или взять максимальный index
+        areaProj: blockFloors.reduce((acc, f) => acc + (parseFloat(f.areaProj) || 0), 0),
+        areaFact: blockFloors.reduce((acc, f) => acc + (parseFloat(f.areaFact) || 0), 0),
+        
+        cadastreNumber: building.cadastreNumber, // Кадастр здания
+        stage: building.stage,
         dateStart: building.dateStart,
         dateEnd: building.dateEnd,
-        stage: building.stage,
         
         units: {
             flats: 0,
@@ -39,40 +41,11 @@ const calculateBlockStats = (building, block, floorData, flatMatrix, parkingPlac
         }
     };
 
-    // 1. Площади и этажность (из floorData)
-    Object.keys(floorData).forEach(key => {
-        if (key.startsWith(searchPrefix)) {
-            const floor = floorData[key];
-            if (floor) {
-                stats.areaProj += parseFloat(floor.areaProj || 0);
-                stats.areaFact += parseFloat(floor.areaFact || 0);
-                
-                if (key.includes('_floor_')) {
-                    const num = parseInt(key.split('_floor_')[1]);
-                    if (!isNaN(num) && num > stats.floorsCount) stats.floorsCount = num;
-                }
-                if (key.includes('_level_minus_')) {
-                     stats.floorsCount++; 
-                }
-            }
-        }
-    });
-
-    // 2. Юниты (Квартиры/Офисы из flatMatrix)
-    Object.keys(flatMatrix).forEach(key => {
-        if (key.startsWith(searchPrefix)) {
-            const u = flatMatrix[key];
-            if (['flat', 'duplex_up', 'duplex_down'].includes(u.type)) stats.units.flats++;
-            else if (['office', 'office_inventory'].includes(u.type)) stats.units.offices++;
-            else if (u.type === 'pantry') stats.units.pantry++;
-        }
-    });
-
-    // 3. Парковки (из parkingPlaces)
-    Object.keys(parkingPlaces).forEach(key => {
-        if (key.startsWith(searchPrefix) && key.includes('_place')) {
-            stats.units.parking++;
-        }
+    blockUnits.forEach(u => {
+        if (['flat', 'duplex_up', 'duplex_down'].includes(u.type)) stats.units.flats++;
+        else if (['office', 'office_inventory', 'non_res_block', 'infrastructure'].includes(u.type)) stats.units.offices++;
+        else if (u.type === 'pantry') stats.units.pantry++;
+        else if (u.type === 'parking_place') stats.units.parking++;
     });
 
     return stats;
@@ -90,13 +63,12 @@ const RegistryRow = ({ item, index }) => {
         <tr className="hover:bg-slate-50/80 transition-colors border-b border-slate-100 last:border-0 text-sm group">
             <td className="p-4 text-slate-400 text-center w-12 font-mono text-xs">{index + 1}</td>
             
-            {/* Наименование и Адрес */}
+            {/* Наименование */}
             <td className="p-4 min-w-[200px]">
                 <div className="flex flex-col">
-                    <span className="font-bold text-slate-800 text-sm">{item.label}</span>
+                    <span className="font-bold text-slate-800 text-sm">{item.subLabel}</span>
                     <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
-                        <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold border border-slate-200">{item.parentBuildingLabel}</span>
-                        {item.subLabel && <span>• {item.subLabel}</span>}
+                        <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold border border-slate-200">{item.label}</span>
                     </div>
                 </div>
             </td>
@@ -114,12 +86,12 @@ const RegistryRow = ({ item, index }) => {
                         </div>
                     )}
                     <span className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase w-fit border ${getStageColor(item.stage)}`}>
-                        {item.stage}
+                        {item.stage || 'Проект'}
                     </span>
                 </div>
             </td>
 
-            {/* Сроки и Прогресс */}
+            {/* Сроки */}
             <td className="p-4 w-[140px]">
                 <div className="flex flex-col gap-1">
                     <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium">
@@ -156,7 +128,7 @@ const RegistryRow = ({ item, index }) => {
                 ) : <span className="text-slate-300">-</span>}
             </td>
             
-            {/* Детализация юнитов */}
+            {/* Детализация */}
             <td className="p-4">
                 <div className="flex flex-wrap gap-1.5 justify-start">
                     {item.units.flats > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100">{item.units.flats} кв</span>}
@@ -183,86 +155,80 @@ const RegistryRow = ({ item, index }) => {
 };
 
 export default function RegistryView({ mode = 'all' }) {
-    const { composition, floorData, flatMatrix, parkingPlaces, complexInfo } = useProject();
+    const { projectId, complexInfo } = useProject();
+    
+    // [NEW] Загружаем полные данные через API (ReadOnly)
+    const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
 
     // Сбор данных
     const registryItems = useMemo(() => {
-        const items = [];
+        if (!fullRegistry || !fullRegistry.buildings) return [];
 
-        composition.forEach(building => {
-            const blocks = getBlocksList(building);
+        const items = [];
+        const { buildings, blocks, floors, units } = fullRegistry;
+
+        // Итерируемся по зданиям -> блокам
+        buildings.forEach(building => {
+            const buildingBlocks = blocks.filter(b => b.building_id === building.id);
             
-            // Если режим "НЕЖИЛЫЕ"
+            // Фильтрация по режиму (Жилье / Нежилье)
             if (mode === 'nonres') {
+                // Инфраструктура
                 if (building.category === 'infrastructure') {
-                    const mainBlock = blocks[0]; 
-                    if (mainBlock) {
-                        const stats = calculateBlockStats(building, mainBlock, floorData, flatMatrix, parkingPlaces);
-                        items.push({
-                            ...stats,
-                            id: `${building.id}_infra`,
-                            parentBuildingLabel: building.label,
-                            category: 'infrastructure',
-                            subLabel: building.infraType
-                        });
-                    }
+                     // Инфраструктура может не иметь блоков в БД, если создана упрощенно, но API createBuilding создает.
+                     // Если есть блок - используем его
+                     const mainBlock = buildingBlocks[0];
+                     if (mainBlock) {
+                         items.push(aggregateBlockStats(building, mainBlock, floors, units));
+                     }
                 }
+                // Коммерческие блоки в ЖК
                 else if (building.category.includes('residential')) {
-                    blocks.forEach(block => {
-                        if (block.type === 'Н') { 
-                            const stats = calculateBlockStats(building, block, floorData, flatMatrix, parkingPlaces);
-                            items.push({
-                                ...stats,
-                                id: `${building.id}_${block.id}`,
-                                parentBuildingLabel: building.label,
-                                category: 'non_res_block',
-                                subLabel: 'Нежилой блок'
-                            });
+                    buildingBlocks.forEach(b => {
+                        if (b.type === 'Н' || b.type === 'non_residential') {
+                            items.push(aggregateBlockStats(building, b, floors, units));
                         }
                     });
                 }
             } 
-            // Если режим "ЖИЛЫЕ"
             else if (mode === 'res') {
+                // Жилые блоки
                 if (building.category.includes('residential')) {
-                    blocks.forEach(block => {
-                        if (block.type === 'Ж') {
-                            const stats = calculateBlockStats(building, block, floorData, flatMatrix, parkingPlaces);
-                            items.push({
-                                ...stats,
-                                id: `${building.id}_${block.id}`,
-                                parentBuildingLabel: building.label,
-                                category: 'residential_block',
-                                subLabel: 'Жилая секция'
-                            });
+                    buildingBlocks.forEach(b => {
+                        if (b.type === 'Ж' || b.type === 'residential') {
+                            items.push(aggregateBlockStats(building, b, floors, units));
                         }
                     });
                 }
+                // Паркинги
                 else if (building.category === 'parking_separate') {
-                    const mainBlock = blocks[0];
-                    if (mainBlock) {
-                        const stats = calculateBlockStats(building, mainBlock, floorData, flatMatrix, parkingPlaces);
-                        items.push({
-                            ...stats,
-                            id: `${building.id}_parking`,
-                            parentBuildingLabel: building.label,
-                            category: 'parking',
-                            subLabel: building.parkingType === 'underground' ? 'Подземный' : 'Наземный'
-                        });
-                    }
+                    buildingBlocks.forEach(b => {
+                        items.push(aggregateBlockStats(building, b, floors, units));
+                    });
                 }
             }
         });
 
         return items;
-    }, [composition, floorData, flatMatrix, parkingPlaces, mode]);
+    }, [fullRegistry, mode]);
 
     const handlePrint = () => {
         window.print();
     };
 
-    if (composition.length === 0) {
-        return <div className="p-12 text-center text-slate-400">Список объектов пуст</div>;
+    if (loadingRegistry) {
+        return <div className="p-20 flex justify-center"><Loader2 className="animate-spin text-blue-600" size={32}/></div>;
+    }
+
+    if (registryItems.length === 0) {
+        return (
+             <div className="w-full pb-20 space-y-6 animate-in fade-in duration-500 px-6">
+                <div className="p-12 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">
+                    <Building2 className="mx-auto mb-3 opacity-50" size={48}/>
+                    Список объектов пуст
+                </div>
+            </div>
+        );
     }
 
     const title = mode === 'nonres' ? 'Сводная по нежилым блокам и инфраструктуре' : 'Сводная по жилому фонду';
@@ -302,52 +268,39 @@ export default function RegistryView({ mode = 'all' }) {
                 <span>{complexInfo?.street || 'Адрес не указан'}</span>
             </div>
 
-            {/* Empty State */}
-            {registryItems.length === 0 && (
-                <div className="p-16 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
-                    <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-slate-300 mx-auto mb-4 shadow-sm">
-                        <Icon size={32}/>
-                    </div>
-                    <p className="text-slate-600 font-bold">Нет объектов для отображения</p>
-                    <p className="text-slate-400 text-xs mt-1">В составе комплекса отсутствуют объекты данной категории.</p>
-                </div>
-            )}
-
             {/* Table */}
-            {registryItems.length > 0 && (
-                <Card className="p-0 overflow-hidden shadow-sm border border-slate-200 print:shadow-none print:border-0">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead className="bg-slate-50/80 border-b border-slate-200 text-[10px] uppercase font-bold text-slate-500">
-                                <tr>
-                                    <th className="p-4 text-center">№</th>
-                                    <th className="p-4">Наименование</th>
-                                    <th className="p-4 w-[180px]">Кадастр / Статус</th>
-                                    <th className="p-4 w-[140px]">Сроки</th>
-                                    <th className="p-4 text-center">Этажность</th>
-                                    <th className="p-4 text-right border-l border-slate-100">S Проект (м²)</th>
-                                    <th className="p-4 text-right border-r border-slate-100">S Факт (м²)</th>
-                                    <th className="p-4">Состав</th>
-                                    <th className="p-4 text-center">Готовность</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 bg-white">
-                                {registryItems.map((item, idx) => (
-                                    <RegistryRow key={item.id} item={item} index={idx} />
-                                ))}
-                                
-                                {/* Footer Row */}
-                                <tr className="bg-slate-100/50 font-bold text-sm text-slate-800 border-t-2 border-slate-200">
-                                    <td colSpan={5} className="p-4 text-right uppercase tracking-wider text-xs text-slate-500">Общий итог по реестру:</td>
-                                    <td className="p-4 text-right font-mono border-l border-slate-200 bg-white/50">{totalProj.toLocaleString(undefined, {maximumFractionDigits: 1})}</td>
-                                    <td className="p-4 text-right font-mono text-emerald-700 border-r border-slate-200 bg-white/50">{totalFact.toLocaleString(undefined, {maximumFractionDigits: 1})}</td>
-                                    <td colSpan={2}></td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </Card>
-            )}
+            <Card className="p-0 overflow-hidden shadow-sm border border-slate-200 print:shadow-none print:border-0">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                        <thead className="bg-slate-50/80 border-b border-slate-200 text-[10px] uppercase font-bold text-slate-500">
+                            <tr>
+                                <th className="p-4 text-center">№</th>
+                                <th className="p-4">Наименование</th>
+                                <th className="p-4 w-[180px]">Кадастр / Статус</th>
+                                <th className="p-4 w-[140px]">Сроки</th>
+                                <th className="p-4 text-center">Этажность</th>
+                                <th className="p-4 text-right border-l border-slate-100">S Проект (м²)</th>
+                                <th className="p-4 text-right border-r border-slate-100">S Факт (м²)</th>
+                                <th className="p-4">Состав</th>
+                                <th className="p-4 text-center">Готовность</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                            {registryItems.map((item, idx) => (
+                                <RegistryRow key={item.id} item={item} index={idx} />
+                            ))}
+                            
+                            {/* Footer Row */}
+                            <tr className="bg-slate-100/50 font-bold text-sm text-slate-800 border-t-2 border-slate-200">
+                                <td colSpan={5} className="p-4 text-right uppercase tracking-wider text-xs text-slate-500">Общий итог по реестру:</td>
+                                <td className="p-4 text-right font-mono border-l border-slate-200 bg-white/50">{totalProj.toLocaleString(undefined, {maximumFractionDigits: 1})}</td>
+                                <td className="p-4 text-right font-mono text-emerald-700 border-r border-slate-200 bg-white/50">{totalFact.toLocaleString(undefined, {maximumFractionDigits: 1})}</td>
+                                <td colSpan={2}></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </Card>
         </div>
     );
 }

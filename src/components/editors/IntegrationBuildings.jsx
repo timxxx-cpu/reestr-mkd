@@ -1,17 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Globe, Send, Loader2, CheckCircle2, 
   Building2, Server, RefreshCw, Hash, MapPin, Layers, Box
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
+import { useDirectBuildings } from '../../hooks/api/useDirectBuildings';
+import { useDirectIntegration } from '../../hooks/api/useDirectIntegration';
 import { Card, Button, SectionTitle, Badge, useReadOnly } from '../ui/UIKit';
 import { useToast } from '../../context/ToastContext';
 
-// Статусы интеграции
 const SYNC_STATUS = {
     IDLE: 'IDLE',
     SENDING: 'SENDING',
-    WAITING: 'WAITING', // Ожидание ответа от УЗКАД
+    WAITING: 'WAITING',
     COMPLETED: 'COMPLETED',
     ERROR: 'ERROR'
 };
@@ -21,23 +22,26 @@ const PARKING_TYPE_LABELS = {
     ground: "Наземный"
 };
 
+const TYPE_NAMES = {
+    residential: "Жилой дом", 
+    residential_multiblock: "Жилой комплекс", 
+    parking_separate: "Паркинг", 
+    infrastructure: "Инфраструктура" 
+};
+
 export default function IntegrationBuildings() {
-    const { 
-        composition, setComposition, 
-        applicationInfo, setApplicationInfo, 
-        saveData, complexInfo 
-    } = useProject();
-    
+    const { projectId } = useProject();
     const isReadOnly = useReadOnly();
     const toast = useToast();
 
-    const [status, setStatus] = useState(applicationInfo?.integration?.buildingsStatus || SYNC_STATUS.IDLE);
-    
+    // Data from DB
+    const { buildings } = useDirectBuildings(projectId);
+    const { integrationStatus, setIntegrationStatus, setBuildingCadastre } = useDirectIntegration(projectId);
+
+    const status = integrationStatus.buildingsStatus || SYNC_STATUS.IDLE;
+
     const updateStatus = (newStatus) => {
-        setStatus(newStatus);
-        const newIntegration = { ...(applicationInfo?.integration || {}), buildingsStatus: newStatus };
-        setApplicationInfo(prev => ({ ...prev, integration: newIntegration }));
-        saveData({ applicationInfo: { ...applicationInfo, integration: newIntegration } });
+        setIntegrationStatus({ field: 'buildingsStatus', status: newStatus });
     };
 
     const handleSendToUzkad = async () => {
@@ -46,31 +50,26 @@ export default function IntegrationBuildings() {
         setTimeout(() => {
             updateStatus(SYNC_STATUS.WAITING);
             toast.info("Данные отправлены. Ожидание ответа от УЗКАД...");
-        }, 2000);
+        }, 1500);
     };
 
-    const handleSimulateResponse = () => {
+    const handleSimulateResponse = async () => {
         if (isReadOnly) return;
         
-        // Обновляем composition, сохраняя целостность объектов
-        const updatedComposition = composition.map((building) => {
-            if (building.cadastreNumber) return building;
-            const regionCode = "11:05:04:02"; 
-            const uniquePart = Math.floor(1000 + Math.random() * 9000);
-            return {
-                ...building,
-                // ID уже есть (UUID), добавляем внешние идентификаторы
-                cadastreNumber: `${regionCode}:${uniquePart}`,
-                uzkadId: `UZ-${crypto.randomUUID().slice(0,8).toUpperCase()}`
-            };
-        });
+        // Эмуляция получения кадастровых номеров
+        for (const b of buildings) {
+            // [FIX] Доступ к полю с учетом того, что оно может быть не замаплено в camelCase
+            // @ts-ignore
+            const currentCadastre = b.cadastreNumber || b.cadastre_number;
+            
+            if (!currentCadastre) {
+                const regionCode = "11:05:04:02"; 
+                const uniquePart = Math.floor(1000 + Math.random() * 9000);
+                await setBuildingCadastre({ id: b.id, cadastre: `${regionCode}:${uniquePart}` });
+            }
+        }
 
-        setComposition(updatedComposition);
         updateStatus(SYNC_STATUS.COMPLETED);
-        
-        // Сохраняем обновленный список зданий
-        saveData({ composition: updatedComposition }, true);
-        
         toast.success("Кадастровые номера получены!");
     };
 
@@ -94,7 +93,7 @@ export default function IntegrationBuildings() {
                 </div>
                 <div className="flex items-center gap-3">
                     <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs px-3 py-1">
-                        Всего объектов: {composition.length}
+                        Всего объектов: {buildings.length}
                     </Badge>
                     <div className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-2 ${
                         status === SYNC_STATUS.COMPLETED ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
@@ -140,7 +139,7 @@ export default function IntegrationBuildings() {
                         {status === SYNC_STATUS.IDLE && (
                             <Button 
                                 onClick={handleSendToUzkad} 
-                                disabled={isReadOnly || composition.length === 0}
+                                disabled={isReadOnly || buildings.length === 0}
                                 className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200 px-8 h-12 text-sm"
                             >
                                 <Send size={18} className="mr-2"/> Отправить в УЗКАД
@@ -177,30 +176,29 @@ export default function IntegrationBuildings() {
                                 <th className="px-6 py-4 w-12 text-center">#</th>
                                 <th className="px-6 py-4 w-1/4">Объект</th>
                                 <th className="px-6 py-4 w-1/5">Тип / Вид</th>
-                                <th className="px-6 py-4 w-1/4">Адрес</th>
-                                <th className="px-6 py-4 w-1/6">Конфигурация</th>
+                                <th className="px-6 py-4 w-1/4">Конфигурация</th>
                                 <th className="px-6 py-4 text-right">Кадастровый номер</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {composition.length === 0 ? (
+                            {buildings.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} className="p-12 text-center text-slate-400">Нет зданий для передачи</td>
+                                    <td colSpan={5} className="p-12 text-center text-slate-400">Нет зданий для передачи</td>
                                 </tr>
                             ) : (
-                                composition.map((item, idx) => {
-                                    const hasCadastre = !!item.cadastreNumber;
-                                    let typeLabel = item.type;
+                                buildings.map((item, idx) => {
+                                    // [FIX] Доступ к полю с учетом возможных вариантов
+                                    // @ts-ignore
+                                    const cadastreNum = item.cadastreNumber || item.cadastre_number; 
+                                    const hasCadastre = !!cadastreNum;
+                                    
+                                    let typeLabel = TYPE_NAMES[item.category] || item.category;
                                     let subTypeLabel = null;
 
                                     if (item.category === 'parking_separate') {
-                                        typeLabel = "Паркинг";
                                         subTypeLabel = PARKING_TYPE_LABELS[item.parkingType] || item.parkingType;
                                     } else if (item.category === 'infrastructure') {
-                                        typeLabel = "Инфраструктура";
                                         subTypeLabel = item.infraType;
-                                    } else if (item.category === 'residential_multiblock') {
-                                        typeLabel = "Многоблочный дом";
                                     }
 
                                     return (
@@ -220,15 +218,6 @@ export default function IntegrationBuildings() {
                                                 <div className="flex flex-col">
                                                     <span className="text-sm font-medium text-slate-700">{typeLabel}</span>
                                                     {subTypeLabel && <span className="text-xs text-slate-400">{subTypeLabel}</span>}
-                                                </div>
-                                            </td>
-
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-start gap-2 text-xs text-slate-600 max-w-xs">
-                                                    <MapPin size={14} className="mt-0.5 shrink-0 text-slate-400"/>
-                                                    <span className="line-clamp-2" title={complexInfo?.street}>
-                                                        {complexInfo?.street || "Адрес не указан"}
-                                                    </span>
                                                 </div>
                                             </td>
 
@@ -254,7 +243,7 @@ export default function IntegrationBuildings() {
                                                 {hasCadastre ? (
                                                     <div className="inline-flex items-center gap-2 font-mono text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 shadow-sm">
                                                         <CheckCircle2 size={14} className="text-emerald-500"/>
-                                                        {item.cadastreNumber}
+                                                        {cadastreNum}
                                                     </div>
                                                 ) : (
                                                     <div className="inline-flex items-center gap-2 text-xs text-slate-400 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">

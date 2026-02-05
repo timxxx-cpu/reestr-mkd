@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import { BedDouble, Utensils, Sofa, Bath, Box, Layers, Sun, Trash2, Plus, Copy } from 'lucide-react';
 import { Input, Select, useReadOnly } from '../../../ui/UIKit';
 import { useToast } from '../../../../context/ToastContext';
-import { useProject } from '../../../../context/ProjectContext';
 import RegistryModalLayout, { StatBadge } from './RegistryModalLayout';
 
 const RESIDENTIAL_ROOMS = [
@@ -18,8 +17,15 @@ const RESIDENTIAL_ROOMS = [
     { id: 'other', label: 'Другое', icon: Box, k: 1.0, category: 'useful' },
 ];
 
-export default function ApartmentInventoryModal({ unit, buildingLabel, onClose, onSave }) {
-    const { flatMatrix } = useProject();
+/**
+ * @param {object} props
+ * @param {object} props.unit - Текущий юнит
+ * @param {Array} props.unitsList - Список всех юнитов (для функции копирования)
+ * @param {string} props.buildingLabel
+ * @param {function} props.onClose
+ * @param {function} props.onSave
+ */
+export default function ApartmentInventoryModal({ unit, unitsList = [], buildingLabel, onClose, onSave }) {
     const isReadOnly = useReadOnly();
     const toast = useToast();
     
@@ -82,15 +88,14 @@ export default function ApartmentInventoryModal({ unit, buildingLabel, onClose, 
 
     const handleCopy = () => {
         if (isReadOnly || !copySourceNum.trim()) return;
-        const buildingPrefix = unit.buildingId;
-        const sourceEntry = Object.entries(flatMatrix).find(([key, u]) => {
-            return key.startsWith(buildingPrefix) && String(u.num) === String(copySourceNum) && key !== unit.id;
-        });
-
-        if (!sourceEntry) { toast.error(`Квартира №${copySourceNum} не найдена`); return; }
-        const sourceUnit = sourceEntry[1];
         
-        const sourceRooms = sourceUnit.explication || sourceUnit.roomsList; 
+        // [FIX] Ищем в переданном unitsList вместо flatMatrix из контекста
+        // Ищем в том же блоке (buildingId у них одинаковый, так как unitsList фильтруется в родителе)
+        const sourceUnit = unitsList.find(u => String(u.num) === String(copySourceNum) && u.id !== unit.id);
+
+        if (!sourceUnit) { toast.error(`Квартира №${copySourceNum} не найдена в этом блоке`); return; }
+        
+        const sourceRooms = sourceUnit.explication; 
 
         if (!sourceRooms || sourceRooms.length === 0) { toast.error(`Квартира №${copySourceNum} пуста`); return; }
         if (rooms.length > 0 && !confirm(`Заменить данные данными из №${copySourceNum}?`)) return;
@@ -112,7 +117,7 @@ export default function ApartmentInventoryModal({ unit, buildingLabel, onClose, 
         if (isReadOnly) return;
         onSave({
             ...unit,
-            roomsList: rooms, // Передаем как roomsList, контейнер сам сохранит в explication
+            explication: rooms, // [FIX] Передаем как explication, чтобы api-service понял
             area: stats.total, 
             livingArea: stats.living,
             usefulArea: stats.useful,
@@ -146,7 +151,7 @@ export default function ApartmentInventoryModal({ unit, buildingLabel, onClose, 
     return (
         <RegistryModalLayout
             title={`${isReadOnly ? 'Просмотр' : 'Редактирование'} квартиры № ${unit.number}`}
-            subTitle={`${buildingLabel} • ${unit.floorLabel} ${isDuplex ? '• ДУПЛЕКС' : ''}`}
+            subTitle={`${buildingLabel} • ${isDuplex ? 'ДУПЛЕКС' : 'Типовая'}`}
             onClose={onClose}
             onSave={handleSave}
             isReadOnly={isReadOnly}

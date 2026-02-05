@@ -1,11 +1,9 @@
-import React, { useState } from 'react';
-import { Briefcase, FileText, Building2, School, CheckCircle2 } from 'lucide-react';
-import { Card } from '../../../ui/UIKit';
-import RegistryStats from '../RegistryStats';
-import RegistryFilters from '../RegistryFilters';
-import { useCommercialData } from '../../../../hooks/registry/useCommercialData';
-// ИМПОРТ НОВОЙ МОДАЛКИ
-import CommercialInventoryModal from '../modals/CommercialInventoryModal';
+import React, { useState, useMemo } from 'react';
+import { Briefcase, FileText, Building2, School, CheckCircle2, Loader2, Search } from 'lucide-react';
+import { Card, DebouncedInput } from '../../../ui/UIKit';
+import { useDirectIntegration } from '../../../../hooks/api/useDirectIntegration';
+import { useQueryClient } from '@tanstack/react-query';
+import CommercialInventoryModal from '../modals/CommercialInventoryModal'; // Импорт модалки, а не Layout
 
 const getTypeConfig = (type) => {
     switch(type) {
@@ -17,26 +15,96 @@ const getTypeConfig = (type) => {
     }
 };
 
-export default function CommercialRegistry({ onSaveUnit }) {
-    const { 
-        data, stats, options, 
-        filters, setFilters, 
-        searchTerm, setSearchTerm 
-    } = useCommercialData();
-
+export default function CommercialRegistry({ onSaveUnit, projectId }) {
+    const queryClient = useQueryClient();
+    // Читаем данные из БД
+    const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
+    
+    const [searchTerm, setSearchTerm] = useState('');
     const [editingUnit, setEditingUnit] = useState(null);
+
+    const { data, stats } = useMemo(() => {
+        if (!fullRegistry || !fullRegistry.units) return { data: [], stats: null };
+
+        const { units, buildings, floors, blocks } = fullRegistry;
+        
+        const bMap = {}; buildings.forEach(b => bMap[b.id] = b);
+        const blMap = {}; blocks.forEach(b => blMap[b.id] = b);
+        const fMap = {}; floors.forEach(f => fMap[f.id] = f);
+
+        // 1. Фильтруем только коммерцию
+        const commercial = units.filter(u => 
+            ['office', 'office_inventory', 'non_res_block', 'infrastructure'].includes(u.type)
+        );
+
+        // 2. Обогащаем данными
+        const enriched = commercial.map(u => {
+            const floor = fMap[u.floorId];
+            const block = floor ? blMap[floor.blockId] : null;
+            const building = block ? bMap[block.buildingId] : null; 
+            
+            return {
+                ...u,
+                floorLabel: floor?.label || '-',
+                blockLabel: block?.tabLabel || block?.label || '-',
+                buildingLabel: building?.label || '-',
+                houseNumber: building?.houseNumber || '-',
+                entrance: u.entranceId ? '?' : '-', 
+            };
+        });
+
+        // 3. Поиск
+        const filtered = enriched.filter(item => {
+            if (!searchTerm) return true;
+            return item.number.toLowerCase().includes(searchTerm.toLowerCase());
+        });
+
+        // 4. Статистика
+        const totalArea = filtered.reduce((sum, item) => sum + (parseFloat(item.area) || 0), 0);
+        
+        return { 
+            data: filtered.sort((a,b) => String(a.number).localeCompare(String(b.number))),
+            stats: {
+                count: filtered.length,
+                area: totalArea
+            }
+        };
+    }, [fullRegistry, searchTerm]);
+
+    const handleSave = async (changes) => {
+        const success = await onSaveUnit(editingUnit, changes);
+        if (success) {
+            setEditingUnit(null);
+            queryClient.invalidateQueries({ queryKey: ['project-registry'] });
+        }
+    };
+
+    if (loadingRegistry) return <div className="p-12 text-center"><Loader2 className="animate-spin mx-auto text-blue-600"/></div>;
 
     return (
         <div className="space-y-6">
-            <RegistryStats stats={stats} />
+            <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="text-xs text-slate-500 font-bold uppercase">Всего помещений</div>
+                    <div className="text-2xl font-black text-slate-800">{stats?.count || 0}</div>
+                </div>
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="text-xs text-slate-500 font-bold uppercase">Общая площадь</div>
+                    <div className="text-2xl font-black text-emerald-600">{stats?.area?.toFixed(1) || 0} <span className="text-sm text-slate-400">м²</span></div>
+                </div>
+            </div>
             
-            <RegistryFilters 
-                filters={filters} 
-                setFilters={setFilters} 
-                options={options} 
-                searchTerm={searchTerm} 
-                setSearchTerm={setSearchTerm} 
-            />
+            <div className="flex gap-4">
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
+                    <DebouncedInput 
+                        value={searchTerm} 
+                        onChange={setSearchTerm} 
+                        placeholder="Поиск по номеру помещения..." 
+                        className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:border-blue-500 outline-none"
+                    />
+                </div>
+            </div>
 
             <Card className="overflow-hidden border-0 shadow-lg ring-1 ring-slate-200 rounded-xl mx-4 md:mx-0">
                 <div className="overflow-x-auto max-h-[60vh]">
@@ -60,15 +128,14 @@ export default function CommercialRegistry({ onSaveUnit }) {
                                 const typeConf = getTypeConfig(item.type);
                                 const TypeIcon = typeConf.icon;
                                 const isFilled = parseFloat(item.area) > 0;
-                                const isVirtual = !item.isSaved;
                                 
                                 return (
-                                    <tr key={item.id} onClick={() => setEditingUnit(item)} className={`group cursor-pointer hover:bg-blue-50 transition-colors border-b border-slate-100 last:border-0 even:bg-slate-50/50 ${isVirtual ? 'opacity-80' : ''}`}>
+                                    <tr key={item.id} onClick={() => setEditingUnit(item)} className="group cursor-pointer hover:bg-blue-50 transition-colors border-b border-slate-100 last:border-0 even:bg-slate-50/50">
                                         <td className="p-4 text-xs text-slate-400 text-center font-mono">{idx + 1}</td>
                                         <td className="p-4 text-center"><div className="inline-flex items-center justify-center w-8 h-8 rounded bg-white border border-slate-200 font-bold text-slate-700 text-xs shadow-sm">{item.houseNumber}</div></td>
                                         <td className="p-4 text-center font-bold text-slate-500 border-l border-slate-100">{item.entrance}</td>
                                         <td className="p-4 text-center relative border-x border-blue-100 bg-blue-50/20 group-hover:bg-blue-100/50 transition-colors">
-                                            <span className={`font-black text-lg ${isVirtual ? 'text-slate-500 italic' : 'text-slate-800'}`}>{item.number}</span>
+                                            <span className="font-black text-slate-800 text-lg">{item.number}</span>
                                         </td>
                                         <td className="p-4"><span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase border ${typeConf.color}`}><TypeIcon size={12}/> {typeConf.label}</span></td>
                                         <td className="p-4 text-xs text-slate-500"><span className="font-bold text-slate-700">{item.blockLabel}</span></td>
@@ -91,12 +158,11 @@ export default function CommercialRegistry({ onSaveUnit }) {
             {editingUnit && (
                 <CommercialInventoryModal 
                     unit={editingUnit} 
+                    // Передаем полный список для копирования
+                    unitsList={fullRegistry?.units || []}
                     buildingLabel={`Дом ${editingUnit.houseNumber}, ${editingUnit.buildingLabel}`}
                     onClose={() => setEditingUnit(null)}
-                    onSave={(changes) => {
-                        onSaveUnit(editingUnit, changes, 'commercial');
-                        setEditingUnit(null);
-                    }}
+                    onSave={handleSave}
                 />
             )}
         </div>

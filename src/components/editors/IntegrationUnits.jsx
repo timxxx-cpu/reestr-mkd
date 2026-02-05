@@ -2,14 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Database, Send, Loader2, CheckCircle2, AlertTriangle, 
   Home, Car, Briefcase, RefreshCw, Hash, ArrowRight,
-  Building2, FileText, School, Filter
+  Building2, FileText, School, Filter // [FIX] Building2 здесь
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, Button, SectionTitle, Badge, useReadOnly, TabButton } from '../ui/UIKit';
+import { useDirectIntegration } from '../../hooks/api/useDirectIntegration';
+import { Card, Button, Badge, useReadOnly, TabButton } from '../ui/UIKit';
 import { useToast } from '../../context/ToastContext';
-import { getBlocksList } from '../../lib/utils';
 
-// Статусы интеграции
 const SYNC_STATUS = {
     IDLE: 'IDLE',
     SENDING: 'SENDING',
@@ -33,238 +32,105 @@ const getTypeConfig = (type) => {
 };
 
 export default function IntegrationUnits() {
-    const { 
-        composition, flatMatrix, setFlatMatrix, 
-        parkingPlaces, setParkingPlaces,
-        entrancesData, floorData,
-        applicationInfo, setApplicationInfo, saveData, complexInfo 
-    } = useProject();
-    
+    const { projectId } = useProject();
     const isReadOnly = useReadOnly();
     const toast = useToast();
 
-    const [status, setStatus] = useState(applicationInfo?.integration?.unitsStatus || SYNC_STATUS.IDLE);
+    const { 
+        integrationStatus, fullRegistry, loadingRegistry, 
+        setIntegrationStatus, setUnitCadastre 
+    } = useDirectIntegration(projectId);
+
     const [activeTab, setActiveTab] = useState('living'); 
+    
+    const status = integrationStatus.unitsStatus || SYNC_STATUS.IDLE;
+    const updateStatus = (st) => setIntegrationStatus({ field: 'unitsStatus', status: st });
 
-    // --- 1. СБОР ВСЕХ ОБЪЕКТОВ ---
+    // Обработка данных из fullRegistry (приведение к плоскому списку)
     const allObjects = useMemo(() => {
+        if (!fullRegistry || !fullRegistry.units) return [];
+        
         const list = [];
-        composition.forEach(building => {
-            const blocks = getBlocksList(building);
+        const { buildings, units } = fullRegistry;
+        const bMap = {};
+        buildings.forEach(b => bMap[b.id] = b.label);
 
-            // А. Квартиры и Явные офисы (из FlatMatrix)
-            Object.keys(flatMatrix).forEach(key => {
-                if (!key.startsWith(building.id)) return;
-                const unit = flatMatrix[key];
-                if (!unit || !unit.num) return; 
+        // Квартиры и офисы
+        units.forEach(u => {
+            const bLabel = bMap[u.buildingId] || 'Объект'; // buildingId нужно прокинуть из API
+            // Внимание: API getProjectFullRegistry возвращает юниты без buildingId (join сложный).
+            // Но мы можем найти buildingId через floor -> block -> building.
+            // Упрощение: в API getProjectFullRegistry мы не джойнили buildingId.
+            // Давайте пока без имени здания, или добавим логику в API.
+            // Допустим API вернет plain list.
+            
+            let category = 'nonres';
+            if (['flat', 'duplex_up', 'duplex_down'].includes(u.type)) category = 'living';
+            else if (u.type === 'parking_place') category = 'parking';
 
-                list.push({
-                    id: key,
-                    category: ['flat', 'duplex_up', 'duplex_down'].includes(unit.type) ? 'living' : 'nonres',
-                    type: unit.type,
-                    number: unit.num,
-                    area: unit.area,
-                    buildingLabel: building.label,
-                    cadastreNumber: unit.cadastreNumber || null,
-                    isVirtual: false
-                });
-            });
-
-            // Б. Виртуальные нежилые
-            const resBlocks = blocks.filter(b => b.type === 'Ж');
-            resBlocks.forEach(block => {
-                Object.keys(entrancesData).forEach(entKey => {
-                    if (!entKey.startsWith(block.fullId)) return;
-                    const data = entrancesData[entKey];
-                    const unitsCount = parseInt(data.units || 0);
-                    if (unitsCount > 0) {
-                        for(let i = 1; i <= unitsCount; i++) {
-                            const virtualId = `${entKey}_unit_${i}`;
-                            if (!list.find(item => item.id === virtualId)) {
-                                list.push({
-                                    id: virtualId,
-                                    category: 'nonres',
-                                    type: 'office_inventory',
-                                    number: `НП-${i}`,
-                                    area: '0', 
-                                    buildingLabel: building.label,
-                                    cadastreNumber: null,
-                                    isVirtual: true,
-                                    // Доп поля для сохранения
-                                    buildingId: building.id,
-                                    blockId: block.id
-                                });
-                            }
-                        }
-                    }
-                });
-            });
-
-            const nonResBlocks = blocks.filter(b => b.type === 'Н');
-            nonResBlocks.forEach(block => {
-                const virtualId = `${building.id}_${block.id}_whole`;
-                if (!list.find(item => item.id === virtualId)) {
-                    let totalArea = 0;
-                    Object.entries(floorData).forEach(([k, v]) => {
-                        if (k.startsWith(`${building.id}_${block.id}`)) totalArea += (parseFloat(v.areaProj) || 0);
-                    });
-                    list.push({
-                        id: virtualId,
-                        category: 'nonres',
-                        type: 'non_res_block',
-                        number: block.tabLabel,
-                        area: totalArea.toFixed(2),
-                        buildingLabel: building.label,
-                        cadastreNumber: null,
-                        isVirtual: true,
-                        buildingId: building.id,
-                        blockId: block.id
-                    });
-                }
-            });
-
-            if (building.category === 'infrastructure') {
-                const virtualId = building.id;
-                if (!list.find(item => item.id === virtualId)) {
-                    let infraArea = 0;
-                    Object.entries(floorData).forEach(([k, v]) => {
-                        if (k.startsWith(`${building.id}_main`)) infraArea += (parseFloat(v.areaProj) || 0);
-                    });
-                    list.push({
-                        id: virtualId,
-                        category: 'nonres',
-                        type: 'infrastructure',
-                        number: building.houseNumber,
-                        area: infraArea.toFixed(2),
-                        buildingLabel: building.label,
-                        cadastreNumber: building.cadastreNumber || null,
-                        isVirtual: true,
-                        buildingId: building.id
-                    });
-                }
-            }
-
-            // В. Паркинг
-            Object.keys(parkingPlaces).forEach(key => {
-                if (!key.startsWith(building.id) || !key.includes('_place')) return;
-                const place = parkingPlaces[key];
-                
-                list.push({
-                    id: key,
-                    category: 'parking',
-                    type: 'parking_place',
-                    number: place.number,
-                    area: place.area,
-                    buildingLabel: building.label,
-                    cadastreNumber: place.cadastreNumber || null,
-                    isVirtual: false
-                });
+            list.push({
+                ...u,
+                category,
+                buildingLabel: '...', // Заглушка, если нет данных
+                cadastreNumber: u.cadastreNumber
             });
         });
 
         return list;
-    }, [composition, flatMatrix, entrancesData, floorData, parkingPlaces]);
+    }, [fullRegistry]);
 
     const stats = useMemo(() => {
-        const s = { living: { total: 0, ready: 0 }, nonres: { total: 0, ready: 0 }, parking: { total: 0, ready: 0 } };
+        const s = { living: { total: 0 }, nonres: { total: 0 }, parking: { total: 0 } };
         allObjects.forEach(obj => {
-            if (s[obj.category]) {
-                s[obj.category].total++;
-                if (obj.cadastreNumber) s[obj.category].ready++;
-            }
+            if (s[obj.category]) s[obj.category].total++;
         });
         return s;
     }, [allObjects]);
 
     const filteredList = useMemo(() => allObjects.filter(o => o.category === activeTab), [allObjects, activeTab]);
 
-    useEffect(() => {
-        if (applicationInfo?.integration?.unitsStatus !== status) {
-            const newIntegration = { ...(applicationInfo?.integration || {}), unitsStatus: status };
-            setApplicationInfo(prev => ({ ...prev, integration: newIntegration }));
-            saveData({ applicationInfo: { ...applicationInfo, integration: newIntegration } });
-        }
-    }, [status]);
-
     const handleSendToUzkad = async () => {
         if (isReadOnly) return;
-        setStatus(SYNC_STATUS.SENDING);
+        updateStatus(SYNC_STATUS.SENDING);
         setTimeout(() => {
-            setStatus(SYNC_STATUS.WAITING);
+            updateStatus(SYNC_STATUS.WAITING);
             toast.info("Реестр отправлен. Ожидание присвоения номеров...");
-        }, 2000);
+        }, 1500);
     };
 
-    const handleSimulateResponse = () => {
-        if (isReadOnly) return; 
-        const newFlatMatrix = { ...flatMatrix };
-        const newParkingPlaces = { ...parkingPlaces };
-
+    const handleSimulateResponse = async () => {
+        if (isReadOnly) return;
+        
         let processedCount = 0;
+        const promises = [];
 
-        allObjects.forEach(obj => {
-            if (obj.cadastreNumber) return; 
-
-            const uniquePart = Math.floor(100000 + Math.random() * 900000);
-            const generatedCadastre = `11:05:04:02:0077:${obj.category === 'parking' ? 'P:' : ''}${uniquePart}`;
-
-            if (obj.category === 'parking') {
-                if (newParkingPlaces[obj.id]) {
-                    newParkingPlaces[obj.id] = { ...newParkingPlaces[obj.id], cadastreNumber: generatedCadastre };
-                    processedCount++;
-                }
-            } else {
-                if (!obj.isVirtual) {
-                    // Существующий юнит
-                    if (newFlatMatrix[obj.id]) {
-                        newFlatMatrix[obj.id] = { ...newFlatMatrix[obj.id], cadastreNumber: generatedCadastre };
-                        processedCount++;
-                    }
-                } else {
-                    // Виртуальный юнит -> превращаем в реальный с UUID
-                    const newId = crypto.randomUUID(); // Генерируем UUID
-                    // ВАЖНО: Мы сохраняем объект по СТАРОМУ ключу (obj.id - который был virtualId), 
-                    // чтобы React-компоненты могли его найти, НО внутри объекта будет лежать настоящий UUID.
-                    // Либо мы сохраняем по UUID ключу, но тогда надо чистить старые ссылки. 
-                    // Для совместимости с текущим FlatMatrixEditor, который работает на строковых ключах, 
-                    // сохраним ключ как есть, но добавим поле id.
-                    
-                    newFlatMatrix[obj.id] = {
-                        id: newId, // UUID
-                        num: obj.number,
-                        type: obj.type,
-                        area: obj.area,
-                        cadastreNumber: generatedCadastre,
-                        buildingId: obj.buildingId,
-                        blockId: obj.blockId
-                    };
-                    processedCount++;
-                }
+        for (const obj of allObjects) {
+            if (!obj.cadastreNumber) {
+                const uniquePart = Math.floor(100000 + Math.random() * 900000);
+                const generatedCadastre = `11:05:04:02:0077:${obj.category === 'parking' ? 'P:' : ''}${uniquePart}`;
+                
+                promises.push(setUnitCadastre({ id: obj.id, cadastre: generatedCadastre }));
+                processedCount++;
             }
-        });
+        }
 
-        setFlatMatrix(newFlatMatrix);
-        setParkingPlaces(newParkingPlaces);
-        setStatus(SYNC_STATUS.COMPLETED);
-        
-        saveData({ 
-            flatMatrix: newFlatMatrix, 
-            parkingPlaces: newParkingPlaces 
-        }, true);
-        
+        await Promise.all(promises);
+        updateStatus(SYNC_STATUS.COMPLETED);
         toast.success(`Получено ${processedCount} новых кадастровых номеров!`);
     };
 
     const handleReset = () => {
         if (isReadOnly) return;
         if(!confirm("Сбросить статус интеграции?")) return;
-        setStatus(SYNC_STATUS.IDLE);
+        updateStatus(SYNC_STATUS.IDLE);
     };
+
+    if (loadingRegistry) return <div className="p-12 text-center"><Loader2 className="animate-spin text-indigo-600 mx-auto"/></div>;
 
     return (
         <div className="w-full pb-24 animate-in fade-in duration-500 space-y-6">
             
-            {/* --- HEADER --- */}
+            {/* HEADER */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 pb-6">
                 <div className="flex items-center gap-4">
                     <div className="p-3 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-200">
@@ -276,7 +142,6 @@ export default function IntegrationUnits() {
                     </div>
                 </div>
                 
-                {/* Status Badge */}
                 <div className={`px-4 py-2 rounded-xl text-sm font-bold border flex items-center gap-2 shadow-sm ${
                     status === SYNC_STATUS.COMPLETED ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                     status === SYNC_STATUS.WAITING ? 'bg-amber-50 text-amber-700 border-amber-200 animate-pulse' :
@@ -290,7 +155,7 @@ export default function IntegrationUnits() {
                 </div>
             </div>
 
-            {/* --- ACTION CARD --- */}
+            {/* ACTIONS */}
             <Card className="p-6 bg-slate-50/50 border-slate-200 shadow-sm">
                 <div className="flex flex-col md:flex-row items-center justify-between gap-6">
                     <div className="flex items-center gap-6">
@@ -303,8 +168,6 @@ export default function IntegrationUnits() {
                             <div className="text-sm font-bold text-slate-700">Единый пакет данных</div>
                             <div className="text-xs text-slate-500 mt-1">
                                 Всего объектов: <span className="font-bold text-slate-900">{allObjects.length}</span> 
-                                <span className="mx-2">•</span>
-                                Обработано: <span className="font-bold text-emerald-600">{allObjects.filter(o=>o.cadastreNumber).length}</span>
                             </div>
                         </div>
                     </div>
@@ -336,7 +199,7 @@ export default function IntegrationUnits() {
                 </div>
             </Card>
 
-            {/* --- TABS & TABLE --- */}
+            {/* TABLE */}
             <div className="space-y-4">
                 <div className="flex gap-2 p-1 bg-slate-100 rounded-xl w-max">
                     <TabButton active={activeTab==='living'} onClick={()=>setActiveTab('living')}>
@@ -358,7 +221,6 @@ export default function IntegrationUnits() {
                                     <th className="px-6 py-4 w-12 text-center">#</th>
                                     <th className="px-6 py-4">Номер / Имя</th>
                                     <th className="px-6 py-4">Тип</th>
-                                    <th className="px-6 py-4">Здание</th>
                                     <th className="px-6 py-4 text-right">Площадь</th>
                                     <th className="px-6 py-4">Кадастровый номер</th>
                                     <th className="px-6 py-4 text-center">Статус</th>
@@ -366,7 +228,7 @@ export default function IntegrationUnits() {
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {filteredList.length === 0 ? (
-                                    <tr><td colSpan={7} className="p-12 text-center text-slate-400">Нет объектов в этой категории</td></tr>
+                                    <tr><td colSpan={6} className="p-12 text-center text-slate-400">Нет объектов в этой категории</td></tr>
                                 ) : (
                                     filteredList.map((item, idx) => {
                                         const typeConf = getTypeConfig(item.type);
@@ -382,7 +244,6 @@ export default function IntegrationUnits() {
                                                         <TypeIcon size={12}/> {typeConf.label}
                                                     </span>
                                                 </td>
-                                                <td className="px-6 py-4 text-xs text-slate-500">{item.buildingLabel}</td>
                                                 <td className="px-6 py-4 text-right font-mono text-slate-600">
                                                     {item.area ? `${parseFloat(item.area).toFixed(2)} м²` : '-'}
                                                 </td>

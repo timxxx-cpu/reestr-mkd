@@ -1,17 +1,18 @@
 import React, { useMemo } from 'react';
 import { 
   Building2, Home, Briefcase, 
-  Car, TrendingUp, AlertTriangle,
-  CheckCircle2, PieChart as PieIcon, BarChart as BarChartIcon,
-  School, MapPin, ArrowUpRight, Globe 
+  Car, TrendingUp,
+  PieChart as PieIcon, BarChart as BarChartIcon,
+  School, MapPin, Loader2
 } from 'lucide-react';
 import { 
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend 
 } from 'recharts';
 import { useProject } from '../../context/ProjectContext';
+import { useDirectIntegration } from '../../hooks/api/useDirectIntegration';
 import { Card, SectionTitle, Badge } from '../ui/UIKit';
-import { getBlocksList, calculateProgress } from '../../lib/utils';
+import { calculateProgress } from '../../lib/utils';
 
 // --- ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ ---
 
@@ -33,7 +34,6 @@ const CustomTooltip = ({ active = false, payload = [], label = "" }) => {
     return null;
 };
 
-// Карточка с двумя показателями
 const StatCard = ({ icon: Icon, label, color = "blue", mainMetric, subMetric, warning = false }) => {
     const styles = {
         blue: "bg-blue-50 text-blue-600 border-blue-100",
@@ -47,17 +47,13 @@ const StatCard = ({ icon: Icon, label, color = "blue", mainMetric, subMetric, wa
 
     return (
         <div className={`relative overflow-hidden rounded-2xl border bg-white p-5 shadow-sm transition-all duration-300 hover:shadow-md ${warning ? 'border-red-300 ring-2 ring-red-50' : 'border-slate-200'} group`}>
-            
-            {/* Заголовок и иконка */}
             <div className="flex items-start justify-between mb-4">
                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</h3>
                  <div className={`p-2.5 rounded-xl ${activeStyle} transition-transform group-hover:scale-110`}>
                      <Icon size={20} />
                  </div>
             </div>
-
             <div className="flex flex-col gap-3">
-                 {/* Основной показатель (обычно Площадь) */}
                  <div>
                      <p className="text-[9px] font-bold text-slate-400 uppercase mb-0.5">{mainMetric.label}</p>
                      <div className="flex items-baseline gap-1">
@@ -65,11 +61,7 @@ const StatCard = ({ icon: Icon, label, color = "blue", mainMetric, subMetric, wa
                          <span className="text-xs font-bold text-slate-500">{mainMetric.unit}</span>
                      </div>
                  </div>
-
-                 {/* Разделитель */}
                  <div className="h-px w-full bg-slate-100" />
-
-                 {/* Второстепенный показатель (обычно Количество) */}
                  {subMetric && (
                      <div className="flex items-center justify-between">
                          <span className="text-xs font-bold text-slate-500">{subMetric.label}</span>
@@ -84,9 +76,12 @@ const StatCard = ({ icon: Icon, label, color = "blue", mainMetric, subMetric, wa
 };
 
 export default function SummaryDashboard() {
-    const { composition, floorData, flatMatrix, parkingPlaces, complexInfo } = useProject();
+    const { projectId, complexInfo } = useProject();
+    
+    // [NEW] Загружаем данные из БД
+    const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
 
-    // --- АГРЕГАЦИЯ ДАННЫХ ---
+    // --- АГРЕГАЦИЯ ---
     const stats = useMemo(() => {
         const result = {
             totalAreaProj: 0,
@@ -101,92 +96,54 @@ export default function SummaryDashboard() {
             avgProgress: 0
         };
 
+        if (!fullRegistry || !fullRegistry.buildings) return result;
+        
+        const { buildings, floors, units } = fullRegistry;
+
+        // 1. Прогресс и Площади этажей (Общая)
         let totalProgressSum = 0;
-        let itemsCount = 0;
+        buildings.forEach(b => {
+            totalProgressSum += calculateProgress(b.date_start, b.date_end); // DB fields snake_case
+        });
+        if (buildings.length > 0) result.avgProgress = totalProgressSum / buildings.length;
 
-        composition.forEach(building => {
-            const buildingPrefix = building.id;
-
-            // Прогресс
-            const progress = calculateProgress(building.dateStart, building.dateEnd);
-            totalProgressSum += progress;
-            itemsCount++;
-
-            // 1. Площади (FloorData)
-            Object.keys(floorData).forEach(key => {
-                if (key.startsWith(buildingPrefix)) {
-                    const f = floorData[key];
-                    result.totalAreaProj += parseFloat(f.areaProj || 0);
-                    result.totalAreaFact += parseFloat(f.areaFact || 0);
-                }
-            });
-
-            // 2. Юниты (FlatMatrix)
-            Object.keys(flatMatrix).forEach(key => {
-                if (key.startsWith(buildingPrefix)) {
-                    const u = flatMatrix[key];
-                    const area = parseFloat(u.area || 0);
-                    
-                    result.totalObjectsCount++;
-                    if (u.cadastreNumber) result.cadastreReadyCount++;
-
-                    if (['flat', 'duplex_up', 'duplex_down'].includes(u.type)) {
-                        result.living.area += area;
-                        result.living.count++;
-                    } else if (['office', 'office_inventory', 'non_res_block'].includes(u.type)) {
-                        result.commercial.area += area;
-                        result.commercial.count++;
-                    } else if (u.type === 'infrastructure') {
-                        result.infrastructure.area += area;
-                        result.infrastructure.count++;
-                    }
-                }
-            });
-
-            // 3. Инфраструктура (как здания)
-            if (building.category === 'infrastructure') {
-                const hasUnits = Object.keys(flatMatrix).some(k => k.startsWith(buildingPrefix));
-                if (!hasUnits) {
-                    let infraArea = 0;
-                    Object.keys(floorData).forEach(k => {
-                        if (k.startsWith(buildingPrefix)) infraArea += parseFloat(floorData[k].areaProj || 0);
-                    });
-                    if (infraArea > 0) {
-                        result.infrastructure.area += infraArea;
-                        result.infrastructure.count++;
-                        result.totalObjectsCount++;
-                        if (building.cadastreNumber) result.cadastreReadyCount++;
-                    }
-                }
-            }
-
-            // 4. Паркинги
-            Object.keys(parkingPlaces).forEach(key => {
-                if (key.startsWith(buildingPrefix) && key.includes('_place')) {
-                    const p = parkingPlaces[key];
-                    const area = parseFloat(p.area || 0);
-                    result.parking.area += area;
-                    result.parking.count++;
-                    result.totalObjectsCount++;
-                    if (p.cadastreNumber) result.cadastreReadyCount++;
-                }
-            });
+        floors.forEach(f => {
+            result.totalAreaProj += parseFloat(f.areaProj || 0);
+            result.totalAreaFact += parseFloat(f.areaFact || 0);
         });
 
-        // МОП
+        // 2. Юниты (Распределение)
+        units.forEach(u => {
+            const area = parseFloat(u.area || 0);
+            result.totalObjectsCount++;
+            if (u.cadastreNumber) result.cadastreReadyCount++;
+
+            if (['flat', 'duplex_up', 'duplex_down'].includes(u.type)) {
+                result.living.area += area;
+                result.living.count++;
+            } else if (['office', 'office_inventory', 'non_res_block'].includes(u.type)) {
+                result.commercial.area += area;
+                result.commercial.count++;
+            } else if (u.type === 'infrastructure') {
+                result.infrastructure.area += area;
+                result.infrastructure.count++;
+            } else if (u.type === 'parking_place') {
+                result.parking.area += area;
+                result.parking.count++;
+            }
+        });
+
+        // 3. МОП
+        // Считаем полезную площадь (все юниты) и вычитаем из общей
         const usefulArea = result.living.area + result.commercial.area + result.infrastructure.area + result.parking.area;
         result.mop.area = Math.max(0, result.totalAreaProj - usefulArea);
 
-        if (itemsCount > 0) {
-            result.avgProgress = totalProgressSum / itemsCount;
-        }
-
         return result;
-    }, [composition, floorData, flatMatrix, parkingPlaces]);
+    }, [fullRegistry]);
 
-    // Проверка на пустоту
+    if (loadingRegistry) return <div className="p-20 flex justify-center"><Loader2 className="animate-spin text-blue-600"/></div>;
+
     const isEmpty = stats.totalAreaProj === 0 && stats.totalObjectsCount === 0;
-
     if (isEmpty) {
         return (
             <div className="flex flex-col items-center justify-center h-[50vh] text-center space-y-4 animate-in fade-in">
@@ -212,8 +169,6 @@ export default function SummaryDashboard() {
     const barData = [
         { name: 'Площади', Проект: stats.totalAreaProj, Факт: stats.totalAreaFact }
     ];
-
-    const cadastrePercent = stats.totalObjectsCount > 0 ? (stats.cadastreReadyCount / stats.totalObjectsCount) * 100 : 0;
 
     return (
         <div className="w-full pb-20 space-y-6 animate-in fade-in duration-500 px-6">
@@ -241,90 +196,33 @@ export default function SummaryDashboard() {
 
             {/* --- KPI CARDS GRID --- */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                {/* 1. Общая площадь */}
                 <StatCard 
                     icon={Building2} 
-                    label="Общая площадь (S)" 
+                    label="Общая площадь" 
                     color="slate"
                     warning={isDiffCritical}
-                    mainMetric={{ 
-                        label: "Проектная", 
-                        value: stats.totalAreaProj.toLocaleString(undefined, {maximumFractionDigits: 0}), 
-                        unit: "м²" 
-                    }}
-                    subMetric={{ 
-                        label: "Факт по Кадастру", // [CHANGED]
-                        value: stats.totalAreaFact > 0 ? stats.totalAreaFact.toLocaleString(undefined, {maximumFractionDigits: 0}) : '-', 
-                        unit: "м²" 
-                    }}
+                    mainMetric={{ label: "Проектная", value: stats.totalAreaProj.toLocaleString(undefined, {maximumFractionDigits: 0}), unit: "м²" }}
+                    subMetric={{ label: "Факт", value: stats.totalAreaFact > 0 ? stats.totalAreaFact.toLocaleString(undefined, {maximumFractionDigits: 0}) : '-', unit: "м²" }}
                 />
-
-                {/* 2. Жилой фонд */}
                 <StatCard 
-                    icon={Home} 
-                    label="Жилой фонд" 
-                    color="blue"
-                    mainMetric={{ 
-                        label: "Площадь", 
-                        value: stats.living.area.toLocaleString(undefined, {maximumFractionDigits: 0}), 
-                        unit: "м²" 
-                    }}
-                    subMetric={{ 
-                        label: "Квартир", 
-                        value: stats.living.count, 
-                        unit: "шт." 
-                    }}
+                    icon={Home} label="Жилой фонд" color="blue"
+                    mainMetric={{ label: "Площадь", value: stats.living.area.toLocaleString(undefined, {maximumFractionDigits: 0}), unit: "м²" }}
+                    subMetric={{ label: "Квартир", value: stats.living.count, unit: "шт." }}
                 />
-
-                {/* 3. Коммерция */}
                 <StatCard 
-                    icon={Briefcase} 
-                    label="Коммерция" 
-                    color="emerald"
-                    mainMetric={{ 
-                        label: "Площадь", 
-                        value: stats.commercial.area.toLocaleString(undefined, {maximumFractionDigits: 0}), 
-                        unit: "м²" 
-                    }}
-                    subMetric={{ 
-                        label: "Помещений", 
-                        value: stats.commercial.count, 
-                        unit: "шт." 
-                    }}
+                    icon={Briefcase} label="Коммерция" color="emerald"
+                    mainMetric={{ label: "Площадь", value: stats.commercial.area.toLocaleString(undefined, {maximumFractionDigits: 0}), unit: "м²" }}
+                    subMetric={{ label: "Помещений", value: stats.commercial.count, unit: "шт." }}
                 />
-
-                {/* 4. Соц. объекты */}
                 <StatCard 
-                    icon={School} 
-                    label="Соц. объекты" 
-                    color="amber"
-                    mainMetric={{ 
-                        label: "Площадь", 
-                        value: stats.infrastructure.area.toLocaleString(undefined, {maximumFractionDigits: 0}), 
-                        unit: "м²" 
-                    }}
-                    subMetric={{ 
-                        label: "Объектов", 
-                        value: stats.infrastructure.count, 
-                        unit: "ед." 
-                    }}
+                    icon={School} label="Соц. объекты" color="amber"
+                    mainMetric={{ label: "Площадь", value: stats.infrastructure.area.toLocaleString(undefined, {maximumFractionDigits: 0}), unit: "м²" }}
+                    subMetric={{ label: "Объектов", value: stats.infrastructure.count, unit: "ед." }}
                 />
-
-                {/* 5. Паркинг */}
                 <StatCard 
-                    icon={Car} 
-                    label="Паркинг" 
-                    color="indigo"
-                    mainMetric={{ 
-                        label: "Площадь", 
-                        value: stats.parking.area.toLocaleString(undefined, {maximumFractionDigits: 0}), 
-                        unit: "м²" 
-                    }}
-                    subMetric={{ 
-                        label: "Машиномест", 
-                        value: stats.parking.count, 
-                        unit: "мм" 
-                    }}
+                    icon={Car} label="Паркинг" color="indigo"
+                    mainMetric={{ label: "Площадь", value: stats.parking.area.toLocaleString(undefined, {maximumFractionDigits: 0}), unit: "м²" }}
+                    subMetric={{ label: "Машиномест", value: stats.parking.count, unit: "мм" }}
                 />
             </div>
 
@@ -334,28 +232,14 @@ export default function SummaryDashboard() {
                 <Card className="xl:col-span-2 p-6 shadow-sm flex flex-col min-h-[400px]">
                     <div className="flex justify-between items-center mb-6">
                         <SectionTitle icon={PieIcon} className="mb-0">Структура площадей</SectionTitle>
-                        <div className="text-xs font-bold bg-slate-100 text-slate-600 px-3 py-1 rounded-full border border-slate-200">
-                            Коэффициент полезных площадей: {stats.totalAreaProj > 0 ? ((stats.living.area + stats.commercial.area) / stats.totalAreaProj).toFixed(2) : '0.00'}
-                        </div>
                     </div>
                     
                     <div className="flex flex-col md:flex-row items-center gap-8 flex-1">
                         <div className="h-[300px] w-full md:w-1/2 relative">
                             <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
-                                    <Pie
-                                        data={chartData}
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={80}
-                                        outerRadius={110}
-                                        paddingAngle={5}
-                                        dataKey="value"
-                                        stroke="none"
-                                    >
-                                        {chartData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.color} />
-                                        ))}
+                                    <Pie data={chartData} cx="50%" cy="50%" innerRadius={80} outerRadius={110} paddingAngle={5} dataKey="value" stroke="none">
+                                        {chartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
                                     </Pie>
                                     <RechartsTooltip content={<CustomTooltip />} />
                                     <Legend verticalAlign="bottom" height={36} iconType="circle" />
@@ -387,10 +271,8 @@ export default function SummaryDashboard() {
                     </div>
                 </Card>
 
-                {/* Правая колонка: Проект/Факт и Интеграция */}
+                {/* Правая колонка: Проект/Факт */}
                 <div className="space-y-6 flex flex-col">
-                    
-                    {/* Проект vs Факт */}
                     <Card className={`p-6 shadow-sm border-l-4 ${isDiffCritical ? 'border-l-red-500' : 'border-l-emerald-500'}`}>
                         <SectionTitle icon={BarChartIcon}>Проект vs Факт</SectionTitle>
                         <div className="h-[180px] mt-4 w-full">
@@ -411,43 +293,6 @@ export default function SummaryDashboard() {
                             <span className={`text-sm font-bold ${diff > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                                 {diff > 0 ? '+' : ''}{diff.toLocaleString(undefined, {maximumFractionDigits: 1})} м² ({diffPercent.toFixed(2)}%)
                             </span>
-                        </div>
-                    </Card>
-
-                    {/* Кадастровая готовность */}
-                    <Card className="p-6 shadow-sm bg-slate-900 text-white border-0 flex-1 flex flex-col justify-center">
-                        <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-300">
-                                    <Globe size={20} />
-                                </div>
-                                <div>
-                                    <h3 className="font-bold text-white text-sm uppercase tracking-wide">Кадастр (УЗКАД)</h3>
-                                    <p className="text-[10px] text-slate-400">Синхронизация</p>
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-2xl font-black">{stats.cadastreReadyCount}</div>
-                                <div className="text-[9px] text-slate-400">из {stats.totalObjectsCount}</div>
-                            </div>
-                        </div>
-
-                        <div className="space-y-4">
-                            <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                                <div 
-                                    className="h-full bg-indigo-500 transition-all duration-1000" 
-                                    style={{ width: `${cadastrePercent}%` }}
-                                ></div>
-                            </div>
-
-                            <div className="flex justify-between items-center text-xs">
-                                <span className="text-slate-400">Готовность данных</span>
-                                <span className="font-bold text-indigo-300">{Math.round(cadastrePercent)}%</span>
-                            </div>
-
-                            <button onClick={() => document.getElementById('root').scrollIntoView()} className="w-full py-2 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-2">
-                                <ArrowUpRight size={14}/> Перейти к интеграции
-                            </button>
                         </div>
                     </Card>
                 </div>

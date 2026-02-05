@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Home, Briefcase, Car, Loader2 } from 'lucide-react';
-import { useProject } from '../../../context/ProjectContext';
 import { useToast } from '../../../context/ToastContext';
 import { TabButton } from '../../ui/UIKit';
+import { ApiService } from '../../../lib/api-service'; // [NEW] Прямой API
+import { useProject } from '../../../context/ProjectContext'; // Только для projectId
 
 // Импорт видов
 import ApartmentsRegistry from './views/ApartmentsRegistry';
@@ -16,97 +17,65 @@ const MODES = {
 };
 
 export default function UnitRegistry({ mode = 'apartments' }) {
-    const { 
-        flatMatrix, setFlatMatrix, 
-        parkingPlaces, setParkingPlaces, 
-        saveProjectImmediate 
-    } = useProject();
-    
+    const { projectId } = useProject();
     const toast = useToast();
     const [activeTab, setActiveTab] = useState(mode);
     const [isSaving, setIsSaving] = useState(false);
 
-    // Синхронизация с внешним переключением шагов
     useEffect(() => {
         if (MODES[mode]) {
             setActiveTab(mode);
         }
     }, [mode]);
 
-    // Единая логика сохранения для всех реестров
-    const handleSaveUnit = async (originalUnit, changes, category) => {
+    // [NEW] Новая логика сохранения напрямую в БД
+    const handleSaveUnit = async (originalUnit, changes) => {
         setIsSaving(true);
         try {
-            const isParking = category === 'parking';
-            const sourceData = isParking ? parkingPlaces : flatMatrix;
-            const setSourceData = isParking ? setParkingPlaces : setFlatMatrix;
-
-            // 1. Получаем существующие данные (если объект уже сохранен)
-            const existingData = originalUnit.isSaved ? sourceData[originalUnit.id] : {};
-
-            // 2. Обработка экспликации (комнат)
-            let finalExplication = [];
-            if (Array.isArray(changes.roomsList)) finalExplication = changes.roomsList;
-            else if (Array.isArray(originalUnit.explication)) finalExplication = originalUnit.explication;
-            else if (existingData && Array.isArray(existingData.explication)) finalExplication = existingData.explication;
-
-            // 3. Формируем финальный ID (UUID)
-            const finalUuid = originalUnit.uuid || crypto.randomUUID();
-
-            // 4. Слияние данных: Существующие -> Данные из UI -> Новые изменения
-            const mergedData = { ...existingData, ...originalUnit, ...changes };
-
-            // 5. Очистка payload от UI-полей (оставляем только данные для БД)
-            // ВАЖНО: Все поля должны быть определены (не undefined)
-            const cleanPayload = {
-                id: finalUuid,
-                isSaved: true,
-                
-                num: mergedData.number || mergedData.num || '',     
-                number: mergedData.number || mergedData.num || '',  
-                
-                area: mergedData.area || '0',
-                type: mergedData.type || 'flat',
-                
-                // Специфичные поля с дефолтными значениями, чтобы избежать undefined
-                livingArea: mergedData.livingArea || '0',
-                usefulArea: mergedData.usefulArea || '0',
-                rooms: mergedData.rooms || 0,
-                isSold: mergedData.isSold || false, // Для паркинга
-                
-                explication: finalExplication || [],
-
-                // Связи (FK) - убедимся, что они есть
-                buildingId: mergedData.buildingId || null,
-                blockId: mergedData.blockId || null,
-                floorId: mergedData.floorId || null,
-                entrance: mergedData.entrance || null
+            // 1. Мержим данные
+            const mergedData = { 
+                ...originalUnit, 
+                ...changes 
             };
 
-            // Ключ в объекте состояния. 
-            // Для виртуальных объектов используем их временный ID как ключ, чтобы они перестали быть виртуальными.
-            const storageKey = originalUnit.id;
+            // 2. Подготовка payload для API
+            // ApiService.upsertUnit ожидает структуру, совместимую с БД
+            const payload = {
+                id: mergedData.id,
+                floorId: mergedData.floorId,
+                entranceId: mergedData.entranceId, // Важно!
+                
+                num: mergedData.number || mergedData.num,
+                type: mergedData.type,
+                area: mergedData.area,
+                
+                // Доп. поля
+                livingArea: mergedData.livingArea,
+                usefulArea: mergedData.usefulArea,
+                rooms: mergedData.rooms,
+                isSold: mergedData.isSold,
+                
+                // Комнаты (если есть)
+                explication: mergedData.explication || mergedData.roomsList
+            };
 
-            // 6. Обновление стейта
-            setSourceData(prev => ({
-                ...prev,
-                [storageKey]: cleanPayload
-            }));
-
-            // 7. Сохранение в Firebase
-            setTimeout(async () => {
-                try {
-                    await saveProjectImmediate();
-                    toast.success('Сохранено');
-                } catch (e) {
-                    console.error("Save error:", e);
-                    toast.error('Ошибка сохранения в БД: ' + (e.message || 'Unknown error'));
-                }
-            }, 100);
+            // 3. Отправляем в БД
+            await ApiService.upsertUnit(payload);
+            
+            toast.success('Сохранено');
+            
+            // ВАЖНО: Нам нужно обновить данные в UI. 
+            // Компоненты-списки (ApartmentsRegistry) используют useQuery.
+            // Нам нужно инвалидировать кэш 'project-registry', чтобы список обновился.
+            // Мы сделаем это через queryClient внутри компонентов или передадим callback.
+            // Но проще всего - компоненты сами подпишутся на обновление.
+            
+            return true; // Успех
 
         } catch (error) {
-            console.error("Global save error:", error);
-            toast.error('Критическая ошибка сохранения');
+            console.error("Save error:", error);
+            toast.error('Ошибка сохранения: ' + error.message);
+            return false;
         } finally {
             setIsSaving(false);
         }
@@ -131,7 +100,6 @@ export default function UnitRegistry({ mode = 'apartments' }) {
                     )}
                 </div>
                 
-                {/* Переключатель вкладок */}
                 <div className="flex gap-2 p-1 bg-slate-100 rounded-xl w-max">
                     {Object.entries(MODES).map(([key, config]) => (
                         <TabButton 
@@ -148,7 +116,7 @@ export default function UnitRegistry({ mode = 'apartments' }) {
 
             {/* Контент */}
             <div className="px-6">
-                <ActiveComponent onSaveUnit={handleSaveUnit} />
+                <ActiveComponent onSaveUnit={handleSaveUnit} projectId={projectId} />
             </div>
             
         </div>

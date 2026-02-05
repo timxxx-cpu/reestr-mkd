@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import { Briefcase, Warehouse, Utensils, Bath, Box, Layers, Sun, Trash2, Plus, Copy } from 'lucide-react';
 import { Input, Select, useReadOnly } from '../../../ui/UIKit';
 import { useToast } from '../../../../context/ToastContext';
-import { useProject } from '../../../../context/ProjectContext';
 import RegistryModalLayout, { StatBadge } from './RegistryModalLayout';
 
 const COMMERCIAL_ROOMS = [
@@ -17,11 +16,11 @@ const COMMERCIAL_ROOMS = [
     { id: 'terrace', label: 'Терраса (k=0.3)', icon: Sun, k: 0.3, category: 'summer' },
 ];
 
-export default function CommercialInventoryModal({ unit, buildingLabel, onClose, onSave }) {
-    const { flatMatrix } = useProject();
+export default function CommercialInventoryModal({ unit, unitsList = [], buildingLabel, onClose, onSave }) {
     const isReadOnly = useReadOnly();
     const toast = useToast();
     
+    // Используем explication (комнаты из БД)
     const [rooms, setRooms] = useState(unit.explication || []); 
     const [copySourceNum, setCopySourceNum] = useState(''); 
     
@@ -72,14 +71,13 @@ export default function CommercialInventoryModal({ unit, buildingLabel, onClose,
 
     const handleCopy = () => {
         if (isReadOnly || !copySourceNum.trim()) return;
-        const buildingPrefix = unit.buildingId;
-        const sourceEntry = Object.entries(flatMatrix).find(([key, u]) => {
-            return key.startsWith(buildingPrefix) && String(u.num) === String(copySourceNum) && key !== unit.id;
-        });
+        
+        // [FIX] Ищем в переданном списке, а не в контексте
+        const sourceUnit = unitsList.find(u => String(u.num) === String(copySourceNum) && u.id !== unit.id);
 
-        if (!sourceEntry) { toast.error(`Помещение №${copySourceNum} не найдено`); return; }
-        const sourceUnit = sourceEntry[1];
-        const sourceRooms = sourceUnit.explication || sourceUnit.roomsList; 
+        if (!sourceUnit) { toast.error(`Помещение №${copySourceNum} не найдено`); return; }
+        
+        const sourceRooms = sourceUnit.explication; 
 
         if (!sourceRooms || sourceRooms.length === 0) { toast.error(`Помещение №${copySourceNum} пустое`); return; }
         if (rooms.length > 0 && !confirm(`Заменить данные данными из №${copySourceNum}?`)) return;
@@ -100,7 +98,7 @@ export default function CommercialInventoryModal({ unit, buildingLabel, onClose,
         if (isReadOnly) return;
         onSave({
             ...unit,
-            roomsList: rooms, 
+            explication: rooms, // [FIX] Используем explication для БД
             area: stats.total, 
             mainArea: stats.main,
             auxArea: stats.aux,

@@ -1,19 +1,18 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   ArrowUp, ChevronsDown, Ruler, Maximize2, FileText, 
-  ArrowUpFromLine, AlertCircle, CheckSquare, Square, 
-  MoreHorizontal, X, Wand2
+  ArrowUpFromLine, CheckSquare, Square, 
+  MoreHorizontal, Wand2, Loader2, AlertCircle, X,
+  Building2, Car, Box, Store, LayoutGrid 
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, DebouncedInput, Input, useReadOnly } from '../ui/UIKit';
-import { getBlocksList } from '../../lib/utils';
-import { useBuildingFloors } from '../../hooks/useBuildingFloors';
-import { FloorDataSchema } from '../../lib/schemas';
-import { Validators } from '../../lib/validators';
+import { useDirectBuildings } from '../../hooks/api/useDirectBuildings';
+import { useDirectFloors } from '../../hooks/api/useDirectFloors';
 import { useBuildingType } from '../../hooks/useBuildingType';
+import { Card, DebouncedInput, useReadOnly } from '../ui/UIKit';
+import { Validators } from '../../lib/validators';
 import ConfigHeader from './configurator/ConfigHeader';
 
-// Кастомная кнопка таба в темном стиле
 const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
     <button
         onClick={onClick}
@@ -30,33 +29,41 @@ const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
     </button>
 );
 
+const getBlockIcon = (type) => {
+    if (type === 'residential') return Building2;
+    if (type === 'parking') return Car;
+    if (type === 'infrastructure') return Box;
+    if (type === 'non_residential') return Store;
+    return LayoutGrid;
+};
+
 export default function FloorMatrixEditor({ buildingId, onBack }) {
-    const { composition, floorData, setFloorData, buildingDetails } = useProject();
+    const { projectId } = useProject();
     const isReadOnly = useReadOnly();
-    const [activeBlockIndex, setActiveBlockIndex] = useState(0);
     
+    // 1. Получаем список зданий
+    const { buildings } = useDirectBuildings(projectId);
+    const building = useMemo(() => buildings.find(b => b.id === buildingId), [buildings, buildingId]);
+
+    // 2. Тип здания
+    const typeInfo = useBuildingType(building);
+    const { isParking, isInfrastructure, isUnderground } = typeInfo;
+
+    // 3. Управление блоками
+    const [activeBlockIndex, setActiveBlockIndex] = useState(0);
+    const currentBlock = useMemo(() => {
+        if (!building?.blocks?.length) return null;
+        return building.blocks[activeBlockIndex];
+    }, [building, activeBlockIndex]);
+
+    // 4. Этажи из БД
+    const { floors, isLoading, updateFloor, generateFloors, isMutating } = useDirectFloors(currentBlock?.id);
+
     const [selectedRows, setSelectedRows] = useState(new Set());
     const [bulkValue, setBulkValue] = useState('');
     const [openMenuId, setOpenMenuId] = useState(null); 
     const menuRef = useRef(null);
     const inputsRef = useRef({});
-
-    const building = composition.find(c => c.id === buildingId);
-    
-    const typeInfo = useBuildingType(building);
-    const { isGroundOpen, isGroundLight, isParking, isInfrastructure, isUnderground } = typeInfo;
-    const isExcludedType = isGroundOpen || isGroundLight;
-
-    const blocksList = useMemo(() => getBlocksList(building), [building]);
-    
-    // Получаем rawFloorList и фильтруем его для этого редактора
-    const { floorList: rawFloorList, currentBlock } = useBuildingFloors(buildingId, activeBlockIndex);
-
-    // Локальная фильтрация: во Внешней инвентаризации скрываем этажи, занятые стилобатом
-    const floorList = useMemo(() => {
-        if (!rawFloorList) return [];
-        return rawFloorList.filter(f => !f.isStylobate);
-    }, [rawFloorList]);
 
     useEffect(() => {
         setSelectedRows(new Set());
@@ -74,160 +81,65 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
+    const handleGenerateMissing = async () => {
+        if (!currentBlock) return;
+        if (confirm("Сгенерировать сетку этажей на основе настроек блока?")) {
+            await generateFloors({ floorsFrom: 1, floorsTo: 9, defaultType: currentBlock.type === 'residential' ? 'residential' : 'office' });
+        }
+    };
 
-    const resolveFloorStorageKey = useCallback((data, floorId, floorKey) => {
-        const blockFullId = currentBlock?.fullId || '';
-        const directKey = `${blockFullId}_${floorId}`;
-        if (data[directKey]) return directKey;
-
-        if (!floorKey) return directKey;
-
-        const prefix = `${blockFullId}_`;
-        const fallback = Object.entries(data).find(([entryKey, entryVal]) =>
-            entryKey.startsWith(prefix) && entryVal?.floorKey === floorKey
-        );
-
-        return fallback?.[0] || directKey;
-    }, [currentBlock?.fullId]);
-
-    const getFloorEntry = useCallback((floor) => {
-        const key = resolveFloorStorageKey(floorData, floor.id, floor.floorKey);
-        return { key, value: floorData[key] || {} };
-    }, [floorData, resolveFloorStorageKey]);
-
-
-    const handleInput = useCallback((floorId, field, value, floorType, floorKey, floorFlags = {}, meta = {}) => { 
+    const handleInput = (id, field, value) => {
         if (isReadOnly) return;
-        if (value !== '' && (parseFloat(value) < 0 || value.includes('-'))) return;
-        setFloorData(p => {
-            const key = resolveFloorStorageKey(p, floorId, floorKey);
-            return {
-                ...p, 
-                [key]: { 
-                    id: p[key]?.id || crypto.randomUUID(),
-                    ...(p[key]||{}), 
-                [field]: value,
-                type: floorType, 
-                floorKey: floorKey || p[key]?.floorKey,
-                flags: floorFlags || p[key]?.flags,
-                label: meta.label || p[key]?.label,
-                buildingId: building.id,
-                blockId: currentBlock.id,
-                ...meta
-            } 
-            };
-        }); 
-    }, [setFloorData, isReadOnly, building.id, currentBlock.id, resolveFloorStorageKey]);
+        updateFloor({ id, updates: { [field]: value } });
+    };
 
-    const copyRowFromPrev = (idx) => {
+    const copyRowFromPrev = async (idx) => {
         if (isReadOnly || idx <= 0) return;
-        const prevId = floorList[idx - 1].id;
-        const curr = floorList[idx];
-        const currId = curr.id;
-        const currType = curr.type;
-        const prevFloor = floorList[idx - 1];
-        const prevKey = resolveFloorStorageKey(floorData, prevId, prevFloor.floorKey);
-        const currKey = resolveFloorStorageKey(floorData, currId, curr.floorKey);
+        const prevFloor = floors[idx - 1];
+        const currFloor = floors[idx];
         
-        const prevData = floorData[prevKey] || {};
-        setFloorData(p => ({
-            ...p,
-            [currKey]: { 
-                id: p[currKey]?.id || crypto.randomUUID(),
-                ...(p[currKey] || {}), 
-                height: prevData.height, 
-                areaProj: prevData.areaProj, 
-                areaFact: prevData.areaFact,
-                type: currType, 
-                floorKey: curr.floorKey || p[currKey]?.floorKey,
-                flags: curr.flags || p[currKey]?.flags,
-                label: curr.label || p[currKey]?.label,
-                parentFloorIndex: curr.parentFloorIndex,
-                basementId: curr.basementId,
-                buildingId: building.id,
-                blockId: currentBlock.id
-            }
-        }));
+        await updateFloor({ 
+            id: currFloor.id, 
+            updates: { 
+                height: prevFloor.height, 
+                areaProj: prevFloor.areaProj, 
+                areaFact: prevFloor.areaFact 
+            } 
+        });
         setOpenMenuId(null);
     };
 
-    const fillRowsBelow = (idx) => {
+    const fillRowsBelow = async (idx) => {
         if (isReadOnly) return;
-        const sourceId = floorList[idx].id;
-        const sourceFloor = floorList[idx];
-        const sourceKey = resolveFloorStorageKey(floorData, sourceId, sourceFloor.floorKey);
-        const sourceData = floorData[sourceKey] || {};
-        
-        const updates = {};
-        for (let i = idx + 1; i < floorList.length; i++) {
-            const target = floorList[i];
-            const targetId = target.id;
-            const targetType = target.type;
-            const targetKey = resolveFloorStorageKey(floorData, targetId, target.floorKey);
-            updates[targetKey] = { 
-                id: floorData[targetKey]?.id || crypto.randomUUID(),
-                ...(floorData[targetKey] || {}), 
-                height: sourceData.height, 
-                areaProj: sourceData.areaProj, 
-                areaFact: sourceData.areaFact,
-                type: targetType, 
-                floorKey: target.floorKey || floorData[targetKey]?.floorKey,
-                flags: target.flags || floorData[targetKey]?.flags,
-                label: target.label || floorData[targetKey]?.label,
-                parentFloorIndex: target.parentFloorIndex,
-                basementId: target.basementId,
-                buildingId: building.id,
-                blockId: currentBlock.id
-            };
+        const sourceFloor = floors[idx];
+        const updates = {
+            height: sourceFloor.height,
+            areaProj: sourceFloor.areaProj,
+            areaFact: sourceFloor.areaFact
+        };
+
+        const promises = [];
+        for (let i = idx + 1; i < floors.length; i++) {
+            promises.push(updateFloor({ id: floors[i].id, updates }));
         }
-        setFloorData(p => ({ ...p, ...updates }));
+        await Promise.all(promises);
         setOpenMenuId(null);
     };
 
     const copyFieldFromPrev = (idx, field) => {
         if (isReadOnly || idx <= 0) return;
-        const prevId = floorList[idx - 1].id;
-        const curr = floorList[idx];
-        const currId = curr.id;
-        const currType = curr.type;
-        const currFloorKey = floorList[idx].floorKey;
-        const currFlags = floorList[idx].flags || {};
-        const currMeta = { parentFloorIndex: floorList[idx].parentFloorIndex, basementId: floorList[idx].basementId, label: floorList[idx].label };
-        const prevFloor = floorList[idx - 1];
-        const prevKey = resolveFloorStorageKey(floorData, prevId, prevFloor.floorKey);
-        const val = floorData[prevKey]?.[field];
-        if (val !== undefined) handleInput(currId, field, val, currType, currFloorKey, currFlags, currMeta);
+        const val = floors[idx - 1][field];
+        if (val !== undefined) handleInput(floors[idx].id, field, val);
     };
 
-    const fillFieldBelow = (idx, field) => {
+    const fillFieldBelow = async (idx, field) => {
         if (isReadOnly) return;
-        const sourceId = floorList[idx].id;
-        const sourceFloor = floorList[idx];
-        const sourceKey = resolveFloorStorageKey(floorData, sourceId, sourceFloor.floorKey);
-        const val = floorData[sourceKey]?.[field];
-        if (val === undefined) return;
-
-        const updates = {};
-        for (let i = idx + 1; i < floorList.length; i++) {
-            const target = floorList[i];
-            const targetId = target.id;
-            const targetType = target.type;
-            const targetKey = resolveFloorStorageKey(floorData, targetId, target.floorKey);
-            updates[targetKey] = { 
-                id: floorData[targetKey]?.id || crypto.randomUUID(),
-                ...(floorData[targetKey] || {}), 
-                [field]: val,
-                type: targetType, 
-                floorKey: target.floorKey || floorData[targetKey]?.floorKey,
-                flags: target.flags || floorData[targetKey]?.flags,
-                label: target.label || floorData[targetKey]?.label,
-                parentFloorIndex: target.parentFloorIndex,
-                basementId: target.basementId,
-                buildingId: building.id,
-                blockId: currentBlock.id
-            };
+        const val = floors[idx][field];
+        const promises = [];
+        for (let i = idx + 1; i < floors.length; i++) {
+            promises.push(updateFloor({ id: floors[i].id, updates: { [field]: val } }));
         }
-        setFloorData(p => ({ ...p, ...updates }));
+        await Promise.all(promises);
     };
 
     const handleKeyDown = (e, rowIndex, colKey) => {
@@ -239,7 +151,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         let newCol = colIndex;
 
         if (e.key === 'ArrowUp') newRow = Math.max(0, rowIndex - 1);
-        if (e.key === 'ArrowDown') newRow = Math.min(floorList.length - 1, rowIndex + 1);
+        if (e.key === 'ArrowDown') newRow = Math.min(floors.length - 1, rowIndex + 1);
         if (e.key === 'ArrowLeft') newCol = Math.max(0, colIndex - 1);
         if (e.key === 'ArrowRight') newCol = Math.min(colOrder.length - 1, colIndex + 1);
 
@@ -259,92 +171,42 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
     const toggleAll = () => {
         if (isReadOnly) return;
-        if (selectedRows.size === floorList.length) setSelectedRows(new Set());
-        else setSelectedRows(new Set(floorList.map(f => f.id)));
+        if (selectedRows.size === floors.length) setSelectedRows(new Set());
+        else setSelectedRows(new Set(floors.map(f => f.id)));
     };
 
-    const applyBulk = (field) => {
+    const applyBulk = async (field) => {
         if (isReadOnly || !bulkValue) return;
-        const updates = {};
-        selectedRows.forEach(floorId => {
-            const floorItem = floorList.find(f => f.id === floorId);
-            if (!floorItem) return;
-
-            const key = resolveFloorStorageKey(floorData, floorId, floorItem.floorKey);
-            const currentData = floorData[key] || {};
-            updates[key] = { 
-                id: currentData.id || crypto.randomUUID(),
-                ...currentData, 
-                [field]: bulkValue,
-                type: floorItem.type, 
-                buildingId: building.id,
-                blockId: currentBlock.id
-            };
+        const promises = [];
+        selectedRows.forEach(id => {
+            promises.push(updateFloor({ id, updates: { [field]: bulkValue } }));
         });
-        setFloorData(prev => ({ ...prev, ...updates }));
+        await Promise.all(promises);
     };
 
-  const autoFill = () => { 
+    const autoFill = async () => { 
         if (isReadOnly) return;
-        const updates = {}; 
-        floorList.forEach(f => { 
-            const key = resolveFloorStorageKey(floorData, f.id, f.floorKey); 
-            // Получаем текущие данные (или пустой объект)
-            const currentData = floorData[key] || {};
-            
-            // ПАРАМЕТРЫ ДЛЯ ЗАПОЛНЕНИЯ
-            let h = '3.00'; let s_proj = '500.00';
-            if (f.type === 'basement') { h = '2.50'; s_proj = '450.00'; }
-            if (f.type === 'parking_floor') { h = '2.70'; s_proj = '1000.00'; }
-            if (f.type === 'technical') { h = '1.80'; s_proj = '480.00'; }
-            if (f.type === 'attic') { h = '2.70'; s_proj = '350.00'; }
-            if (f.type === 'roof') { h = '0.00'; s_proj = '400.00'; }
-            if (f.type === 'mixed') { h = '3.60'; s_proj = '550.00'; } 
-            if (f.type === 'office') { h = '3.30'; s_proj = '600.00'; }
-            
-            // ИСПРАВЛЕНИЕ: Проверяем, пустое ли значение S_PROJ, а не просто наличие ключа
-            const isEmpty = !currentData.areaProj || parseFloat(currentData.areaProj) === 0;
+        if (!confirm("Заполнить пустые значения типовыми данными?")) return;
 
-            if (isEmpty) { 
-                updates[key] = { 
-                    ...currentData, // Сохраняем ID и связи, если они были
-                    id: currentData.id || crypto.randomUUID(),
-                    height: h, 
-                    areaProj: s_proj, 
-                    areaFact: s_proj, // Копируем в факт тоже
-                    type: f.type, 
-                    buildingId: building.id,
-                    blockId: currentBlock.id
-                }; 
+        const promises = [];
+        floors.forEach(f => {
+            const isEmpty = !f.areaProj || parseFloat(f.areaProj) === 0;
+            if (isEmpty) {
+                let h = '3.00'; let s_proj = '500.00';
+                if (f.type === 'basement') { h = '2.50'; s_proj = '450.00'; }
+                if (f.type === 'parking_floor') { h = '2.70'; s_proj = '1000.00'; }
+                if (f.type === 'technical') { h = '1.80'; s_proj = '480.00'; }
+                if (f.type === 'attic') { h = '2.70'; s_proj = '350.00'; }
+                if (f.type === 'roof') { h = '0.00'; s_proj = '400.00'; }
+                
+                promises.push(updateFloor({ 
+                    id: f.id, 
+                    updates: { height: h, areaProj: s_proj, areaFact: s_proj } 
+                }));
             }
-        }); 
-        setFloorData(p => ({...p, ...updates})); 
+        });
+        await Promise.all(promises);
     };
-
-
-    if (!building) return <div className="p-8 text-center">Объект не найден</div>;
-
-    if (isExcludedType) {
-        return (
-            <div className="space-y-6 pb-20 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in">
-                <ConfigHeader 
-                    building={building} 
-                    isParking={isParking} 
-                    isInfrastructure={isInfrastructure} 
-                    isUnderground={isUnderground} 
-                    onBack={onBack} 
-                    isSticky={false} 
-                />
-                <div className="flex flex-col items-center justify-center h-[40vh] text-center space-y-4 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200">
-                    <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400"><Ruler size={40} /></div>
-                    <h3 className="text-xl font-bold text-slate-700">Внешняя инвентаризация не требуется</h3>
-                    <p className="text-slate-500 max-w-md">Для паркингов открытого типа или легких конструкций обмеры этажей не производятся.</p>
-                </div>
-            </div>
-        );
-    }
-
-    if (!currentBlock) return <div className="p-8">Блоки не найдены</div>;
 
     const renderTypeBadge = (type) => {
         const styles = {
@@ -352,64 +214,86 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
             mixed: "bg-violet-50 text-violet-600 border-violet-100", 
             technical: "bg-amber-50 text-amber-600 border-amber-100",
             basement: "bg-slate-100 text-slate-600 border-slate-200",
-            tsokol: "bg-purple-50 text-purple-600 border-purple-100",
             attic: "bg-teal-50 text-teal-600 border-teal-100",
-            roof: "bg-sky-50 text-sky-600 border-sky-100",
             office: "bg-emerald-50 text-emerald-600 border-emerald-100",
             parking_floor: "bg-indigo-50 text-indigo-600 border-indigo-100"
         };
         const labels = {
             residential: "Жилой", mixed: "Коммерция", technical: "Технический",
-            basement: "Подвал", tsokol: "Цоколь", attic: "Мансарда",
-            roof: "Кровля", office: "Нежилой", parking_floor: "Паркинг"
+            basement: "Подвал", attic: "Мансарда", office: "Нежилой", parking_floor: "Паркинг"
         };
         return <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${styles[type] || styles.residential}`}>{labels[type] || type}</span>;
     };
-    
+
+    if (!building) return <div className="p-8 text-center text-slate-400">Объект не найден</div>;
+    if (!currentBlock) return <div className="p-8 text-center text-slate-400">Блоки не найдены</div>;
+
+    if (floors.length === 0 && !isLoading) {
+        return (
+            <div className="space-y-6 pb-20 w-full px-6 animate-in fade-in">
+                <ConfigHeader 
+                    building={building} 
+                    isParking={isParking}
+                    isInfrastructure={isInfrastructure}
+                    isUnderground={isUnderground}
+                    onBack={onBack} 
+                    isSticky={false} 
+                />
+                <div className="flex flex-col items-center justify-center h-[40vh] text-center space-y-4 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200">
+                    <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400"><FileText size={40} /></div>
+                    <h3 className="text-xl font-bold text-slate-700">Сетка этажей пуста</h3>
+                    <p className="text-slate-500 max-w-md text-sm">Этажи еще не созданы в базе данных. Вы можете сгенерировать их сейчас.</p>
+                    <button 
+                        onClick={handleGenerateMissing} 
+                        disabled={isMutating} 
+                        className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
+                    >
+                        {isMutating ? <Loader2 className="animate-spin" /> : "Сгенерировать этажи"}
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6 pb-24 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in duration-500 relative">
              <ConfigHeader 
                 building={building} 
-                isParking={isParking} 
-                isInfrastructure={isInfrastructure} 
-                isUnderground={isUnderground} 
+                isParking={isParking}
+                isInfrastructure={isInfrastructure}
+                isUnderground={isUnderground}
                 onBack={onBack} 
                 isSticky={false} 
              />
 
+             {/* TABS & TOOLS */}
              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                  <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full shadow-inner border border-slate-700 custom-scrollbar">
-                    {blocksList.map((b,i) => {
-                        const bKey = `${building.id}_${b.id}`;
-                        const bDetails = buildingDetails[bKey] || {};
-                        const hasCustom = bDetails.hasCustomAddress && bDetails.customHouseNumber;
-                        
-                        const label = hasCustom 
-                            ? `${b.tabLabel} (Дом №${building.houseNumber}) (Корпус ${bDetails.customHouseNumber})` 
-                            : b.tabLabel;
-
-                        return (
-                            <DarkTabButton 
-                                key={b.id} 
-                                active={activeBlockIndex===i} 
-                                onClick={()=>setActiveBlockIndex(i)} 
-                                icon={b.icon}
-                            >
-                                {label}
-                            </DarkTabButton>
-                        );
-                    })}
+                    {building.blocks.map((b,i) => (
+                        <DarkTabButton 
+                            key={b.id} 
+                            active={activeBlockIndex === i} 
+                            onClick={()=>setActiveBlockIndex(i)} 
+                            icon={getBlockIcon(b.type)}
+                        >
+                            {b.label}
+                        </DarkTabButton>
+                    ))}
                 </div>
 
-                <button 
-                    onClick={autoFill} 
-                    disabled={isReadOnly}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border shadow-sm ${isReadOnly ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 hover:border-indigo-200'}`}
-                >
-                    <Wand2 size={16}/> Авто-заполнение
-                </button>
+                <div className="flex items-center gap-3">
+                    {isMutating && <span className="text-xs text-blue-600 font-bold animate-pulse flex items-center gap-1"><Loader2 size={12} className="animate-spin"/> Сохранение...</span>}
+                    <button 
+                        onClick={autoFill} 
+                        disabled={isReadOnly || isMutating}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border shadow-sm ${isReadOnly ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 hover:border-indigo-200'}`}
+                    >
+                        <Wand2 size={16}/> Авто-заполнение
+                    </button>
+                </div>
              </div>
 
+            {/* SELECTION TOOLBAR */}
             {selectedRows.size > 0 && !isReadOnly && (
                 <div className="sticky top-4 z-50 mx-auto max-w-2xl animate-in slide-in-from-top-4 fade-in duration-300">
                     <div className="bg-slate-900/95 backdrop-blur text-white p-2.5 rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-700/50 ring-1 ring-white/10">
@@ -418,14 +302,11 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                             {selectedRows.size}
                         </div>
                         <div className="h-6 w-px bg-white/10"></div>
-                        <Input 
+                        <input 
                             value={bulkValue} 
-                            onChange={(e) => {
-                                const val = e.target.value;
-                                if (val === '' || (parseFloat(val) >= 0 && !val.includes('-'))) setBulkValue(val);
-                            }}
+                            onChange={(e) => setBulkValue(e.target.value)}
                             placeholder="0.00" 
-                            className="w-24 h-9 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 text-sm font-bold text-center focus:bg-slate-800 focus:border-blue-500 focus:ring-blue-500/20"
+                            className="w-24 h-9 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 text-sm font-bold text-center focus:bg-slate-800 focus:border-blue-500 focus:ring-blue-500/20 rounded-lg outline-none"
                         />
                         <div className="flex gap-1.5">
                             <button onClick={() => applyBulk('height')} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold transition-colors border border-white/10">Высота</button>
@@ -437,6 +318,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                 </div>
             )}
 
+            {/* TABLE */}
             <Card className="overflow-hidden shadow-lg border border-slate-300 rounded-2xl bg-white">
                 <div className="overflow-x-auto max-h-[70vh] scrollbar-thin"> 
                     <table className="w-full relative border-collapse text-sm table-fixed">
@@ -445,7 +327,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                 <th className="p-0 w-12 text-center border-r border-slate-300 sticky left-0 z-40 bg-slate-100">
                                     <div className="h-full w-full flex items-center justify-center">
                                         <button disabled={isReadOnly} onClick={toggleAll} className={`text-slate-500 hover:text-blue-600 transition-colors p-2 ${isReadOnly ? 'cursor-not-allowed opacity-50' : ''}`}>
-                                            {selectedRows.size === floorList.length && floorList.length > 0 ? <CheckSquare size={18} className="text-blue-600"/> : <Square size={18}/>}
+                                            {selectedRows.size === floors.length && floors.length > 0 ? <CheckSquare size={18} className="text-blue-600"/> : <Square size={18}/>}
                                         </button>
                                     </div>
                                 </th>
@@ -467,22 +349,14 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 bg-white">
-                            {floorList.map((f, idx) => {
-                                const floorEntry = getFloorEntry(f);
-                                const val = floorEntry.value;
+                            {floors.map((f, idx) => {
                                 const isSelected = selectedRows.has(f.id);
-                                
-                                const validationResult = FloorDataSchema.safeParse(val);
-                                const fieldErrors = validationResult.success ? {} : validationResult.error.flatten().fieldErrors;
-                                
-                                const diffErrorMsg = Validators.checkDiff(val.areaProj, val.areaFact);
+                                const diffErrorMsg = Validators.checkDiff(f.areaProj, f.areaFact);
                                 const hasDiffError = !!diffErrorMsg;
-
-                                const borderClass = f.isSeparator ? "border-b-[4px] border-slate-200" : "";
                                 const rowBg = isSelected ? "bg-blue-50" : (idx % 2 === 0 ? "bg-slate-50/50" : "bg-white");
 
                                 return (
-                                    <tr key={f.id} className={`${rowBg} hover:bg-blue-50/30 transition-colors group ${borderClass}`}>
+                                    <tr key={f.id} className={`${rowBg} hover:bg-blue-50/30 transition-colors group`}>
                                         
                                         <td className="p-0 text-center border-r border-slate-200 sticky left-0 z-20 bg-inherit">
                                             <div className="h-full w-full flex items-center justify-center backdrop-blur-sm">
@@ -495,8 +369,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                         <td className={`px-4 py-3 border-r border-slate-200 sticky left-12 z-20 bg-inherit shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] relative group/label ${openMenuId === f.id ? 'z-50' : ''}`}>
                                             <div className="flex items-center justify-between">
                                                 <div className="flex items-center gap-2">
-                                                    {f.isInserted && <ArrowUpFromLine size={14} className="text-amber-500"/>}
-                                                    <span className={`font-bold text-sm ${f.isInserted ? 'text-amber-700' : 'text-slate-700'}`}>{f.label}</span>
+                                                    {f.isTechnical && <ArrowUpFromLine size={14} className="text-amber-500"/>}
+                                                    <span className="font-bold text-sm text-slate-700">{f.label}</span>
                                                 </div>
                                                 
                                                 {!isReadOnly && (
@@ -517,8 +391,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                         <ArrowUp size={14} className={idx===0 ? 'text-slate-300' : 'text-blue-500'}/> Скопировать с пред.
                                                     </button>
                                                     <div className="h-px bg-slate-100 my-1"/>
-                                                    <button onClick={() => fillRowsBelow(idx)} disabled={idx===floorList.length-1} className={`flex items-center gap-2 px-3 py-2.5 text-xs font-bold rounded-lg text-left transition-colors ${idx===floorList.length-1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-700 hover:bg-slate-50 hover:text-blue-600'}`}>
-                                                        <ChevronsDown size={14} className={idx===floorList.length-1 ? 'text-slate-300' : 'text-blue-500'}/> Заполнить все ниже
+                                                    <button onClick={() => fillRowsBelow(idx)} disabled={idx===floors.length-1} className={`flex items-center gap-2 px-3 py-2.5 text-xs font-bold rounded-lg text-left transition-colors ${idx===floors.length-1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-700 hover:bg-slate-50 hover:text-blue-600'}`}>
+                                                        <ChevronsDown size={14} className={idx===floors.length-1 ? 'text-slate-300' : 'text-blue-500'}/> Заполнить все ниже
                                                     </button>
                                                 </div>
                                             )}
@@ -534,15 +408,15 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                 { id: 'areaProj', ph: '0.00', required: true }, 
                                                 { id: 'areaFact', ph: '0.00', required: false }
                                             ].map(field => {
-                                                const zodError = fieldErrors[field.id];
+                                                const val = f[field.id];
                                                 const isDiffErr = field.id === 'areaFact' && hasDiffError;
-                                                const isEmpty = !val[field.id];
+                                                const isEmpty = !val;
                                                 
                                                 let customError = null;
-                                                if (field.id === 'height') customError = Validators.floorHeight(f.type, val[field.id]);
-                                                if (field.id === 'areaProj') customError = Validators.checkPositive(val[field.id]);
+                                                if (field.id === 'height') customError = Validators.floorHeight(f.type, val);
+                                                if (field.id === 'areaProj') customError = Validators.checkPositive(val);
 
-                                                const finalError = (zodError && zodError[0]) || customError;
+                                                const finalError = customError;
                                                 const showRed = !!finalError || (field.required && isEmpty) || isDiffErr;
 
                                                 let bgClass = "bg-transparent hover:bg-slate-50 focus:bg-white";
@@ -553,7 +427,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                     bgClass = "bg-red-50 hover:bg-red-50 focus:bg-white";
                                                     borderClass = "border-red-300 focus:border-red-500 focus:ring-red-100";
                                                     textClass = "text-red-700";
-                                                } else if (val[field.id]) {
+                                                } else if (val) {
                                                     textClass = "text-slate-900 font-bold";
                                                 } else {
                                                     textClass = "text-slate-400";
@@ -577,17 +451,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                                 disabled={isReadOnly}
                                                                 className={`w-full h-full text-center rounded-xl text-sm outline-none transition-all border pr-7 ${bgClass} ${borderClass} ${textClass} ${isReadOnly ? 'cursor-default' : ''}`} 
                                                                 placeholder={field.ph} 
-                                                                value={val[field.id]} 
-                                                                // [FIX] Передаем f.type в handleInput
-                                                                onChange={v => handleInput(
-                                                                    f.id,
-                                                                    field.id,
-                                                                    v,
-                                                                    f.type,
-                                                                    f.floorKey,
-                                                                    f.flags || {},
-                                                                    { parentFloorIndex: f.parentFloorIndex, basementId: f.basementId, label: f.label }
-                                                                )} 
+                                                                value={val || ''} 
+                                                                onChange={v => handleInput(f.id, field.id, v)} 
                                                             />
                                                             
                                                             {(finalError || isDiffErr) && !isReadOnly && (
@@ -603,7 +468,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                                             <ArrowUp size={10}/>
                                                                         </button>
                                                                     )}
-                                                                    {idx < floorList.length - 1 && (
+                                                                    {idx < floors.length - 1 && (
                                                                         <button onClick={() => fillFieldBelow(idx, field.id)} className="p-0.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded bg-white/80 shadow-sm border border-slate-200" title="Заполнить низ">
                                                                             <ChevronsDown size={10}/>
                                                                         </button>
@@ -623,7 +488,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                             })
                                         }
                                     </tr>
-                                )
+                                );
                             })}
                         </tbody>
                     </table>

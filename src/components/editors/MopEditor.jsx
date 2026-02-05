@@ -1,16 +1,18 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
-  ArrowLeft, Wand2, ArrowDown, Trash2, 
-  DoorOpen, Ban, Copy, AlertCircle, MoreHorizontal, ChevronLeft, ChevronsRight 
+  Trash2, Copy, AlertCircle, Wand2, DoorOpen, Ban,
+  Building2, Car, Box, Store, LayoutGrid
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
-import { Card, DebouncedInput, useReadOnly } from '../ui/UIKit';
-import { getBlocksList } from '../../lib/utils';
-import { useBuildingFloors } from '../../hooks/useBuildingFloors';
-import { MopItemSchema } from '../../lib/schemas';
+import { useDirectBuildings } from '../../hooks/api/useDirectBuildings';
+import { useDirectFloors } from '../../hooks/api/useDirectFloors';
+import { useDirectMatrix } from '../../hooks/api/useDirectMatrix';
+import { useDirectCommonAreas } from '../../hooks/api/useDirectCommonAreas';
 import { useBuildingType } from '../../hooks/useBuildingType';
+import { Card, DebouncedInput, useReadOnly } from '../ui/UIKit';
 import ConfigHeader from './configurator/ConfigHeader';
 import { useCatalog } from '../../hooks/useCatalogs';
+import { MopItemSchema } from '../../lib/schemas';
 
 const MOP_TYPES_FALLBACK = [
     'Лестничная клетка', 'Межквартирный коридор', 'Лифтовой холл', 'Тамбур', 'Вестибюль',
@@ -20,7 +22,6 @@ const MOP_TYPES_FALLBACK = [
     'Паркинг (зона проезда)', 'Рампа', 'Кладовая', 'Техническое помещение', 'Другое'
 ];
 
-// Кастомная кнопка таба в темном стиле (для унификации с FloorMatrixEditor)
 const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
     <button
         onClick={onClick}
@@ -37,232 +38,148 @@ const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
     </button>
 );
 
+const getBlockIcon = (type) => {
+    if (type === 'residential') return Building2;
+    if (type === 'parking') return Car;
+    if (type === 'infrastructure') return Box;
+    if (type === 'non_residential') return Store;
+    return LayoutGrid;
+};
+
 export default function MopEditor({ buildingId, onBack }) {
-    const { 
-        composition, buildingDetails, entrancesData, 
-        mopData, setMopData 
-    } = useProject();
-    
+    const { projectId } = useProject();
     const isReadOnly = useReadOnly();
-    const [activeBlockIndex, setActiveBlockIndex] = useState(0);
-    const [dataNormalized, setDataNormalized] = useState(false);
-    const { options: mopTypeOptions } = useCatalog('dict_mop_types', MOP_TYPES_FALLBACK);
 
-    const inputsRef = useRef({});
-
-    const building = composition.find(c => c.id === buildingId);
+    // 1. Context
+    const { buildings } = useDirectBuildings(projectId);
+    const building = useMemo(() => buildings.find(b => b.id === buildingId), [buildings, buildingId]);
     const typeInfo = useBuildingType(building);
     const { isUnderground, isParking, isInfrastructure } = typeInfo;
 
-    const blocksList = useMemo(() => getBlocksList(building), [building]);
-    const { floorList, currentBlock } = useBuildingFloors(buildingId, activeBlockIndex);
+    const [activeBlockIndex, setActiveBlockIndex] = useState(0);
+    const currentBlock = useMemo(() => building?.blocks?.[activeBlockIndex], [building, activeBlockIndex]);
 
-    useEffect(() => {
-        inputsRef.current = {};
-    }, [activeBlockIndex]);
+    // 2. Data Hooks
+    const { floors: rawFloors } = useDirectFloors(currentBlock?.id);
+    const { entrances, matrixMap } = useDirectMatrix(currentBlock?.id);
+    const { mops, upsertMop, deleteMop, clearAllMops } = useDirectCommonAreas(currentBlock?.id);
+    const { options: mopTypeOptions } = useCatalog('dict_mop_types', MOP_TYPES_FALLBACK);
 
-    // --- НОРМАЛИЗАЦИЯ ДАННЫХ ---
-    useEffect(() => {
-        if (!currentBlock || dataNormalized) return;
-
-        let hasChanges = false;
-        const updates = {};
-
-        Object.keys(mopData).forEach(key => {
-            if (key.startsWith(currentBlock.fullId)) {
-                const parts = key.match(/_ent(\d+)_(.*)_mops$/);
-                const entIdx = parts ? parseInt(parts[1]) : 1;
-                const floorId = parts ? parts[2] : 'unknown';
-
-                const mops = mopData[key];
-                if (Array.isArray(mops)) {
-                    const fixedMops = mops.map(m => {
-                        const fixed = { ...m };
-                        let changed = false;
-                        
-                        if (!fixed.id) { fixed.id = crypto.randomUUID(); changed = true; }
-                        if (!fixed.buildingId) { fixed.buildingId = building.id; changed = true; }
-                        if (!fixed.blockId) { fixed.blockId = currentBlock.id; changed = true; }
-                        if (!fixed.floorId) { fixed.floorId = floorId; changed = true; }
-                        if (!fixed.entranceIndex) { fixed.entranceIndex = entIdx; changed = true; }
-
-                        if (fixed.area === null || fixed.area === undefined) { fixed.area = ''; changed = true; }
-                        if (!fixed.type) { fixed.type = ''; changed = true; }
-
-                        if (changed) hasChanges = true;
-                        return fixed;
-                    });
-
-                    if (hasChanges) {
-                        updates[key] = fixedMops;
-                    }
-                }
-            }
-        });
-
-        if (Object.keys(updates).length > 0) {
-            setMopData(prev => ({ ...prev, ...updates }));
-        }
-        setDataNormalized(true);
-    }, [currentBlock, mopData, setMopData, dataNormalized, building.id]);
-
-
-    if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Данные не найдены</div>;
-
-    const showEditor = (currentBlock.type === 'Ж') || isUnderground;
-
-    const blockDetails = buildingDetails[`${building.id}_${currentBlock.id}`] || {};
-    const entrancesCount = isUnderground ? (blockDetails.inputs || 1) : (blockDetails.entrances || 1);
-    const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
-
-    const getTargetMopCount = (ent, floorId) => {
-        const entKey = `${currentBlock.fullId}_ent${ent}_${floorId}`;
-        const qty = parseInt(entrancesData[entKey]?.mopQty || 0);
-        return isNaN(qty) ? 0 : qty;
-    };
-
-    const getMops = (ent, floorId) => {
-        const key = `${currentBlock.fullId}_e${ent}_f${floorId}_mops`;
-        return mopData[key] || [];
-    };
-
-    const updateMop = (ent, floorId, index, field, val) => {
-        if (isReadOnly) return;
-        if (field === 'area' && val !== '' && (parseFloat(val) < 0 || String(val).includes('-'))) return;
-
-        const key = `${currentBlock.fullId}_e${ent}_f${floorId}_mops`;
-        const currentMops = [...(mopData[key] || [])];
-        
-        if (!currentMops[index]) {
-            currentMops[index] = { 
-                id: crypto.randomUUID(), 
-                type: '', 
-                area: '',
-                buildingId: building.id,
-                blockId: currentBlock.id,
-                floorId: floorId,
-                entranceIndex: ent
-            };
-        }
-        currentMops[index] = { ...currentMops[index], [field]: val };
-        
-        setMopData(prev => ({ ...prev, [key]: currentMops }));
-    };
-
-    // --- ВАЛИДАЦИЯ ---
-    let validationState = { isValid: true, missingCount: 0 };
-    if (showEditor) {
-        let isValid = true;
-        let missingCount = 0;
-
-        floorList.forEach(f => {
-            entrancesList.forEach(e => {
-                const targetQty = getTargetMopCount(e, f.id);
-                const mops = getMops(e, f.id);
-
-                if (mops.length < targetQty) {
-                    isValid = false;
-                    missingCount += (targetQty - mops.length);
-                }
-
-                if (targetQty > 0) {
-                    for (let i = 0; i < targetQty; i++) {
-                        const mop = mops[i] || {};
-                        const result = MopItemSchema.safeParse(mop);
-                        if (!result.success) {
-                            isValid = false;
-                            missingCount++;
-                        }
-                    }
-                }
+    // 3. Logic
+    const floors = useMemo(() => {
+        // Фильтруем этажи, где есть МОПы по матрице
+        if (!rawFloors) return [];
+        return rawFloors.filter(f => !f.isStylobate).filter(f => {
+            // Показываем этаж, если хотя бы в одном подъезде задано кол-во МОП > 0
+            return entrances.some(e => {
+                const key = `${f.id}_${e.number}`;
+                const qty = parseInt(matrixMap[key]?.mopQty || 0);
+                return qty > 0;
             });
         });
+    }, [rawFloors, entrances, matrixMap]);
 
-        validationState = { isValid, missingCount };
-    }
+    // Группировка МОП для рендера [floorId][entranceId] -> Array<Mop>
+    const mopGrid = useMemo(() => {
+        const grid = {};
+        mops.forEach(m => {
+            if (!grid[m.floorId]) grid[m.floorId] = {};
+            if (!grid[m.floorId][m.entranceId]) grid[m.floorId][m.entranceId] = [];
+            grid[m.floorId][m.entranceId].push(m);
+        });
+        return grid;
+    }, [mops]);
 
-    // --- ДЕЙСТВИЯ ---
-
-    const autoFillMops = () => { 
+    // Actions
+    const updateMop = (mopId, floorId, entranceId, field, val) => {
         if (isReadOnly) return;
-        const updates = {}; 
-        floorList.forEach(f => { 
-            entrancesList.forEach(e => { 
-                const targetQty = getTargetMopCount(e, f.id);
-                if (targetQty > 0) {
-                    const key = `${currentBlock.fullId}_e${e}_f${f.id}_mops`;
-                    const existing = mopData[key] || [];
-                    const newMops = [...existing];
-                    
-                    let defaultType = 'Лестничная клетка';
-                    if (isUnderground) defaultType = 'Паркинг (зона проезда)';
-                    else if (f.type === 'basement') defaultType = 'Техническое подполье';
-                    else if (f.type === 'roof') defaultType = 'Кровля';
-
-                    for (let i = 0; i < targetQty; i++) {
-                        if (!newMops[i] || !newMops[i].type) {
-                            let type = defaultType;
-                            if (!isUnderground && i === 1) type = 'Лифтовой холл';
-                            if (!isUnderground && i === 2) type = 'Межквартирный коридор';
-                            
-                            newMops[i] = { 
-                                id: newMops[i]?.id || crypto.randomUUID(), 
-                                type: type, 
-                                area: newMops[i]?.area || '15',
-                                buildingId: building.id,
-                                blockId: currentBlock.id,
-                                floorId: f.id,
-                                entranceIndex: e
-                            };
-                        }
-                    }
-                    updates[key] = newMops; 
-                }
-            }); 
-        }); 
-        setMopData(p => ({...p, ...updates})); 
+        
+        // Находим текущий объект или создаем структуру
+        // ВАЖНО: Если mopId не передан, это значит мы создаем новый.
+        // Но нам нужно знать, какой это по счету МОП в ячейке, чтобы обновлять правильный,
+        // если пользователь редактирует только что созданную строку.
+        // Здесь мы полагаемся на то, что компоненты рендерятся на основе mopGrid.
+        
+        const existingMop = mops.find(m => m.id === mopId);
+        const payload = {
+            id: mopId,
+            floorId,
+            entranceId,
+            type: existingMop?.type,
+            area: existingMop?.area,
+            [field]: val
+        };
+        upsertMop(payload);
     };
 
-    const copyFirstFloorToAll = () => {
-        if (isReadOnly || floorList.length === 0) return;
-        const firstFloor = floorList[0];
-        const updates = {};
-        const templateData = {};
-        entrancesList.forEach(e => {
-             const key = `${currentBlock.fullId}_e${e}_f${firstFloor.id}_mops`;
-             templateData[e] = mopData[key];
-        });
+    const handleClearAll = async () => {
+        if (isReadOnly) return;
+        if (confirm("Удалить все данные МОП в этом блоке?")) {
+            await clearAllMops();
+        }
+    };
 
-        for (let i = 1; i < floorList.length; i++) {
-            const f = floorList[i];
-            entrancesList.forEach(e => {
-                if (templateData[e]) {
-                    const key = `${currentBlock.fullId}_e${e}_f${f.id}_mops`;
-                    updates[key] = templateData[e].map(m => ({ 
-                        ...m, 
-                        id: crypto.randomUUID(),
-                        floorId: f.id
+    const autoFillMops = async () => {
+        if (isReadOnly) return;
+        if (!confirm("Сгенерировать записи для МОП?")) return;
+
+        const promises = [];
+        floors.forEach(f => {
+            entrances.forEach(e => {
+                const key = `${f.id}_${e.number}`;
+                const targetQty = parseInt(matrixMap[key]?.mopQty || 0);
+                const currentMops = mopGrid[f.id]?.[e.id] || [];
+                const needed = targetQty - currentMops.length;
+
+                let defaultType = 'Лестничная клетка';
+                if (isUnderground) defaultType = 'Паркинг (зона проезда)';
+                else if (f.type === 'basement') defaultType = 'Техническое подполье';
+                else if (f.type === 'roof') defaultType = 'Кровля';
+
+                for(let i=0; i<needed; i++) {
+                    let type = defaultType;
+                    // Простая логика типов для 2-го и 3-го МОП
+                    const idx = currentMops.length + i;
+                    if (!isUnderground && idx === 1) type = 'Лифтовой холл';
+                    if (!isUnderground && idx === 2) type = 'Межквартирный коридор';
+
+                    promises.push(upsertMop({
+                        floorId: f.id,
+                        entranceId: e.id,
+                        type,
+                        area: '15'
                     }));
                 }
             });
-        }
-        setMopData(p => ({...p, ...updates}));
+        });
+        await Promise.all(promises);
     };
-
-    const clearAllMops = () => {
-        if (isReadOnly) return;
-        if (!confirm('Вы уверены? Все введенные данные МОП для этого блока будут очищены.')) return;
-        
-        const updates = {};
-        floorList.forEach(f => {
-            entrancesList.forEach(e => {
-                const key = `${currentBlock.fullId}_e${e}_f${f.id}_mops`;
-                updates[key] = []; 
+    
+    // --- Validation State ---
+    const validationState = useMemo(() => {
+        let missing = 0;
+        let valid = true;
+        floors.forEach(f => {
+            entrances.forEach(e => {
+                const key = `${f.id}_${e.number}`;
+                const target = parseInt(matrixMap[key]?.mopQty || 0);
+                const current = (mopGrid[f.id]?.[e.id] || []).length;
+                if (current < target) {
+                    missing += (target - current);
+                    valid = false;
+                }
+                // Проверка заполненности
+                (mopGrid[f.id]?.[e.id] || []).forEach(m => {
+                    if (!m.type || !m.area) valid = false;
+                });
             });
         });
-        
-        setMopData(prev => ({ ...prev, ...updates }));
-    };
+        return { isValid: valid, missingCount: missing };
+    }, [floors, entrances, matrixMap, mopGrid]);
+
+    if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Загрузка...</div>;
+
+    const showEditor = (currentBlock.type === 'residential') || isUnderground; // 'residential' matches API mapper
 
     const renderBadge = (type) => {
         const map = {
@@ -270,20 +187,15 @@ export default function MopEditor({ buildingId, onBack }) {
             mixed: { color: 'bg-violet-50 text-violet-600 border-violet-100', label: 'Смеш.' },
             technical: { color: 'bg-amber-50 text-amber-600 border-amber-100', label: 'Тех.' },
             basement: { color: 'bg-slate-100 text-slate-600 border-slate-200', label: 'Подвал' },
-            tsokol: { color: 'bg-purple-50 text-purple-600 border-purple-100', label: 'Цоколь' },
             attic: { color: 'bg-teal-50 text-teal-600 border-teal-100', label: 'Манс.' },
-            loft: { color: 'bg-gray-100 text-gray-600 border-gray-200', label: 'Чердак' },
-            roof: { color: 'bg-sky-50 text-sky-600 border-sky-100', label: 'Кровля' },
             parking_floor: { color: 'bg-indigo-50 text-indigo-600 border-indigo-100', label: 'Паркинг' },
-            stylobate: { color: 'bg-orange-50 text-orange-700 border-orange-100', label: 'Нежилой блок' }
         };
         const style = map[type] || map.residential;
         return <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase border ${style.color}`}>{style.label}</span>
     }
 
     return (
-        <div className="space-y-6 pb-20 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in duration-500 relative">
-            {/* ШАПКА */}
+        <div className="space-y-6 pb-24 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in duration-500 relative">
             <ConfigHeader 
                 building={building} 
                 isParking={isParking} 
@@ -293,28 +205,24 @@ export default function MopEditor({ buildingId, onBack }) {
                 isSticky={false}
             />
 
-            {/* ПАНЕЛЬ ИНСТРУМЕНТОВ */}
+            {/* Toolbar */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                  <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full shadow-inner border border-slate-700 custom-scrollbar">
-                    {blocksList.map((b,i) => (
+                    {building.blocks.map((b,i) => (
                         <DarkTabButton 
                             key={b.id} 
                             active={activeBlockIndex===i} 
                             onClick={()=>setActiveBlockIndex(i)} 
-                            icon={b.icon}
+                            icon={getBlockIcon(b.type)}
                         >
-                            {b.tabLabel}
+                            {b.label}
                         </DarkTabButton>
                     ))}
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <button onClick={clearAllMops} disabled={!showEditor || isReadOnly} className={`px-4 py-2.5 bg-red-50 text-red-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border border-red-100 shadow-sm ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-100'}`} title="Очистить все данные МОП">
+                    <button onClick={handleClearAll} disabled={!showEditor || isReadOnly} className={`px-4 py-2.5 bg-red-50 text-red-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border border-red-100 shadow-sm ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-100'}`}>
                         <Trash2 size={14}/> Очистить
-                    </button>
-
-                    <button onClick={copyFirstFloorToAll} disabled={isReadOnly} className={`px-4 py-2.5 bg-white text-slate-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border border-slate-200 shadow-sm ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50 hover:text-blue-600'}`} title="Скопировать 1-й этаж на все остальные">
-                        <Copy size={14}/> Дублировать 1-й эт.
                     </button>
                     
                     <button onClick={autoFillMops} disabled={!showEditor || isReadOnly} className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border shadow-sm ${showEditor && !isReadOnly ? 'bg-white text-purple-600 border-purple-100 hover:bg-purple-50' : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed'}`}>
@@ -323,14 +231,14 @@ export default function MopEditor({ buildingId, onBack }) {
                 </div>
             </div>
 
-            {/* ОСНОВНОЙ КОНТЕНТ */}
+            {/* Content */}
             {showEditor ? (
                 <>
                     {(!validationState.isValid && !isReadOnly) && (
                         <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex items-center gap-2 text-xs text-red-600 animate-in slide-in-from-top-2">
                             <AlertCircle size={16}/>
                             <span className="font-bold">Внимание!</span>
-                            <span>Заполните данные для всех {validationState.missingCount} помещений. Используйте "Авто-генерацию" или "Дублирование" для ускорения.</span>
+                            <span>Заполните данные для всех {validationState.missingCount} помещений. Используйте "Авто-генерацию".</span>
                         </div>
                     )}
                     <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden flex flex-col">
@@ -339,49 +247,44 @@ export default function MopEditor({ buildingId, onBack }) {
                                 <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase sticky top-0 z-30 shadow-md">
                                     <tr>
                                         <th className="p-4 w-36 min-w-[140px] sticky left-0 bg-slate-50 z-40 border-r border-slate-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">Этаж</th>
-                                        {entrancesList.map(e => (
-                                            <th key={e} className="p-4 w-[340px] min-w-[340px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">{isUnderground ? `Вход ${e}` : `Подъезд ${e}`}</th>
+                                        {entrances.map(e => (
+                                            <th key={e.id} className="p-4 w-[340px] min-w-[340px] border-r border-slate-200 bg-slate-50/95 backdrop-blur">{isUnderground ? `Вход ${e.number}` : `Подъезд ${e.number}`}</th>
                                         ))}
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 bg-white">
-                                    {floorList.map((f, fIdx) => (
+                                    {floors.map((f) => (
                                         <tr key={f.id} className="group hover:bg-slate-50/50 focus-within:bg-blue-50/50 transition-colors duration-200">
                                             <td className="p-3 w-36 min-w-[140px] sticky left-0 bg-white group-focus-within:bg-blue-50 transition-colors duration-200 border-r align-top relative z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
                                                 <div className="flex flex-col gap-1.5">
-                                                    {f.isStylobate && (
-                                                        <div className="flex items-center gap-1 text-[9px] text-orange-700 font-bold bg-orange-50 border border-orange-100 px-1.5 rounded-sm w-fit mb-0.5" title="Этаж относится к нежилому блоку под домом">
-                                                            {/* Warehouse icon could go here */}
-                                                            {f.stylobateLabel}
-                                                        </div>
-                                                    )}
                                                     <div className="flex items-center justify-between h-full px-1">
                                                         <span className="font-bold text-sm text-slate-700">{f.label}</span>
                                                         {renderBadge(f.type)}
                                                     </div>
                                                 </div>
                                             </td>
-                                            {entrancesList.map((e, eIdx) => {
-                                                const targetQty = getTargetMopCount(e, f.id);
-                                                const mops = getMops(e, f.id);
+                                            {entrances.map((e) => {
+                                                const matrixKey = `${f.id}_${e.number}`;
+                                                const targetQty = parseInt(matrixMap[matrixKey]?.mopQty || 0);
+                                                const currentMops = mopGrid[f.id]?.[e.id] || [];
+                                                
                                                 return (
-                                                    <td key={e} className="p-3 w-[340px] min-w-[340px] align-top border-r relative group/cell">
+                                                    <td key={e.id} className="p-3 w-[340px] min-w-[340px] align-top border-r relative group/cell">
                                                         {targetQty > 0 ? (
                                                             <div className="flex flex-col gap-2">
+                                                                {/* Рендерим слоты на основе targetQty. Если данных в БД нет - показываем пустые поля для создания */}
                                                                 {Array.from({ length: targetQty }).map((_, mIdx) => {
-                                                                    const mop = mops[mIdx] || {};
-                                                                    const result = MopItemSchema.safeParse(mop);
-                                                                    const isValid = result.success;
+                                                                    const mop = currentMops[mIdx] || {};
+                                                                    // ID есть только у существующих. Для новых передаем undefined в updateMop
+                                                                    const isValid = mop.type && mop.area;
                                                                     
                                                                     return (
-                                                                        <div key={mIdx} className={`flex gap-1 items-center bg-white border rounded-lg p-1 shadow-sm transition-all focus-within:ring-2 focus-within:ring-blue-100 ${isValid ? 'border-slate-200' : 'border-red-300 bg-red-50/20'}`}>
+                                                                        <div key={mop.id || mIdx} className={`flex gap-1 items-center bg-white border rounded-lg p-1 shadow-sm transition-all focus-within:ring-2 focus-within:ring-blue-100 ${isValid ? 'border-slate-200' : 'border-red-300 bg-red-50/20'}`}>
                                                                             <div className="w-6 h-6 flex items-center justify-center rounded bg-slate-100 text-[10px] font-bold text-slate-500 shrink-0">{mIdx + 1}</div>
                                                                             <select 
-                                                                                // @ts-ignore
-                                                                                ref={el => inputsRef.current[`${fIdx}-${e}-${mIdx}-type`] = el}
                                                                                 className={`bg-transparent text-[10px] font-bold w-full outline-none truncate ${isReadOnly ? 'cursor-default text-slate-700 appearance-none' : 'cursor-pointer hover:text-blue-600 focus:text-blue-700'}`} 
                                                                                 value={mop.type || ''} 
-                                                                                onChange={ev=>updateMop(e, f.id, mIdx, 'type', ev.target.value)} 
+                                                                                onChange={ev => updateMop(mop.id, f.id, e.id, 'type', ev.target.value)} 
                                                                                 title={mop.type}
                                                                                 disabled={isReadOnly}
                                                                             >
@@ -391,14 +294,12 @@ export default function MopEditor({ buildingId, onBack }) {
                                                                             <div className="w-px h-4 bg-slate-200 shrink-0"/>
                                                                             <div className="relative w-16 shrink-0">
                                                                                 <DebouncedInput 
-                                                                                    // @ts-ignore
-                                                                                    ref={el => inputsRef.current[`${fIdx}-${e}-${mIdx}-area`] = el}
                                                                                     type="number" 
                                                                                     min="0"
                                                                                     className={`w-full bg-slate-50 border rounded px-1 py-0.5 text-[10px] font-medium text-center focus:bg-white focus:border-blue-300 outline-none transition-all ${!mop.area ? 'border-red-200' : 'border-slate-100'} ${isReadOnly ? 'cursor-default bg-transparent border-transparent' : ''}`} 
                                                                                     placeholder="м²" 
                                                                                     value={mop.area || ''} 
-                                                                                    onChange={val=>updateMop(e, f.id, mIdx, 'area', val)} 
+                                                                                    onChange={val => updateMop(mop.id, f.id, e.id, 'area', val)} 
                                                                                     disabled={isReadOnly}
                                                                                 />
                                                                             </div>
