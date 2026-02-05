@@ -1,43 +1,45 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { RegistryService } from '../lib/registry-service';
-
-/**
- * @typedef {import('../lib/types').ProjectMeta} ProjectMeta
- */
+import { ApiService } from '../lib/api-service';
 
 export function useProjects(scope) {
     const queryClient = useQueryClient();
 
-    // 1. Получение списка проектов (READ)
+    // 1. Получение списка проектов
     const projectsQuery = useQuery({
         queryKey: ['projects', scope],
-        queryFn: () => RegistryService.getProjectsList(scope),
-        enabled: !!scope, // Запрос не пойдет, пока нет scope (userId)
+        queryFn: () => ApiService.getProjectsList(scope),
+        enabled: !!scope,
     });
 
-    // 2. Создание проекта (CREATE)
+    // 2. Создание (Адаптер для вызова из UI)
     const createMutation = useMutation({
-        // ИСПРАВЛЕНИЕ: Убрана деструктуризация из аргументов и добавлен JSDoc
         /**
-         * @param {{ meta: ProjectMeta, content: any }} params
+         * @param {{ name: string, address: string, user: any }} params
          */
         mutationFn: async (params) => {
-            const { meta, content } = params;
-            return RegistryService.createProject(scope, meta, content);
+            // Формируем структуру заявки для API
+            const appData = {
+                source: 'MANUAL',
+                externalId: '-',
+                applicant: params.name, // Используем название проекта как заявителя для простоты
+                address: params.address || '',
+                cadastre: '',
+                submissionDate: new Date()
+            };
+            // Передаем также объект пользователя (для поля assignee_name)
+            const user = params.user || { name: 'Admin', role: 'admin' };
+            
+            return ApiService.createProjectFromApplication(scope, appData, user);
         },
         onSuccess: () => {
-            // После создания инвалидируем кэш, чтобы список обновился сам
             queryClient.invalidateQueries({ queryKey: ['projects', scope] });
         }
     });
 
-    // 3. Удаление проекта (DELETE)
+    // 3. Удаление
     const deleteMutation = useMutation({
-        /**
-         * @param {string} id
-         */
         mutationFn: async (id) => {
-            return RegistryService.deleteProject(scope, id);
+            return ApiService.deleteProject(scope, id);
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['projects', scope] });

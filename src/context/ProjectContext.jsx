@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useToast } from './ToastContext';
-import { RegistryService } from '../lib/registry-service';
+import { ApiService } from '../lib/api-service';
 import { cleanBuildingDetails } from '../lib/building-details';
 import { useProjectData } from '../hooks/useProjectData';
 import { ROLES, APP_STATUS, WORKFLOW_STAGES, STEPS_CONFIG } from '../lib/constants';
@@ -44,15 +44,17 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   const toast = useToast();
   const dbScope = customScope || user?.uid;
 
+  // Используем обновленный хук, который возвращает полные данные в projectMeta
   const { 
-      projectMeta: serverMeta, 
-      buildingsState: serverBuildings, 
+      projectMeta: serverData, 
       isLoading,
       refetch 
   } = useProjectData(dbScope, projectId);
   
+  /** @type {[any, Function]} */
   const [projectMeta, setProjectMeta] = useState({}); 
-  const [buildingsState, setBuildingsState] = useState({});
+  /** @type {[any, Function]} */
+  const [buildingsState, setBuildingsState] = useState({}); 
   const [isSyncing, setIsSyncing] = useState(false);
   
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -60,19 +62,15 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   const saveTimeoutRef = useRef(null);
   const pendingUpdatesRef = useRef({});
 
+  // Единый эффект инициализации
   useEffect(() => {
-      if (serverMeta && Object.keys(serverMeta).length > 0) {
-          setProjectMeta(prev => ({ ...prev, ...serverMeta }));
+      if (serverData && Object.keys(serverData).length > 0) {
+          setProjectMeta(prev => ({ ...prev, ...serverData }));
       }
-  }, [serverMeta]);
-
-  useEffect(() => {
-      if (serverBuildings && Object.keys(serverBuildings).length > 0) {
-          setBuildingsState(prev => ({ ...prev, ...serverBuildings }));
-      }
-  }, [serverBuildings]);
+  }, [serverData]);
 
   const mergedState = useMemo(() => {
+    // Явное приведение типа для устранения ошибок TS
     const meta = /** @type {any} */ (projectMeta);
     
     const defaultAppInfo = {
@@ -86,7 +84,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         ...meta.applicationInfo
     };
 
-    /** @type {any} */
     const combined = {
       complexInfo: meta.complexInfo || {},
       participants: meta.participants || {},
@@ -96,6 +93,8 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       applicationInfo: defaultAppInfo,
       
       buildingDetails: { ...(meta.buildingDetails || {}) },
+      // Данные матриц могут быть в serverData, если они там загружаются, 
+      // или подгружаться компонентами. Здесь мы объединяем все источники.
       floorData: { ...(meta.floorData || {}) },
       entrancesData: { ...(meta.entrancesData || {}) },
       mopData: { ...(meta.mopData || {}) }, 
@@ -103,22 +102,15 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       parkingPlaces: { ...(meta.parkingPlaces || {}) }
     };
 
+    // Мержим легаси стейт (если используется saveBuildingData)
     Object.values(buildingsState).forEach(b => {
-       // @ts-ignore
-       if (b.buildingDetails) {
-           // @ts-ignore
-           combined.buildingDetails = { ...b.buildingDetails, ...combined.buildingDetails };
-       }
-       // @ts-ignore
-       if (b.floorData) combined.floorData = { ...b.floorData, ...combined.floorData };
-       // @ts-ignore
-       if (b.entrancesData) combined.entrancesData = { ...b.entrancesData, ...combined.entrancesData };
-       // @ts-ignore
-       if (b.commonAreasData) combined.mopData = { ...b.commonAreasData, ...combined.mopData };
-       // @ts-ignore
-       if (b.apartmentsData) combined.flatMatrix = { ...b.apartmentsData, ...combined.flatMatrix };
-       // @ts-ignore
-       if (b.parkingData) combined.parkingPlaces = { ...b.parkingData, ...combined.parkingPlaces };
+       const build = /** @type {any} */ (b);
+       if (build.buildingDetails) combined.buildingDetails = { ...build.buildingDetails, ...combined.buildingDetails };
+       if (build.floorData) combined.floorData = { ...build.floorData, ...combined.floorData };
+       if (build.entrancesData) combined.entrancesData = { ...build.entrancesData, ...combined.entrancesData };
+       if (build.commonAreasData) combined.mopData = { ...build.commonAreasData, ...combined.mopData };
+       if (build.apartmentsData) combined.flatMatrix = { ...build.apartmentsData, ...combined.flatMatrix };
+       if (build.parkingData) combined.parkingPlaces = { ...build.parkingData, ...combined.parkingPlaces };
     });
 
     return combined;
@@ -156,6 +148,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     const safeUpdates = { ...updates };
     HEAVY_KEYS.forEach(k => delete safeUpdates[k]);
     
+    // @ts-ignore
     pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...safeUpdates };
     
     if (Object.keys(pendingUpdatesRef.current).length > 0) {
@@ -166,8 +159,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   const saveProjectImmediate = useCallback(async () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       
-      // Копируем изменения для сохранения
-      const changes = { ...pendingUpdatesRef.current };
+      const changes = /** @type {any} */ ({ ...pendingUpdatesRef.current });
       pendingUpdatesRef.current = {}; 
       
       setIsSyncing(true);
@@ -177,12 +169,10 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
               // 1. ОТДЕЛЯЕМ ТЯЖЕЛЫЕ ДАННЫЕ (МАТРИЦЫ)
               const buildingUpdates = {};
 
-              // Хелпер
               const addToBuilding = (bId, key, data) => {
                   if (!buildingUpdates[bId]) buildingUpdates[bId] = {};
                   if (!buildingUpdates[bId][key]) buildingUpdates[bId][key] = {};
                   
-                  // Фильтрация данных только для текущего здания
                   Object.keys(data).forEach(k => {
                       if (k.startsWith(bId)) {
                           buildingUpdates[bId][key][k] = data[k];
@@ -190,7 +180,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
                   });
               };
 
-              // Список ключей, которые должны уйти в sub-collections
               const MATRIX_KEYS = {
                   'floorData': 'floorData',
                   'entrancesData': 'entrancesData',
@@ -204,32 +193,30 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
                       const firebaseKey = MATRIX_KEYS[changeKey];
                       const fullData = changes[changeKey];
                       
-                      // Пробегаемся по всем зданиям проекта (берем из текущего состояния)
                       // @ts-ignore
                       mergedState.composition.forEach(b => {
                           addToBuilding(b.id, firebaseKey, fullData);
                       });
                       
-                      // Удаляем этот ключ из general updates
                       delete changes[changeKey];
                   }
               });
 
-              // 2. Очистка мусорных значений в конфигурации блоков
+              // 2. Очистка buildingDetails
               if (changes.buildingDetails) {
+                  // @ts-ignore
                   const cleanedDetails = cleanBuildingDetails(mergedState.composition, changes.buildingDetails);
                   changes.buildingDetails = cleanedDetails;
                   setProjectMeta(prev => ({ ...prev, buildingDetails: cleanedDetails }));
               }
 
-              // 3. Сохраняем общие данные в документ проекта
+              // 3. Сохраняем общие данные через ApiService
               if (Object.keys(changes).length > 0) {
-                  await RegistryService.saveData(dbScope, projectId, changes);
+                  await ApiService.saveData(dbScope, projectId, changes);
               }
 
-              // 4. Сохраняем данные зданий в подколлекции
+              // 4. Сохраняем данные зданий (если есть)
               const buildingPromises = Object.entries(buildingUpdates).map(([bId, bData]) => {
-                  // Проверяем, есть ли что сохранять для этого здания
                   const hasData = Object.values(bData).some(val => Object.keys(val).length > 0);
                   if (!hasData) return Promise.resolve();
 
@@ -238,7 +225,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
                           [bId]: bData
                       }
                   };
-                  return RegistryService.saveData(dbScope, projectId, payload);
+                  return ApiService.saveData(dbScope, projectId, payload);
               });
 
               await Promise.all(buildingPromises);
@@ -250,10 +237,13 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       } finally {
           setIsSyncing(false);
           setHasUnsavedChanges(false);
+          // Обновляем данные с сервера, чтобы синхронизировать состояние
+          refetch();
       }
-  }, [dbScope, projectId, mergedState.composition]);
+  }, [dbScope, projectId, mergedState.composition, refetch]);
 
   const completeTask = useCallback(async (currentIndex) => {
+      // Сначала сохраняем всё, что есть в буфере
       await saveProjectImmediate();
 
       // @ts-ignore
@@ -273,7 +263,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
       const INTEGRATION_START_IDX = 12;
 
-      const prevStatus = currentAppInfo.status;
       let newStatus = currentAppInfo.status;
       let newStage = currentAppInfo.currentStage;
       let historyComment = `Шаг "${STEPS_CONFIG[currentIndex]?.title}" выполнен.`;
@@ -297,7 +286,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           isStageBoundary ? 'Отправка на проверку' : (nextStepIndex === INTEGRATION_START_IDX ? 'Старт интеграции' : 'Завершение задачи'),
           historyComment,
           {
-              prevStatus,
+              prevStatus: currentAppInfo.status,
               nextStatus: newStatus,
               stage: getStepStage(currentIndex),
               stepIndex: currentIndex
@@ -317,7 +306,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       };
 
       setProjectMeta(prev => ({ ...prev, ...updates }));
-      await RegistryService.saveData(dbScope, projectId, updates);
+      await ApiService.saveData(dbScope, projectId, updates);
       
       return nextStepIndex;
   }, [dbScope, projectId, mergedState, saveProjectImmediate, userProfile]);
@@ -359,7 +348,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       };
 
       setProjectMeta(prev => ({ ...prev, ...updates }));
-      await RegistryService.saveData(dbScope, projectId, updates);
+      await ApiService.saveData(dbScope, projectId, updates);
 
       return prevIndex;
   }, [dbScope, projectId, mergedState, saveProjectImmediate, userProfile]);
@@ -369,7 +358,6 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       const currentAppInfo = mergedState.applicationInfo;
       const isApprove = action === 'APPROVE';
       
-      const prevStatus = currentAppInfo.status;
       let newStatus = currentAppInfo.status;
       let newStepIndex = currentAppInfo.currentStepIndex;
       let newStage = currentAppInfo.currentStage;
@@ -403,7 +391,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           historyAction,
           comment || (isApprove ? `Этап ${reviewedStage} проверен и одобрен.` : `Этап ${reviewedStage} возвращен на доработку.`),
           {
-              prevStatus,
+              prevStatus: currentAppInfo.status,
               nextStatus: newStatus,
               stage: reviewedStage,
               stepIndex: newStepIndex
@@ -424,12 +412,12 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       };
 
       setProjectMeta(prev => ({ ...prev, ...updates }));
-      await RegistryService.saveData(dbScope, projectId, updates);
+      await ApiService.saveData(dbScope, projectId, updates);
       
       return newStepIndex;
   }, [dbScope, projectId, mergedState, userProfile]);
 
-  // Сохранено для совместимости (если вдруг используется напрямую)
+  // Адаптеры для совместимости
   const saveBuildingData = useCallback(async (buildingId, dataKey, dataVal) => {
       if (isReadOnly) { toast.error("Редактирование запрещено"); return; }
       setIsSyncing(true);
@@ -438,20 +426,21 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           
           if (dataKey === 'apartmentsData') {
               const unitsArray = Object.values(dataVal);
-              promise = RegistryService.saveUnits(dbScope, projectId, buildingId, unitsArray);
+              promise = ApiService.saveUnits(dbScope, projectId, buildingId, unitsArray);
           } else if (dataKey === 'floorData') {
               const floorsArray = Object.entries(dataVal).map(([k, v]) => ({ ...v, legacyKey: k }));
-              promise = RegistryService.saveFloors(dbScope, projectId, buildingId, floorsArray);
+              promise = ApiService.saveFloors(dbScope, projectId, buildingId, floorsArray);
           } else if (dataKey === 'parkingData') {
               const parkingArray = Object.entries(dataVal).map(([k, v]) => ({ ...v, legacyKey: k }));
-              promise = RegistryService.saveParkingPlaces(dbScope, projectId, buildingId, parkingArray);
+              promise = ApiService.saveParkingPlaces(dbScope, projectId, buildingId, parkingArray);
           } else {
               const payload = { buildingSpecificData: { [buildingId]: { [dataKey]: dataVal } } };
-              promise = RegistryService.saveData(dbScope, projectId, payload);
+              promise = ApiService.saveData(dbScope, projectId, payload);
           }
 
           await promise;
           
+          // Для обратной совместимости обновляем локальный стейт
           setBuildingsState(prev => ({ 
               ...prev, 
               [buildingId]: { 
@@ -475,9 +464,9 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       if (isReadOnly) { toast.error("Удаление запрещено"); return; }
       if (!confirm('Удалить объект?')) return;
       try {
+          await ApiService.deleteBuilding(buildingId);
           // @ts-ignore
           const newComposition = mergedState.composition.filter(b => b.id !== buildingId);
-          await RegistryService.deleteBuilding(dbScope, projectId, buildingId, { composition: newComposition });
           setProjectMeta(prev => ({ ...prev, composition: newComposition }));
           toast.success("Объект удален");
       } catch (e) { toast.error("Ошибка удаления"); }
@@ -492,6 +481,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       
       if (HEAVY_KEYS.includes(key)) {
           setHasUnsavedChanges(true);
+          // @ts-ignore
           pendingUpdatesRef.current = { ...pendingUpdatesRef.current, [key]: newValue };
       } else {
           saveData({ [key]: newValue });
@@ -529,7 +519,10 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     setParkingPlaces: createSetter('parkingPlaces'),
 
     updateStatus, 
-    isSyncing
+    isSyncing,
+    refetch,
+    // [NEW] Установить ID проекта (для PassportEditor при создании)
+    setProjectId: (id) => window.location.href = `/project/${id}` // Грубый, но рабочий редирект на созданный проект
   };
 
   if (isLoading && Object.keys(projectMeta).length === 0) {

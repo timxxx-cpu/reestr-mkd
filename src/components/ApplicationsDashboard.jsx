@@ -5,12 +5,12 @@ import {
   AlertCircle, Database, Zap, Trash2, ArrowRight,
   Layers, LogOut, Globe, CheckCircle2, Server // [NEW]
 } from 'lucide-react';
-import { RegistryService } from '../lib/registry-service';
 import { ROLES, APP_STATUS, EXTERNAL_SYSTEMS, APP_STATUS_LABELS, STEPS_CONFIG } from '../lib/constants';
 import { useCatalog } from '../hooks/useCatalogs';
 import { Button, Input, Badge, Card, SectionTitle } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
 import { getStageColor } from '../lib/utils';
+import { ApiService } from '../lib/api-service'; // CHANGED
 
 // --- ХЕЛПЕР: ФОРМАТИРОВАНИЕ ДАТЫ ---
 const formatDate = (dateStr) => {
@@ -106,10 +106,10 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
         }
     }, [activeTab, canViewInbox]);
 
-    const loadInbox = async () => {
+   const loadInbox = async () => {
         setIsLoadingApps(true);
         try {
-            const data = await RegistryService.getExternalApplications();
+            const data = await ApiService.getExternalApplications(); // CHANGED
             setIncomingApps(data);
         } catch (e) {
             console.error(e);
@@ -149,24 +149,30 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
     const handleTakeToWork = async (app) => {
         const toastId = toast.loading("Создание проекта...");
         try {
-            await RegistryService.createProjectFromApplication(dbScope, app, user);
+            // CHANGED: Передаем app, user
+            await ApiService.createProjectFromApplication(dbScope, app, user);
             setIncomingApps(prev => prev.filter(a => a.id !== app.id));
             toast.dismiss(toastId);
             toast.success("Проект создан");
             setActiveTab('my_tasks');
             setTaskFilter('work'); 
+            // Нужно обновить список проектов
+            // В идеале: вызвать refetch из useProjects, но он наверху.
+            // Простой способ: window.location.reload() или пробросить refetch
+            // Но react-query сам обновит при фокусе или следующем маунте, если инвалидация настроена в хуке useProjects
         } catch (e) {
             console.error(e);
             toast.dismiss(toastId);
-            toast.error("Ошибка");
+            toast.error("Ошибка: " + e.message);
         }
     };
 
     const handleDeleteProject = async (projectId) => {
         if (!window.confirm('Удалить проект и все данные?')) return;
         try {
-            await RegistryService.deleteProject(dbScope, projectId);
+            await ApiService.deleteProject(dbScope, projectId); // CHANGED
             toast.success("Удалено");
+            // React Query обновит список
         } catch (e) {
             toast.error("Ошибка удаления");
         }
