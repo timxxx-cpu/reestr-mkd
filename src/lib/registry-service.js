@@ -18,6 +18,47 @@ function mapBlockTypeToDB(uiType) {
     return uiType;
 }
 
+// Хелпер для восстановления floor_key из ID (floor_1 -> floor:1) для ЗАПИСИ
+const inferFloorKey = (id) => {
+    if (!id) return null;
+    if (id.startsWith('floor_')) {
+        if (id.includes('_tech')) return `tech:${id.split('_')[1]}`;
+        return `floor:${id.split('_')[1]}`;
+    }
+    if (id.startsWith('level_minus_')) return `parking:-${id.split('_')[2]}`;
+    if (id.startsWith('base_')) {
+        const parts = id.split('_');
+        const depth = parts[parts.length-1].replace('L','');
+        const baseId = parts.slice(1, parts.length-1).join('_');
+        return `basement:${baseId}:${depth}`;
+    }
+    if (['attic', 'loft', 'roof', 'tsokol'].includes(id)) return id;
+    return id;
+};
+
+// Хелпер для восстановления ID из floor_key (floor:1 -> floor_1) для ЧТЕНИЯ
+const mapFloorKeyToVirtualId = (key) => {
+    if (!key) return null;
+    if (key.startsWith('floor:')) return `floor_${key.split(':')[1]}`;
+    if (key.startsWith('parking:')) {
+         const part = key.split(':')[1];
+         const level = part.startsWith('-') ? part.substring(1) : part;
+         return `level_minus_${level}`;
+    }
+    if (key.startsWith('basement:')) {
+        const parts = key.split(':'); 
+        if (parts.length >= 3) {
+            const depth = parts[parts.length - 1];
+            // Собираем ID подвала обратно, если он содержал двоеточия (маловероятно, но безопасно)
+            const baseId = parts.slice(1, parts.length - 1).join(':'); 
+            return `base_${baseId}_L${depth}`;
+        }
+    }
+    if (key.startsWith('tech:')) return `floor_${key.split(':')[1]}_tech`;
+    if (['attic', 'loft', 'roof', 'tsokol'].includes(key)) return key;
+    return key;
+};
+
 export const RegistryService = {
 
   // --- READ ---
@@ -261,19 +302,26 @@ export const RegistryService = {
             floorMops.forEach(m => {
                 const mopMapped = mapMopFromDB(m, entranceMap, bId, block.id);
                 const entNum = mopMapped.entranceIndex;
-                const mopKey = `${bId}_${block.id}_e${entNum}_f${f.id}_mops`;
+                
+                // [FIX] Use Virtual ID for key
+                const virtualFloorId = mapFloorKeyToVirtualId(f.floor_key) || f.id;
+                const mopKey = `${bId}_${block.id}_e${entNum}_f${virtualFloorId}_mops`;
+                
                 if (!result[bId].commonAreasData[mopKey]) result[bId].commonAreasData[mopKey] = [];
                 result[bId].commonAreasData[mopKey].push(mopMapped);
             });
 
             if (floorMatrix.length > 0) {
                 floorMatrix.forEach(row => {
-                    const entKey = `${bId}_${block.id}_ent${row.entrance_number}_${f.id}`;
+                    // [FIX] Use Virtual ID for key
+                    const virtualFloorId = mapFloorKeyToVirtualId(f.floor_key) || f.id;
+                    const entKey = `${bId}_${block.id}_ent${row.entrance_number}_${virtualFloorId}`;
+                    
                     result[bId].entrancesData[entKey] = {
                         id: row.id,
                         buildingId: bId,
                         blockId: block.id,
-                        floorId: f.id,
+                        floorId: f.id, // Store real UUID here if needed for back-reference
                         entranceIndex: row.entrance_number,
                         apts: row.apartments_count || 0,
                         units: row.commercial_count || 0,
@@ -301,7 +349,10 @@ export const RegistryService = {
                 });
 
                 Object.entries(fallbackStats).forEach(([entNum, stats]) => {
-                    const entKey = `${bId}_${block.id}_ent${entNum}_${f.id}`;
+                    // [FIX] Use Virtual ID for key
+                    const virtualFloorId = mapFloorKeyToVirtualId(f.floor_key) || f.id;
+                    const entKey = `${bId}_${block.id}_ent${entNum}_${virtualFloorId}`;
+                    
                     result[bId].entrancesData[entKey] = {
                         id: stats.id,
                         buildingId: bId,
@@ -411,17 +462,11 @@ export const RegistryService = {
                 featureEntries.push([blockKey, details]);
                 continue;
             }
+            if (blockKey.endsWith('_photo')) continue;
             const parts = blockKey.split('_');
             if (parts.length >= 2) {
                 let blockId = parts[parts.length - 1];
                 const buildingId = parts[0];
-
-                if (blockId.length < 10 && buildingId) {
-                    const { data: realBlocks } = await supabase.from('building_blocks').select('id').eq('building_id', buildingId).limit(1);
-                    if (realBlocks && realBlocks.length > 0) {
-                        blockId = realBlocks[0].id;
-                    }
-                }
 
                 if (blockId && blockId.length === 36) {
                     const blockUpdate = {
@@ -485,22 +530,26 @@ export const RegistryService = {
                                 is_roof: !!floor.flags?.isRoof
                             }));
 
-                            if (floorsPayload.length) {
-                                promises.push(
-                                    supabase.from('floors').upsert(floorsPayload, { onConflict: 'block_id,floor_key' })
-                                );
+                         if (floorsPayload.length) {
+                            // 1. Ждем, пока этажи физически запишутся в БД
+                            const { error: floorError } = await supabase
+                                .from('floors')
+                                .upsert(floorsPayload, { onConflict: 'block_id,floor_key' });
+                            
+                            if (floorError) console.error("Floors save error:", floorError);
 
-                                const floorKeys = floorsPayload.map(item => `'${item.floor_key}'`).join(',');
-                                if (floorKeys.length > 0) {
-                                    promises.push(
-                                        supabase
-                                            .from('floors')
-                                            .delete()
-                                            .eq('block_id', blockId)
-                                            .not('floor_key', 'in', `(${floorKeys})`)
-                                    );
-                                }
+                            // 2. Только теперь удаляем лишние (это можно в фоне)
+                            const floorKeys = floorsPayload.map(item => `'${item.floor_key}'`).join(',');
+                            if (floorKeys.length > 0) {
+                                promises.push(
+                                    supabase
+                                        .from('floors')
+                                        .delete()
+                                        .eq('block_id', blockId)
+                                        .not('floor_key', 'in', `(${floorKeys})`)
+                                );
                             }
+                        }
                         }
                     }
 
@@ -615,14 +664,43 @@ export const RegistryService = {
 
     // 5. MATRICES
     if (buildingSpecificData) {
-        const bIds = Object.keys(buildingSpecificData);
+        // --- СБОР ID БЛОКОВ ---
+        const involvedBlockIds = new Set();
+        Object.values(buildingSpecificData).forEach(bData => {
+            const collectIds = (dataObj) => {
+                if (!dataObj) return;
+                Object.values(dataObj).forEach(item => {
+                    if (item.blockId) involvedBlockIds.add(item.blockId);
+                    if (item.block_id) involvedBlockIds.add(item.block_id);
+                });
+            };
+            collectIds(bData.floorData);
+            collectIds(bData.entrancesData);
+            collectIds(bData.apartmentsData);
+            collectIds(bData.parkingData);
+        });
+
+        // --- ЗАГРУЗКА ДАННЫХ ДЛЯ МАППИНГА ---
+        // 1. Загружаем подъезды
         const { data: existingEntrances } = await supabase
             .from('entrances')
             .select('id, block_id, number')
-            .in('block_id', (generalData.composition || []).filter(b => bIds.includes(b.id)).flatMap(b => (b.blocks || []).map(bk => bk.id)));
-            
+            .in('block_id', Array.from(involvedBlockIds));
+        
+        // 2. Загружаем этажи (чтобы мапить floor_1 -> UUID)
+        const { data: dbFloors } = await supabase
+            .from('floors')
+            .select('id, block_id, floor_key')
+            .in('block_id', Array.from(involvedBlockIds));
+
         const entranceMap = {}; 
         existingEntrances?.forEach(e => { entranceMap[`${e.block_id}_${e.number}`] = e.id; });
+
+        // Создаем карту: {blockId}_{floorKey} -> UUID
+        const floorUuidMap = {};
+        dbFloors?.forEach(f => {
+            floorUuidMap[`${f.block_id}_${f.floor_key}`] = f.id;
+        });
 
         for (const [bId, bData] of Object.entries(buildingSpecificData)) {
             if (bData.floorData) {
@@ -630,25 +708,33 @@ export const RegistryService = {
                     id: f.id,
                     block_id: f.blockId,
                     floor_key: f.floorKey || f.floor_key || f.legacyKey || f.id,
-                    basement_id: f.basementId || null,
-                    index: (f.index ?? f.sortOrder) || 0,
-                    label: f.label || f.floorLabel || '',
+                    // ... other fields
+                    height: parseFloat(f.height)||0,
+                    area_proj: parseFloat(f.areaProj)||0,
+                    area_fact: parseFloat(f.areaFact)||0,
+                    is_duplex: f.isDuplex||false,
+                    // Fix: Add necessary flags
                     floor_type: f.type,
-                    parent_floor_index: f.parentFloorIndex ?? null,
+                    label: f.label,
+                    index: f.index,
                     is_technical: !!f.flags?.isTechnical,
                     is_commercial: !!f.flags?.isCommercial,
                     is_stylobate: !!f.flags?.isStylobate,
                     is_basement: !!f.flags?.isBasement,
                     is_attic: !!f.flags?.isAttic,
                     is_loft: !!f.flags?.isLoft,
-                    is_roof: !!f.flags?.isRoof,
-                    height: parseFloat(f.height)||0,
-                    area_proj: parseFloat(f.areaProj)||0,
-                    area_fact: parseFloat(f.areaFact)||0,
-                    is_duplex: f.isDuplex||false 
+                    is_roof: !!f.flags?.isRoof
                 }));
+                
                 if (floors.length) {
-                    promises.push(supabase.from('floors').upsert(floors, { onConflict: 'block_id,floor_key' }));
+                    // Синхронная запись этажей (на случай если она не прошла в разделе 4)
+                    const { error } = await supabase.from('floors').upsert(floors, { onConflict: 'block_id,floor_key' });
+                    if (!error) {
+                        // Обновляем карту ID, так как могли создаться новые
+                        floors.forEach(f => {
+                            floorUuidMap[`${f.block_id}_${f.floor_key}`] = f.id;
+                        });
+                    }
                 }
             }
 
@@ -681,6 +767,33 @@ export const RegistryService = {
                     const entranceNumber = parseInt(row.entranceIndex || row.entrance || 0);
                     if (!row.blockId || !row.floorId || !entranceNumber) return;
 
+                    // --- ИСПРАВЛЕННОЕ РАЗРЕШЕНИЕ ID ЭТАЖА ---
+                    let realFloorId = null;
+
+                    // 1. Пробуем найти через виртуальный ключ (floor_1 -> floor:1 -> UUID)
+                    const floorKey = inferFloorKey(row.floorId);
+                    const mappedUuid = floorUuidMap[`${row.blockId}_${floorKey}`];
+
+                    if (mappedUuid) {
+                        realFloorId = mappedUuid;
+                    } else {
+                        // 2. Если не нашли, проверяем: вдруг row.floorId это уже и есть реальный UUID?
+                        // (Это происходит с данными, которые были загружены из БД и не менялись)
+                        const isKnownUuid = Object.values(floorUuidMap).includes(row.floorId);
+                        if (isKnownUuid) {
+                            realFloorId = row.floorId;
+                        } else if (row.floorId.length > 30) {
+                             // 3. Если похож на UUID (длинный), верим на слово (fallback)
+                             realFloorId = row.floorId;
+                        }
+                    }
+
+                    if (!realFloorId) {
+                        console.warn(`Floor UUID not found for ${row.floorId} (key: ${floorKey})`);
+                        return; 
+                    }
+                    // ---------------------------
+
                     const apartmentsCount = Math.max(0, parseInt(row.apts) || 0);
                     const commercialCount = Math.max(0, parseInt(row.units) || 0);
                     const mopCount = Math.max(0, parseInt(row.mopQty) || 0);
@@ -688,13 +801,15 @@ export const RegistryService = {
                     matrixRows.push({
                         id: row.id || crypto.randomUUID(),
                         block_id: row.blockId,
-                        floor_id: row.floorId,
+                        floor_id: realFloorId, // Используем найденный UUID
                         entrance_number: entranceNumber,
                         apartments_count: apartmentsCount,
                         commercial_count: commercialCount,
                         mop_count: mopCount,
                         updated_at: new Date().toISOString()
                     });
+                    
+                    // ... (дальше код без изменений: const entId = ...) ...
 
                     const entId = entranceMap[`${row.blockId}_${entranceNumber}`] || null;
                     if (!entId) return;
@@ -702,7 +817,7 @@ export const RegistryService = {
                     for (let i = 1; i <= apartmentsCount; i++) {
                         generatedUnits.push({
                             id: crypto.randomUUID(),
-                            floor_id: row.floorId,
+                            floor_id: realFloorId, // Используем UUID
                             entrance_id: entId,
                             unit_type: 'flat',
                             number: `AUTO-F-${entranceNumber}-${i}`,
@@ -718,7 +833,7 @@ export const RegistryService = {
                     for (let i = 1; i <= commercialCount; i++) {
                         generatedUnits.push({
                             id: crypto.randomUUID(),
-                            floor_id: row.floorId,
+                            floor_id: realFloorId, // Используем UUID
                             entrance_id: entId,
                             unit_type: 'office',
                             number: `AUTO-C-${entranceNumber}-${i}`,
@@ -734,7 +849,7 @@ export const RegistryService = {
                     for (let i = 1; i <= mopCount; i++) {
                         generatedMops.push({
                             id: crypto.randomUUID(),
-                            floor_id: row.floorId,
+                            floor_id: realFloorId, // Используем UUID
                             entrance_id: entId,
                             type: 'Другое',
                             area: 0,
@@ -765,9 +880,13 @@ export const RegistryService = {
             
             const processUnit = (u) => {
                 const entKey = `${u.blockId}_${u.entrance || u.entranceIndex}`;
+                // Также резолвим этаж для ручных юнитов
+                const floorKey = inferFloorKey(u.floorId);
+                const realFloorId = floorUuidMap[`${u.blockId}_${floorKey}`] || u.floorId;
+
                 unitsPayload.push({
                     id: u.id,
-                    floor_id: u.floorId,
+                    floor_id: realFloorId,
                     entrance_id: entranceMap[entKey] || null,
                     number: u.num || u.number,
                     unit_type: u.type,
@@ -799,8 +918,11 @@ export const RegistryService = {
                 const mops = [];
                 Object.values(bData.commonAreasData).flat().forEach(m => {
                     const entKey = `${m.blockId}_${m.entranceIndex}`;
-                    if (entranceMap[entKey] && m.floorId) {
-                        mops.push({ id: m.id, floor_id: m.floorId, entrance_id: entranceMap[entKey], type: m.type, area: parseFloat(m.area)||0, source_step: 'manual' });
+                    const floorKey = inferFloorKey(m.floorId);
+                    const realFloorId = floorUuidMap[`${m.blockId}_${floorKey}`] || m.floorId;
+
+                    if (entranceMap[entKey] && realFloorId) {
+                        mops.push({ id: m.id, floor_id: realFloorId, entrance_id: entranceMap[entKey], type: m.type, area: parseFloat(m.area)||0, source_step: 'manual' });
                     }
                 });
                 if (mops.length) promises.push(supabase.from('common_areas').upsert(mops));

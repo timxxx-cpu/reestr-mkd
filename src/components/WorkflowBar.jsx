@@ -117,13 +117,15 @@ const SaveProgressModal = ({ status, message, onOk }) => {
                         {isSaving ? 'Идет запись данных' : (isError ? 'Запись не произведена' : 'Запись выполнена')}
                     </h3>
                     <p className="text-xs text-slate-500 mb-6 leading-relaxed">{message}</p>
-                    <Button
-                        onClick={onOk}
-                        disabled={isSaving}
-                        className="w-full bg-slate-900 text-white hover:bg-slate-800 h-10 disabled:opacity-50"
-                    >
-                        ОК
-                    </Button>
+                    {/* Кнопка ОК показывается только при ошибке или если нужен ручной выход (для обратной совместимости) */}
+                    {!isSaving && (
+                        <Button
+                            onClick={onOk}
+                            className="w-full bg-slate-900 text-white hover:bg-slate-800 h-10"
+                        >
+                            ОК
+                        </Button>
+                    )}
                 </div>
             </div>
         </div>
@@ -150,7 +152,6 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
   const [saveNotice, setSaveNotice] = useState({ open: false, status: 'saving', message: '', onOk: null });
   
-  // [NEW] Состояние для списка ошибок
   const [validationErrors, setValidationErrors] = useState([]);
 
   if (!applicationInfo) return null;
@@ -190,13 +191,14 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
 
   const handleSave = async () => {
       setIsLoading(true);
-      setSaveNotice({ open: true, status: 'saving', message: 'Пожалуйста, дождитесь окончания записи. Переход по шагам и кнопки временно заблокированы.', onOk: null });
+      setSaveNotice({ open: true, status: 'saving', message: 'Пожалуйста, дождитесь окончания записи...', onOk: null });
       try {
           await saveProjectImmediate();
-          setSaveNotice({ open: true, status: 'success', message: 'Данные успешно записаны. Нажмите ОК, чтобы продолжить работу.', onOk: null });
+          setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+          toast.success("Данные успешно сохранены");
       } catch (e) {
           console.error(e);
-          setSaveNotice({ open: true, status: 'error', message: 'Ошибка: запись не произведена. Проверьте данные и повторите попытку.', onOk: null });
+          setSaveNotice({ open: true, status: 'error', message: 'Ошибка: запись не произведена.', onOk: () => setSaveNotice({ ...saveNotice, open: false }) });
       } finally {
           setIsLoading(false);
       }
@@ -204,18 +206,14 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
 
   const handleSaveAndExit = async () => {
       setIsLoading(true);
-      setSaveNotice({ open: true, status: 'saving', message: 'Пожалуйста, дождитесь окончания записи. Переход по шагам и кнопки временно заблокированы.', onOk: null });
+      setSaveNotice({ open: true, status: 'saving', message: 'Сохранение перед выходом...', onOk: null });
       try {
           await saveProjectImmediate();
-          setSaveNotice({
-              open: true,
-              status: 'success',
-              message: 'Данные успешно записаны. Нажмите ОК для выхода из задачи.',
-              onOk: () => onExit(true)
-          });
+          setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+          onExit(true);
       } catch (e) {
           console.error(e);
-          setSaveNotice({ open: true, status: 'error', message: 'Ошибка: запись не произведена. Выход отменен.', onOk: null });
+          setSaveNotice({ open: true, status: 'error', message: 'Ошибка: запись не произведена.', onOk: () => setSaveNotice({ ...saveNotice, open: false }) });
       } finally {
           setIsLoading(false);
       }
@@ -234,47 +232,37 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       onExit(true);
   };
 
-  // --- COMPLETE TASK HANDLERS ---
+  // --- COMPLETE TASK HANDLERS (AUTOMATIC) ---
   const handleCompleteTaskClick = () => {
       const currentStepId = STEPS_CONFIG[currentStep]?.id;
-      
-      // Запрашиваем полный список ошибок
       const errors = validateStepCompletion(currentStepId, projectContext);
       
       if (errors && errors.length > 0) {
-          // Если ошибки есть — показываем модалку
           setValidationErrors(errors);
-          // (Можно дополнительно пикнуть тостом, но модалка лучше)
           return;
       }
-
-      // Если ошибок нет — переходим к подтверждению
       setShowCompleteConfirm(true);
   };
 
   const performCompletion = async () => {
       setShowCompleteConfirm(false);
       setIsLoading(true);
-      setSaveNotice({ open: true, status: 'saving', message: 'Пожалуйста, дождитесь окончания записи. Переход по шагам и кнопки временно заблокированы.', onOk: null });
+      setSaveNotice({ open: true, status: 'saving', message: 'Запись данных и завершение задачи...', onOk: null });
+      
       try {
           const nextIndex = await completeTask(currentStep);
-          setSaveNotice({
-              open: true,
-              status: 'success',
-              message: isStageBoundary || isLastStepGlobal
-                  ? 'Данные записаны. Нажмите ОК для возврата в список задач.'
-                  : 'Данные записаны. Нажмите ОК для перехода к следующей задаче.',
-              onOk: () => {
-                  if (isStageBoundary || isLastStepGlobal) {
-                      onExit(true);
-                  } else {
-                      setCurrentStep(nextIndex);
-                  }
-              }
-          });
+          setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+
+          if (isStageBoundary || isLastStepGlobal) {
+              toast.success('Этап завершен. Отправлено на проверку.');
+              onExit(true); // Авто-выход на рабочий стол
+          } else {
+              toast.success('Задача выполнена.');
+              setCurrentStep(nextIndex); // Авто-переход на след шаг
+          }
       } catch (e) {
           console.error(e);
-          setSaveNotice({ open: true, status: 'error', message: 'Ошибка: запись не произведена. Завершение задачи отменено.', onOk: null });
+          setSaveNotice({ open: true, status: 'error', message: 'Ошибка: запись не произведена.', onOk: () => setSaveNotice({ ...saveNotice, open: false }) });
       } finally {
           setIsLoading(false);
       }
@@ -288,8 +276,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   };
 
   const handleRollback = async () => {
-      if (!confirm("Вернуться на шаг назад? Выполненные задачи начиная с текущего шага нужно будет пройти заново.")) return;
-
+      if (!confirm("Вернуться на шаг назад?")) return;
       setIsLoading(true);
       try {
           const prevIndex = await rollbackTask();
@@ -303,16 +290,20 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       }
   };
 
+  // --- REVIEW HANDLERS (CONTROLLER) ---
   const handleApproveStage = async () => {
-      if (!confirm(`Одобрить результаты Этапа? Заявка вернется Технику для продолжения работы.`)) return;
+      if (!confirm(`Одобрить результаты Этапа?`)) return;
       setIsLoading(true);
+      setSaveNotice({ open: true, status: 'saving', message: 'Сохранение решения...', onOk: null });
+      
       try {
-          const nextIndex = await reviewStage('APPROVE');
-          toast.success("Этап принят. Заявка передана Технику.");
-          onExit(true);
+          await reviewStage('APPROVE');
+          setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+          toast.success("Этап принят. Переход к следующему этапу.");
+          onExit(true); // Авто-выход
       } catch (e) {
           console.error(e);
-          toast.error("Ошибка при одобрении");
+          setSaveNotice({ open: true, status: 'error', message: 'Ошибка при одобрении', onOk: () => setSaveNotice({ ...saveNotice, open: false }) });
       } finally {
           setIsLoading(false);
       }
@@ -321,14 +312,18 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   const handleRejectStage = async () => {
       const reason = prompt("Укажите причину возврата (обязательно):");
       if (!reason || !reason.trim()) return;
+      
       setIsLoading(true);
+      setSaveNotice({ open: true, status: 'saving', message: 'Возврат на доработку...', onOk: null });
+      
       try {
-          const prevIndex = await reviewStage('REJECT', reason);
+          await reviewStage('REJECT', reason);
+          setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
           toast.error("Возвращено на доработку");
-          onExit(true);
+          onExit(true); // Авто-выход
       } catch (e) {
           console.error(e);
-          toast.error("Ошибка при возврате");
+          setSaveNotice({ open: true, status: 'error', message: 'Ошибка при возврате', onOk: () => setSaveNotice({ ...saveNotice, open: false }) });
       } finally {
           setIsLoading(false);
       }
@@ -370,7 +365,6 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
 
       return (
         <>
-            {/* МОДАЛКИ */}
             {validationErrors.length > 0 && (
                 <ValidationErrorsModal 
                     errors={validationErrors} 

@@ -284,11 +284,15 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         setFloorData(prev => ({ ...prev, ...updates }));
     };
 
-    const autoFill = () => { 
+  const autoFill = () => { 
         if (isReadOnly) return;
         const updates = {}; 
         floorList.forEach(f => { 
             const key = resolveFloorStorageKey(floorData, f.id, f.floorKey); 
+            // Получаем текущие данные (или пустой объект)
+            const currentData = floorData[key] || {};
+            
+            // ПАРАМЕТРЫ ДЛЯ ЗАПОЛНЕНИЯ
             let h = '3.00'; let s_proj = '500.00';
             if (f.type === 'basement') { h = '2.50'; s_proj = '450.00'; }
             if (f.type === 'parking_floor') { h = '2.70'; s_proj = '1000.00'; }
@@ -298,12 +302,16 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
             if (f.type === 'mixed') { h = '3.60'; s_proj = '550.00'; } 
             if (f.type === 'office') { h = '3.30'; s_proj = '600.00'; }
             
-            if (!floorData[key]) { 
+            // ИСПРАВЛЕНИЕ: Проверяем, пустое ли значение S_PROJ, а не просто наличие ключа
+            const isEmpty = !currentData.areaProj || parseFloat(currentData.areaProj) === 0;
+
+            if (isEmpty) { 
                 updates[key] = { 
-                    id: crypto.randomUUID(),
+                    ...currentData, // Сохраняем ID и связи, если они были
+                    id: currentData.id || crypto.randomUUID(),
                     height: h, 
                     areaProj: s_proj, 
-                    areaFact: s_proj,
+                    areaFact: s_proj, // Копируем в факт тоже
                     type: f.type, 
                     buildingId: building.id,
                     blockId: currentBlock.id

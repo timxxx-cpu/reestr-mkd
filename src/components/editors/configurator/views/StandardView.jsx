@@ -90,13 +90,22 @@ export default function StandardView({ building, mode }) {
     const details = { ...defaultDetails, ...(buildingDetails[detailsKey] || {}) };
     const { errors } = useValidation(BuildingConfigSchema, details);
 
+   // ИСПРАВЛЕННЫЙ ЭФФЕКТ
     useEffect(() => {
         if (!currentBlock || !detailsKey || isReadOnly) return;
+        
+        // 1. Вычисляем, как данные должны выглядеть в идеале (без мусора)
         const cleaned = cleanBlockDetails(building, currentBlock, details);
-        if (JSON.stringify(cleaned) !== JSON.stringify(details)) {
+        
+        // 2. Берем то, что СЕЙЧАС лежит в хранилище (без дефолтных значений)
+        const currentStored = buildingDetails[detailsKey] || {};
+
+        // 3. Сравниваем: если в хранилище уже лежит чистая версия, то обновлять не нужно!
+        // Это разрывает цикл перерисовок
+        if (JSON.stringify(cleaned) !== JSON.stringify(currentStored)) {
             setBuildingDetails(prev => ({ ...prev, [detailsKey]: cleaned }));
         }
-    }, [building, currentBlock, details, detailsKey, isReadOnly, setBuildingDetails]);
+    }, [building, currentBlock, details, detailsKey, isReadOnly, setBuildingDetails, buildingDetails]);
 
     const updateDetail = (key, val) => {
         if (isReadOnly) return;

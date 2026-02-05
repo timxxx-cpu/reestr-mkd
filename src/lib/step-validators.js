@@ -33,6 +33,32 @@ const NUMERIC_FIELDS = [
     'seismicity'
 ];
 
+// Хелпер для получения виртуального ID из floorKey (для связи с entrancesData)
+const getVirtualId = (floorKey) => {
+    if (!floorKey) return null;
+    if (floorKey.startsWith('floor:')) return `floor_${floorKey.split(':')[1]}`;
+    if (floorKey.startsWith('parking:')) {
+         const part = floorKey.split(':')[1];
+         const level = part.startsWith('-') ? part.substring(1) : part;
+         return `level_minus_${level}`;
+    }
+    if (floorKey.startsWith('basement:')) {
+        const parts = floorKey.split(':');
+        // Обрабатываем ID вида basement:uuid:depth или просто basement:depth (редко)
+        if (parts.length >= 3) {
+            const depth = parts[parts.length - 1];
+            // Собираем ID подвала обратно (середина)
+            const baseId = parts.slice(1, parts.length - 1).join(':'); 
+            return `base_${baseId}_L${depth}`;
+        }
+    }
+    if (floorKey.startsWith('tech:')) return `floor_${floorKey.split(':')[1]}_tech`;
+    if (['attic', 'loft', 'roof', 'tsokol'].includes(floorKey)) return floorKey;
+    
+    // Если ключ не распознан, возвращаем как есть (на случай если это простой ID)
+    return floorKey;
+};
+
 const normalizeNumericDetails = (details) => {
     const normalized = { ...details };
     const invalidFields = new Set();
@@ -73,17 +99,13 @@ const normalizeNumericDetails = (details) => {
  */
 const getBuildingErrors = (building, buildingDetails, mode) => {
     const errors = [];
-    const blocks = getBlocksList(building, buildingDetails); // Добавили buildingDetails для корректных названий
+    const blocks = getBlocksList(building, buildingDetails); 
     
-    // Определяем тип здания
     const isParking = building.category === 'parking_separate';
     const isInfra = building.category === 'infrastructure';
     const isResidential = building.category.includes('residential');
-    
-    // Надежная проверка на подземный тип
     const isUnderground = building.parkingType === 'underground' || building.constructionType === 'underground';
 
-    // Фильтруем блоки (для жилых комплексов)
     const relevantBlocks = blocks.filter(b => {
         if (mode === 'res') return b.type === 'Ж';
         if (mode === 'nonres') return b.type !== 'Ж';
@@ -102,7 +124,6 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
         if (blockName === 'main') blockName = 'Основной блок';
         const contextTitle = `Объект: ${building.label} (Блок: ${blockName})`;
 
-        // 1. Формируем список обязательных полей
         const requiredFields = [];
         
         if (isResidential) {
@@ -117,8 +138,6 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
                 requiredFields.push('lightStructureType');
             }
 
-            // Для наземных некапитальных паркингов (light/open) не валидируем
-            // поля, которые неприменимы по бизнес-логике.
             if (building.parkingType !== 'underground' && building.constructionType !== 'capital') {
                 cleanedDetails = { ...cleanedDetails };
                 delete cleanedDetails.seismicity;
@@ -137,7 +156,6 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
             }
         }
 
-        // 2. Проверяем заполненность обязательных полей
         requiredFields.forEach(field => {
             const val = cleanedDetails[field];
             if (val === undefined || val === '' || val === null) {
@@ -156,7 +174,6 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
              }
         }
 
-        // 3. Валидация Zod
         const validation = BuildingConfigSchema.safeParse(cleanedDetails);
         
         if (!validation.success) {
@@ -189,7 +206,6 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
             }
         });
 
-        // 4. Проверка лифтов
         if (building.constructionType !== 'light' && !isInfra) {
              const floorsToCheck = cleanedDetails.floorsTo || cleanedDetails.floorsCount || 1;
              const hasElevatorIssue = Validators.elevatorRequirement(
@@ -204,7 +220,6 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
             }
         }
        
-        // 5. Адрес
         if (details.hasCustomAddress && (!details.customHouseNumber || details.customHouseNumber.trim() === '')) {
              errors.push({
                 title: contextTitle,
@@ -213,7 +228,6 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
         }
     }
 
-    // 6. Коммерция
     if (mode === 'res' && building.hasNonResPart) {
         const isCommercialValid = Validators.commercialPresence(building, buildingDetails, blocks, 'res');
         if (!isCommercialValid) {
@@ -234,7 +248,6 @@ const validateFloors = (data) => {
     const errors = [];
 
     composition.forEach(building => {
-        // Пропускаем паркинги легких конструкций/открытые
         if (building.category === 'parking_separate' && building.constructionType !== 'capital' && building.parkingType !== 'underground') return;
 
         const blocks = getBlocksList(building, buildingDetails);
@@ -252,12 +265,11 @@ const validateFloors = (data) => {
 
             blockFloorKeys.forEach(key => {
                 const f = floorData[key];
-                const floorLabel = key.includes('level_minus') ? 'Подземный уровень' : 
-                                   key.includes('base_') ? 'Подвал' : 
-                                   key.includes('floor_') ? `${key.split('_floor_')[1]} этаж` : 'Этаж';
+                // Используем label из данных этажа для сообщения об ошибке
+                const floorLabel = f.label || key.split('_').pop();
 
                 // 1. Высота (не для крыши)
-                if (!key.includes('roof')) {
+                if (!['roof'].includes(f.type) && !key.includes('roof')) {
                     if (!f.height) {
                          errors.push({
                             title: `${building.label} (${block.tabLabel})`,
@@ -302,160 +314,134 @@ const validateEntrances = (data) => {
     const errors = [];
 
     composition.forEach(building => {
-        // Уточняем тип паркинга: это должен быть именно отдельный паркинг подземного типа
         const isParking = building.category === 'parking_separate';
         const isUnderground = isParking && building.parkingType === 'underground';
         const isRes = building.category.includes('residential');
 
-        // Пропускаем типы, для которых этот шаг не актуален (Инфраструктура, Наземные паркинги)
         if (!isRes && !isUnderground) return;
 
         const blocks = getBlocksList(building, buildingDetails);
-        
-        // Фильтруем блоки: Оставляем только Жилые ('Ж') или Подземный паркинг.
-        // Нежилые блоки ('Н') в составе МКД и Инфраструктуру исключаем из проверки.
         const targetBlocks = blocks.filter(b => b.type === 'Ж' || (isParking && isUnderground));
 
         targetBlocks.forEach(block => {
             const prefix = `${building.id}_${block.id}`;
-            const blockEntrancesKeys = Object.keys(entrancesData).filter(k => k.startsWith(prefix));
             const details = buildingDetails[`${building.id}_${block.id}`] || {};
-            const commFloors = details.commercialFloors || []; // Список этажей, отмеченных как коммерческие
-            
-            // Получаем количество подъездов из конфигурации
+            const commFloors = details.commercialFloors || []; 
             const entrancesCount = parseInt(details.entrances || details.inputs || 1);
             const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
 
-            // 1. Глобальная проверка: есть ли вообще данные
-            let hasAnyData = false;
-            blockEntrancesKeys.forEach(k => {
-                const item = entrancesData[k];
-                const a = parseInt(item.apts) || 0;
-                const u = parseInt(item.units) || 0;
-                const m = parseInt(item.mopQty) || 0;
-                if (a > 0 || u > 0 || m > 0) hasAnyData = true;
-            });
+            const blockFloorKeys = Object.keys(floorData).filter(k => k.startsWith(prefix));
+            
+            if (blockFloorKeys.length === 0) return;
 
-            if (!hasAnyData) {
-                errors.push({
-                    title: `${building.label} (${block.tabLabel})`,
-                    description: "Нет данных о квартирах, офисах или МОП. Заполните матрицу."
-                });
-                return;
-            }
-
-            // 2. Детальная проверка по этажам (Только для жилых блоков)
-            if (isRes && block.type === 'Ж') {
-                // Получаем список этажей из floorData для этого блока
-                const blockFloorKeys = Object.keys(floorData).filter(k => k.startsWith(prefix));
+            blockFloorKeys.forEach(floorKey => {
+                const floor = floorData[floorKey];
                 
-                blockFloorKeys.forEach(floorKey => {
-                    const floor = floorData[floorKey];
-                    const floorId = floorKey.substring(prefix.length + 1);
+                // [FIX] Умный поиск виртуального ID
+                let virtualFloorId = getVirtualId(floor.floorKey);
+                
+                // Fallback: Если floorKey нет или он не распознан, пробуем восстановить по индексу или хвосту
+                if (!virtualFloorId || (virtualFloorId.length > 30 && !virtualFloorId.startsWith('base'))) {
+                    // Если это обычный этаж
+                    if (['residential', 'mixed', 'office', 'parking_floor'].includes(floor.type) && floor.index > 0) {
+                        virtualFloorId = `floor_${floor.index}`;
+                    }
+                    // Если тех этаж
+                    else if (floor.type === 'technical' && floor.parentFloorIndex > 0) {
+                        virtualFloorId = `floor_${floor.parentFloorIndex}_tech`;
+                    } else {
+                        virtualFloorId = floorKey.split('_').pop();
+                    }
+                }
+
+                // Красивое название для ошибки
+                const floorLabel = floor.label || (floor.index ? `${floor.index} этаж` : virtualFloorId);
+                
+                // Тип для проверки
+                let floorTypeCheck = floor.type;
+                if (!floorTypeCheck && floor.floorKey) {
+                     if (floor.floorKey.includes('basement')) floorTypeCheck = 'basement';
+                     else if (floor.floorKey === 'tsokol') floorTypeCheck = 'tsokol';
+                     else if (floor.floorKey === 'attic') floorTypeCheck = 'attic';
+                     else if (floor.floorKey === 'loft') floorTypeCheck = 'loft';
+                     else if (floor.floorKey === 'roof') floorTypeCheck = 'roof';
+                }
+
+                let isMixed = floor.type === 'mixed';
+                if (!isMixed) {
+                    if (commFloors.includes(virtualFloorId)) isMixed = true;
+                    if (virtualFloorId && virtualFloorId.startsWith('floor_') && !virtualFloorId.includes('tech')) {
+                        const num = virtualFloorId.split('_')[1];
+                        if (commFloors.includes(num)) isMixed = true;
+                    }
+                }
+
+                const ignorableTypes = [
+                    'technical', 'parking_floor', 'stylobate', 'office',
+                    'basement', 'tsokol', 'roof', 'loft'
+                ];
+
+                // А. Проверка Коммерческого/Смешанного этажа
+                if (isMixed) {
+                    let totalApts = 0;
+                    let totalUnits = 0;
                     
-                    // Формирование читаемого названия этажа
-                    let floorLabel = floorId;
-                    let floorNumForCheck = null; 
+                    entrancesList.forEach(e => {
+                        const entKey = `${prefix}_ent${e}_${virtualFloorId}`;
+                        const item = entrancesData[entKey] || {};
+                        totalApts += parseInt(item.apts) || 0;
+                        totalUnits += parseInt(item.units) || 0;
+                    });
 
-                    if (floorId.startsWith('floor_')) {
-                        const num = parseInt(floorId.split('_')[1]);
-                        floorLabel = `${num} этаж`;
-                        floorNumForCheck = num;
-                    } 
-                    else if (floorId.startsWith('base_')) {
-                        const baseId = floorId.split('_')[1];
-                        floorLabel = 'Подвал';
-                        floorNumForCheck = `basement_${baseId}`;
-                    }
-                    else if (floorId === 'attic') { floorLabel = 'Мансарда'; floorNumForCheck = 'attic'; }
-                    else if (floorId === 'tsokol') { floorLabel = 'Цоколь'; floorNumForCheck = 'tsokol'; }
-                    else if (floorId === 'loft') { floorLabel = 'Чердак'; floorNumForCheck = 'loft'; }
-                    else if (floorId === 'roof') { floorLabel = 'Кровля'; floorNumForCheck = 'roof'; }
-
-                    // Проверяем, является ли этаж коммерческим (Смешанным)
-                    const isMixed = floor.type === 'mixed' || (floorNumForCheck && commFloors.includes(floorNumForCheck));
-
-                    // Игнорируемые типы для жилой проверки
-                    const ignorableTypes = [
-                        'technical', 'parking_floor', 'stylobate', 'office',
-                        'basement', 'tsokol', 'roof', 'loft'
-                    ];
-
-                    // А. Проверка Коммерческого/Смешанного этажа
-                    if (isMixed) {
-                        // Суммируем данные по всем подъездам
-                        let totalApts = 0;
-                        let totalUnits = 0;
-                        
-                        entrancesList.forEach(e => {
-                            const entKey = `${prefix}_ent${e}_${floorId}`;
-                            const item = entrancesData[entKey] || {};
-                            totalApts += parseInt(item.apts) || 0;
-                            totalUnits += parseInt(item.units) || 0;
+                    if (totalUnits === 0 && totalApts === 0) {
+                            errors.push({
+                            title: `${building.label} (${block.tabLabel})`,
+                            description: `${floorLabel}: Отмечен как нежилой/смешанный, но не указаны помещения.`
                         });
+                    } 
+                }
+                // Б. Проверка Жилого этажа
+                else {
+                    if (!ignorableTypes.includes(floor.type) && !ignorableTypes.includes(floorTypeCheck)) {
+                        entrancesList.forEach(e => {
+                            const entKey = `${prefix}_ent${e}_${virtualFloorId}`;
+                            const item = entrancesData[entKey] || {};
+                            const aptCount = parseInt(item.apts) || 0;
+                            const mopCount = parseInt(item.mopQty) || 0;
 
-                        // Разрешаем смешанный этаж, если на нем есть ХОТЯ БЫ что-то (квартиры или офисы)
-                        if (totalUnits === 0 && totalApts === 0) {
-                             errors.push({
-                                title: `${building.label} (${block.tabLabel})`,
-                                description: `${floorLabel}: Отмечен как нежилой/смешанный, но не указаны помещения.`
-                            });
-                        } 
-                    }
-                    // Б. Проверка Жилого этажа (ОБЯЗАТЕЛЬНОЕ НАЛИЧИЕ КВАРТИР В КАЖДОМ ПОДЪЕЗДЕ)
-                    else {
-                        if (!ignorableTypes.includes(floor.type)) {
-                            // Проверяем КАЖДЫЙ подъезд на этом этаже
-                            entrancesList.forEach(e => {
-                                const entKey = `${prefix}_ent${e}_${floorId}`;
-                                const item = entrancesData[entKey] || {};
-                                const aptCount = parseInt(item.apts) || 0;
-                                const mopCount = parseInt(item.mopQty) || 0;
-
-                                if (aptCount === 0) {
-                                    // Если квартир нет, проверяем, не дуплекс ли это (второй свет)
-                                    let isExtensionOfDuplex = false;
-                                    
-                                    if (floorId.startsWith('floor_')) {
-                                        const floorNum = parseInt(floorId.split('_')[1]);
-                                        if (floorNum > 1) {
-                                            const prevFloorKey = `${prefix}_floor_${floorNum - 1}`;
-                                            const prevFloor = floorData[prevFloorKey];
-                                            if (prevFloor && prevFloor.isDuplex) {
-                                                isExtensionOfDuplex = true;
-                                            }
-                                        }
-                                    }
-
-                                    // Ошибка только если нет квартир, это не дуплекс И нет МОП
-                                    if (!isExtensionOfDuplex && mopCount === 0) {
-                                        errors.push({
-                                            title: `${building.label} (${block.tabLabel})`,
-                                            description: `${floorLabel} (Подъезд ${e}): Не указано количество квартир.`
-                                        });
-                                    }
+                            if (aptCount === 0) {
+                                let isExtensionOfDuplex = false;
+                                if (floor.index > 1) {
+                                     // Попытка найти этаж ниже
+                                     const prevFloors = Object.values(floorData).filter(f => f.blockId === block.id && f.index === floor.index - 1);
+                                     if (prevFloors.length > 0 && prevFloors[0].isDuplex) isExtensionOfDuplex = true;
                                 }
-                            });
-                        }
+
+                                if (!isExtensionOfDuplex && mopCount === 0) {
+                                    errors.push({
+                                        title: `${building.label} (${block.tabLabel})`,
+                                        description: `${floorLabel} (Подъезд ${e}): Не указано количество квартир.`
+                                    });
+                                }
+                            }
+                        });
                     }
-                });
-            }
+                }
+            });
         });
     });
     return errors;
 };
 
 const validateApartments = (data) => {
-    // ВАЖНО: Достаем floorData для проверки флага isDuplex
     const { flatMatrix, entrancesData, composition, buildingDetails, floorData } = data;
     const errors = [];
     const numbersMap = {};
     const emptyUnits = [];
 
-    // 1. Проверка на дубликаты (среди СОХРАНЕННЫХ/ВВЕДЕННЫХ)
+    // 1. Проверка на дубликаты
     Object.values(flatMatrix).forEach(unit => {
         if (!unit.buildingId) return;
-        
         const num = String(unit.num || '').trim();
         if (num !== '') {
             const key = `${unit.buildingId}_${num}`;
@@ -480,86 +466,55 @@ const validateApartments = (data) => {
 
         residentialBlocks.forEach(block => {
             const prefix = `${building.id}_${block.id}`;
-            
-            // --- ПРОВЕРКА ДУПЛЕКСОВ ---
-            // Находим все этажи этого блока, которые помечены как isDuplex
             const blockFloorKeys = Object.keys(floorData).filter(k => k.startsWith(prefix));
             
+            // ПРОВЕРКА ДУПЛЕКСОВ
             blockFloorKeys.forEach(floorKey => {
                  const floor = floorData[floorKey];
                  if (floor && floor.isDuplex) {
-                     // [FIX] Надежное извлечение ID. floorKey = prefix + '_' + floorId
-                     // Проверяем, что ключ длиннее префикса и разделителя
-                     if (floorKey.length > prefix.length + 1) {
-                         const floorId = floorKey.substring(prefix.length + 1);
-                         
-                         let hasUnitsOnFloor = false;
-                         let hasDuplexUnit = false;
+                     let virtualFloorId = getVirtualId(floor.floorKey);
+                     if (!virtualFloorId && floor.index > 0) virtualFloorId = `floor_${floor.index}`;
+                     if (!virtualFloorId) virtualFloorId = floorKey.split('_').pop();
+                     
+                     let hasUnitsOnFloor = false;
+                     let hasDuplexUnit = false;
 
-                         // Ищем все подъезды, которые пересекаются с этим этажом
-                         Object.keys(entrancesData).forEach(entKey => {
-                             // Проверяем: это данные для текущего блока и текущего этажа?
-                             // Используем точное совпадение суффикса
-                             if (entKey.startsWith(prefix) && entKey.endsWith(`_${floorId}`)) {
-                                 const entry = entrancesData[entKey];
-                                 const aptCount = parseInt(entry.apts || 0);
-                                 
-                                 if (aptCount > 0) {
-                                     hasUnitsOnFloor = true;
-                                     
-                                     // Извлекаем индекс подъезда
-                                     // Формат: ..._entX_floorId
-                                     const match = entKey.match(/_ent(\d+)_(.*)$/);
-                                     if (match) {
-                                         const entIndex = match[1];
-                                         // Проверяем каждую квартиру на наличие типа duplex
-                                         for (let i = 0; i < aptCount; i++) {
-                                             const unitKey = `${prefix}_e${entIndex}_f${floorId}_i${i}`;
-                                             const unit = flatMatrix[unitKey];
-                                             if (unit && (unit.type === 'duplex_up' || unit.type === 'duplex_down')) {
-                                                 hasDuplexUnit = true;
-                                             }
+                     Object.keys(entrancesData).forEach(entKey => {
+                         if (entKey.startsWith(prefix) && entKey.endsWith(`_${virtualFloorId}`)) {
+                             const entry = entrancesData[entKey];
+                             const aptCount = parseInt(entry.apts || 0);
+                             
+                             if (aptCount > 0) {
+                                 hasUnitsOnFloor = true;
+                                 const match = entKey.match(/_ent(\d+)_(.*)$/);
+                                 if (match) {
+                                     Object.values(flatMatrix).forEach(u => {
+                                         if (u.blockId === block.id && 
+                                            (u.floorId === floor.id || u.floorId === virtualFloorId) && 
+                                            (u.type === 'duplex_up' || u.type === 'duplex_down')) {
+                                             hasDuplexUnit = true;
                                          }
-                                     }
+                                     });
                                  }
                              }
-                         });
-
-                         if (hasUnitsOnFloor && !hasDuplexUnit) {
-                             const fLabel = floor.label || floorId;
-                             errors.push({
-                                 title: "Ошибка дуплекса",
-                                 description: `Блок "${block.tabLabel}", этаж ${fLabel}: отмечен как "Дуплексный", но не выбрано ни одной двухуровневой квартиры (Верх/Низ).`
-                             });
                          }
+                     });
+
+                     if (hasUnitsOnFloor && !hasDuplexUnit) {
+                         const fLabel = floor.label || virtualFloorId;
+                         errors.push({
+                             title: "Ошибка дуплекса",
+                             description: `Блок "${block.tabLabel}", этаж ${fLabel}: отмечен как "Дуплексный", но не выбрано ни одной двухуровневой квартиры.`
+                         });
                      }
                  }
             });
-            // --- КОНЕЦ ПРОВЕРКИ ДУПЛЕКСОВ ---
 
-
-            // --- ПРОВЕРКА ПУСТЫХ НОМЕРОВ ---
-            Object.keys(entrancesData).forEach(entKey => {
-                if (entKey.startsWith(prefix)) {
-                    const entry = entrancesData[entKey];
-                    const aptCount = parseInt(entry.apts || 0);
-                    
-                    if (aptCount > 0) {
-                        const match = entKey.match(/_ent(\d+)_(.*)$/);
-                        if (match) {
-                            const entIndex = match[1];
-                            const floorId = match[2];
-                            
-                            for (let i = 0; i < aptCount; i++) {
-                                const unitKey = `${prefix}_e${entIndex}_f${floorId}_i${i}`;
-                                const unit = flatMatrix[unitKey];
-                                const num = unit?.num ? String(unit.num).trim() : '';
-                                
-                                if (!unit || num === '') {
-                                    emptyUnits.push(unitKey); 
-                                }
-                            }
-                        }
+            // ПРОВЕРКА ПУСТЫХ НОМЕРОВ
+            Object.values(flatMatrix).forEach(u => {
+                if (u.blockId === block.id && u.type !== 'office' && u.type !== 'pantry') {
+                    if (!u.num || String(u.num).trim() === '') {
+                        emptyUnits.push(u.id);
                     }
                 }
             });
@@ -569,7 +524,7 @@ const validateApartments = (data) => {
     if (emptyUnits.length > 0) {
         errors.push({
             title: "Незаполненные номера",
-            description: `Обнаружено ${emptyUnits.length} помещений без номера. Введите номера для всех квартир.`
+            description: `Обнаружено ${emptyUnits.length} помещений без номера.`
         });
     }
 
@@ -581,7 +536,6 @@ const validateMop = (data) => {
     const errors = [];
 
     composition.forEach(building => {
-        // Проверяем только жилые дома и подземные паркинги
         const isUnderground = building.parkingType === 'underground';
         const isRes = building.category.includes('residential');
         if (!isRes && !isUnderground) return;
@@ -592,33 +546,29 @@ const validateMop = (data) => {
         targetBlocks.forEach(block => {
             const prefix = `${building.id}_${block.id}`;
             const details = buildingDetails[prefix] || {};
-            // Для подземного паркинга inputs, для жилого entrances
             const entrancesCount = parseInt(details.entrances || details.inputs || 1);
             const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
 
-            // Получаем список этажей
             const blockFloorKeys = Object.keys(floorData).filter(k => k.startsWith(prefix));
             
             blockFloorKeys.forEach(floorKey => {
-                const floorId = floorKey.substring(prefix.length + 1);
-                // Исключаем крыши
-                if (floorId.includes('roof')) return; 
+                const floor = floorData[floorKey];
+                let virtualFloorId = getVirtualId(floor.floorKey);
+                if (!virtualFloorId && floor.index > 0) virtualFloorId = `floor_${floor.index}`;
+                if (!virtualFloorId) virtualFloorId = floorKey.split('_').pop();
+                
+                if (virtualFloorId.includes('roof')) return; 
 
-                // Формируем читаемое название
-                let floorLabel = floorId;
-                if (floorId.startsWith('floor_')) floorLabel = `${floorId.split('_')[1]} этаж`;
-                else if (floorId.startsWith('base_')) floorLabel = 'Подвал';
-                else if (floorId.startsWith('level_minus_')) floorLabel = `Уровень -${floorId.split('_')[2]}`;
+                const floorLabel = floor.label || virtualFloorId;
 
                 entrancesList.forEach(e => {
-                    const entKey = `${prefix}_ent${e}_${floorId}`;
+                    const entKey = `${prefix}_ent${e}_${virtualFloorId}`;
                     const targetQty = parseInt(entrancesData[entKey]?.mopQty || 0);
                     
                     if (targetQty > 0) {
-                        const mopKey = `${prefix}_e${e}_f${floorId}_mops`;
+                        const mopKey = `${prefix}_e${e}_f${virtualFloorId}_mops`;
                         const mops = mopData[mopKey] || [];
                         
-                        // Проверка 1: Количество
                         if (mops.length < targetQty) {
                             errors.push({
                                 title: `${building.label} (${block.tabLabel})`,
@@ -626,7 +576,6 @@ const validateMop = (data) => {
                             });
                         }
 
-                        // Проверка 2: Качество
                         mops.slice(0, targetQty).forEach((m, idx) => {
                             if (!m.type || !m.area || parseFloat(m.area) <= 0) {
                                 errors.push({
@@ -641,7 +590,6 @@ const validateMop = (data) => {
         });
     });
     
-    // Удаляем дубликаты ошибок (для чистоты UI)
     return errors.filter((v,i,a)=>a.findIndex(t=>(t.description===v.description))===i);
 };
 
@@ -652,13 +600,11 @@ const validateParkingConfig = (data) => {
     composition.forEach(building => {
         const blocks = getBlocksList(building, buildingDetails);
 
-        // 1. ОТДЕЛЬНЫЙ ПАРКИНГ
         if (building.category === 'parking_separate') {
             const isCapital = building.constructionType === 'capital';
             const isUnderground = building.parkingType === 'underground';
             const details = buildingDetails[`${building.id}_main`] || {};
 
-            // Валидация конфигурации
             if (isUnderground && !details.levelsDepth) {
                 errors.push({ title: building.label, description: "Не указана глубина подземного паркинга." });
             }
@@ -666,9 +612,6 @@ const validateParkingConfig = (data) => {
                 errors.push({ title: building.label, description: "Не указана этажность паркинга." });
             }
 
-            // Проверка мест (только для капитальных)
-            // Ищем все места, привязанные к этому зданию (buildingId совпадает с ключом)
-            // Ключи паркинга: buildingId_main_level...
             const hasPlaces = Object.keys(parkingPlaces).some(k => k.startsWith(`${building.id}_main`) && k.includes('_place'));
             
             if (isCapital || isUnderground) {
@@ -678,31 +621,24 @@ const validateParkingConfig = (data) => {
             }
         } 
         
-        // 2. ЖИЛОЙ ДОМ (Подземный паркинг в подвалах)
         else if (building.category.includes('residential')) {
             const features = buildingDetails[`${building.id}_features`] || {};
             const basements = features.basements || [];
 
-            // Пробегаем по блокам
             blocks.forEach(block => {
-                // Ищем подвалы этого блока
                 const blockBasements = basements.filter(b => b.blocks?.includes(block.id));
                 
                 blockBasements.forEach(base => {
-                    // Если паркинг глобально выключен в подвале - пропускаем
                     if (!base.hasParking) return;
 
                     const depth = parseInt(base.depth || 1);
                     for (let d = 1; d <= depth; d++) {
-                        // Проверяем статус конкретного уровня
-                        let isLevelEnabled = true; // По умолчанию включен, если hasParking=true (старый формат)
+                        let isLevelEnabled = true;
                         if (base.parkingLevels && base.parkingLevels[d] !== undefined) {
                             isLevelEnabled = base.parkingLevels[d];
                         }
 
                         if (isLevelEnabled) {
-                            // Формируем ключ для проверки количества мест
-                            // Ключ: {blockFullId}_base_{baseId}_L{d}_meta
                             const levelId = `base_${base.id}_L${d}`;
                             const metaKey = `${block.fullId}_${levelId}_meta`;
                             
@@ -712,7 +648,7 @@ const validateParkingConfig = (data) => {
                             if (!countVal || count <= 0) {
                                 errors.push({
                                     title: `${building.label} (${block.tabLabel})`,
-                                    description: `Подвал (Уровень -${d}): Паркинг отмечен активным, но количество мест не указано (или 0).`
+                                    description: `Подвал (Уровень -${d}): Паркинг отмечен активным, но количество мест не указано.`
                                 });
                             }
                         }

@@ -42,14 +42,27 @@ export const Validators = {
      * @param {number|string} fact - Фактическая площадь
      * @returns {string|null} Текст ошибки или null
      */
+    /**
+     * Проверка расхождения площадей (> 15%)
+     */
     checkDiff: (proj, fact) => {
         const p = parseFloat(String(proj));
-        const f = parseFloat(String(fact));
+        // Если факт пустой или не число, считаем его за 0
+        const f = fact ? parseFloat(String(fact)) : 0;
         
-        // Считаем разницу только если оба значения валидны (положительны)
-        if (p > 0 && f > 0) {
-            const diffPercent = Math.abs(p - f) / p * 100;
-            if (diffPercent > 15) return "Расхождение > 15%";
+        // Если проект задан (>0), мы обязаны проверить отклонение
+        if (p > 0) {
+            // Если факт NaN (например, текст), считаем 0
+            const safeF = isNaN(f) ? 0 : f;
+            
+            const diffPercent = Math.abs(p - safeF) / p * 100;
+            
+            // Если расхождение больше 15%
+            if (diffPercent > 15) {
+                // Уточняем сообщение, если факт вообще не заполнен
+                if (safeF === 0) return "Не заполнен Факт (расхождение 100%)";
+                return `Расхождение ${diffPercent.toFixed(1)}% (> 15%)`;
+            }
         }
         return null;
     },
