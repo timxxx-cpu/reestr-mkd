@@ -109,7 +109,7 @@ export default function PassportEditor() {
     const ErrorMsg = ({ field }) => errors[field] ? <span className="text-[9px] text-red-500 font-bold ml-2 animate-in fade-in">{errors[field]}</span> : null;
 
     return (
-        <div className="max-w-7xl mx-auto pb-20 animate-in fade-in duration-500 space-y-6">
+        <div className="w-full px-6 pb-20 animate-in fade-in duration-500 space-y-6">
             
             <div className="relative rounded-3xl overflow-hidden bg-slate-900 text-white shadow-2xl">
                 <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900/50 z-0"></div>

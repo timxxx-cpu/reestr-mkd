@@ -75,10 +75,10 @@ export const ComplexInfoSchema = z.object({
   district: z.string().optional(),
   street: z.string().min(5, "Укажите корректный адрес"),
   landmark: z.string().optional(),
-  dateStartProject: z.string().optional(),
-  dateEndProject: z.string().optional(),
-  dateStartFact: z.string().optional(),
-  dateEndFact: z.string().optional(),
+  dateStartProject: z.string().nullish(), // Разрешает string | null | undefined
+  dateEndProject: z.string().nullish(),
+  dateStartFact: z.string().nullish(),
+  dateEndFact: z.string().nullish(),
 }).refine(data => {
   if (data.dateStartProject && data.dateEndProject) {
     return new Date(data.dateEndProject) > new Date(data.dateStartProject);
