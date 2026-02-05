@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 // [FIX] Добавили аргумент (t) => null, чтобы VS Code знал, что функция принимает параметр
 const ThemeContext = createContext({
   theme: "light",
-  setTheme: (theme) => null, 
+  setTheme: (_theme) => null, 
 });
 
 export const useTheme = () => {

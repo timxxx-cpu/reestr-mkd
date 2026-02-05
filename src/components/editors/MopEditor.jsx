@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Trash2, Copy, AlertCircle, Wand2, DoorOpen, Ban,
   Building2, Car, Box, Store, LayoutGrid
@@ -62,7 +62,7 @@ export default function MopEditor({ buildingId, onBack }) {
     // 2. Data Hooks
     const { floors: rawFloors } = useDirectFloors(currentBlock?.id);
     const { entrances, matrixMap } = useDirectMatrix(currentBlock?.id);
-    const { mops, upsertMop, deleteMop, clearAllMops } = useDirectCommonAreas(currentBlock?.id);
+    const { mops, upsertMop, _deleteMop, clearAllMops } = useDirectCommonAreas(currentBlock?.id);
     const { options: mopTypeOptions } = useCatalog('dict_mop_types', MOP_TYPES_FALLBACK);
 
     // 3. Logic

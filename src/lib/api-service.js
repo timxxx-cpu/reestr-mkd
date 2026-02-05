@@ -7,8 +7,6 @@ import {
     mapUnitFromDB, 
     mapMopFromDB 
 } from './db-mappers';
-import { buildFloorList } from './floor-utils';
-import { getBlocksList } from './utils';
 
 // ... (Оставляем существующие функции mapBuildingToDb, mapBlockToDb, mapBlockTypeToDb, mapDbTypeToUi без изменений) ...
 // ... (Оставляем хелперы inferFloorKey, mapFloorKeyToVirtualId без изменений) ...
@@ -31,7 +29,7 @@ function mapDbTypeToUi(dbType) {
 }
 
 // Хелперы ключей (оставляем как были в файле)
-const inferFloorKey = (id) => {
+const _inferFloorKey = (id) => {
     if (!id) return null;
     if (id.startsWith('floor_')) {
         if (id.includes('_tech')) return `tech:${id.split('_')[1]}`;
@@ -48,7 +46,7 @@ const inferFloorKey = (id) => {
     return id;
 };
 
-const mapFloorKeyToVirtualId = (key) => {
+const _mapFloorKeyToVirtualId = (key) => {
     if (!key) return null;
     if (key.startsWith('floor:')) return `floor_${key.split(':')[1]}`;
     if (key.startsWith('parking:')) {
@@ -693,7 +691,7 @@ export const ApiService = {
         data.forEach(row => {
             map[`${row.floor_id}_${row.entrance_number}`] = {
                 id: row.id,
-                apts: row.apartments_count,
+                apts: row.flats_count,
                 units: row.commercial_count,
                 mopQty: row.mop_count
             };
@@ -708,7 +706,7 @@ export const ApiService = {
             entrance_number: entranceNumber,
             updated_at: new Date()
         };
-        if (values.apts !== undefined) payload.apartments_count = values.apts;
+        if (values.apts !== undefined) payload.flats_count = values.apts;
         if (values.units !== undefined) payload.commercial_count = values.units;
         if (values.mopQty !== undefined) payload.mop_count = values.mopQty;
 
@@ -887,7 +885,7 @@ export const ApiService = {
         return counts;
     },
 
-    syncParkingPlaces: async (floorId, targetCount, buildingId) => {
+    syncParkingPlaces: async (floorId, targetCount, _buildingId) => {
         const { data: existing } = await supabase
             .from('units')
             .select('id, number')
@@ -937,12 +935,12 @@ export const ApiService = {
     },
 
     updateBuildingCadastre: async (id, cadastre) => {
-        // [NOTE] В схеме DB_SCHEMA нет поля cadastre_number в buildings, но добавим заглушку/предположение
-        // Если его нет, этот вызов упадет. Нужно проверить миграции. В DB_SCHEMA его НЕТ.
-        // Добавим апдейт только если поле существует или используем projects.cadastre_number
-        // Предположим, оно есть (вы добавляли).
-        // Если нет - закомментировать.
-        // await supabase.from('buildings').update({ cadastre_number: cadastre }).eq('id', id);
+        if (!id) return;
+        const { error } = await supabase
+            .from('buildings')
+            .update({ cadastre_number: cadastre })
+            .eq('id', id);
+        if (error) throw error;
     },
 
     updateUnitCadastre: async (id, cadastre) => {

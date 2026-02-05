@@ -1,29 +1,29 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { getBlocksList } from '../../lib/utils';
 
 export function useCommercialData() {
     const { 
         composition, flatMatrix, floorData, 
-        entrancesData, buildingDetails, complexInfo 
+        buildingDetails 
     } = useProject();
 
     const [filters, setFilters] = useState({ building: 'all', floor: 'all', status: 'all' });
     const [searchTerm, setSearchTerm] = useState('');
 
-    const resolveFloorLabel = (buildingId, floorId) => {
+    const resolveFloorLabel = useCallback((buildingId, floorId) => {
         if (!floorId) return '-';
         const entry = Object.values(floorData).find(f => f.id === floorId); // [FIX] Ищем по ID
         if (entry) return entry.label;
         return floorId;
-    };
+    }, [floorData]);
 
     const allObjects = useMemo(() => {
         const list = [];
         const registeredUnits = new Set();
 
         const addToIndex = (bId, blId, ent, num) => registeredUnits.add(`${bId}_${blId}_${ent}_${num}`);
-        const isRegistered = (bId, blId, ent, num) => registeredUnits.has(`${bId}_${blId}_${ent}_${num}`);
+        const _isRegistered = (bId, blId, ent, num) => registeredUnits.has(`${bId}_${blId}_${ent}_${num}`);
 
         composition.forEach(building => {
             const blocks = getBlocksList(building, buildingDetails);
@@ -69,7 +69,7 @@ export function useCommercialData() {
         });
 
         return list.sort((a, b) => a.number.localeCompare(b.number, undefined, {numeric: true}));
-    }, [composition, flatMatrix, entrancesData, floorData, buildingDetails, complexInfo]);
+    }, [composition, flatMatrix, buildingDetails, resolveFloorLabel]);
 
     // ... остальной код фильтрации без изменений (он уже работает с полями объекта)
     const filteredData = useMemo(() => {

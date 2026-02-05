@@ -34,7 +34,7 @@ const CustomTooltip = ({ active = false, payload = [], label = "" }) => {
     return null;
 };
 
-const StatCard = ({ icon: Icon, label, color = "blue", mainMetric, subMetric, warning = false }) => {
+const StatCard = ({ icon: _Icon, label, color = "blue", mainMetric, subMetric, warning = false }) => {
     const styles = {
         blue: "bg-blue-50 text-blue-600 border-blue-100",
         emerald: "bg-emerald-50 text-emerald-600 border-emerald-100",
@@ -50,7 +50,7 @@ const StatCard = ({ icon: Icon, label, color = "blue", mainMetric, subMetric, wa
             <div className="flex items-start justify-between mb-4">
                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</h3>
                  <div className={`p-2.5 rounded-xl ${activeStyle} transition-transform group-hover:scale-110`}>
-                     <Icon size={20} />
+                     <_Icon size={20} />
                  </div>
             </div>
             <div className="flex flex-col gap-3">

@@ -240,7 +240,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           // Обновляем данные с сервера, чтобы синхронизировать состояние
           refetch();
       }
-  }, [dbScope, projectId, mergedState.composition, refetch]);
+  }, [dbScope, projectId, mergedState.composition, refetch, toast]);
 
   const completeTask = useCallback(async (currentIndex) => {
       // Сначала сохраняем всё, что есть в буфере
@@ -470,9 +470,9 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           setProjectMeta(prev => ({ ...prev, composition: newComposition }));
           toast.success("Объект удален");
       } catch (e) { toast.error("Ошибка удаления"); }
-  }, [dbScope, projectId, mergedState, toast, isReadOnly]);
+  }, [mergedState, toast, isReadOnly]);
 
-  const updateStatus = useCallback(async (newStatus, newStage = null, comment = null) => { /* ... */ }, []);
+  const updateStatus = useCallback(async (_newStatus, _newStage = null, _comment = null) => { /* ... */ }, []);
 
   const createSetter = (key) => (value) => {
       if (isReadOnly) return; 
@@ -489,6 +489,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   };
 
   const value = {
+    projectId,
     ...mergedState,
     isReadOnly,
     userProfile,

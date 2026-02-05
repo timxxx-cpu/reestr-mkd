@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useProject } from '../../context/ProjectContext';
 
 export function useParkingData() {
@@ -7,13 +7,13 @@ export function useParkingData() {
     const [filters, setFilters] = useState({ building: 'all', floor: 'all', status: 'all' });
     const [searchTerm, setSearchTerm] = useState('');
 
-    const resolveFloorLabel = (buildingId, floorId) => {
+    const resolveFloorLabel = useCallback((buildingId, floorId) => {
         if (!floorId) return '-';
         const entry = Object.values(floorData).find(f => f.id === floorId); // [FIX] Ищем по ID
         if (entry) return entry.label;
         if (floorId.includes('level_minus')) return `Уровень -${floorId.split('_')[2]}`;
         return floorId;
-    };
+    }, [floorData]);
 
     const allObjects = useMemo(() => {
         const list = [];
@@ -53,7 +53,7 @@ export function useParkingData() {
             if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
             return a.number.localeCompare(b.number);
         });
-    }, [composition, parkingPlaces, floorData]);
+    }, [composition, parkingPlaces, resolveFloorLabel]);
 
     // ... код фильтрации без изменений
     const filteredData = useMemo(() => {

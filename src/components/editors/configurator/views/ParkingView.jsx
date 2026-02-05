@@ -17,7 +17,7 @@ export default function ParkingView({ building, typeInfo }) {
     const { buildingDetails, setBuildingDetails, composition } = useProject();
     const isReadOnly = useReadOnly();
     
-    const { isGroundOpen, isGroundLight, isCapitalStructure, isUnderground } = typeInfo;
+    const { isGroundOpen, isGroundLight, _isCapitalStructure, isUnderground } = typeInfo;
 
     const blockId = building.blocks?.[0]?.id || 'main';
     const detailsKey = `${building.id}_${blockId}`; 

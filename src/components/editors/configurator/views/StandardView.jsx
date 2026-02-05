@@ -37,7 +37,7 @@ const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
 );
 
 export default function StandardView({ building, mode }) {
-    const { buildingDetails, setBuildingDetails, complexInfo } = useProject();
+    const { buildingDetails, setBuildingDetails, _complexInfo } = useProject();
     const isReadOnly = useReadOnly();
     
     const blocksList = useMemo(() => getBlocksList(building, buildingDetails), [building, buildingDetails]);
@@ -59,7 +59,7 @@ export default function StandardView({ building, mode }) {
         } else {
             setActiveTabId('photo');
         }
-    }, [building.id]); 
+    }, [building.id, visibleBlocks]); 
 
     useEffect(() => {
         const isActiveValid = activeTabId === 'photo' || visibleBlocks.some(b => b.id === activeTabId);
@@ -78,16 +78,16 @@ export default function StandardView({ building, mode }) {
     const featuresKey = `${building.id}_features`;
     const features = buildingDetails[featuresKey] || { basements: [], exploitableRoofs: [] };
 
-    const defaultDetails = { 
+    const defaultDetails = useMemo(() => ({ 
         foundation: '', walls: '', slabs: '', roof: '', seismicity: '', 
         hasCustomAddress: false, customHouseNumber: '',
         floorsFrom: 1, floorsTo: '', entrances: '', elevators: '', 
         commercialFloors: [], hasBasementFloor: false, hasAttic: false, hasLoft: false, 
         hasTechnicalFloor: false, technicalFloors: [], hasExploitableRoof: false, 
         parentBlocks: [], engineering: { hvs: false, gvs: false, heating: false, electricity: false, gas: false, sewerage: false, ventilation: false, firefighting: false, lowcurrent: false } 
-    };
+    }), []);
 
-    const details = { ...defaultDetails, ...(buildingDetails[detailsKey] || {}) };
+    const details = useMemo(() => ({ ...defaultDetails, ...(buildingDetails[detailsKey] || {}) }), [defaultDetails, buildingDetails, detailsKey]);
     const { errors } = useValidation(BuildingConfigSchema, details);
 
    // ИСПРАВЛЕННЫЙ ЭФФЕКТ

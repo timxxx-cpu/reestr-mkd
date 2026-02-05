@@ -49,7 +49,7 @@ export function useValidation(schema, data, validateOnChange = true) {
             setIsValid(prev => (prev === true ? prev : true));
             return true;
         }
-    }, [schema, dataJson]); // Зависим от строки JSON, а не от объекта data
+    }, [schema, data]); // Зависим от строки JSON, а не от объекта data
 
     // Автоматическая валидация при изменении данных
     useEffect(() => {

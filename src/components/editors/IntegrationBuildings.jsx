@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { 
   Globe, Send, Loader2, CheckCircle2, 
   Building2, Server, RefreshCw, Hash, MapPin, Layers, Box

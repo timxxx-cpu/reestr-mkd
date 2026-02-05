@@ -185,7 +185,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         upsertUnit(newData);
     };
 
-    const handleKeyDown = (e, fIdx, entIdxInArray, idx) => {
+    const _handleKeyDown = (e, _fIdx, _entIdxInArray, _idx) => {
         if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
         e.preventDefault();
         // Логика навигации (упрощена, т.к. требует точного знания DOM ref-ов)

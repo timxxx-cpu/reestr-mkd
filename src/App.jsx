@@ -6,7 +6,6 @@ import { AuthService } from './lib/auth-service';
 import { ToastProvider, useToast } from './context/ToastContext'; 
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { STEPS_CONFIG, ROLES, WORKFLOW_STAGES } from './lib/constants';
-import { getStepStage } from './lib/workflow-utils';
 
 import { useProjects } from './hooks/useProjects';
 
@@ -181,7 +180,7 @@ function LoginScreen({ onLogin, isLoading }) {
 
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
-  static getDerivedStateFromError(error) { return { hasError: true }; }
+  static getDerivedStateFromError(_error) { return { hasError: true }; }
   render() {
     if (this.state.hasError) return <div className="p-8 text-center text-red-500">Ошибка UI <button onClick={this.props.onReset} className="ml-2 underline">Сброс</button></div>;
     return this.props.children; 
@@ -189,7 +188,6 @@ class ErrorBoundary extends React.Component {
 }
 
 function ProjectEditorRoute({ user }) {
-    const { projectId } = useParams();
     const navigate = useNavigate();
     const [currentStep, setCurrentStep] = useState(0);
     const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -358,7 +356,7 @@ const ProjectProviderWrapper = ({ children, firebaseUser, dbScope, activePersona
     );
 };
 
-const MainLayout = ({ firebaseUser, activePersona }) => { 
+const MainLayout = ({ activePersona }) => { 
     const navigate = useNavigate();
     const { projects, isLoading } = useProjects(DB_SCOPE);
 
@@ -433,7 +431,7 @@ export default function App() {
     <PersonaContext.Provider value={{ activePersona, setActivePersona }}>
         <ToastProvider>
             <Routes>
-                <Route path="/" element={<MainLayout firebaseUser={firebaseUser} activePersona={activePersona} />} />
+                <Route path="/" element={<MainLayout activePersona={activePersona} />} />
                 <Route path="/admin/catalogs" element={<CatalogsAdminPanel />} />
                 <Route path="/project/:projectId" element={
                     <ProjectProviderWrapper firebaseUser={firebaseUser} dbScope={DB_SCOPE} activePersona={activePersona}>
