@@ -56,31 +56,32 @@ export default function PassportEditor() {
   });
 
   const dataLoadedRef = useRef(false);
-
+  const safeComplexInfo = /** @type {any} */ (complexInfo || {});
+  const safeCadastre = /** @type {any} */ (cadastre || {});
   useEffect(() => {
-    if (!isLoading && complexInfo && Object.keys(complexInfo).length > 0 && !dataLoadedRef.current) {
+    if (!isLoading && Object.keys(safeComplexInfo).length > 0 && !dataLoadedRef.current) {
       setLocalInfo((prev) => ({
         ...prev,
-        ...complexInfo,
-        name: complexInfo.name || '',
-        status: complexInfo.status || 'Проектный',
-        region: complexInfo.region || '',
-        district: complexInfo.district || '',
-        street: complexInfo.street || '',
-        landmark: complexInfo.landmark || '',
-        dateStartProject: complexInfo.dateStartProject || '',
-        dateEndProject: complexInfo.dateEndProject || '',
-        dateStartFact: complexInfo.dateStartFact || '',
-        dateEndFact: complexInfo.dateEndFact || ''
+        ...safeComplexInfo,
+        name: safeComplexInfo.name || '',
+        status: safeComplexInfo.status || 'Проектный',
+        region: safeComplexInfo.region || '',
+        district: safeComplexInfo.district || '',
+        street: safeComplexInfo.street || '',
+        landmark: safeComplexInfo.landmark || '',
+        dateStartProject: safeComplexInfo.dateStartProject || '',
+        dateEndProject: safeComplexInfo.dateEndProject || '',
+        dateStartFact: safeComplexInfo.dateStartFact || '',
+        dateEndFact: safeComplexInfo.dateEndFact || ''
       }));
 
-      if (cadastre) {
+      if (Object.keys(safeCadastre).length > 0) {
         setLocalCadastre((prev) => ({
           ...prev,
-          ...cadastre,
-          number: cadastre.number || '',
-          address: cadastre.address || '',
-          area: cadastre.area || ''
+          ...safeCadastre,
+          number: safeCadastre.number || '',
+          address: safeCadastre.address || '',
+          area: safeCadastre.area || ''
         }));
       }
 

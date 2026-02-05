@@ -253,10 +253,16 @@ create table floors (
   is_loft boolean default false,
   is_roof boolean default false,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique(block_id, index, coalesce(parent_floor_index, -99999), coalesce(basement_id, '00000000-0000-0000-0000-000000000000'::uuid))
+  updated_at timestamptz not null default now()
 );
 create index idx_floors_block on floors(block_id);
+create unique index uq_floors_block_idx_parent_basement_expr
+  on floors (
+    block_id,
+    index,
+    coalesce(parent_floor_index, -99999),
+    coalesce(basement_id, '00000000-0000-0000-0000-000000000000'::uuid)
+  );
 
 create table entrances (
   id uuid primary key default gen_random_uuid(),
