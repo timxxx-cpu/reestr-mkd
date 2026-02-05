@@ -350,6 +350,11 @@ export const ApiService = {
         
         const technicalFloorsMap = {};
         const commercialFloorsMap = {};
+        const floorData = {};
+        const entrancesData = {};
+        const flatMatrix = {};
+        const mopData = {};
+        const parkingPlaces = {};
 
         if (blockIds.length > 0) {
             const { data: markerRows } = await supabase
@@ -375,10 +380,53 @@ export const ApiService = {
             // Оптимизация: берем только нужные поля
             const { data: floorsData } = await supabase
                 .from('floors')
-                .select('block_id, index, floor_type, parent_floor_index, is_commercial, is_technical, is_attic, is_loft, is_roof, basement_id')
+                .select('id, block_id, floor_key, label, index, floor_type, height, area_proj, area_fact, is_duplex, parent_floor_index, is_commercial, is_technical, is_stylobate, is_basement, is_attic, is_loft, is_roof, basement_id')
                 .in('block_id', blockIds);
 
+            const blockToBuilding = (buildingsRes.data || []).reduce((acc, building) => {
+                (building.building_blocks || []).forEach(block => {
+                    acc[block.id] = building.id;
+                });
+                return acc;
+            }, {});
+            const floorContextById = {};
+
             (floorsData || []).forEach(row => {
+                const buildingId = blockToBuilding[row.block_id];
+                const virtualId = _mapFloorKeyToVirtualId(row.floor_key || `floor:${row.index}`) || row.id;
+                if (buildingId) {
+                    const key = `${buildingId}_${row.block_id}_${virtualId}`;
+                    floorData[key] = {
+                        id: row.id,
+                        buildingId,
+                        blockId: row.block_id,
+                        floorKey: row.floor_key,
+                        label: row.label,
+                        index: row.index,
+                        sortOrder: row.index,
+                        type: row.floor_type,
+                        height: row.height,
+                        areaProj: row.area_proj,
+                        areaFact: row.area_fact,
+                        isDuplex: row.is_duplex,
+                        parentFloorIndex: row.parent_floor_index,
+                        basementId: row.basement_id,
+                        flags: {
+                            isTechnical: !!row.is_technical,
+                            isCommercial: !!row.is_commercial,
+                            isStylobate: !!row.is_stylobate,
+                            isBasement: !!row.is_basement,
+                            isAttic: !!row.is_attic,
+                            isLoft: !!row.is_loft,
+                            isRoof: !!row.is_roof
+                        }
+                    };
+                    floorContextById[row.id] = { buildingId, blockId: row.block_id, virtualId };
+                    if (virtualId.startsWith('base_')) {
+                        parkingPlaces[`${buildingId}_${row.block_id}_${virtualId}_meta`] = { count: 0 };
+                    }
+                }
+
                 if (row.is_technical && row.parent_floor_index !== null) {
                     if (!technicalFloorsMap[row.block_id]) technicalFloorsMap[row.block_id] = new Set();
                     technicalFloorsMap[row.block_id].add(row.parent_floor_index);
@@ -397,6 +445,86 @@ export const ApiService = {
                     
                     commercialFloorsMap[row.block_id].add(key);
                 }
+            });
+
+            const [entrancesRes, matrixRes, unitsRes, mopsRes] = await Promise.all([
+                supabase.from('entrances').select('id, block_id, number').in('block_id', blockIds),
+                supabase.from('entrance_matrix').select('floor_id, entrance_number, flats_count, commercial_count, mop_count').in('block_id', blockIds),
+                supabase.from('units').select('id, floor_id, entrance_id, number, unit_type, total_area, living_area, useful_area, rooms_count, status, cadastre_number').in('floor_id', (floorsData || []).map(f => f.id)),
+                supabase.from('common_areas').select('id, floor_id, entrance_id, type, area').in('floor_id', (floorsData || []).map(f => f.id))
+            ]);
+
+            if (entrancesRes.error) throw entrancesRes.error;
+            if (matrixRes.error) throw matrixRes.error;
+            if (unitsRes.error) throw unitsRes.error;
+            if (mopsRes.error) throw mopsRes.error;
+
+            const entranceNumberById = (entrancesRes.data || []).reduce((acc, row) => {
+                acc[row.id] = row.number;
+                return acc;
+            }, {});
+
+            (matrixRes.data || []).forEach(row => {
+                const floorCtx = floorContextById[row.floor_id];
+                if (!floorCtx) return;
+                const key = `${floorCtx.buildingId}_${floorCtx.blockId}_ent${row.entrance_number}_${floorCtx.virtualId}`;
+                entrancesData[key] = {
+                    apts: row.flats_count ?? 0,
+                    units: row.commercial_count ?? 0,
+                    mopQty: row.mop_count ?? 0
+                };
+            });
+
+            (unitsRes.data || []).forEach(row => {
+                const floorCtx = floorContextById[row.floor_id];
+                if (!floorCtx) return;
+
+                if (row.unit_type === 'parking_place') {
+                    const parkingKey = `${floorCtx.buildingId}_${floorCtx.blockId}_place_${row.id}`;
+                    parkingPlaces[parkingKey] = {
+                        id: row.id,
+                        floorId: row.floor_id,
+                        number: row.number,
+                        area: row.total_area
+                    };
+                    const metaKey = `${floorCtx.buildingId}_${floorCtx.blockId}_${floorCtx.virtualId}_meta`;
+                    const current = parseInt(parkingPlaces[metaKey]?.count || 0, 10);
+                    parkingPlaces[metaKey] = { count: current + 1 };
+                    return;
+                }
+
+                flatMatrix[`${floorCtx.buildingId}_${floorCtx.blockId}_${row.id}`] = {
+                    id: row.id,
+                    blockId: floorCtx.blockId,
+                    buildingId: floorCtx.buildingId,
+                    floorId: row.floor_id,
+                    entranceId: entranceNumberById[row.entrance_id] || null,
+                    entranceIndex: entranceNumberById[row.entrance_id] || null,
+                    num: row.number,
+                    number: row.number,
+                    type: row.unit_type,
+                    area: row.total_area,
+                    livingArea: row.living_area,
+                    usefulArea: row.useful_area,
+                    rooms: row.rooms_count,
+                    isSold: row.status === 'sold',
+                    cadastreNumber: row.cadastre_number
+                };
+            });
+
+            (mopsRes.data || []).forEach(row => {
+                const floorCtx = floorContextById[row.floor_id];
+                if (!floorCtx) return;
+                const entranceNum = entranceNumberById[row.entrance_id] || 1;
+                const key = `${floorCtx.buildingId}_${floorCtx.blockId}_e${entranceNum}_f${floorCtx.virtualId}_mops`;
+                if (!mopData[key]) mopData[key] = [];
+                mopData[key].push({
+                    id: row.id,
+                    floorId: row.floor_id,
+                    entranceId: row.entrance_id,
+                    type: row.type,
+                    area: row.area
+                });
             });
         }
 
@@ -459,7 +587,7 @@ export const ApiService = {
             }
         });
 
-        return { ...projectData, composition, buildingDetails };
+        return { ...projectData, composition, buildingDetails, floorData, entrancesData, flatMatrix, mopData, parkingPlaces };
     },
 
 
@@ -806,15 +934,36 @@ export const ApiService = {
     },
 
     syncEntrances: async (blockId, count) => {
-        const { data: existing } = await supabase.from('entrances').select('id, number').eq('block_id', blockId);
-        const existingNums = new Set(existing.map(e => e.number));
+        const normalizedCount = Math.max(0, parseInt(count, 10) || 0);
+        const { data: existing, error: existingErr } = await supabase
+            .from('entrances')
+            .select('id, number')
+            .eq('block_id', blockId);
+        if (existingErr) throw existingErr;
+
+        const existingRows = existing || [];
+        const existingNums = new Set(existingRows.map(e => e.number));
         const toCreate = [];
-        for(let i=1; i<=count; i++) {
-            if(!existingNums.has(i)) toCreate.push({ block_id: blockId, number: i });
+        for (let i = 1; i <= normalizedCount; i++) {
+            if (!existingNums.has(i)) toCreate.push({ block_id: blockId, number: i });
         }
-        if (toCreate.length > 0) await supabase.from('entrances').insert(toCreate);
-        const toDeleteIds = existing.filter(e => e.number > count).map(e => e.id);
-        if (toDeleteIds.length > 0) await supabase.from('entrances').delete().in('id', toDeleteIds);
+        if (toCreate.length > 0) {
+            const { error: insertErr } = await supabase.from('entrances').insert(toCreate);
+            if (insertErr) throw insertErr;
+        }
+
+        const toDeleteIds = existingRows.filter(e => e.number > normalizedCount).map(e => e.id);
+        if (toDeleteIds.length > 0) {
+            const { error: deleteErr } = await supabase.from('entrances').delete().in('id', toDeleteIds);
+            if (deleteErr) throw deleteErr;
+        }
+
+        const { error: matrixTrimErr } = await supabase
+            .from('entrance_matrix')
+            .delete()
+            .eq('block_id', blockId)
+            .gt('entrance_number', normalizedCount);
+        if (matrixTrimErr) throw matrixTrimErr;
     },
 
     // --- UNITS ---
@@ -1071,6 +1220,7 @@ export const ApiService = {
         const { buildingSpecificData, ...generalData } = payload;
         const promises = [];
         const floorSyncTargets = [];
+        const entranceSyncTargets = [];
 
         // 1. Обновление Project/App Info
         if (generalData.complexInfo) {
@@ -1218,6 +1368,12 @@ export const ApiService = {
                     promises.push(supabase.from('building_blocks').update(blockUpdate).eq('id', blockId));
                     floorSyncTargets.push({ buildingId, blockId });
 
+                    const desiredEntrancesRaw = details.entrances ?? details.inputs;
+                    const desiredEntrances = parseInt(desiredEntrancesRaw, 10);
+                    if (Number.isFinite(desiredEntrances) && desiredEntrances > 0) {
+                        entranceSyncTargets.push({ blockId, count: desiredEntrances });
+                    }
+
                     const markerTechSet = new Set(
                         (details.technicalFloors || [])
                             .map(v => Number(v))
@@ -1296,6 +1452,15 @@ export const ApiService = {
         }
 
         await Promise.all(promises);
+
+        if (entranceSyncTargets.length > 0) {
+            const uniqueEntranceTargets = Array.from(
+                new Map(entranceSyncTargets.map((item) => [item.blockId, item])).values()
+            );
+            for (const target of uniqueEntranceTargets) {
+                await ApiService.syncEntrances(target.blockId, target.count);
+            }
+        }
 
         if (floorSyncTargets.length > 0 && generalData.buildingDetails) {
             const uniqueBuildingIds = Array.from(new Set(floorSyncTargets.map(t => t.buildingId)));

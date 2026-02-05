@@ -603,7 +603,10 @@ const validateParkingConfig = (data) => {
         if (building.category === 'parking_separate') {
             const isCapital = building.constructionType === 'capital';
             const isUnderground = building.parkingType === 'underground';
-            const details = buildingDetails[`${building.id}_main`] || {};
+            const primaryBlock = blocks[0];
+            const details = primaryBlock
+                ? (buildingDetails[`${building.id}_${primaryBlock.id}`] || buildingDetails[`${building.id}_main`] || {})
+                : (buildingDetails[`${building.id}_main`] || {});
 
             if (isUnderground && !details.levelsDepth) {
                 errors.push({ title: building.label, description: "Не указана глубина подземного паркинга." });
@@ -612,8 +615,10 @@ const validateParkingConfig = (data) => {
                 errors.push({ title: building.label, description: "Не указана этажность паркинга." });
             }
 
-            const hasPlaces = Object.keys(parkingPlaces).some(k => k.startsWith(`${building.id}_main`) && k.includes('_place'));
-            
+            const hasPlaces = blocks.some((block) =>
+                Object.keys(parkingPlaces).some((k) => k.startsWith(`${building.id}_${block.id}`) && k.includes('_place'))
+            ) || Object.keys(parkingPlaces).some((k) => k.startsWith(`${building.id}_main`) && k.includes('_place'));
+
             if (isCapital || isUnderground) {
                 if (!hasPlaces) {
                     errors.push({ title: building.label, description: "Не создано ни одного машиноместа." });

@@ -56,7 +56,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     // Фильтруем этажи (без стилобатов в этом виде)
     const floors = useMemo(() => rawFloors.filter(f => !f.isStylobate), [rawFloors]);
 
-    const { entrances, matrixMap, updateCell, _syncEntrances } = useDirectMatrix(currentBlock?.id);
+    const { entrances, matrixMap, updateCell, syncEntrances } = useDirectMatrix(currentBlock?.id);
 
     // Локальный стейт UI
     const [_openMenuId, setOpenMenuId] = useState(null);
@@ -67,10 +67,12 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     // Авто-создание подъездов, если их нет в БД, но они есть в конфиге (если нужно)
     // В идеале это делается в Configurator, но здесь можно подстраховать
     useEffect(() => {
-        if (entrances.length === 0 && currentBlock) {
-             // Можно добавить кнопку "Инициализировать подъезды", пока оставим пустым
+        if (!currentBlock || isReadOnly) return;
+        const targetCount = parseInt(currentBlock.entrances || currentBlock.inputs || 0, 10);
+        if (entrances.length === 0 && Number.isFinite(targetCount) && targetCount > 0) {
+            syncEntrances(targetCount).catch((e) => console.error('Sync entrances failed', e));
         }
-    }, [entrances, currentBlock]);
+    }, [entrances.length, currentBlock, isReadOnly, syncEntrances]);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
