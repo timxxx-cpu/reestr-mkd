@@ -378,6 +378,148 @@ export const ApiService = {
         return { ...projectData, composition, buildingDetails };
     },
 
+
+    // --- PROJECT PASSPORT ---
+    getProjectDetails: async (projectId) => {
+        if (!projectId) return null;
+
+        const [projectRes, partsRes, docsRes] = await Promise.all([
+            supabase.from('projects').select('*').eq('id', projectId).single(),
+            supabase.from('project_participants').select('*').eq('project_id', projectId),
+            supabase.from('project_documents').select('*').eq('project_id', projectId).order('doc_date', { ascending: false })
+        ]);
+
+        if (projectRes.error) throw projectRes.error;
+        if (partsRes.error) throw partsRes.error;
+        if (docsRes.error) throw docsRes.error;
+
+        const project = projectRes.data;
+
+        return {
+            complexInfo: {
+                name: project.name,
+                status: project.construction_status,
+                region: project.region,
+                district: project.district,
+                street: project.address,
+                landmark: project.landmark,
+                dateStartProject: project.date_start_project,
+                dateEndProject: project.date_end_project,
+                dateStartFact: project.date_start_fact,
+                dateEndFact: project.date_end_fact
+            },
+            cadastre: {
+                number: project.cadastre_number
+            },
+            participants: (partsRes.data || []).reduce((acc, part) => {
+                acc[part.role] = {
+                    id: part.id,
+                    name: part.name,
+                    inn: part.inn,
+                    role: part.role
+                };
+                return acc;
+            }, {}),
+            documents: (docsRes.data || []).map(d => ({
+                id: d.id,
+                name: d.name,
+                type: d.doc_type,
+                date: d.doc_date,
+                number: d.doc_number,
+                url: d.file_url
+            }))
+        };
+    },
+
+    createProject: async (name, street = '', scope = 'shared_dev_env') => {
+        const appData = {
+            source: 'MANUAL',
+            externalId: null,
+            applicant: name,
+            address: street,
+            cadastre: '',
+            submissionDate: new Date()
+        };
+
+        const user = { name: 'System', role: 'admin' };
+        return ApiService.createProjectFromApplication(scope, appData, user);
+    },
+
+    updateProjectInfo: async (projectId, info = {}, cadastreData = {}) => {
+        if (!projectId) return null;
+
+        const payload = {
+            name: info.name,
+            construction_status: info.status,
+            region: info.region,
+            district: info.district,
+            address: info.street,
+            landmark: info.landmark,
+            date_start_project: info.dateStartProject,
+            date_end_project: info.dateEndProject,
+            date_start_fact: info.dateStartFact,
+            date_end_fact: info.dateEndFact,
+            cadastre_number: cadastreData.number,
+            updated_at: new Date()
+        };
+
+        const { data, error } = await supabase
+            .from('projects')
+            .update(payload)
+            .eq('id', projectId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    },
+
+    upsertParticipant: async (projectId, role, data = {}) => {
+        const payload = {
+            id: data.id || crypto.randomUUID(),
+            project_id: projectId,
+            role,
+            name: data.name || '',
+            inn: data.inn || ''
+        };
+
+        const { data: result, error } = await supabase
+            .from('project_participants')
+            .upsert(payload)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return result;
+    },
+
+    upsertDocument: async (projectId, doc = {}) => {
+        const payload = {
+            id: doc.id || crypto.randomUUID(),
+            project_id: projectId,
+            name: doc.name || '',
+            doc_type: doc.type || '',
+            doc_date: doc.date || null,
+            doc_number: doc.number || '',
+            file_url: doc.url || null
+        };
+
+        const { data, error } = await supabase
+            .from('project_documents')
+            .upsert(payload)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    },
+
+    deleteDocument: async (id) => {
+        if (!id) return;
+        const { error } = await supabase.from('project_documents').delete().eq('id', id);
+        if (error) throw error;
+    },
+
     // --- STANDARD API METHODS (Existing ones preserved) ---
     
     getBuildings: async (projectId) => {
