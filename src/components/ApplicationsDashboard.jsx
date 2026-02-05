@@ -99,14 +99,7 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
         }
     }, [user.role]);
 
-    // Загрузка входящих
-    useEffect(() => {
-        if (activeTab === 'inbox' && canViewInbox) {
-            loadInbox();
-        }
-    }, [activeTab, canViewInbox, loadInbox]);
-
-   const loadInbox = useCallback(async () => {
+    const loadInbox = useCallback(async () => {
         setIsLoadingApps(true);
         try {
             const data = await ApiService.getExternalApplications(); // CHANGED
@@ -118,6 +111,13 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
             setIsLoadingApps(false);
         }
     }, [toast]);
+
+    // Загрузка входящих
+    useEffect(() => {
+        if (activeTab === 'inbox' && canViewInbox) {
+            loadInbox();
+        }
+    }, [activeTab, canViewInbox, loadInbox]);
 
     const handleEmulateIncoming = () => {
         setIsLoadingApps(true);
