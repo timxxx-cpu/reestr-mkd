@@ -46,6 +46,12 @@ const _inferFloorKey = (id) => {
     return id;
 };
 
+
+const normalizeDateInput = (value) => {
+    if (value === '' || value === undefined) return null;
+    return value;
+};
+
 const _mapFloorKeyToVirtualId = (key) => {
     if (!key) return null;
     if (key.startsWith('floor:')) return `floor_${key.split(':')[1]}`;
@@ -453,10 +459,10 @@ export const ApiService = {
             district: info.district,
             address: info.street,
             landmark: info.landmark,
-            date_start_project: info.dateStartProject,
-            date_end_project: info.dateEndProject,
-            date_start_fact: info.dateStartFact,
-            date_end_fact: info.dateEndFact,
+            date_start_project: normalizeDateInput(info.dateStartProject),
+            date_end_project: normalizeDateInput(info.dateEndProject),
+            date_start_fact: normalizeDateInput(info.dateStartFact),
+            date_end_fact: normalizeDateInput(info.dateEndFact),
             cadastre_number: cadastreData.number,
             updated_at: new Date()
         };
@@ -994,8 +1000,10 @@ export const ApiService = {
                 region: ci.region,
                 district: ci.district,
                 address: ci.street,
-                date_start_project: ci.dateStartProject,
-                date_end_project: ci.dateEndProject,
+                date_start_project: normalizeDateInput(ci.dateStartProject),
+                date_end_project: normalizeDateInput(ci.dateEndProject),
+                date_start_fact: normalizeDateInput(ci.dateStartFact),
+                date_end_fact: normalizeDateInput(ci.dateEndFact),
                 updated_at: new Date()
             }).eq('id', projectId));
         }
