@@ -429,14 +429,14 @@ export default function CompositionEditor() {
             )}
 
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-h-[400px]">
-                <div className="grid grid-cols-12 bg-slate-50/80 border-b border-slate-200 py-4 pl-6 pr-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
+                <div className="grid grid-cols-12 bg-slate-50/80 border-b border-slate-200 py-4 pl-6 pr-4 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
                     <div className="col-span-1 text-center">#</div>
                     <div className="col-span-1 text-center">Дом №</div>
                     <div className="col-span-3">Наименование</div>
                     <div className="col-span-3">Характеристики</div>
                     <div className="col-span-2">Статус</div>
-                    <div className="col-span-2"></div>
-                    <div className="col-span-1 sticky right-0 bg-slate-50/95 backdrop-blur-sm text-right pr-4">Действия</div>
+                    <div className="col-span-1 text-right">Ред.</div>
+                    <div className="col-span-1 text-right">Действия</div>
                 </div>
 
                 {buildings.length === 0 && (
@@ -458,7 +458,7 @@ export default function CompositionEditor() {
                         }
 
                         return (
-                            <div key={item.id} className="grid grid-cols-12 items-center py-4 pl-6 pr-2 hover:bg-blue-50/50 transition-colors group even:bg-slate-50/50">
+                            <div key={item.id} className="grid grid-cols-12 items-center py-4 pl-6 pr-4 hover:bg-blue-50/50 transition-colors group even:bg-slate-50/50">
                                 <div className="col-span-1 text-xs font-bold text-slate-400 text-center">{idx + 1}</div>
                                 <div className="col-span-1 flex justify-center">
                                     <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-sm shadow-sm border ${isRes ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-200 text-amber-700'}`}>{item.houseNumber || '?'}</div>
@@ -480,17 +480,17 @@ export default function CompositionEditor() {
                                         {item.stage || 'Проект'}
                                     </span>
                                 </div>
-                                <div className="col-span-2 flex justify-end pr-2">
+                                <div className="col-span-1 flex justify-end">
                                     <button
                                         onClick={() => openEditing(item)}
                                         title={isReadOnly ? 'Просмотр' : 'Редактировать'}
-                                        className="inline-flex items-center gap-2 h-8 px-3 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold shadow-sm hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                                        className="inline-flex items-center gap-1 h-8 px-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold shadow-sm hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-all"
                                     >
                                         {isReadOnly ? <Eye size={14} /> : <Pencil size={14} />}
-                                        <span>{isReadOnly ? 'Просмотр' : 'Редакт.'}</span>
+                                        <span>{isReadOnly ? 'Просм.' : 'Ред.'}</span>
                                     </button>
                                 </div>
-                                <div className="col-span-1 sticky right-0 bg-white/90 group-even:bg-slate-50/90 group-hover:bg-blue-50/95 backdrop-blur-sm flex justify-end gap-1 pr-4">
+                                <div className="col-span-1 flex justify-end gap-1">
                                     <button
                                         onClick={() => openEditing(item)}
                                         title="Открыть"

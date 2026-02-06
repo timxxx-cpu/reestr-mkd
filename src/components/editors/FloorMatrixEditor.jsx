@@ -59,6 +59,16 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     // 4. Этажи из БД
     const { floors, isLoading, updateFloor, generateFloors, isMutating } = useDirectFloors(currentBlock?.id);
 
+    const hiddenStylobateFloorsCount = useMemo(() => {
+        if (currentBlock?.type !== 'residential') return 0;
+        return floors.filter(f => f?.isStylobate || f?.type === 'stylobate').length;
+    }, [floors, currentBlock?.type]);
+
+    const visibleFloors = useMemo(() => {
+        if (currentBlock?.type !== 'residential') return floors;
+        return floors.filter(f => !(f?.isStylobate || f?.type === 'stylobate'));
+    }, [floors, currentBlock?.type]);
+
     const [selectedRows, setSelectedRows] = useState(new Set());
     const [bulkValue, setBulkValue] = useState('');
     const [openMenuId, setOpenMenuId] = useState(null); 
@@ -95,8 +105,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
     const copyRowFromPrev = async (idx) => {
         if (isReadOnly || idx <= 0) return;
-        const prevFloor = floors[idx - 1];
-        const currFloor = floors[idx];
+        const prevFloor = visibleFloors[idx - 1];
+        const currFloor = visibleFloors[idx];
         
         await updateFloor({ 
             id: currFloor.id, 
@@ -111,7 +121,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
     const fillRowsBelow = async (idx) => {
         if (isReadOnly) return;
-        const sourceFloor = floors[idx];
+        const sourceFloor = visibleFloors[idx];
         const updates = {
             height: sourceFloor.height,
             areaProj: sourceFloor.areaProj,
@@ -119,8 +129,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         };
 
         const promises = [];
-        for (let i = idx + 1; i < floors.length; i++) {
-            promises.push(updateFloor({ id: floors[i].id, updates }));
+        for (let i = idx + 1; i < visibleFloors.length; i++) {
+            promises.push(updateFloor({ id: visibleFloors[i].id, updates }));
         }
         await Promise.all(promises);
         setOpenMenuId(null);
@@ -128,16 +138,16 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
     const copyFieldFromPrev = (idx, field) => {
         if (isReadOnly || idx <= 0) return;
-        const val = floors[idx - 1][field];
-        if (val !== undefined) handleInput(floors[idx].id, field, val);
+        const val = visibleFloors[idx - 1][field];
+        if (val !== undefined) handleInput(visibleFloors[idx].id, field, val);
     };
 
     const fillFieldBelow = async (idx, field) => {
         if (isReadOnly) return;
-        const val = floors[idx][field];
+        const val = visibleFloors[idx][field];
         const promises = [];
-        for (let i = idx + 1; i < floors.length; i++) {
-            promises.push(updateFloor({ id: floors[i].id, updates: { [field]: val } }));
+        for (let i = idx + 1; i < visibleFloors.length; i++) {
+            promises.push(updateFloor({ id: visibleFloors[i].id, updates: { [field]: val } }));
         }
         await Promise.all(promises);
     };
@@ -151,7 +161,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         let newCol = colIndex;
 
         if (e.key === 'ArrowUp') newRow = Math.max(0, rowIndex - 1);
-        if (e.key === 'ArrowDown') newRow = Math.min(floors.length - 1, rowIndex + 1);
+        if (e.key === 'ArrowDown') newRow = Math.min(visibleFloors.length - 1, rowIndex + 1);
         if (e.key === 'ArrowLeft') newCol = Math.max(0, colIndex - 1);
         if (e.key === 'ArrowRight') newCol = Math.min(colOrder.length - 1, colIndex + 1);
 
@@ -171,8 +181,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
     const toggleAll = () => {
         if (isReadOnly) return;
-        if (selectedRows.size === floors.length) setSelectedRows(new Set());
-        else setSelectedRows(new Set(floors.map(f => f.id)));
+        if (selectedRows.size === visibleFloors.length) setSelectedRows(new Set());
+        else setSelectedRows(new Set(visibleFloors.map(f => f.id)));
     };
 
     const applyBulk = async (field) => {
@@ -189,7 +199,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         if (!confirm("Заполнить пустые значения типовыми данными?")) return;
 
         const promises = [];
-        floors.forEach(f => {
+        visibleFloors.forEach(f => {
             const isEmpty = !f.areaProj || parseFloat(f.areaProj) === 0;
             if (isEmpty) {
                 let h = '3.00'; let s_proj = '500.00';
@@ -228,7 +238,30 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     if (!building) return <div className="p-8 text-center text-slate-400">Объект не найден</div>;
     if (!currentBlock) return <div className="p-8 text-center text-slate-400">Блоки не найдены</div>;
 
-    if (floors.length === 0 && !isLoading) {
+    if (visibleFloors.length === 0 && hiddenStylobateFloorsCount > 0 && !isLoading) {
+        return (
+            <div className="space-y-6 pb-20 w-full px-6 animate-in fade-in">
+                <ConfigHeader
+                    building={building}
+                    isParking={isParking}
+                    isInfrastructure={isInfrastructure}
+                    isUnderground={isUnderground}
+                    onBack={onBack}
+                    isSticky={false}
+                />
+
+                <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-900">
+                    <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                    <p className="text-sm leading-6">
+                        В этом жилом блоке этажи стилобата скрыты на шаге «Внешняя инвентаризация».
+                        Заполняйте данные по ним в связанном нежилом блоке.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    if (visibleFloors.length === 0 && !isLoading) {
         return (
             <div className="space-y-6 pb-20 w-full px-6 animate-in fade-in">
                 <ConfigHeader 
@@ -327,7 +360,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                 <th className="p-0 w-12 text-center border-r border-slate-300 sticky left-0 z-40 bg-slate-100">
                                     <div className="h-full w-full flex items-center justify-center">
                                         <button disabled={isReadOnly} onClick={toggleAll} className={`text-slate-500 hover:text-blue-600 transition-colors p-2 ${isReadOnly ? 'cursor-not-allowed opacity-50' : ''}`}>
-                                            {selectedRows.size === floors.length && floors.length > 0 ? <CheckSquare size={18} className="text-blue-600"/> : <Square size={18}/>}
+                                                {selectedRows.size === visibleFloors.length && visibleFloors.length > 0 ? <CheckSquare size={18} className="text-blue-600"/> : <Square size={18}/>}
                                         </button>
                                     </div>
                                 </th>
@@ -349,7 +382,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 bg-white">
-                            {floors.map((f, idx) => {
+                            {visibleFloors.map((f, idx) => {
                                 const isSelected = selectedRows.has(f.id);
                                 const diffErrorMsg = Validators.checkDiff(f.areaProj, f.areaFact);
                                 const hasDiffError = !!diffErrorMsg;
@@ -391,8 +424,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                         <ArrowUp size={14} className={idx===0 ? 'text-slate-300' : 'text-blue-500'}/> Скопировать с пред.
                                                     </button>
                                                     <div className="h-px bg-slate-100 my-1"/>
-                                                    <button onClick={() => fillRowsBelow(idx)} disabled={idx===floors.length-1} className={`flex items-center gap-2 px-3 py-2.5 text-xs font-bold rounded-lg text-left transition-colors ${idx===floors.length-1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-700 hover:bg-slate-50 hover:text-blue-600'}`}>
-                                                        <ChevronsDown size={14} className={idx===floors.length-1 ? 'text-slate-300' : 'text-blue-500'}/> Заполнить все ниже
+                                                    <button onClick={() => fillRowsBelow(idx)} disabled={idx===visibleFloors.length-1} className={`flex items-center gap-2 px-3 py-2.5 text-xs font-bold rounded-lg text-left transition-colors ${idx===visibleFloors.length-1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-700 hover:bg-slate-50 hover:text-blue-600'}`}>
+                                                        <ChevronsDown size={14} className={idx===visibleFloors.length-1 ? 'text-slate-300' : 'text-blue-500'}/> Заполнить все ниже
                                                     </button>
                                                 </div>
                                             )}
@@ -468,7 +501,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                                                                             <ArrowUp size={10}/>
                                                                         </button>
                                                                     )}
-                                                                    {idx < floors.length - 1 && (
+                                                                    {idx < visibleFloors.length - 1 && (
                                                                         <button onClick={() => fillFieldBelow(idx, field.id)} className="p-0.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded bg-white/80 shadow-sm border border-slate-200" title="Заполнить низ">
                                                                             <ChevronsDown size={10}/>
                                                                         </button>
