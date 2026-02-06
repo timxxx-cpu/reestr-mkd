@@ -1,0 +1,14 @@
+export const createProjectApi = (legacyApi) => ({
+    getProjectsList: legacyApi.getProjectsList,
+    getExternalApplications: legacyApi.getExternalApplications,
+    createProjectFromApplication: legacyApi.createProjectFromApplication,
+    deleteProject: legacyApi.deleteProject,
+    getProjectFullData: legacyApi.getProjectFullData,
+    getProjectDetails: legacyApi.getProjectDetails,
+    createProject: legacyApi.createProject,
+    updateProjectInfo: legacyApi.updateProjectInfo,
+    upsertParticipant: legacyApi.upsertParticipant,
+    upsertDocument: legacyApi.upsertDocument,
+    deleteDocument: legacyApi.deleteDocument,
+    getProjectFullRegistry: legacyApi.getProjectFullRegistry
+});

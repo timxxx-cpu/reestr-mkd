@@ -1,5 +1,5 @@
-import { APP_STATUS, ROLES, WORKFLOW_STAGES, STEPS_CONFIG } from './constants';
-import { getStepStage } from './workflow-utils';
+import { APP_STATUS, ROLES, WORKFLOW_STAGES, STEPS_CONFIG } from './constants.js';
+import { getStepStage } from './workflow-utils.js';
 
 const INTEGRATION_START_IDX = 12;
 

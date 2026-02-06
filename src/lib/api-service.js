@@ -10,6 +10,9 @@ import {
 import { buildFloorList } from './floor-utils';
 import { getBlocksList } from './utils';
 import { floorKeyToVirtualId, SPECIAL_FLOOR_IDS } from './model-keys';
+import { createProjectApi } from './api/project-api';
+import { createWorkflowApi } from './api/workflow-api';
+import { createRegistryApi } from './api/registry-api';
 
 // ... (Оставляем существующие функции mapBuildingToDb, mapBlockToDb, mapBlockTypeToDb, mapDbTypeToUi без изменений) ...
 
@@ -33,6 +36,39 @@ function mapDbTypeToUi(dbType) {
 const normalizeDateInput = (value) => {
     if (value === '' || value === undefined) return null;
     return value;
+};
+
+
+export const UPSERT_ON_CONFLICT = Object.freeze({
+    projects: 'id',
+    project_participants: 'id',
+    project_documents: 'id',
+    floors: 'id',
+    entrance_matrix: 'block_id,floor_id,entrance_number',
+    units: 'id',
+    common_areas: 'id',
+    basements: 'id',
+    basement_parking_levels: 'basement_id,depth_level',
+    application_steps: 'application_id,step_index',
+    block_floor_markers: 'block_id,marker_key',
+    block_construction: 'block_id',
+    block_engineering: 'block_id'
+});
+
+const upsertWithConflict = (table, payload, options = {}) => {
+    const conflict = UPSERT_ON_CONFLICT[table];
+    if (!conflict) {
+        throw new Error(`Missing onConflict mapping for table: ${table}`);
+    }
+
+    const { select, single } = options;
+    let query = supabase.from(table).upsert(payload, { onConflict: conflict });
+
+    if (select) query = query.select(select);
+    else if (single) query = query.select();
+
+    if (single) query = query.single();
+    return query;
 };
 
 const syncFloorsForBlockFromDetails = async (building, currentBlock, buildingDetails) => {
@@ -86,12 +122,12 @@ const syncFloorsForBlockFromDetails = async (building, currentBlock, buildingDet
     }));
 
     if (upsertPayload.length) {
-        const { error: upsertErr } = await supabase.from('floors').upsert(upsertPayload, { onConflict: 'id' });
+        const { error: upsertErr } = await upsertWithConflict('floors', upsertPayload);
         if (upsertErr) throw upsertErr;
     }
 };
 
-export const ApiService = {
+const LegacyApiService = {
 
     // --- DASHBOARD & LISTS ---
 
@@ -656,7 +692,7 @@ export const ApiService = {
 
         const { data: result, error } = await supabase
             .from('project_participants')
-            .upsert(payload)
+            .upsert(payload, { onConflict: UPSERT_ON_CONFLICT.project_participants })
             .select()
             .single();
 
@@ -677,7 +713,7 @@ export const ApiService = {
 
         const { data, error } = await supabase
             .from('project_documents')
-            .upsert(payload)
+            .upsert(payload, { onConflict: UPSERT_ON_CONFLICT.project_documents })
             .select()
             .single();
 
@@ -885,7 +921,7 @@ export const ApiService = {
 
         const { data, error } = await supabase
             .from('entrance_matrix')
-            .upsert(payload, { onConflict: 'block_id,floor_id,entrance_number' })
+            .upsert(payload, { onConflict: UPSERT_ON_CONFLICT.entrance_matrix })
             .select()
             .single();
         if (error) throw error;
@@ -950,7 +986,7 @@ export const ApiService = {
             status: unitData.isSold ? 'sold' : 'free',
             updated_at: new Date()
         };
-        const { data: savedUnit, error } = await supabase.from('units').upsert(unitPayload).select().single();
+        const { data: savedUnit, error } = await upsertWithConflict('units', unitPayload, { single: true });
         if (error) throw error;
 
         // Sync rooms
@@ -982,7 +1018,7 @@ export const ApiService = {
             status: 'free',
             updated_at: new Date()
         }));
-        const { error } = await supabase.from('units').upsert(payload);
+        const { error } = await upsertWithConflict('units', payload);
         if (error) throw error;
     },
 
@@ -1004,7 +1040,7 @@ export const ApiService = {
             type: data.type,
             area: data.area
         };
-        const { data: res, error } = await supabase.from('common_areas').upsert(payload).select().single();
+        const { data: res, error } = await upsertWithConflict('common_areas', payload, { single: true });
         if (error) throw error;
         return res;
     },
@@ -1048,7 +1084,7 @@ export const ApiService = {
     toggleBasementLevel: async (basementId, level, isEnabled) => {
         const { error } = await supabase
             .from('basement_parking_levels')
-            .upsert({ basement_id: basementId, depth_level: level, is_enabled: isEnabled }, { onConflict: 'basement_id,depth_level' });
+            .upsert({ basement_id: basementId, depth_level: level, is_enabled: isEnabled }, { onConflict: UPSERT_ON_CONFLICT.basement_parking_levels });
         if (error) throw error;
     },
 
@@ -1152,21 +1188,59 @@ export const ApiService = {
         const blIds = blocks.map(b => b.id);
         
         const { data: floors } = await supabase.from('floors').select('*').in('block_id', blIds);
-        const fIds = floors.map(f => f.id);
+        const fIds = (floors || []).map(f => f.id);
+
+        const { data: entrances } = await supabase
+            .from('entrances')
+            .select('id, block_id, number')
+            .in('block_id', blIds);
         
-        const { data: units } = await supabase.from('units').select('*').in('floor_id', fIds);
-        
+        const { data: units } = await supabase
+            .from('units')
+            .select('*, rooms (*)')
+            .in('floor_id', fIds);
+
         return {
-            buildings: buildings.map(b => ({...b, label: b.label, houseNumber: b.house_number})),
-            blocks: blocks.map(b => ({...b, tabLabel: b.label})),
-            floors: floors.map(f => ({...f, areaProj: f.area_proj, areaFact: f.area_fact})),
-            units: units.map(u => ({
+            buildings: (buildings || []).map(b => ({
+                ...b,
+                label: b.label,
+                houseNumber: b.house_number
+            })),
+            blocks: (blocks || []).map(b => ({
+                ...b,
+                tabLabel: b.label,
+                buildingId: b.building_id
+            })),
+            floors: (floors || []).map(f => ({
+                ...f,
+                blockId: f.block_id,
+                areaProj: f.area_proj,
+                areaFact: f.area_fact
+            })),
+            entrances: (entrances || []).map(e => ({
+                id: e.id,
+                blockId: e.block_id,
+                number: e.number
+            })),
+            units: (units || []).map(u => ({
                 id: u.id,
                 number: u.number,
+                num: u.number,
                 type: u.unit_type,
                 area: u.total_area,
+                livingArea: u.living_area,
+                usefulArea: u.useful_area,
+                rooms: u.rooms_count,
                 floorId: u.floor_id,
-                cadastreNumber: u.cadastre_number
+                entranceId: u.entrance_id,
+                cadastreNumber: u.cadastre_number,
+                explication: (u.rooms || []).map(r => ({
+                    id: r.id,
+                    type: r.room_type,
+                    label: r.name,
+                    area: r.area,
+                    level: r.level
+                }))
             }))
         };
     },
@@ -1265,7 +1339,7 @@ export const ApiService = {
                         step_index: idx,
                         is_completed: true
                     }));
-                    if(stepsPayload.length) promises.push(supabase.from('application_steps').upsert(stepsPayload, { onConflict: 'application_id,step_index'}));
+                    if(stepsPayload.length) promises.push(supabase.from('application_steps').upsert(stepsPayload, { onConflict: UPSERT_ON_CONFLICT.application_steps}));
                 }
             }
         }
@@ -1287,7 +1361,7 @@ export const ApiService = {
                                 block_id: base.blockId || (base.blocks ? base.blocks[0] : null), // Привязка к блоку
                                 depth: parseInt(base.depth),
                                 has_parking: !!base.hasParking
-                            }));
+                            }, { onConflict: UPSERT_ON_CONFLICT.basements }));
                             // Уровни паркинга
                             if (base.parkingLevels) {
                                 const levels = Object.entries(base.parkingLevels).map(([lvl, enabled]) => ({
@@ -1295,7 +1369,7 @@ export const ApiService = {
                                     depth_level: parseInt(lvl),
                                     is_enabled: enabled
                                 }));
-                                if (levels.length) promises.push(supabase.from('basement_parking_levels').upsert(levels, { onConflict: 'basement_id,depth_level'}));
+                                if (levels.length) promises.push(supabase.from('basement_parking_levels').upsert(levels, { onConflict: UPSERT_ON_CONFLICT.basement_parking_levels}));
                             }
                         }
                     }
@@ -1365,7 +1439,7 @@ export const ApiService = {
                     promises.push(supabase.from('block_floor_markers').delete().eq('block_id', blockId));
                     if (markerPayload.length) {
                         promises.push(
-                            supabase.from('block_floor_markers').upsert(markerPayload, { onConflict: 'block_id,marker_key' })
+                            supabase.from('block_floor_markers').upsert(markerPayload, { onConflict: UPSERT_ON_CONFLICT.block_floor_markers })
                         );
                     }
                     
@@ -1377,7 +1451,7 @@ export const ApiService = {
                             slabs: details.slabs,
                             roof: details.roof,
                             seismicity: details.seismicity
-                        }, { onConflict: 'block_id' }));
+                        }, { onConflict: UPSERT_ON_CONFLICT.block_engineering }));
                     }
                     if (details.engineering) {
                         promises.push(supabase.from('block_engineering').upsert({
@@ -1388,7 +1462,7 @@ export const ApiService = {
                             has_gas: details.engineering.gas,
                             has_heating: details.engineering.heating,
                             // ... map others
-                        }, { onConflict: 'block_id' }));
+                        }, { onConflict: UPSERT_ON_CONFLICT.block_engineering }));
                     }
                 }
             }
@@ -1505,7 +1579,7 @@ export const ApiService = {
                                 commercial_count: parseInt(entry?.units || 0, 10) || 0,
                                 mop_count: parseInt(entry?.mopQty || 0, 10) || 0,
                                 updated_at: new Date()
-                            }, { onConflict: 'block_id,floor_id,entrance_number' })
+                            }, { onConflict: UPSERT_ON_CONFLICT.entrance_matrix })
                     );
                 });
             }
@@ -1575,4 +1649,11 @@ export const ApiService = {
             }
         }
     }
+};
+
+export const ApiService = {
+    ...createProjectApi(LegacyApiService),
+    ...createWorkflowApi(LegacyApiService),
+    ...createRegistryApi(LegacyApiService),
+    saveData: LegacyApiService.saveData
 };
