@@ -11,6 +11,7 @@ import { Button, Input, Badge, Card, SectionTitle } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
 import { getStageColor } from '../lib/utils';
 import { ApiService } from '../lib/api-service'; // CHANGED
+import { createVirtualComplexCadastre } from '../lib/cadastre';
 
 // --- ХЕЛПЕР: ФОРМАТИРОВАНИЕ ДАТЫ ---
 const formatDate = (dateStr) => {
@@ -134,7 +135,7 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                 source: randomSource.id,
                 applicant: `ООО "Строй-Инвест-${Math.floor(Math.random() * 100)}"`,
                 submissionDate: new Date().toISOString(),
-                cadastre: `11:05:04:02:${Math.floor(10000 + Math.random() * 90000)}`,
+                cadastre: createVirtualComplexCadastre(),
                 address: `г. Ташкент, Мирзо-Улугбекский р-н, кв-л ${Math.floor(Math.random() * 20)}`,
                 status: APP_STATUS.NEW
             };

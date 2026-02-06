@@ -8,6 +8,7 @@ import { useDirectBuildings } from '../../hooks/api/useDirectBuildings';
 import { useDirectIntegration } from '../../hooks/api/useDirectIntegration';
 import { Card, Button, SectionTitle, Badge, useReadOnly } from '../ui/UIKit';
 import { useToast } from '../../context/ToastContext';
+import { createVirtualBuildingCadastre, formatBuildingCadastre } from '../../lib/cadastre';
 
 const SYNC_STATUS = {
     IDLE: 'IDLE',
@@ -63,9 +64,7 @@ export default function IntegrationBuildings() {
             const currentCadastre = b.cadastreNumber || b.cadastre_number;
             
             if (!currentCadastre) {
-                const regionCode = "11:05:04:02"; 
-                const uniquePart = Math.floor(1000 + Math.random() * 9000);
-                await setBuildingCadastre({ id: b.id, cadastre: `${regionCode}:${uniquePart}` });
+                await setBuildingCadastre({ id: b.id, cadastre: createVirtualBuildingCadastre() });
             }
         }
 
@@ -189,7 +188,7 @@ export default function IntegrationBuildings() {
                                 buildings.map((item, idx) => {
                                     // [FIX] Доступ к полю с учетом возможных вариантов
                                     // @ts-ignore
-                                    const cadastreNum = item.cadastreNumber || item.cadastre_number; 
+                                    const cadastreNum = formatBuildingCadastre(item.cadastreNumber || item.cadastre_number || ''); 
                                     const hasCadastre = !!cadastreNum;
                                     
                                     let typeLabel = TYPE_NAMES[item.category] || item.category;

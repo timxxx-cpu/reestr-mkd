@@ -14,6 +14,7 @@ import { createProjectApi } from './api/project-api';
 import { createWorkflowApi } from './api/workflow-api';
 import { createRegistryApi } from './api/registry-api';
 import { normalizeProjectStatusFromDb, normalizeProjectStatusToDb } from './project-status';
+import { createVirtualComplexCadastre, formatBuildingCadastre, formatComplexCadastre } from './cadastre';
 
 // ... (Оставляем существующие функции mapBuildingToDb, mapBlockToDb, mapBlockTypeToDb, mapDbTypeToUi без изменений) ...
 
@@ -253,7 +254,7 @@ const LegacyApiService = {
             externalId: 'EP-2026-9912', 
             applicant: 'ООО "Golden House"', 
             submissionDate: new Date().toISOString(), 
-            cadastre: '11:01:02:03:0044', 
+            cadastre: createVirtualComplexCadastre(), 
             address: 'г. Ташкент, Шайхантахурский р-н, ул. Навои, 12',
             status: 'NEW'
         }];
@@ -272,7 +273,7 @@ const LegacyApiService = {
                 scope_id: scope,
                 name: appData.applicant ? `ЖК от ${appData.applicant}` : 'Новый проект',
                 address: appData.address,
-                cadastre_number: appData.cadastre,
+                cadastre_number: formatComplexCadastre(appData.cadastre),
                 construction_status: normalizeProjectStatusToDb('Проектный')
             })
             .select()
@@ -718,7 +719,7 @@ const LegacyApiService = {
             date_end_project: normalizeDateInput(info.dateEndProject),
             date_start_fact: normalizeDateInput(info.dateStartFact),
             date_end_fact: normalizeDateInput(info.dateEndFact),
-            cadastre_number: cadastreData.number,
+            cadastre_number: formatComplexCadastre(cadastreData.number),
             updated_at: new Date()
         };
 
@@ -1220,7 +1221,7 @@ const LegacyApiService = {
         if (!id) return;
         const { error } = await supabase
             .from('buildings')
-            .update({ cadastre_number: cadastre })
+            .update({ cadastre_number: formatBuildingCadastre(cadastre) })
             .eq('id', id);
         if (error) throw error;
     },

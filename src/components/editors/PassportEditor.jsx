@@ -22,6 +22,7 @@ import { useDirectProjectInfo } from '../../hooks/api/useDirectProjectInfo';
 import { Card, SectionTitle, Label, Input, Button, useReadOnly } from '../ui/UIKit';
 import { calculateProgress } from '../../lib/utils';
 import { useCatalog } from '../../hooks/useCatalogs';
+import { createVirtualComplexCadastre, formatComplexCadastre } from '../../lib/cadastre';
 
 const STATUS_CONFIG = {
   'Проектный': { color: 'bg-purple-500', text: 'Проектирование', icon: FileText },
@@ -100,7 +101,7 @@ export default function PassportEditor() {
         setLocalCadastre((prev) => ({
           ...prev,
           ...safeCadastre,
-          number: safeCadastre.number || ''
+          number: formatComplexCadastre(safeCadastre.number || '')
         }));
       }
 
@@ -123,7 +124,10 @@ export default function PassportEditor() {
   }, [localInfo, localCadastre, updateProjectInfo, isReadOnly, isInitialDataLoaded]);
 
   const handleInfoChange = (field, value) => setLocalInfo((prev) => ({ ...prev, [field]: value }));
-  const handleCadastreChange = (field, value) => setLocalCadastre((prev) => ({ ...prev, [field]: value }));
+  const handleCadastreChange = (field, value) => setLocalCadastre((prev) => ({
+    ...prev,
+    [field]: field === 'number' ? formatComplexCadastre(value) : value
+  }));
 
   const handleManualSave = async () => {
     await updateProjectInfo({ info: localInfo, cadastreData: localCadastre });
@@ -160,7 +164,7 @@ export default function PassportEditor() {
       dateStartProject: '2024-01-01',
       dateEndProject: '2026-12-31'
     }));
-    setLocalCadastre((prev) => ({ ...prev, number: '11:05:04:02:0099', area: '2.5' }));
+    setLocalCadastre((prev) => ({ ...prev, number: createVirtualComplexCadastre(), area: '2.5' }));
   };
 
   const { options: projectStatusOptions } = useCatalog('dict_project_statuses');
@@ -260,7 +264,7 @@ export default function PassportEditor() {
                 </div>
                 <div>
                   <Label>Кадастровый номер</Label>
-                  <Input value={localCadastre.number} onChange={(e) => handleCadastreChange('number', e.target.value)} placeholder="00:00:00:00:0000" disabled={isReadOnly} />
+                  <Input value={localCadastre.number} onChange={(e) => handleCadastreChange('number', e.target.value)} placeholder="10:09:03:02:01:0021" disabled={isReadOnly} />
                 </div>
                 <div>
                   <Label>Адрес</Label>

@@ -132,6 +132,17 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
                 cleanedDetails = { ...cleanedDetails };
                 delete cleanedDetails.levelsDepth;
             }
+
+            // Для наземного паркинга с легкими/открытыми конструкциями
+            // не применяем поля капитального контура, чтобы не валидировать лишние 0/пустые значения.
+            const isGroundLightOrOpen = !isUnderground && ['light', 'open'].includes(building.constructionType);
+            if (isGroundLightOrOpen) {
+                delete cleanedDetails.inputs;
+                delete cleanedDetails.entrances;
+                delete cleanedDetails.floorsCount;
+                delete cleanedDetails.vehicleEntries;
+                delete cleanedDetails.seismicity;
+            }
         }
 
         requiredFields.forEach(field => {
