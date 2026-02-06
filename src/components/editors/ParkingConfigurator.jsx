@@ -47,12 +47,12 @@ const ParkingRow = ({ row, isReadOnly, counts, basements, onToggle, onCountChang
     const handleCountChange = (val) => {
         if (!floor) return;
         const num = parseInt(val) || 0;
-        onCountChange(floor.id, num, row.buildingId);
+        onCountChange({ floorId: floor.id, count: num, buildingId: row.buildingId });
     };
 
     const handleToggle = () => {
         if (!row.isBasement || isReadOnly) return;
-        onToggle(row.basementId, row.depthLevel, !isEnabled);
+        onToggle({ basementId: row.basementId, level: row.depthLevel, isEnabled: !isEnabled });
     };
 
     if (!floor && !row.isBasement) return null; 

@@ -24,6 +24,13 @@ const PARKING_CONSTRUCTION_NAMES = {
     open: "Открытый"
 };
 
+
+const PARKING_CONSTRUCTION_FALLBACK = [
+    { code: 'capital', label: 'Капитальный' },
+    { code: 'light', label: 'Из легких конструкций' },
+    { code: 'open', label: 'Открытый' }
+];
+
 // Хелпер генерации блоков для payload
 const generateBlocksPayload = (params) => {
     const blocks = [];
@@ -119,7 +126,7 @@ const BuildingModal = ({ modal, setModal, onCommit, isSaving, parkingTypeOptions
                                     placeholder="12А" 
                                     className={`pl-9 font-bold text-lg uppercase ${errors.houseNumber ? 'border-red-300 bg-red-50' : ''}`}
                                     autoFocus={!isReadOnly}
-                                    disabled={isSaving}
+                                    disabled={isReadOnly || isSaving}
                                 />
                             </div>
                         </div>
@@ -130,7 +137,7 @@ const BuildingModal = ({ modal, setModal, onCommit, isSaving, parkingTypeOptions
                                 onChange={(e) => setModal(m => ({...m, baseName: e.target.value}))} 
                                 placeholder="Например: Отдельный жилой дом"
                                 className={errors.baseName ? 'border-red-300 bg-red-50' : ''}
-                                disabled={isSaving}
+                                disabled={isReadOnly || isSaving}
                             />
                         </div>
                         {!modal.editingId && (
@@ -175,14 +182,14 @@ const BuildingModal = ({ modal, setModal, onCommit, isSaving, parkingTypeOptions
                             <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-in fade-in">
                                 <div className="space-y-1.5">
                                     <Label>Тип паркинга</Label>
-                                    <Select value={modal.parkingType} onChange={e => setModal(m => ({...m, parkingType: e.target.value}))} disabled={isSaving}>
+                                    <Select value={modal.parkingType} onChange={e => setModal(m => ({...m, parkingType: e.target.value}))} disabled={isReadOnly || isSaving}>
                                         {parkingTypeOptions.map(opt => <option key={opt.code} value={opt.code}>{opt.label}</option>)}
                                     </Select>
                                 </div>
                                 {modal.parkingType === 'ground' && (
                                     <div className="space-y-1.5 animate-in slide-in-from-top-2">
                                         <Label>Конструктив</Label>
-                                        <Select value={modal.parkingConstruction} onChange={e => setModal(m => ({...m, parkingConstruction: e.target.value}))} disabled={isSaving}>
+                                        <Select value={modal.parkingConstruction} onChange={e => setModal(m => ({...m, parkingConstruction: e.target.value}))} disabled={isReadOnly || isSaving}>
                                             {parkingConstructionOptions.map(opt => <option key={opt.code} value={opt.code}>{opt.label}</option>)}
                                         </Select>
                                     </div>
@@ -192,25 +199,25 @@ const BuildingModal = ({ modal, setModal, onCommit, isSaving, parkingTypeOptions
                         {modal.category === 'infrastructure' && (
                             <div className="space-y-1.5 p-3 bg-amber-50 rounded-xl border border-amber-100 animate-in fade-in">
                                 <Label>Тип объекта</Label>
-                                <Select value={modal.infraType} onChange={(e) => setModal(m => ({...m, infraType: e.target.value}))} disabled={isSaving}>
+                                <Select value={modal.infraType} onChange={(e) => setModal(m => ({...m, infraType: e.target.value}))} disabled={isReadOnly || isSaving}>
                                     {infraTypeOptions.map(opt => <option key={opt.code} value={opt.label}>{opt.label}</option>)}
                                 </Select>
                             </div>
                         )}
                         <div className="space-y-1.5">
                             <Label>Текущая стадия</Label>
-                            <Select value={modal.stage} onChange={e => setModal(m => ({...m, stage: e.target.value}))} disabled={isSaving}>
+                            <Select value={modal.stage} onChange={e => setModal(m => ({...m, stage: e.target.value}))} disabled={isReadOnly || isSaving}>
                                 {projectStageOptions.map(opt => <option key={opt.code} value={opt.label}>{opt.label}</option>)}
                             </Select>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-1.5">
                                 <Label>Начало работ</Label>
-                                <Input type="date" value={modal.dateStart} onChange={(e) => setModal(m => ({...m, dateStart: e.target.value}))} className="text-xs font-bold" disabled={isSaving}/>
+                                <Input type="date" value={modal.dateStart} onChange={(e) => setModal(m => ({...m, dateStart: e.target.value}))} className="text-xs font-bold" disabled={isReadOnly || isSaving}/>
                             </div>
                             <div className="space-y-1.5">
                                 <Label>Ввод в экспл.</Label>
-                                <Input type="date" value={modal.dateEnd} onChange={(e) => setModal(m => ({...m, dateEnd: e.target.value}))} className="text-xs font-bold" disabled={isSaving}/>
+                                <Input type="date" value={modal.dateEnd} onChange={(e) => setModal(m => ({...m, dateEnd: e.target.value}))} className="text-xs font-bold" disabled={isReadOnly || isSaving}/>
                             </div>
                         </div>
                         {modal.category?.includes('residential') && (
@@ -234,7 +241,7 @@ const BuildingModal = ({ modal, setModal, onCommit, isSaving, parkingTypeOptions
                 </div>
 
                 <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
-                    <Button variant="ghost" onClick={() => setModal(m => ({...m, isOpen: false}))} disabled={isSaving}>
+                    <Button variant="ghost" onClick={() => setModal(m => ({...m, isOpen: false}))} disabled={isReadOnly || isSaving}>
                         {isReadOnly ? 'Закрыть' : 'Отмена'}
                     </Button>
                     {!isReadOnly && (
@@ -259,13 +266,22 @@ export default function CompositionEditor() {
         isOpen: false, category: null, quantity: 1, 
         resBlocks: 1, nonResBlocks: 0, hasNonResPart: false, 
         baseName: "", houseNumber: "", dateStart: "", dateEnd: "", stage: "Проектный",
-        editingId: null, parkingType: 'underground', parkingConstruction: 'capital', infraType: 'Котельная' 
+        editingId: null, parkingType: 'ground', parkingConstruction: 'light', infraType: 'Котельная' 
     });
 
     const hasResidential = useMemo(() => buildings.some(c => c.category.includes('residential')), [buildings]);
 
     const { options: parkingTypeOptions } = useCatalog('dict_parking_types');
     const { options: parkingConstructionOptions } = useCatalog('dict_parking_construction_types');
+
+    const normalizedParkingConstructionOptions = useMemo(() => {
+        const byCode = new Map((parkingConstructionOptions || []).map(opt => [opt.code, opt]));
+
+        return PARKING_CONSTRUCTION_FALLBACK.map((fallback) => ({
+            code: fallback.code,
+            label: byCode.get(fallback.code)?.label || fallback.label
+        }));
+    }, [parkingConstructionOptions]);
     const { options: infraTypeOptions } = useCatalog('dict_infra_types');
     const { options: projectStageOptions } = useCatalog('dict_project_statuses');
 
@@ -301,7 +317,7 @@ export default function CompositionEditor() {
             nonResBlocks: category.includes('multiblock') ? 1 : 0, 
             hasNonResPart: false, baseName: defaultName, houseNumber: "",
             dateStart: "", dateEnd: "", stage: "Проектный",
-            parkingType: 'underground', parkingConstruction: 'capital', infraType: 'Котельная', editingId: null 
+            parkingType: 'ground', parkingConstruction: 'light', infraType: 'Котельная', editingId: null 
         });
     };
 
@@ -312,19 +328,22 @@ export default function CompositionEditor() {
             resBlocks: item.resBlocks || 0, nonResBlocks: item.nonResBlocks || 0,
             hasNonResPart: item.hasNonResPart || false, baseName: item.label, houseNumber: item.houseNumber,
             dateStart: item.dateStart || "", dateEnd: item.dateEnd || "", stage: item.stage || "Проектный",
-            parkingType: item.parkingType || 'underground', parkingConstruction: item.constructionType || 'capital',
+            parkingType: item.parkingType || 'ground', parkingConstruction: item.constructionType || 'capital',
             infraType: item.infraType || 'Котельная',
         });
     };
     
     const commitPlanning = async () => {
+         const isParking = modal.category === 'parking_separate';
+         const isInfrastructure = modal.category === 'infrastructure';
+
          const buildingData = {
              label: modal.baseName,
              houseNumber: modal.houseNumber,
              category: modal.category,
-             constructionType: modal.parkingConstruction,
-             parkingType: modal.parkingType,
-             infraType: modal.infraType,
+             constructionType: isParking ? modal.parkingConstruction : null,
+             parkingType: isParking ? modal.parkingType : null,
+             infraType: isInfrastructure ? modal.infraType : null,
              hasNonResPart: modal.hasNonResPart,
              // Пробрасываем эти поля, даже если их нет в базовой схеме buildings, 
              // так как api-service может использовать их для записи в building_blocks или мета-таблицы
@@ -421,7 +440,7 @@ export default function CompositionEditor() {
                         const isRes = item.category.includes('residential');
                         let detailsBadge = null;
                         if (item.category === 'parking_separate') {
-                            const pType = item.parkingType === 'ground' ? 'Наземный' : 'Подземный';
+                            const pType = (item.parkingType === 'ground' || item.parkingType === 'aboveground') ? 'Наземный' : 'Подземный';
                             const pConstName = PARKING_CONSTRUCTION_NAMES[item.constructionType] || item.constructionType;
                             detailsBadge = `${pType} • ${pConstName}`;
                         }
@@ -464,7 +483,7 @@ export default function CompositionEditor() {
                     })}
                 </div>
             </div>
-            {modal.isOpen && <BuildingModal modal={modal} setModal={setModal} onCommit={commitPlanning} isSaving={isMutating} parkingTypeOptions={parkingTypeOptions} parkingConstructionOptions={parkingConstructionOptions} infraTypeOptions={infraTypeOptions} projectStageOptions={projectStageOptions} />}
+            {modal.isOpen && <BuildingModal modal={modal} setModal={setModal} onCommit={commitPlanning} isSaving={isMutating} parkingTypeOptions={parkingTypeOptions} parkingConstructionOptions={normalizedParkingConstructionOptions} infraTypeOptions={infraTypeOptions} projectStageOptions={projectStageOptions} />}
         </div>
     );
 }

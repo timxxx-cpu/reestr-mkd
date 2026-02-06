@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useContext, createContext } from 'react';
 import { Loader2, User, FolderOpen, KeyRound, LogOut, Shield, Users, X, Settings, Eye, History } from 'lucide-react';
-import { Routes, Route, useNavigate, useParams, Navigate, useSearchParams } from 'react-router-dom';
+import { Routes, Route, useNavigate, useParams, Navigate, useSearchParams, useLocation } from 'react-router-dom';
 
 import { AuthService } from './lib/auth-service';
 import { ToastProvider, useToast } from './context/ToastContext'; 
@@ -238,7 +238,7 @@ function ProjectEditorRoute({ user }) {
             if (!window.confirm("Есть несохраненные изменения! Выйти без сохранения?")) return;
             setHasUnsavedChanges(false);
         }
-        navigate('/'); 
+        navigate('/', { state: { refreshDashboardAt: Date.now() } }); 
     };
 
     const onStepChange = (idx) => { 
@@ -358,7 +358,12 @@ const ProjectProviderWrapper = ({ children, firebaseUser, dbScope, activePersona
 
 const MainLayout = ({ activePersona }) => { 
     const navigate = useNavigate();
-    const { projects, isLoading } = useProjects(DB_SCOPE);
+    const location = useLocation();
+    const { projects, isLoading, refetchProjects } = useProjects(DB_SCOPE);
+
+    useEffect(() => {
+        refetchProjects();
+    }, [location.key, location.state, refetchProjects]);
 
     const handleLogout = async () => {
         await AuthService.logout();

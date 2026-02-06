@@ -11,6 +11,12 @@
 // Хелпер для безопасного извлечения (Supabase может вернуть массив или объект)
 const getOne = (val) => Array.isArray(val) ? (val[0] || {}) : (val || {});
 
+
+const normalizeParkingConstructionFromDb = (constructionType) => {
+    if (constructionType === 'separate' || constructionType === 'integrated') return 'capital';
+    return constructionType;
+};
+
 // --- 1. PROJECT + APPLICATION ---
 export const mapProjectAggregate = (project, app, history = [], steps = [], parts = [], docs = []) => {
     const completedSteps = steps.filter(s => s.is_completed).map(s => s.step_index);
@@ -87,7 +93,7 @@ export const mapBuildingFromDB = (b, blocks = []) => {
         resBlocks: resBlocksCount,
         nonResBlocks: nonResBlocksCount,
         parkingType: b.parking_type,
-        constructionType: b.construction_type,
+        constructionType: normalizeParkingConstructionFromDb(b.construction_type),
         infraType: b.infra_type,
         hasNonResPart: b.has_non_res_part ?? nonResBlocksCount > 0,
         blocks: blocks.map(bl => ({

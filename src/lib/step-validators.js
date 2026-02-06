@@ -415,7 +415,6 @@ const validateApartments = (data) => {
     const { flatMatrix, entrancesData, composition, buildingDetails, floorData } = data;
     const errors = [];
     const numbersMap = {};
-    const emptyUnits = [];
 
     // 1. Проверка на дубликаты
     Object.values(flatMatrix).forEach(unit => {
@@ -488,23 +487,61 @@ const validateApartments = (data) => {
                  }
             });
 
-            // ПРОВЕРКА ПУСТЫХ НОМЕРОВ
-            Object.values(flatMatrix).forEach(u => {
-                if (u.blockId === block.id && u.type !== 'office' && u.type !== 'pantry') {
-                    if (!u.num || String(u.num).trim() === '') {
-                        emptyUnits.push(u.id);
+            // ПРОВЕРКА НОМЕРОВ КВАРТИР ПО ПЛАНОВОМУ КОЛИЧЕСТВУ В МАТРИЦЕ
+            const blockFloors = blockFloorKeys.map((key) => ({
+                key,
+                floor: floorData[key],
+                virtualFloorId: (() => {
+                    const floor = floorData[key];
+                    let virtualFloorId = getVirtualId(floor.floorKey);
+                    if (!virtualFloorId && floor.index > 0) virtualFloorId = `floor_${floor.index}`;
+                    if (!virtualFloorId) virtualFloorId = key.split('_').pop();
+                    return virtualFloorId;
+                })()
+            }));
+
+            Object.entries(entrancesData).forEach(([entKey, entry]) => {
+                if (!entKey.startsWith(`${prefix}_ent`)) return;
+
+                const match = entKey.match(/_ent(\d+)_(.*)$/);
+                if (!match) return;
+
+                const entranceNumber = parseInt(match[1], 10);
+                const virtualFloorId = match[2];
+                const plannedAptCount = parseInt(entry?.apts || 0, 10) || 0;
+
+                if (plannedAptCount <= 0) return;
+
+                const matchedFloorIds = new Set(
+                    blockFloors
+                        .filter(({ floor, virtualFloorId: vId }) => vId === virtualFloorId || String(floor?.id) === String(virtualFloorId))
+                        .map(({ floor }) => String(floor?.id))
+                );
+
+                const relevantUnits = Object.values(flatMatrix).filter((u) => {
+                    if (u.blockId !== block.id) return false;
+                    if (parseInt(u.entranceId, 10) !== entranceNumber) return false;
+                    if (matchedFloorIds.size > 0) {
+                        return matchedFloorIds.has(String(u.floorId));
                     }
+                    return String(u.floorId) === String(virtualFloorId);
+                }).filter((u) => u.type !== 'office' && u.type !== 'pantry');
+
+                const numberedUnits = relevantUnits.filter((u) => {
+                    const num = String(u.num || u.number || '').trim();
+                    return num !== '';
+                });
+
+                if (numberedUnits.length < plannedAptCount) {
+                    const floorLabel = blockFloors.find(({ virtualFloorId: vId }) => vId === virtualFloorId)?.floor?.label || virtualFloorId;
+                    errors.push({
+                        title: 'Незаполненные номера',
+                        description: `Блок "${block.tabLabel}", этаж ${floorLabel}, подъезд ${entranceNumber}: пронумеровано ${numberedUnits.length} из ${plannedAptCount} квартир.`
+                    });
                 }
             });
         });
     });
-
-    if (emptyUnits.length > 0) {
-        errors.push({
-            title: "Незаполненные номера",
-            description: `Обнаружено ${emptyUnits.length} помещений без номера.`
-        });
-    }
 
     return errors;
 };
