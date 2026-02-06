@@ -145,7 +145,7 @@
  * @typedef {Object} UnitData
  * @property {string} num - Номер помещения
  * @property {string} area - Площадь
- * @property {'flat' | 'office' | 'pantry' | 'duplex_up' | 'duplex_down'} type - Тип
+ * @property {'flat' | 'duplex_up' | 'duplex_down' | 'office' | 'office_inventory' | 'non_res_block' | 'infrastructure' | 'parking_place'} type - Тип
  * @property {number} [rooms] - Количество комнат
  */
 

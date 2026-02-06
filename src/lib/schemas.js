@@ -13,12 +13,12 @@ export const UnitSchema = z.object({
   id: z.string().uuid().optional(),
   num: z.string(),
   area: z.coerce.number().optional(),
-  type: z.enum(['flat', 'office', 'pantry', 'duplex_up', 'duplex_down']).default('flat'),
+  type: z.enum(['flat', 'duplex_up', 'duplex_down', 'office', 'office_inventory', 'non_res_block', 'infrastructure', 'parking_place']).default('flat'),
   rooms: z.number().int().optional(),
   buildingId: z.string().uuid().optional(),
   blockId: z.string().optional(),
   floorId: z.string().optional(),
-  entranceId: z.number().int().optional(),
+  entranceId: z.string().uuid().optional(),
 });
 
 export const FloorDataSchema = z.object({
@@ -149,7 +149,7 @@ export const BuildingMetaSchema = z.object({
   houseNumber: z.string(),
   type: z.string(),
   category: z.enum(['residential', 'residential_multiblock', 'parking_separate', 'infrastructure']),
-  stage: z.enum(['Проектный', 'Строящийся', 'Введенный', 'Архив']),
+  stage: z.enum(['Проектный', 'Строящийся', 'Готовый к вводу', 'Введенный', 'Архив']),
   dateStart: z.string().optional(),
   dateEnd: z.string().optional(),
   resBlocks: z.number().int().default(0),

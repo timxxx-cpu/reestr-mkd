@@ -243,8 +243,8 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                 
                 for (let i = 0; i < count; i++) {
                     const existing = existingList[i];
-                    // Пропускаем офисы и кладовые при нумерации квартир? Обычно да.
-                    if (existing && (existing.type === 'office' || existing.type === 'pantry')) continue;
+                    // Пропускаем нежилые типы при нумерации квартир
+                    if (existing && !['flat', 'duplex_up', 'duplex_down'].includes(existing.type)) continue;
                     
                     const draftKey = `${f.id}_${e.id}_${i}`;
                     const stableDraftId = draftUnitIdsRef.current[draftKey] || crypto.randomUUID();
