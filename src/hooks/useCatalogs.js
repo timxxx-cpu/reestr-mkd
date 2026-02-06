@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CatalogService } from '../lib/catalog-service';
 
-export function useCatalog(table, fallback = []) {
+export function useCatalog(table) {
   const query = useQuery({
     queryKey: ['catalog', table],
     queryFn: () => CatalogService.getCatalog(table),
@@ -11,9 +11,8 @@ export function useCatalog(table, fallback = []) {
 
   const options = useMemo(() => {
     const db = query.data || [];
-    if (db.length === 0) return fallback.map((label) => ({ code: label, label }));
-    return db.map((x) => ({ code: x.code, label: x.label, id: x.id }));
-  }, [query.data, fallback]);
+    return db.map((x) => ({ code: x.code, label: x.label, id: x.id, ...x }));
+  }, [query.data]);
 
   return { ...query, options };
 }

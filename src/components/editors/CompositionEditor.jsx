@@ -264,10 +264,10 @@ export default function CompositionEditor() {
 
     const hasResidential = useMemo(() => buildings.some(c => c.category.includes('residential')), [buildings]);
 
-    const { options: parkingTypeOptions } = useCatalog('dict_parking_types', ['Подземный', 'Наземный']);
-    const { options: parkingConstructionOptions } = useCatalog('dict_parking_construction_types', ['Капитальный', 'Из легких конструкций', 'Открытый']);
-    const { options: infraTypeOptions } = useCatalog('dict_infra_types', ['Котельная', 'ТП', 'Детский сад', 'Школа', 'КПП']);
-    const { options: projectStageOptions } = useCatalog('dict_project_statuses', ['Проектный', 'Строящийся', 'Введенный', 'Архив']);
+    const { options: parkingTypeOptions } = useCatalog('dict_parking_types');
+    const { options: parkingConstructionOptions } = useCatalog('dict_parking_construction_types');
+    const { options: infraTypeOptions } = useCatalog('dict_infra_types');
+    const { options: projectStageOptions } = useCatalog('dict_project_statuses');
 
     const generateDemoComplex = async () => {
         if (!window.confirm("Создать демо-данные в БД?")) return;

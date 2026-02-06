@@ -8,10 +8,10 @@ export default function ConstructiveCard({ details, updateDetail, errors }) {
     // Защита от undefined, если errors не передан
     const safeErrors = errors || {};
 
-    const { options: foundationOptions } = useCatalog('dict_foundations', ['Монолитная плита', 'Свайный', 'Ленточный']);
-    const { options: wallOptions } = useCatalog('dict_wall_materials', ['Монолитный ж/б', 'Кирпич', 'Газоблок', 'Панель']);
-    const { options: slabOptions } = useCatalog('dict_slab_types', ['Монолитные ж/б', 'Сборные плиты', 'Деревянные']);
-    const { options: roofOptions } = useCatalog('dict_roof_types', ['Плоская рулонная', 'Скатная', 'Эксплуатируемая']);
+    const { options: foundationOptions } = useCatalog('dict_foundations');
+    const { options: wallOptions } = useCatalog('dict_wall_materials');
+    const { options: slabOptions } = useCatalog('dict_slab_types');
+    const { options: roofOptions } = useCatalog('dict_roof_types');
 
     const fields = [
         { key: 'foundation', label: 'Фундамент', options: foundationOptions },

@@ -6,17 +6,6 @@ import { useToast } from '../../../../context/ToastContext';
 import RegistryModalLayout, { StatBadge } from './RegistryModalLayout';
 import { CatalogService } from '../../../../lib/catalog-service';
 
-const COMMERCIAL_ROOMS_FALLBACK = [
-    { code: 'main_hall', label: 'Торговый зал / Опенспейс', area_bucket: 'main', coefficient: 1.0 },
-    { code: 'cabinet', label: 'Кабинет', area_bucket: 'main', coefficient: 1.0 },
-    { code: 'storage', label: 'Склад / Подсобное', area_bucket: 'aux', coefficient: 1.0 },
-    { code: 'kitchen', label: 'Кухня (для персонала)', area_bucket: 'aux', coefficient: 1.0 },
-    { code: 'bathroom', label: 'Санузел', area_bucket: 'aux', coefficient: 1.0 },
-    { code: 'corridor', label: 'Коридор', area_bucket: 'aux', coefficient: 1.0 },
-    { code: 'tambour', label: 'Тамбур / Входная группа', area_bucket: 'aux', coefficient: 1.0 },
-    { code: 'tech', label: 'Тех. помещение', area_bucket: 'aux', coefficient: 1.0 },
-    { code: 'terrace', label: 'Терраса', area_bucket: 'summer', coefficient: 0.3 },
-];
 
 export default function CommercialInventoryModal({ unit, unitsList = [], buildingLabel, onClose, onSave }) {
     const isReadOnly = useReadOnly();
@@ -33,8 +22,7 @@ export default function CommercialInventoryModal({ unit, unitsList = [], buildin
 
     const commercialRoomTypes = useMemo(() => {
         const rows = (roomTypesRows || []).filter(r => r.room_scope === 'commercial');
-        const source = rows.length ? rows : COMMERCIAL_ROOMS_FALLBACK;
-        return source.map(r => ({
+        return rows.map(r => ({
             id: r.code || r.id,
             label: r.label,
             k: Number(r.coefficient ?? r.k ?? 1),
@@ -74,7 +62,8 @@ export default function CommercialInventoryModal({ unit, unitsList = [], buildin
 
     const addRoom = () => {
         if (isReadOnly) return;
-        setRooms([...rooms, { id: crypto.randomUUID(), type: commercialRoomTypes[0]?.id || 'main_hall', area: '', unitId: unit.id }]);
+        if (!commercialRoomTypes.length) return;
+        setRooms([...rooms, { id: crypto.randomUUID(), type: commercialRoomTypes[0].id, area: '', unitId: unit.id }]);
     };
 
     const removeRoom = (id) => {
@@ -193,7 +182,7 @@ export default function CommercialInventoryModal({ unit, unitsList = [], buildin
                 })}
 
                 {!isReadOnly && (
-                    <button onClick={addRoom} className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl flex items-center justify-center gap-2 text-slate-500 font-bold text-xs hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all">
+                    <button onClick={addRoom} disabled={!commercialRoomTypes.length} className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl flex items-center justify-center gap-2 text-slate-500 font-bold text-xs hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all">
                         <Plus size={16}/> Добавить помещение
                     </button>
                 )}

@@ -6,18 +6,6 @@ import { useToast } from '../../../../context/ToastContext';
 import RegistryModalLayout, { StatBadge } from './RegistryModalLayout';
 import { CatalogService } from '../../../../lib/catalog-service';
 
-const RESIDENTIAL_ROOMS_FALLBACK = [
-    { code: 'living', label: 'Жилая комната', area_bucket: 'living', coefficient: 1.0 },
-    { code: 'kitchen', label: 'Кухня', area_bucket: 'useful', coefficient: 1.0 },
-    { code: 'kitchen_living', label: 'Кухня-гостиная', area_bucket: 'living', coefficient: 1.0 },
-    { code: 'bathroom', label: 'Ванная / С/У', area_bucket: 'useful', coefficient: 1.0 },
-    { code: 'corridor', label: 'Коридор / Холл', area_bucket: 'useful', coefficient: 1.0 },
-    { code: 'pantry', label: 'Кладовая / Гардероб', area_bucket: 'useful', coefficient: 1.0 },
-    { code: 'staircase', label: 'Внутрикв. лестница', area_bucket: 'useful', coefficient: 1.0 },
-    { code: 'loggia', label: 'Лоджия', area_bucket: 'summer', coefficient: 0.5 },
-    { code: 'balcony', label: 'Балкон', area_bucket: 'summer', coefficient: 0.3 },
-    { code: 'other', label: 'Другое', area_bucket: 'other', coefficient: 1.0 },
-];
 
 /**
  * @param {object} props
@@ -44,8 +32,7 @@ export default function ApartmentInventoryModal({ unit, unitsList = [], building
 
     const residentialRoomTypes = useMemo(() => {
         const rows = (roomTypesRows || []).filter(r => r.room_scope === 'residential');
-        const source = rows.length ? rows : RESIDENTIAL_ROOMS_FALLBACK;
-        return source.map(r => ({
+        return rows.map(r => ({
             id: r.code || r.id,
             label: r.label,
             k: Number(r.coefficient ?? r.k ?? 1),
@@ -85,9 +72,10 @@ export default function ApartmentInventoryModal({ unit, unitsList = [], building
 
     const addRoom = () => {
         if (isReadOnly) return;
+        if (!residentialRoomTypes.length) return;
         setRooms([...rooms, { 
             id: crypto.randomUUID(), 
-            type: residentialRoomTypes[0]?.id || 'living', 
+            type: residentialRoomTypes[0].id, 
             area: '',
             level: '1',
             unitId: unit.id 
@@ -221,7 +209,7 @@ export default function ApartmentInventoryModal({ unit, unitsList = [], building
                 })}
 
                 {!isReadOnly && (
-                    <button onClick={addRoom} className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl flex items-center justify-center gap-2 text-slate-500 font-bold text-xs hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all">
+                    <button onClick={addRoom} disabled={!residentialRoomTypes.length} className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl flex items-center justify-center gap-2 text-slate-500 font-bold text-xs hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all">
                         <Plus size={16}/> Добавить комнату
                     </button>
                 )}

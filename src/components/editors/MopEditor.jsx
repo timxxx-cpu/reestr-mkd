@@ -14,13 +14,6 @@ import ConfigHeader from './configurator/ConfigHeader';
 import { useCatalog } from '../../hooks/useCatalogs';
 import { MopItemSchema } from '../../lib/schemas';
 
-const MOP_TYPES_FALLBACK = [
-    'Лестничная клетка', 'Межквартирный коридор', 'Лифтовой холл', 'Тамбур', 'Вестибюль',
-    'Колясочная', 'Комната охраны', 'Санузел', 'ПУИ (Уборочная)', 'Электрощитовая',
-    'Слаботочная ниша', 'Мусорокамера', 'Техническое подполье', 'Технический этаж',
-    'Венткамера', 'ИТП', 'Насосная', 'Машинное отделение лифтов', 'Кровля',
-    'Паркинг (зона проезда)', 'Рампа', 'Кладовая', 'Техническое помещение', 'Другое'
-];
 
 const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
     <button
@@ -64,7 +57,15 @@ export default function MopEditor({ buildingId, onBack }) {
     const { floors: rawFloors } = useDirectFloors(currentBlock?.id);
     const { entrances, matrixMap } = useDirectMatrix(currentBlock?.id);
     const { mops, upsertMop, clearAllMops } = useDirectCommonAreas(currentBlock?.id);
-    const { options: mopTypeOptions } = useCatalog('dict_mop_types', MOP_TYPES_FALLBACK);
+    const { options: mopTypeOptions } = useCatalog('dict_mop_types');
+
+    const mopLabelByCode = useMemo(() => {
+        const map = {};
+        mopTypeOptions.forEach(o => {
+            if (o?.code) map[o.code] = o.label;
+        });
+        return map;
+    }, [mopTypeOptions]);
 
     useEffect(() => {
         draftMopIdsRef.current = {};
@@ -135,17 +136,17 @@ export default function MopEditor({ buildingId, onBack }) {
                 const currentMops = mopGrid[f.id]?.[e.id] || [];
                 const needed = targetQty - currentMops.length;
 
-                let defaultType = 'Лестничная клетка';
-                if (isUnderground) defaultType = 'Паркинг (зона проезда)';
-                else if (f.type === 'basement') defaultType = 'Техническое подполье';
-                else if (f.type === 'roof') defaultType = 'Кровля';
+                let defaultType = mopLabelByCode.STAIR || mopTypeOptions[0]?.label || '';
+                if (isUnderground) defaultType = mopLabelByCode.OTHER || mopTypeOptions[0]?.label || defaultType;
+                else if (f.type === 'basement') defaultType = mopLabelByCode.TECH || mopTypeOptions[0]?.label || defaultType;
+                else if (f.type === 'roof') defaultType = mopLabelByCode.OTHER || mopTypeOptions[0]?.label || defaultType;
 
                 for(let i=0; i<needed; i++) {
                     let type = defaultType;
                     // Простая логика типов для 2-го и 3-го МОП
                     const idx = currentMops.length + i;
-                    if (!isUnderground && idx === 1) type = 'Лифтовой холл';
-                    if (!isUnderground && idx === 2) type = 'Межквартирный коридор';
+                    if (!isUnderground && idx === 1) type = mopLabelByCode.ELEVATOR_HALL || defaultType;
+                    if (!isUnderground && idx === 2) type = mopLabelByCode.CORRIDOR || defaultType;
 
                     const slotKey = `${f.id}_${e.id}_${idx}`;
                     const stableDraftId = draftMopIdsRef.current[slotKey] || crypto.randomUUID();
