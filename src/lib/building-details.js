@@ -99,3 +99,17 @@ export const cleanBuildingDetails = (composition, buildingDetails = {}) => {
 
     return cleaned;
 };
+
+export const formatBlockSwitcherLabel = ({ building, block, buildingDetails = {} }) => {
+    if (!block) return '';
+
+    const baseLabel = block.tabLabel || block.label || 'Блок';
+    const blockKey = building?.id && block?.id ? `${building.id}_${block.id}` : null;
+    const details = blockKey ? (buildingDetails[blockKey] || {}) : {};
+    const hasCustomAddress = details.hasCustomAddress && details.customHouseNumber;
+
+    if (!hasCustomAddress) return baseLabel;
+
+    const housePart = building?.houseNumber ? ` (Дом №${building.houseNumber})` : '';
+    return `${baseLabel}${housePart} (Корпус ${details.customHouseNumber})`;
+};

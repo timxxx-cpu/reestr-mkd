@@ -13,6 +13,7 @@ import { Card, DebouncedInput, useReadOnly } from '../ui/UIKit';
 import ConfigHeader from './configurator/ConfigHeader';
 import { useCatalog } from '../../hooks/useCatalogs';
 import { MopItemSchema } from '../../lib/schemas';
+import { formatBlockSwitcherLabel } from '../../lib/building-details';
 
 
 const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
@@ -40,7 +41,7 @@ const getBlockIcon = (type) => {
 };
 
 export default function MopEditor({ buildingId, onBack }) {
-    const { projectId } = useProject();
+    const { projectId, buildingDetails } = useProject();
     const isReadOnly = useReadOnly();
 
     // 1. Context
@@ -224,7 +225,7 @@ export default function MopEditor({ buildingId, onBack }) {
                             onClick={()=>setActiveBlockIndex(i)} 
                             icon={getBlockIcon(b.type)}
                         >
-                            {b.label}
+                            {formatBlockSwitcherLabel({ building, block: b, buildingDetails })}
                         </DarkTabButton>
                     ))}
                 </div>

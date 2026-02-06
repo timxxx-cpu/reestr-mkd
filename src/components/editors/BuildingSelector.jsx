@@ -42,7 +42,7 @@ export default function BuildingSelector({ stepId, onSelect }) {
             }
 
             if (['entrances', 'mop', 'apartments'].includes(stepId)) {
-                if (stepId === 'apartments') return item.category.includes('residential');
+                return item.category.includes('residential');
             }
 
             return true;
