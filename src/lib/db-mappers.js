@@ -3,6 +3,11 @@
  * UPDATED: Fix for 1:1 relations and Parent ID injection
  */
 
+/** @typedef {import('./dto').DbFloorRow} DbFloorRow */
+/** @typedef {import('./dto').DbUnitRow} DbUnitRow */
+/** @typedef {import('./dto').DbMopRow} DbMopRow */
+/** @typedef {import('./dto').UiFloor} UiFloor */
+
 // Хелпер для безопасного извлечения (Supabase может вернуть массив или объект)
 const getOne = (val) => Array.isArray(val) ? (val[0] || {}) : (val || {});
 
@@ -148,6 +153,12 @@ export const mapBlockDetailsFromDB = (b, block) => {
 
 // --- 4. FLOORS ---
 // [FIX] Добавлены buildingId и blockId
+/**
+ * @param {DbFloorRow} f
+ * @param {string} buildingId
+ * @param {string} blockId
+ * @returns {UiFloor}
+ */
 export const mapFloorFromDB = (f, buildingId, blockId) => ({
     id: f.id,
     buildingId, // ВАЖНО для фильтрации
@@ -179,6 +190,13 @@ export const mapFloorFromDB = (f, buildingId, blockId) => ({
 
 // --- 5. UNITS ---
 // [FIX] Добавлены buildingId и blockId
+/**
+ * @param {DbUnitRow} u
+ * @param {Array<any>} rooms
+ * @param {Object.<string, number>} entranceMap
+ * @param {string} buildingId
+ * @param {string} blockId
+ */
 export const mapUnitFromDB = (u, rooms = [], entranceMap = {}, buildingId, blockId) => ({
     id: u.id,
     buildingId, // ВАЖНО
@@ -205,6 +223,12 @@ export const mapUnitFromDB = (u, rooms = [], entranceMap = {}, buildingId, block
 });
 
 // --- 6. MOP ---
+/**
+ * @param {DbMopRow} m
+ * @param {Object.<string, number>} entranceMap
+ * @param {string} buildingId
+ * @param {string} blockId
+ */
 export const mapMopFromDB = (m, entranceMap = {}, buildingId, blockId) => ({
     id: m.id,
     buildingId,

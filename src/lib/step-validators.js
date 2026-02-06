@@ -2,6 +2,7 @@ import { getBlocksList } from './utils';
 import { cleanBlockDetails } from './building-details';
 import { BuildingConfigSchema } from './schemas';
 import { Validators } from './validators';
+import { floorKeyToVirtualId } from './model-keys';
 
 const FIELD_NAMES = {
     foundation: "Фундамент",
@@ -34,30 +35,7 @@ const NUMERIC_FIELDS = [
 ];
 
 // Хелпер для получения виртуального ID из floorKey (для связи с entrancesData)
-const getVirtualId = (floorKey) => {
-    if (!floorKey) return null;
-    if (floorKey.startsWith('floor:')) return `floor_${floorKey.split(':')[1]}`;
-    if (floorKey.startsWith('parking:')) {
-         const part = floorKey.split(':')[1];
-         const level = part.startsWith('-') ? part.substring(1) : part;
-         return `level_minus_${level}`;
-    }
-    if (floorKey.startsWith('basement:')) {
-        const parts = floorKey.split(':');
-        // Обрабатываем ID вида basement:uuid:depth или просто basement:depth (редко)
-        if (parts.length >= 3) {
-            const depth = parts[parts.length - 1];
-            // Собираем ID подвала обратно (середина)
-            const baseId = parts.slice(1, parts.length - 1).join(':'); 
-            return `base_${baseId}_L${depth}`;
-        }
-    }
-    if (floorKey.startsWith('tech:')) return `floor_${floorKey.split(':')[1]}_tech`;
-    if (['attic', 'loft', 'roof', 'tsokol'].includes(floorKey)) return floorKey;
-    
-    // Если ключ не распознан, возвращаем как есть (на случай если это простой ID)
-    return floorKey;
-};
+const getVirtualId = (floorKey) => floorKeyToVirtualId(floorKey);
 
 const normalizeNumericDetails = (details) => {
     const normalized = { ...details };

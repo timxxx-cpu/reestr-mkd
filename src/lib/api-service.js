@@ -9,9 +9,9 @@ import {
 } from './db-mappers';
 import { buildFloorList } from './floor-utils';
 import { getBlocksList } from './utils';
+import { floorKeyToVirtualId, SPECIAL_FLOOR_IDS } from './model-keys';
 
 // ... (Оставляем существующие функции mapBuildingToDb, mapBlockToDb, mapBlockTypeToDb, mapDbTypeToUi без изменений) ...
-// ... (Оставляем хелперы inferFloorKey, mapFloorKeyToVirtualId без изменений) ...
 
 // Вспомогательная функция для маппинга типов блоков
 function mapBlockTypeToDB(uiType) {
@@ -29,25 +29,6 @@ function mapDbTypeToUi(dbType) {
     if (dbType === 'Infra') return 'infrastructure';
     return dbType;
 }
-
-// Хелперы ключей (оставляем как были в файле)
-const _inferFloorKey = (id) => {
-    if (!id) return null;
-    if (id.startsWith('floor_')) {
-        if (id.includes('_tech')) return `tech:${id.split('_')[1]}`;
-        return `floor:${id.split('_')[1]}`;
-    }
-    if (id.startsWith('level_minus_')) return `parking:-${id.split('_')[2]}`;
-    if (id.startsWith('base_')) {
-        const parts = id.split('_');
-        const depth = parts[parts.length-1].replace('L','');
-        const baseId = parts.slice(1, parts.length-1).join('_');
-        return `basement:${baseId}:${depth}`;
-    }
-    if (['attic', 'loft', 'roof', 'tsokol'].includes(id)) return id;
-    return id;
-};
-
 
 const normalizeDateInput = (value) => {
     if (value === '' || value === undefined) return null;
@@ -109,28 +90,6 @@ const syncFloorsForBlockFromDetails = async (building, currentBlock, buildingDet
         if (upsertErr) throw upsertErr;
     }
 };
-
-const _mapFloorKeyToVirtualId = (key) => {
-    if (!key) return null;
-    if (key.startsWith('floor:')) return `floor_${key.split(':')[1]}`;
-    if (key.startsWith('parking:')) {
-         const part = key.split(':')[1];
-         const level = part.startsWith('-') ? part.substring(1) : part;
-         return `level_minus_${level}`;
-    }
-    if (key.startsWith('basement:')) {
-        const parts = key.split(':'); 
-        if (parts.length >= 3) {
-            const depth = parts[parts.length - 1];
-            const baseId = parts.slice(1, parts.length - 1).join(':'); 
-            return `base_${baseId}_L${depth}`;
-        }
-    }
-    if (key.startsWith('tech:')) return `floor_${key.split(':')[1]}_tech`;
-    if (['attic', 'loft', 'roof', 'tsokol'].includes(key)) return key;
-    return key;
-};
-
 
 export const ApiService = {
 
@@ -393,7 +352,7 @@ export const ApiService = {
 
             (floorsData || []).forEach(row => {
                 const buildingId = blockToBuilding[row.block_id];
-                const virtualId = _mapFloorKeyToVirtualId(row.floor_key || `floor:${row.index}`) || row.id;
+                const virtualId = floorKeyToVirtualId(row.floor_key || `floor:${row.index}`) || row.id;
                 if (buildingId) {
                     const key = `${buildingId}_${row.block_id}_${virtualId}`;
                     floorData[key] = {
@@ -1389,7 +1348,7 @@ export const ApiService = {
                             ? 'basement'
                             : markerKey.includes('-Т')
                                 ? 'technical'
-                                : ['attic', 'loft', 'roof', 'tsokol'].includes(markerKey)
+                                : SPECIAL_FLOOR_IDS.includes(markerKey)
                                     ? 'special'
                                     : 'floor',
                         floor_index: markerKey.includes('-Т')
@@ -1493,7 +1452,7 @@ export const ApiService = {
 
                 const floorIdByVirtual = new Map();
                 (floorsRows || []).forEach(row => {
-                    const virtualId = _mapFloorKeyToVirtualId(row.floor_key || `floor:${row.index}`) || row.id;
+                    const virtualId = floorKeyToVirtualId(row.floor_key || `floor:${row.index}`) || row.id;
                     floorIdByVirtual.set(`${row.block_id}|${virtualId}`, row.id);
                 });
 
