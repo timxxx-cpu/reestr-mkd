@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { 
   Save, CheckCircle2, LogOut, ArrowRight, Loader2, 
   ArrowLeft, Send, History, ThumbsUp, XCircle, ShieldCheck,
@@ -213,6 +214,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   } = projectContext;
   
   const toast = useToast();
+  const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
   
   // Состояния модалок
@@ -318,14 +320,40 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       onExit(true);
   };
 
+
+  const waitForPendingMutations = async () => {
+      const startedAt = Date.now();
+      const timeoutMs = 8000;
+
+      while (queryClient.isMutating() > 0) {
+          if (Date.now() - startedAt > timeoutMs) {
+              console.warn('Timed out waiting for pending mutations before validation');
+              break;
+          }
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => setTimeout(resolve, 120));
+      }
+  };
+
   // --- COMPLETE TASK HANDLERS (AUTOMATIC) ---
   const handleCompleteTaskClick = async () => {
       setIsLoading(true);
       setSaveNotice({ open: true, status: 'saving', message: 'Сохранение и проверка данных перед завершением...', onOk: null });
 
       try {
+          // Принудительно снимаем фокус с активного поля и даем DebouncedInput
+          // время отправить последнее значение в mutation queue.
+          if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+              document.activeElement.blur();
+          }
+          await new Promise((resolve) => setTimeout(resolve, 380));
+
           // Сначала сохраняем локальные pending-изменения в БД без промежуточного refetch.
           await saveProjectImmediate({ shouldRefetch: false });
+
+          // Дожидаемся завершения фоновых мутаций (юниты/матрица/этажи),
+          // иначе валидатор может получить устаревший срез БД и показать ложные ошибки.
+          await waitForPendingMutations();
 
           // Затем принудительно берем свежий снимок из БД и валидируем именно его,
           // чтобы не требовался ручной refresh страницы.

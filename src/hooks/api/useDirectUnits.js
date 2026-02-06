@@ -2,15 +2,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiService } from '../../lib/api-service';
 import { useToast } from '../../context/ToastContext';
 
-export function useDirectUnits(blockId) {
+export function useDirectUnits(blockId, floorIds = []) {
     const queryClient = useQueryClient();
     const toast = useToast();
-    const queryKey = ['direct-units', blockId];
+    const normalizedFloorIds = Array.isArray(floorIds) ? [...new Set(floorIds.filter(Boolean))].sort() : [];
+    const queryKey = ['direct-units', blockId, normalizedFloorIds];
 
     // --- READ ---
     const { data: units = [], isLoading } = useQuery({
         queryKey,
-        queryFn: () => ApiService.getUnits(blockId),
+        queryFn: () => ApiService.getUnits(blockId, { floorIds: normalizedFloorIds }),
         enabled: !!blockId,
     });
 

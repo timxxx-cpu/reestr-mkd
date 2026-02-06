@@ -461,16 +461,19 @@ const validateApartments = (data) => {
     const numbersMap = {};
 
     // 1. Проверка на дубликаты
+    // Допускаем одинаковые номера в разных блоках (в пределах одного здания),
+    // но запрещаем дубли внутри одного и того же блока.
     Object.values(flatMatrix).forEach(unit => {
         if (!unit.buildingId) return;
+        if (!unit.blockId) return;
         const num = String(unit.num || '').trim();
         if (num !== '') {
-            const key = `${unit.buildingId}_${num}`;
+            const key = `${unit.buildingId}_${unit.blockId}_${num}`;
             if (numbersMap[key]) {
-                if (!errors.some(e => e.title === "Дубликаты номеров" && e.description.includes(unit.buildingId.slice(-4)) && e.description.includes(num))) {
+                if (!errors.some(e => e.title === "Дубликаты номеров" && e.description.includes(unit.blockId.slice(-4)) && e.description.includes(num))) {
                      errors.push({
                         title: "Дубликаты номеров",
-                        description: `В здании (ID: ...${unit.buildingId.slice(-4)}) обнаружен повторяющийся номер: "${num}".`
+                        description: `В блоке (ID: ...${unit.blockId.slice(-4)}) обнаружен повторяющийся номер: "${num}".`
                     });
                 }
             }
@@ -544,17 +547,19 @@ const validateApartments = (data) => {
                 })()
             }));
 
-            Object.entries(entrancesData).forEach(([entKey, entry]) => {
-                if (!entKey.startsWith(`${prefix}_ent`)) return;
+            const blockEntries = Object.entries(entrancesData).filter(([entKey]) => entKey.startsWith(`${prefix}_ent`));
 
+            const plannedByVirtualFloor = {};
+            blockEntries.forEach(([entKey, entry]) => {
                 const match = entKey.match(/_ent(\d+)_(.*)$/);
                 if (!match) return;
-
-                const entranceNumber = parseInt(match[1], 10);
                 const virtualFloorId = match[2];
                 const plannedAptCount = parseInt(entry?.apts || 0, 10) || 0;
+                plannedByVirtualFloor[virtualFloorId] = (plannedByVirtualFloor[virtualFloorId] || 0) + Math.max(0, plannedAptCount);
+            });
 
-                if (plannedAptCount <= 0) return;
+            Object.entries(plannedByVirtualFloor).forEach(([virtualFloorId, plannedFloorTotal]) => {
+                if (plannedFloorTotal <= 0) return;
 
                 const matchedFloorIds = new Set(
                     blockFloors
@@ -562,25 +567,26 @@ const validateApartments = (data) => {
                         .map(({ floor }) => String(floor?.id))
                 );
 
-                const relevantUnits = Object.values(flatMatrix).filter((u) => {
-                    if (u.blockId !== block.id) return false;
-                    if (Number(u.entranceIndex || 0) !== entranceNumber) return false;
-                    if (matchedFloorIds.size > 0) {
-                        return matchedFloorIds.has(String(u.floorId));
-                    }
-                    return String(u.floorId) === String(virtualFloorId);
-                }).filter((u) => ['flat', 'duplex_up', 'duplex_down'].includes(u.type));
+                const allFloorUnits = Object.values(flatMatrix)
+                    .filter((u) => {
+                        if (u.blockId !== block.id) return false;
+                        if (matchedFloorIds.size > 0) {
+                            return matchedFloorIds.has(String(u.floorId));
+                        }
+                        return String(u.floorId) === String(virtualFloorId);
+                    })
+                    .filter((u) => ['flat', 'duplex_up', 'duplex_down'].includes(u.type));
 
-                const numberedUnits = relevantUnits.filter((u) => {
+                const numberedFloorTotal = allFloorUnits.filter((u) => {
                     const num = String(u.num || u.number || '').trim();
                     return num !== '';
-                });
+                }).length;
 
-                if (numberedUnits.length < plannedAptCount) {
+                if (numberedFloorTotal < plannedFloorTotal) {
                     const floorLabel = blockFloors.find(({ virtualFloorId: vId }) => vId === virtualFloorId)?.floor?.label || virtualFloorId;
                     errors.push({
                         title: 'Незаполненные номера',
-                        description: `Блок "${block.tabLabel}", этаж ${floorLabel}, подъезд ${entranceNumber}: пронумеровано ${numberedUnits.length} из ${plannedAptCount} квартир.`
+                        description: `Блок "${block.tabLabel}", этаж ${floorLabel}: пронумеровано ${numberedFloorTotal} из ${plannedFloorTotal} квартир.`
                     });
                 }
             });

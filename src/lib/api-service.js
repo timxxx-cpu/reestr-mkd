@@ -67,6 +67,26 @@ const normalizeDateInput = (value) => {
 };
 
 
+const fetchAllPaged = async (queryFactory, pageSize = 1000) => {
+    let from = 0;
+    const rows = [];
+
+    while (true) {
+        // eslint-disable-next-line no-await-in-loop
+        const { data, error } = await queryFactory(from, from + pageSize - 1);
+        if (error) throw error;
+
+        const chunk = data || [];
+        rows.push(...chunk);
+
+        if (chunk.length < pageSize) break;
+        from += pageSize;
+    }
+
+    return rows;
+};
+
+
 export const UPSERT_ON_CONFLICT = Object.freeze({
     projects: 'id',
     project_participants: 'id',
@@ -498,7 +518,21 @@ const LegacyApiService = {
             const [entrancesRes, matrixRes, unitsRes, mopsRes] = await Promise.all([
                 supabase.from('entrances').select('id, block_id, number').in('block_id', blockIds),
                 supabase.from('entrance_matrix').select('floor_id, entrance_number, flats_count, commercial_count, mop_count').in('block_id', blockIds),
-                supabase.from('units').select('id, floor_id, entrance_id, number, unit_type, total_area, living_area, useful_area, rooms_count, status, cadastre_number').in('floor_id', (floorsData || []).map(f => f.id)),
+                (async () => {
+                    const floorIds = (floorsData || []).map((f) => f.id);
+                    if (!floorIds.length) return { data: [], error: null };
+
+                    const data = await fetchAllPaged((from, to) =>
+                        supabase
+                            .from('units')
+                            .select('id, floor_id, entrance_id, number, unit_type, total_area, living_area, useful_area, rooms_count, status, cadastre_number')
+                            .in('floor_id', floorIds)
+                            .order('id', { ascending: true })
+                            .range(from, to)
+                    );
+
+                    return { data, error: null };
+                })(),
                 supabase.from('common_areas').select('id, floor_id, entrance_id, type, area').in('floor_id', (floorsData || []).map(f => f.id))
             ]);
 
@@ -1019,14 +1053,44 @@ const LegacyApiService = {
     },
 
     // --- UNITS ---
-    getUnits: async (blockId) => {
-        const { data: floors } = await supabase.from('floors').select('id').eq('block_id', blockId);
-        const floorIds = floors.map(f => f.id);
+    getUnits: async (blockId, options = {}) => {
+        const extraFloorIds = Array.isArray(options?.floorIds) ? options.floorIds.filter(Boolean) : [];
+
+        const { data: blockFloors, error: floorsError } = await supabase
+            .from('floors')
+            .select('id')
+            .eq('block_id', blockId);
+
+        if (floorsError) throw floorsError;
+
+        const floorIds = Array.from(new Set([...(blockFloors || []).map((f) => f.id), ...extraFloorIds]));
         if (floorIds.length === 0) return [];
-        const { data: units, error } = await supabase.from('units').select('*, rooms (*)').in('floor_id', floorIds);
-        if (error) throw error;
-        // ... (mapper logic reused from mapUnitFromDB but simplified for direct usage)
-        return units.map(u => mapUnitFromDB(u, u.rooms, {}, null, blockId));
+
+        const { data: entrances, error: entrancesError } = await supabase
+            .from('entrances')
+            .select('id, number')
+            .eq('block_id', blockId);
+        if (entrancesError) throw entrancesError;
+
+        const entranceMap = (entrances || []).reduce((acc, item) => {
+            acc[item.id] = item.number;
+            return acc;
+        }, {});
+
+        const units = await fetchAllPaged((from, to) =>
+            supabase
+                .from('units')
+                .select('*, rooms (*)')
+                .in('floor_id', floorIds)
+                .order('created_at', { ascending: true })
+                .order('id', { ascending: true })
+                .range(from, to)
+        );
+
+        return units.map((u) => ({
+            ...mapUnitFromDB(u, u.rooms, entranceMap, null, blockId),
+            entranceIndex: u.entrance_id ? (entranceMap[u.entrance_id] || 1) : (u.entrance_index || 1)
+        }));
     },
 
     upsertUnit: async (unitData) => {
@@ -1081,9 +1145,10 @@ const LegacyApiService = {
     },
 
     // --- COMMON AREAS ---
-    getCommonAreas: async (blockId) => {
+    getCommonAreas: async (blockId, options = {}) => {
+        const extraFloorIds = Array.isArray(options?.floorIds) ? options.floorIds.filter(Boolean) : [];
         const { data: floors } = await supabase.from('floors').select('id').eq('block_id', blockId);
-        const floorIds = floors.map(f => f.id);
+        const floorIds = Array.from(new Set([...(floors || []).map((f) => f.id), ...extraFloorIds]));
         if (floorIds.length === 0) return [];
         const { data, error } = await supabase.from('common_areas').select('*').in('floor_id', floorIds);
         if (error) throw error;
@@ -1108,9 +1173,10 @@ const LegacyApiService = {
         if (error) throw error;
     },
 
-    clearCommonAreas: async (blockId) => {
+    clearCommonAreas: async (blockId, options = {}) => {
+        const extraFloorIds = Array.isArray(options?.floorIds) ? options.floorIds.filter(Boolean) : [];
         const { data: floors } = await supabase.from('floors').select('id').eq('block_id', blockId);
-        const floorIds = floors.map(f => f.id);
+        const floorIds = Array.from(new Set([...(floors || []).map((f) => f.id), ...extraFloorIds]));
         if (floorIds.length > 0) {
             await supabase.from('common_areas').delete().in('floor_id', floorIds);
         }
@@ -1248,10 +1314,14 @@ const LegacyApiService = {
             .select('id, block_id, number')
             .in('block_id', blIds);
         
-        const { data: units } = await supabase
-            .from('units')
-            .select('*, rooms (*)')
-            .in('floor_id', fIds);
+        const units = await fetchAllPaged((from, to) =>
+            supabase
+                .from('units')
+                .select('*, rooms (*)')
+                .in('floor_id', fIds)
+                .order('id', { ascending: true })
+                .range(from, to)
+        );
 
         return {
             buildings: (buildings || []).map(b => ({

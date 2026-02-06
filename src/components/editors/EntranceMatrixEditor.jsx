@@ -187,6 +187,8 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     };
 
     const isFieldEnabled = (floor, field) => {
+        const isLinkedStylobate = floor?.blockId && currentBlock?.id && floor.blockId !== currentBlock.id;
+        if (field === 'apts' && isLinkedStylobate) return true;
         return Validators.checkFieldAvailability(floor, field, isUnderground);
     };
 
