@@ -470,6 +470,40 @@ create table dict_room_types (
   check (coefficient >= 0)
 );
 
+-- ---------------------------------------------------------
+-- Ensure UNIQUE(code) for all dict_* tables except dict_room_types
+-- (required for ON CONFLICT (code) ...; safe for re-runs)
+-- ---------------------------------------------------------
+do $$
+declare
+  r record;
+begin
+  for r in
+    select t.tablename
+    from pg_tables t
+    where t.schemaname = 'public'
+      and t.tablename like 'dict\_%' escape '\'
+      and t.tablename <> 'dict_room_types'
+  loop
+    -- add unique(code) only if it doesn't exist yet
+    if not exists (
+      select 1
+      from pg_constraint c
+      join pg_class rel on rel.oid = c.conrelid
+      join pg_namespace n on n.oid = rel.relnamespace
+      where n.nspname = 'public'
+        and rel.relname = r.tablename
+        and c.contype = 'u'
+        and pg_get_constraintdef(c.oid) = 'UNIQUE (code)'
+    ) then
+      execute format(
+        'alter table public.%I add constraint %I unique (code)',
+        r.tablename,
+        r.tablename || '_code_uniq'
+      );
+    end if;
+  end loop;
+end $$;
 
 -- -----------------------------
 -- MINIMUM SEED
