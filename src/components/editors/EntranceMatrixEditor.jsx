@@ -10,7 +10,9 @@ import { useDirectMatrix } from '../../hooks/api/useDirectMatrix';
 import { useBuildingType } from '../../hooks/useBuildingType';
 import { Card, DebouncedInput, useReadOnly } from '../ui/UIKit';
 import { Validators } from '../../lib/validators';
+import { ApiService } from '../../lib/api-service';
 import ConfigHeader from './configurator/ConfigHeader';
+import { formatBlockSwitcherLabel } from '../../lib/building-details';
 
 const getBlockIcon = (type) => {
     if (type === 'residential') return Building2;
@@ -37,24 +39,87 @@ const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
 );
 
 export default function EntranceMatrixEditor({ buildingId, onBack }) {
-    const { projectId } = useProject();
+    const { projectId, buildingDetails } = useProject();
     const isReadOnly = useReadOnly();
 
-    // 1. Здание и Блок
+    // 1. Здание и жилые блоки
     const { buildings } = useDirectBuildings(projectId);
     const building = useMemo(() => buildings.find(b => b.id === buildingId), [buildings, buildingId]);
+
+    const residentialBlocks = useMemo(() => {
+        if (!building?.blocks?.length) return [];
+        return building.blocks.filter((b) => b.type === 'residential');
+    }, [building]);
+
     const [activeBlockIndex, setActiveBlockIndex] = useState(0);
-    const currentBlock = useMemo(() => building?.blocks?.[activeBlockIndex], [building, activeBlockIndex]);
-    
-    // 2. Тип
+    const currentBlock = useMemo(() => residentialBlocks[activeBlockIndex], [residentialBlocks, activeBlockIndex]);
+
+    useEffect(() => {
+        if (activeBlockIndex < residentialBlocks.length) return;
+        setActiveBlockIndex(0);
+    }, [activeBlockIndex, residentialBlocks.length]);
+
+    // 2. Тип (шаг только для жилых блоков)
     const typeInfo = useBuildingType(building);
-    // [FIX] Добавлена isParking
-    const { isUnderground, isParking } = typeInfo;
+    const { isParking } = typeInfo;
+    const isUnderground = false;
 
     // 3. Данные (Этажи + Матрица)
     const { floors: rawFloors, updateFloor } = useDirectFloors(currentBlock?.id);
-    // Фильтруем этажи (без стилобатов в этом виде)
-    const floors = useMemo(() => rawFloors.filter(f => !(f.isStylobate || f.flags?.isStylobate)), [rawFloors]);
+    const [linkedStylobateFloors, setLinkedStylobateFloors] = useState([]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadLinkedStylobateFloors = async () => {
+            if (!building?.blocks?.length || !currentBlock?.id) {
+                if (!cancelled) setLinkedStylobateFloors([]);
+                return;
+            }
+
+            const linkedStylobateBlocks = building.blocks.filter((block) => {
+                if (block.type !== 'non_residential') return false;
+                const detailsKey = `${building.id}_${block.id}`;
+                const details = buildingDetails?.[detailsKey] || {};
+                return Array.isArray(details.parentBlocks) && details.parentBlocks.includes(currentBlock.id);
+            });
+
+            if (linkedStylobateBlocks.length === 0) {
+                if (!cancelled) setLinkedStylobateFloors([]);
+                return;
+            }
+
+            try {
+                const floorsByBlock = await Promise.all(linkedStylobateBlocks.map((block) => ApiService.getFloors(block.id)));
+                const stylobateFloors = floorsByBlock
+                    .flat()
+                    .filter((floor) => floor?.isStylobate || floor?.type === 'stylobate');
+
+                if (!cancelled) setLinkedStylobateFloors(stylobateFloors);
+            } catch (e) {
+                console.error('Failed to load linked stylobate floors', e);
+                if (!cancelled) setLinkedStylobateFloors([]);
+            }
+        };
+
+        loadLinkedStylobateFloors();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [building, buildingDetails, currentBlock]);
+
+    const floors = useMemo(() => {
+        const residentialFloors = rawFloors.filter((f) => !(f.isStylobate || f.flags?.isStylobate));
+        const map = new Map();
+
+        [...residentialFloors, ...linkedStylobateFloors].forEach((floor) => {
+            if (!floor?.id) return;
+            map.set(floor.id, floor);
+        });
+
+        return Array.from(map.values()).sort((a, b) => (Number(a.index) || 0) - (Number(b.index) || 0));
+    }, [rawFloors, linkedStylobateFloors]);
 
     const { entrances, matrixMap, updateCell, syncEntrances } = useDirectMatrix(currentBlock?.id);
 
@@ -175,10 +240,11 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
     // --- Render ---
 
-    if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Загрузка...</div>;
+    if (!building) return <div className="p-12 text-center text-slate-500">Загрузка...</div>;
+    if (residentialBlocks.length === 0) return <div className="p-12 text-center text-slate-500">Нет жилых блоков для инвентаризации подъездов</div>;
+    if (!currentBlock) return <div className="p-12 text-center text-slate-500">Загрузка...</div>;
 
-    const isResidentialBlock = currentBlock.type === 'residential'; // UI type name
-    const showEditor = isResidentialBlock || isUnderground;
+    const showEditor = true;
 
     const renderBadge = (type) => {
         const map = {
@@ -207,14 +273,14 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                  <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full shadow-inner border border-slate-700 custom-scrollbar">
-                    {building.blocks.map((b,i) => (
+                    {residentialBlocks.map((b,i) => (
                         <DarkTabButton 
                             key={b.id} 
                             active={activeBlockIndex===i} 
                             onClick={()=>setActiveBlockIndex(i)} 
                             icon={getBlockIcon(b.type)}
                         >
-                            {b.label}
+                            {formatBlockSwitcherLabel({ building, block: b, buildingDetails })}
                         </DarkTabButton>
                     ))}
                 </div>
@@ -222,7 +288,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 <div className="flex items-center gap-3">
                      <button 
                         onClick={autoFill} 
-                        disabled={isReadOnly || (!isResidentialBlock && !isParking)} 
+                        disabled={isReadOnly} 
                         className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border shadow-sm ${isReadOnly ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed' : 'bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 hover:border-indigo-200'}`}
                      >
                         <Wand2 size={16}/> Заполнить типовыми

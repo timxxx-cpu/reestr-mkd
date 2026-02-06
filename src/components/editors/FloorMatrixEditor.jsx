@@ -12,6 +12,7 @@ import { useBuildingType } from '../../hooks/useBuildingType';
 import { Card, DebouncedInput, useReadOnly } from '../ui/UIKit';
 import { Validators } from '../../lib/validators';
 import ConfigHeader from './configurator/ConfigHeader';
+import { formatBlockSwitcherLabel } from '../../lib/building-details';
 
 const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
     <button
@@ -38,7 +39,7 @@ const getBlockIcon = (type) => {
 };
 
 export default function FloorMatrixEditor({ buildingId, onBack }) {
-    const { projectId } = useProject();
+    const { projectId, buildingDetails } = useProject();
     const isReadOnly = useReadOnly();
     
     // 1. Получаем список зданий
@@ -309,7 +310,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                             onClick={()=>setActiveBlockIndex(i)} 
                             icon={getBlockIcon(b.type)}
                         >
-                            {b.label}
+                            {formatBlockSwitcherLabel({ building, block: b, buildingDetails })}
                         </DarkTabButton>
                     ))}
                 </div>

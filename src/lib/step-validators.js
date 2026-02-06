@@ -232,6 +232,14 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
 
 // --- ВАЛИДАТОРЫ ИНВЕНТАРИЗАЦИИ ---
 
+const isHiddenStylobateFloorForResidentialBlock = (building, block, floor) => {
+    const isResidentialBuilding = building?.category?.includes?.('residential');
+    const isResidentialBlock = block?.type === 'Ж' || block?.type === 'residential';
+    if (!isResidentialBuilding || !isResidentialBlock) return false;
+
+    return !!(floor?.isStylobate || floor?.type === 'stylobate');
+};
+
 const validateFloors = (data) => {
     const { composition, buildingDetails, floorData } = data;
     const errors = [];
@@ -254,6 +262,13 @@ const validateFloors = (data) => {
 
             blockFloorKeys.forEach(key => {
                 const f = floorData[key];
+
+                // Стилобатные этажи жилого блока скрыты на шаге "Внешняя инвентаризация"
+                // и заполняются в связанном нежилом блоке, поэтому исключаем их из проверки.
+                if (isHiddenStylobateFloorForResidentialBlock(building, block, f)) {
+                    return;
+                }
+
                 // Используем label из данных этажа для сообщения об ошибке
                 const floorLabel = f.label || key.split('_').pop();
 
@@ -298,44 +313,67 @@ const validateFloors = (data) => {
     return errors;
 };
 
+const getLinkedStylobateFloorsForResidentialBlock = (building, residentialBlock, buildingDetails, floorData) => {
+    if (!building?.blocks?.length || !residentialBlock?.id) return [];
+
+    const linkedNonResBlockIds = building.blocks
+        .filter((block) => block.type === 'non_residential')
+        .filter((block) => {
+            const details = buildingDetails?.[`${building.id}_${block.id}`] || {};
+            return Array.isArray(details.parentBlocks) && details.parentBlocks.includes(residentialBlock.id);
+        })
+        .map((block) => block.id);
+
+    if (linkedNonResBlockIds.length === 0) return [];
+
+    return Object.entries(floorData)
+        .filter(([, floor]) => linkedNonResBlockIds.includes(floor?.blockId))
+        .filter(([, floor]) => floor?.isStylobate || floor?.type === 'stylobate')
+        .map(([floorKey, floor]) => ({ floorKey, floor }));
+};
+
 const validateEntrances = (data) => {
     const { composition, buildingDetails, entrancesData, floorData } = data;
     const errors = [];
 
     composition.forEach(building => {
-        const isParking = building.category === 'parking_separate';
-        const isUnderground = isParking && building.parkingType === 'underground';
-        const isRes = building.category.includes('residential');
-
-        if (!isRes && !isUnderground) return;
+        const isResidentialBuilding = building.category.includes('residential');
+        if (!isResidentialBuilding) return;
 
         const blocks = getBlocksList(building, buildingDetails);
-        const targetBlocks = blocks.filter(b => b.type === 'Ж' || (isParking && isUnderground));
+        const targetBlocks = blocks.filter(b => b.type === 'Ж');
 
         targetBlocks.forEach(block => {
             const prefix = `${building.id}_${block.id}`;
             const details = buildingDetails[`${building.id}_${block.id}`] || {};
-            const commFloors = details.commercialFloors || []; 
-            const entrancesCount = parseInt(details.entrances || details.inputs || 1);
+            const commFloors = details.commercialFloors || [];
+            const entrancesCount = parseInt(details.entrances || 1);
             const entrancesList = Array.from({ length: entrancesCount }, (_, i) => i + 1);
 
-            const blockFloorKeys = Object.keys(floorData).filter(k => k.startsWith(prefix));
-            
+            const residentialFloors = Object.keys(floorData)
+                .filter((k) => k.startsWith(prefix))
+                .filter((k) => {
+                    const floor = floorData[k];
+                    return !(floor?.isStylobate || floor?.type === 'stylobate');
+                });
+
+            const linkedStylobateFloors = getLinkedStylobateFloorsForResidentialBlock(building, block, buildingDetails, floorData)
+                .map(({ floorKey }) => floorKey);
+
+            const blockFloorKeys = [...residentialFloors, ...linkedStylobateFloors];
+
             if (blockFloorKeys.length === 0) return;
 
             blockFloorKeys.forEach(floorKey => {
                 const floor = floorData[floorKey];
-                
+
                 // [FIX] Умный поиск виртуального ID
                 let virtualFloorId = getVirtualId(floor.floorKey);
-                
-                // Fallback: Если floorKey нет или он не распознан, пробуем восстановить по индексу или хвосту
+
                 if (!virtualFloorId || (virtualFloorId.length > 30 && !virtualFloorId.startsWith('base'))) {
-                    // Если это обычный этаж
-                    if (['residential', 'mixed', 'office', 'parking_floor'].includes(floor.type) && floor.index > 0) {
+                    if (['residential', 'mixed', 'office', 'parking_floor', 'stylobate'].includes(floor.type) && floor.index > 0) {
                         virtualFloorId = `floor_${floor.index}`;
                     }
-                    // Если тех этаж
                     else if (floor.type === 'technical' && floor.parentFloorIndex > 0) {
                         virtualFloorId = `floor_${floor.parentFloorIndex}_tech`;
                     } else {
@@ -343,10 +381,8 @@ const validateEntrances = (data) => {
                     }
                 }
 
-                // Красивое название для ошибки
                 const floorLabel = floor.label || (floor.index ? `${floor.index} этаж` : virtualFloorId);
-                
-                // Тип для проверки
+
                 let floorTypeCheck = floor.type;
                 if (!floorTypeCheck && floor.floorKey) {
                      if (floor.floorKey.includes('basement')) floorTypeCheck = 'basement';
@@ -366,15 +402,14 @@ const validateEntrances = (data) => {
                 }
 
                 const ignorableTypes = [
-                    'technical', 'parking_floor', 'stylobate', 'office',
+                    'technical', 'parking_floor', 'office',
                     'basement', 'tsokol', 'roof', 'loft'
                 ];
 
-                // А. Проверка Коммерческого/Смешанного этажа
                 if (isMixed) {
                     let totalApts = 0;
                     let totalUnits = 0;
-                    
+
                     entrancesList.forEach(e => {
                         const entKey = `${prefix}_ent${e}_${virtualFloorId}`;
                         const item = entrancesData[entKey] || {};
@@ -383,13 +418,12 @@ const validateEntrances = (data) => {
                     });
 
                     if (totalUnits === 0 && totalApts === 0) {
-                            errors.push({
+                        errors.push({
                             title: `${building.label} (${block.tabLabel})`,
                             description: `${floorLabel}: Отмечен как нежилой/смешанный, но не указаны помещения.`
                         });
-                    } 
+                    }
                 }
-                // Б. Проверка Жилого этажа
                 else {
                     if (!ignorableTypes.includes(floor.type) && !ignorableTypes.includes(floorTypeCheck)) {
                         entrancesList.forEach(e => {
@@ -401,7 +435,6 @@ const validateEntrances = (data) => {
                             if (aptCount === 0) {
                                 let isExtensionOfDuplex = false;
                                 if (floor.index > 1) {
-                                     // Попытка найти этаж ниже
                                      const prevFloors = Object.values(floorData).filter(f => f.blockId === block.id && f.index === floor.index - 1);
                                      if (prevFloors.length > 0 && prevFloors[0].isDuplex) isExtensionOfDuplex = true;
                                 }
