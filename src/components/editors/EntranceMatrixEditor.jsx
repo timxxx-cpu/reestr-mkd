@@ -22,6 +22,32 @@ const getBlockIcon = (type) => {
     return LayoutGrid;
 };
 
+
+const isLinkedStylobateFloor = (floor) => {
+    if (!floor) return false;
+
+    const explicitStylobate =
+        !!floor.isStylobate ||
+        !!floor.flags?.isStylobate ||
+        floor.type === 'stylobate' ||
+        floor.floorKey === 'stylobate' ||
+        String(floor.floorKey || '').includes('stylobate');
+
+    if (explicitStylobate) return true;
+
+    // Fallback: у части старых/перенесенных данных стилобатные этажи
+    // приходят без явного флага. Для связанного нежилого блока берем
+    // надземные этажи, исключая подвал/кровлю/чердак/мансарду.
+    const isExcluded =
+        !!floor.flags?.isBasement ||
+        !!floor.flags?.isRoof ||
+        !!floor.flags?.isLoft ||
+        !!floor.flags?.isAttic ||
+        ['basement', 'roof', 'loft', 'attic', 'parking_floor'].includes(floor.type);
+
+    return !isExcluded && (Number(floor.index) || 0) > 0;
+};
+
 const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
     <button
         onClick={onClick}
@@ -93,7 +119,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                 const floorsByBlock = await Promise.all(linkedStylobateBlocks.map((block) => ApiService.getFloors(block.id)));
                 const stylobateFloors = floorsByBlock
                     .flat()
-                    .filter((floor) => floor?.isStylobate || floor?.type === 'stylobate');
+                    .filter((floor) => isLinkedStylobateFloor(floor));
 
                 if (!cancelled) setLinkedStylobateFloors(stylobateFloors);
             } catch (e) {
