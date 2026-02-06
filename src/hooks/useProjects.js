@@ -9,6 +9,8 @@ export function useProjects(scope) {
         queryKey: ['projects', scope],
         queryFn: () => ApiService.getProjectsList(scope),
         enabled: !!scope,
+        refetchOnMount: 'always',
+        refetchOnWindowFocus: true
     });
 
     // 2. Создание (Адаптер для вызова из UI)
@@ -50,6 +52,7 @@ export function useProjects(scope) {
         projects: projectsQuery.data || [],
         isLoading: projectsQuery.isLoading,
         isError: projectsQuery.isError,
+        refetchProjects: projectsQuery.refetch,
         createProject: createMutation.mutateAsync,
         deleteProject: deleteMutation.mutateAsync,
         isCreating: createMutation.isPending

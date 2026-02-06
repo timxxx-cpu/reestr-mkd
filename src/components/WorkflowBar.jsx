@@ -80,6 +80,38 @@ const ExitConfirmationModal = ({ onCancel, onConfirm }) => (
     </div>
 );
 
+// --- МОДАЛКА ВОЗВРАТА НА ПРЕДЫДУЩУЮ ЗАДАЧУ ---
+const RollbackConfirmationModal = ({ currentStepTitle, prevStepTitle, onCancel, onConfirm, isLoading }) => (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5 scale-100 animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-amber-100 bg-amber-50 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-white text-amber-600 border border-amber-200 flex items-center justify-center">
+                    <ArrowLeft size={18} />
+                </div>
+                <div>
+                    <h3 className="text-base font-black text-slate-800">Возврат к предыдущей задаче</h3>
+                    <p className="text-[11px] text-slate-600">Проверьте параметры перед подтверждением</p>
+                </div>
+            </div>
+            <div className="p-6 space-y-4">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                    <div><span className="font-bold text-slate-500">Текущая задача:</span> {currentStepTitle}</div>
+                    <div className="mt-1"><span className="font-bold text-slate-500">После возврата:</span> {prevStepTitle}</div>
+                </div>
+                <p className="text-xs text-slate-500 leading-relaxed">Система выполнит возврат на предыдущий шаг. Перед возвратом будут сохранены текущие изменения.</p>
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2">Статус задачи будет обновлен в соответствии с Workflow и записан в историю действий.</p>
+                <div className="flex gap-2">
+                    <Button variant="ghost" onClick={onCancel} className="flex-1 h-10" disabled={isLoading}>Отмена</Button>
+                    <Button onClick={onConfirm} className="flex-1 h-10 bg-amber-600 hover:bg-amber-700 text-white" disabled={isLoading}>
+                        {isLoading ? <Loader2 size={14} className="animate-spin mr-2"/> : <ArrowLeft size={14} className="mr-2"/>}
+                        Подтвердить возврат
+                    </Button>
+                </div>
+            </div>
+        </div>
+    </div>
+);
+
 // --- МОДАЛКА ЗАВЕРШЕНИЯ ЗАДАЧИ ---
 const CompleteTaskModal = ({ onCancel, onConfirm, message }) => (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -152,6 +184,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   // Состояния модалок
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
+  const [showRollbackConfirm, setShowRollbackConfirm] = useState(false);
   const [saveNotice, setSaveNotice] = useState({ open: false, status: 'saving', message: '', onOk: null });
   
   const [validationErrors, setValidationErrors] = useState([]);
@@ -320,16 +353,22 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       if (typeof callback === 'function') callback();
   };
 
-  const handleRollback = async () => {
-      if (!confirm("Вернуться на шаг назад?")) return;
+  const handleRollback = () => {
+      setShowRollbackConfirm(true);
+  };
+
+  const performRollback = async () => {
+      setShowRollbackConfirm(false);
       setIsLoading(true);
+      setSaveNotice({ open: true, status: 'saving', message: 'Возврат к предыдущей задаче...', onOk: null });
       try {
           const prevIndex = await rollbackTask();
+          setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
           toast.info("Возврат к предыдущей задаче");
           setCurrentStep(prevIndex);
       } catch (e) {
           console.error(e);
-          toast.error("Ошибка возврата");
+          setSaveNotice({ open: true, status: 'error', message: 'Ошибка возврата', onOk: () => setSaveNotice({ open: false, status: 'saving', message: '', onOk: null }) });
       } finally {
           setIsLoading(false);
       }
@@ -429,6 +468,16 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
                     message={confirmMsg}
                     onCancel={() => setShowCompleteConfirm(false)}
                     onConfirm={performCompletion}
+                />
+            )}
+
+            {showRollbackConfirm && (
+                <RollbackConfirmationModal
+                    currentStepTitle={STEPS_CONFIG[currentStep]?.title || 'Текущий шаг'}
+                    prevStepTitle={STEPS_CONFIG[Math.max(0, currentStep - 1)]?.title || 'Предыдущий шаг'}
+                    onCancel={() => setShowRollbackConfirm(false)}
+                    onConfirm={performRollback}
+                    isLoading={isLoading}
                 />
             )}
 

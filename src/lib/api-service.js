@@ -33,6 +33,32 @@ function mapDbTypeToUi(dbType) {
     return dbType;
 }
 
+function normalizeParkingTypeFromDb(parkingType) {
+    if (parkingType === 'aboveground') return 'ground';
+    return parkingType;
+}
+
+function normalizeParkingTypeToDb(parkingType) {
+    if (parkingType === 'ground') return 'aboveground';
+    return parkingType;
+}
+
+function normalizeParkingConstructionFromDb(constructionType) {
+    if (constructionType === 'separate' || constructionType === 'integrated') return 'capital';
+    return constructionType;
+}
+
+function sanitizeBuildingCategoryFields(buildingData = {}) {
+    const isParking = buildingData.category === 'parking_separate';
+    const isInfrastructure = buildingData.category === 'infrastructure';
+
+    return {
+        constructionType: isParking ? normalizeParkingConstructionFromDb(buildingData.constructionType || null) : null,
+        parkingType: isParking ? normalizeParkingTypeToDb(buildingData.parkingType || null) : null,
+        infraType: isInfrastructure ? (buildingData.infraType || null) : null
+    };
+}
+
 const normalizeDateInput = (value) => {
     if (value === '' || value === undefined) return null;
     return value;
@@ -747,8 +773,8 @@ const LegacyApiService = {
             dateStart: b.date_start || null,
             dateEnd: b.date_end || null,
             type: b.category, 
-            constructionType: b.construction_type,
-            parkingType: b.parking_type,
+            constructionType: normalizeParkingConstructionFromDb(b.construction_type),
+            parkingType: normalizeParkingTypeFromDb(b.parking_type),
             infraType: b.infra_type,
             hasNonResPart: b.has_non_res_part,
             cadastreNumber: b.cadastre_number,
@@ -765,6 +791,8 @@ const LegacyApiService = {
     },
 
     createBuilding: async (projectId, buildingData, blocksData) => {
+        const normalizedFields = sanitizeBuildingCategoryFields(buildingData);
+
         const { data: building, error: bError } = await supabase
             .from('buildings')
             .insert({
@@ -772,9 +800,9 @@ const LegacyApiService = {
                 label: buildingData.label,
                 house_number: buildingData.houseNumber,
                 category: buildingData.category,
-                construction_type: buildingData.constructionType || null,
-                parking_type: buildingData.parkingType || null,
-                infra_type: buildingData.infraType || null,
+                construction_type: normalizedFields.constructionType,
+                parking_type: normalizedFields.parkingType,
+                infra_type: normalizedFields.infraType,
                 has_non_res_part: buildingData.hasNonResPart || false,
             })
             .select()
@@ -803,14 +831,16 @@ const LegacyApiService = {
     },
 
     updateBuilding: async (buildingId, buildingData) => {
+        const normalizedFields = sanitizeBuildingCategoryFields(buildingData);
+
         const { data, error } = await supabase
             .from('buildings')
             .update({
                 label: buildingData.label,
                 house_number: buildingData.houseNumber,
-                construction_type: buildingData.constructionType,
-                parking_type: buildingData.parkingType,
-                infra_type: buildingData.infraType,
+                construction_type: normalizedFields.constructionType,
+                parking_type: normalizedFields.parkingType,
+                infra_type: normalizedFields.infraType,
                 has_non_res_part: buildingData.hasNonResPart
             })
             .eq('id', buildingId)
@@ -1632,8 +1662,8 @@ const LegacyApiService = {
                     id: row.id,
                     category: row.category,
                     houseNumber: row.house_number,
-                    parkingType: row.parking_type,
-                    constructionType: row.construction_type,
+                    parkingType: normalizeParkingTypeFromDb(row.parking_type),
+                    constructionType: normalizeParkingConstructionFromDb(row.construction_type),
                     blocks: blocksByBuilding[row.id] || []
                 };
                 return acc;

@@ -580,7 +580,7 @@ insert into dict_slab_types(code, label) values ('RC', 'Ж/Б') on conflict (cod
 insert into dict_roof_types(code, label) values ('FLAT', 'Плоская') on conflict (code) do nothing;
 insert into dict_light_structure_types(code, label) values ('STANDARD', 'Стандарт') on conflict (code) do nothing;
 insert into dict_parking_types(code, label) values ('underground', 'Подземный'), ('aboveground', 'Наземный') on conflict (code) do nothing;
-insert into dict_parking_construction_types(code, label) values ('separate', 'Отдельностоящий'), ('integrated', 'Встроенный') on conflict (code) do nothing;
+insert into dict_parking_construction_types(code, label) values ('capital', 'Капитальный'), ('light', 'Из легких конструкций'), ('open', 'Открытый') on conflict (code) do nothing;
 insert into dict_infra_types(code, label) values ('school', 'Школа'), ('kindergarten', 'Детский сад'), ('other', 'Другое') on conflict (code) do nothing;
 
 
