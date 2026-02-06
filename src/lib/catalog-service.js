@@ -13,7 +13,8 @@ export const CATALOG_TABLES = [
   'dict_parking_construction_types',
   'dict_infra_types',
   'dict_mop_types',
-  'dict_unit_types'
+  'dict_unit_types',
+  'dict_room_types'
 ];
 
 export const CatalogService = {
@@ -40,6 +41,7 @@ export const CatalogService = {
 
   async upsertCatalogItem(table, item) {
     const payload = {
+      ...item,
       id: item.id,
       code: item.code,
       label: item.label,

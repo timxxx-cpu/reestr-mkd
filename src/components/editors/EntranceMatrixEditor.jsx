@@ -54,7 +54,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     // 3. Данные (Этажи + Матрица)
     const { floors: rawFloors, updateFloor } = useDirectFloors(currentBlock?.id);
     // Фильтруем этажи (без стилобатов в этом виде)
-    const floors = useMemo(() => rawFloors.filter(f => !f.isStylobate), [rawFloors]);
+    const floors = useMemo(() => rawFloors.filter(f => !(f.isStylobate || f.flags?.isStylobate)), [rawFloors]);
 
     const { entrances, matrixMap, updateCell, syncEntrances } = useDirectMatrix(currentBlock?.id);
 

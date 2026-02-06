@@ -16,7 +16,8 @@ const TITLES = {
   dict_parking_construction_types: 'Конструкция паркинга',
   dict_infra_types: 'Типы инфраструктуры',
   dict_mop_types: 'Типы МОП',
-  dict_unit_types: 'Типы помещений'
+  dict_unit_types: 'Типы помещений',
+  dict_room_types: 'Типы комнат'
 };
 
 export default function CatalogsAdminPanel() {

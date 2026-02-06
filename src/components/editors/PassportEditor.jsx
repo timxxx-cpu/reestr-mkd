@@ -121,7 +121,7 @@ export default function PassportEditor() {
     setLocalCadastre((prev) => ({ ...prev, number: '11:05:04:02:0099', area: '2.5' }));
   };
 
-  const { options: projectStatusOptions } = useCatalog('dict_project_statuses', Object.keys(STATUS_CONFIG));
+  const { options: projectStatusOptions } = useCatalog('dict_project_statuses');
   const statusConfig = STATUS_CONFIG[localInfo.status] || STATUS_CONFIG['Проектный'];
   const StatusIcon = statusConfig?.icon || LayoutDashboard;
   const progress = calculateProgress(localInfo.dateStartProject, localInfo.dateEndProject);

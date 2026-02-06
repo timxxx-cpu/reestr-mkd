@@ -5,7 +5,7 @@ import {
   AlertCircle, Database, Zap, Trash2, ArrowRight,
   Layers, LogOut, Globe, CheckCircle2, Server // [NEW]
 } from 'lucide-react';
-import { ROLES, APP_STATUS, EXTERNAL_SYSTEMS, APP_STATUS_LABELS, STEPS_CONFIG } from '../lib/constants';
+import { ROLES, APP_STATUS, APP_STATUS_LABELS, STEPS_CONFIG } from '../lib/constants';
 import { useCatalog } from '../hooks/useCatalogs';
 import { Button, Input, Badge, Card, SectionTitle } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
@@ -84,7 +84,7 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
     const [searchTerm, setSearchTerm] = useState('');
     
     const toast = useToast();
-    const { options: externalSystemOptions } = useCatalog('dict_external_systems', Object.values(EXTERNAL_SYSTEMS).map(x => x.id));
+    const { options: externalSystemOptions } = useCatalog('dict_external_systems');
 
     const isAdmin = user.role === ROLES.ADMIN;
     const canViewInbox = isAdmin;
@@ -125,10 +125,8 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
             const randomId = Math.floor(1000 + Math.random() * 9000);
             
             // Выбор случайного источника
-            const sources = externalSystemOptions.length > 0
-                ? externalSystemOptions.map(s => ({ id: s.code, label: s.label }))
-                : Object.values(EXTERNAL_SYSTEMS);
-            const randomSource = sources[Math.floor(Math.random() * sources.length)];
+            const sources = externalSystemOptions.map(s => ({ id: s.code, label: s.label }));
+            const randomSource = sources[Math.floor(Math.random() * sources.length)] || { id: 'UNKNOWN', label: 'Неизвестный источник' };
             
             const newApp = {
                 id: `APP-${Date.now()}`,
