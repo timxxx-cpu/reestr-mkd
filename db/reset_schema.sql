@@ -171,6 +171,7 @@ create table building_blocks (
   vehicle_entries int default 0,
   levels_depth int default 0,
   light_structure_type text,
+  parent_blocks uuid[],
   has_basement boolean default false,
   has_attic boolean default false,
   has_loft boolean default false,

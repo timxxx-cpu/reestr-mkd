@@ -54,23 +54,12 @@ export default function StandardView({ building, mode }) {
     });
 
     useEffect(() => {
-        if (visibleBlocks.length > 0) {
-            setActiveTabId(visibleBlocks[0].id);
-        } else {
-            setActiveTabId('photo');
-        }
-    }, [building.id, visibleBlocks]); 
-
-    useEffect(() => {
-        const isActiveValid = activeTabId === 'photo' || visibleBlocks.some(b => b.id === activeTabId);
-        if (!isActiveValid) {
-            if (visibleBlocks.length > 0) {
-                setActiveTabId(visibleBlocks[0].id);
-            } else {
-                setActiveTabId('photo');
-            }
-        }
-    }, [visibleBlocks, activeTabId]);
+        setActiveTabId((prev) => {
+            const isActiveValid = prev === 'photo' || visibleBlocks.some(b => b.id === prev);
+            if (isActiveValid) return prev;
+            return visibleBlocks.length > 0 ? visibleBlocks[0].id : 'photo';
+        });
+    }, [visibleBlocks]);
 
     const currentBlock = blocksList.find(b => b.id === activeTabId);
     
