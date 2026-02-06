@@ -11,6 +11,7 @@ import { useDirectUnits } from '../../hooks/api/useDirectUnits'; // [NEW] Для
 import { useBuildingType } from '../../hooks/useBuildingType';
 import { Card, DebouncedInput, useReadOnly } from '../ui/UIKit';
 import { UnitSchema } from '../../lib/schemas';
+import { ApiService } from '../../lib/api-service';
 import ConfigHeader from './configurator/ConfigHeader';
 import { formatBlockSwitcherLabel } from '../../lib/building-details';
 
@@ -38,6 +39,29 @@ const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
     </button>
 );
 
+
+const isLinkedStylobateFloor = (floor) => {
+    if (!floor) return false;
+
+    const explicitStylobate =
+        !!floor.isStylobate ||
+        !!floor.flags?.isStylobate ||
+        floor.type === 'stylobate' ||
+        floor.floorKey === 'stylobate' ||
+        String(floor.floorKey || '').includes('stylobate');
+
+    if (explicitStylobate) return true;
+
+    const isExcluded =
+        !!floor.flags?.isBasement ||
+        !!floor.flags?.isRoof ||
+        !!floor.flags?.isLoft ||
+        !!floor.flags?.isAttic ||
+        ['basement', 'roof', 'loft', 'attic', 'parking_floor'].includes(floor.type);
+
+    return !isExcluded && (Number(floor.index) || 0) > 0;
+};
+
 const getBlockIcon = (type) => {
     if (type === 'residential') return Building2;
     if (type === 'parking') return Car;
@@ -62,8 +86,48 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
     // 3. Hooks Data
     const { floors: rawFloors } = useDirectFloors(currentBlock?.id);
+    const [linkedStylobateFloors, setLinkedStylobateFloors] = useState([]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadLinkedStylobateFloors = async () => {
+            if (!building?.blocks?.length || !currentBlock?.id || currentBlock.type !== 'residential') {
+                if (!cancelled) setLinkedStylobateFloors([]);
+                return;
+            }
+
+            const linkedStylobateBlocks = building.blocks.filter((block) => {
+                if (block.type !== 'non_residential') return false;
+                const detailsKey = `${building.id}_${block.id}`;
+                const details = buildingDetails?.[detailsKey] || {};
+                return Array.isArray(details.parentBlocks) && details.parentBlocks.includes(currentBlock.id);
+            });
+
+            if (linkedStylobateBlocks.length === 0) {
+                if (!cancelled) setLinkedStylobateFloors([]);
+                return;
+            }
+
+            try {
+                const floorsByBlock = await Promise.all(linkedStylobateBlocks.map((block) => ApiService.getFloors(block.id)));
+                const stylobateFloors = floorsByBlock.flat().filter((floor) => isLinkedStylobateFloor(floor));
+                if (!cancelled) setLinkedStylobateFloors(stylobateFloors);
+            } catch (e) {
+                console.error('Failed to load linked stylobate floors for apartments', e);
+                if (!cancelled) setLinkedStylobateFloors([]);
+            }
+        };
+
+        loadLinkedStylobateFloors();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [building, buildingDetails, currentBlock]);
+    const linkedStylobateFloorIds = useMemo(() => linkedStylobateFloors.map((f) => f.id).filter(Boolean), [linkedStylobateFloors]);
     const { entrances, matrixMap } = useDirectMatrix(currentBlock?.id);
-    const { units, upsertUnit, batchUpsertUnits } = useDirectUnits(currentBlock?.id);
+    const { units, upsertUnit, batchUpsertUnits } = useDirectUnits(currentBlock?.id, linkedStylobateFloorIds);
 
     // 4. Local State
     const [startNum, setStartNum] = useState(1);
@@ -83,18 +147,23 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     // Фильтруем этажи, на которых есть квартиры (согласно матрице подъездов)
     // ИЛИ этажи, которые являются дуплексными
     const floors = useMemo(() => {
-        if (!rawFloors) return [];
-        return rawFloors.filter(f => !f.isStylobate).filter(f => {
-            // Если этаж дуплексный - показываем
-            if (f.isDuplex) return true;
-            // Иначе проверяем, есть ли там квартиры по матрице
-            return entrances.some(e => {
-                const matrixKey = `${f.id}_${e.number}`;
-                const count = matrixMap[matrixKey]?.apts || 0;
-                return count > 0;
-            });
-        });
-    }, [rawFloors, entrances, matrixMap]);
+        const mergedFloors = [...(rawFloors || []), ...linkedStylobateFloors];
+        const uniqueFloors = Array.from(new Map(mergedFloors.map((floor) => [floor.id, floor])).values());
+
+        return uniqueFloors
+            .filter((floor) => !floor?.isStylobate && !floor?.flags?.isStylobate)
+            .filter((floor) => {
+                // Если этаж дуплексный - показываем
+                if (floor.isDuplex) return true;
+                // Иначе проверяем, есть ли там квартиры по матрице
+                return entrances.some((e) => {
+                    const matrixKey = `${floor.id}_${e.number}`;
+                    const count = matrixMap[matrixKey]?.apts || 0;
+                    return count > 0;
+                });
+            })
+            .sort((a, b) => (Number(a.index) || 0) - (Number(b.index) || 0));
+    }, [rawFloors, linkedStylobateFloors, entrances, matrixMap]);
 
     // Маппинг юнитов для быстрого доступа: [floorId][entranceId][index] -> Unit
     // ВАЖНО: В БД юниты не имеют "индекса на площадке". Нам нужно их отсортировать (по номеру) и сопоставить.
@@ -106,18 +175,10 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
             map[u.floorId][u.entranceId].push(u);
         });
 
-        // Сортируем внутри каждой группы
-        Object.values(map).forEach(floorGroup => {
-            Object.values(floorGroup).forEach(list => {
-                list.sort((a, b) => {
-                    // Пытаемся сортировать по номеру квартиры
-                    const numA = parseInt(a.num);
-                    const numB = parseInt(b.num);
-                    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-                    return String(a.num).localeCompare(String(b.num));
-                });
-            });
-        });
+        // ВАЖНО: не сортируем по номеру квартиры.
+        // Номер меняется во время ввода, и сортировка приводит к "прыжкам" позиций
+        // (одна и та же визуальная ячейка начинает ссылаться на другой unit).
+        // Сохраняем стабильный порядок, пришедший из API (ordered by created_at).
         return map;
     }, [units]);
 
@@ -427,7 +488,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
                                                             return (
                                                                 <div 
-                                                                    key={i} 
+                                                                    key={cellKey} 
                                                                     onClick={() => isSelectionMode && !isReadOnly && toggleSelection(a)}
                                                                     className={`
                                                                         flex flex-col gap-1 p-1.5 border-2 rounded-lg w-[68px] text-center transition-all shadow-sm relative group

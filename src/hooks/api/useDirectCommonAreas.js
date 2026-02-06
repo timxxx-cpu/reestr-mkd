@@ -2,15 +2,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiService } from '../../lib/api-service';
 import { useToast } from '../../context/ToastContext';
 
-export function useDirectCommonAreas(blockId) {
+export function useDirectCommonAreas(blockId, floorIds = []) {
     const queryClient = useQueryClient();
     const toast = useToast();
-    const queryKey = ['direct-mop', blockId];
+    const normalizedFloorIds = Array.isArray(floorIds) ? [...new Set(floorIds.filter(Boolean))].sort() : [];
+    const queryKey = ['direct-mop', blockId, normalizedFloorIds];
 
     // --- READ ---
     const { data: mops = [], isLoading } = useQuery({
         queryKey,
-        queryFn: () => ApiService.getCommonAreas(blockId),
+        queryFn: () => ApiService.getCommonAreas(blockId, { floorIds: normalizedFloorIds }),
         enabled: !!blockId,
     });
 
@@ -67,7 +68,7 @@ export function useDirectCommonAreas(blockId) {
     });
 
     const clearAllMutation = useMutation({
-        mutationFn: () => ApiService.clearCommonAreas(blockId),
+        mutationFn: () => ApiService.clearCommonAreas(blockId, { floorIds: normalizedFloorIds }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey });
             toast.success("Все данные МОП очищены");

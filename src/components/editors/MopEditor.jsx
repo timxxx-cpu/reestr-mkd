@@ -13,6 +13,7 @@ import { Card, DebouncedInput, useReadOnly } from '../ui/UIKit';
 import ConfigHeader from './configurator/ConfigHeader';
 import { useCatalog } from '../../hooks/useCatalogs';
 import { MopItemSchema } from '../../lib/schemas';
+import { ApiService } from '../../lib/api-service';
 import { formatBlockSwitcherLabel } from '../../lib/building-details';
 
 
@@ -31,6 +32,30 @@ const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
         {children}
     </button>
 );
+
+
+
+const isLinkedStylobateFloor = (floor) => {
+    if (!floor) return false;
+
+    const explicitStylobate =
+        !!floor.isStylobate ||
+        !!floor.flags?.isStylobate ||
+        floor.type === 'stylobate' ||
+        floor.floorKey === 'stylobate' ||
+        String(floor.floorKey || '').includes('stylobate');
+
+    if (explicitStylobate) return true;
+
+    const isExcluded =
+        !!floor.flags?.isBasement ||
+        !!floor.flags?.isRoof ||
+        !!floor.flags?.isLoft ||
+        !!floor.flags?.isAttic ||
+        ['basement', 'roof', 'loft', 'attic', 'parking_floor'].includes(floor.type);
+
+    return !isExcluded && (Number(floor.index) || 0) > 0;
+};
 
 const getBlockIcon = (type) => {
     if (type === 'residential') return Building2;
@@ -56,8 +81,49 @@ export default function MopEditor({ buildingId, onBack }) {
 
     // 2. Data Hooks
     const { floors: rawFloors } = useDirectFloors(currentBlock?.id);
+    const [linkedStylobateFloors, setLinkedStylobateFloors] = useState([]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadLinkedStylobateFloors = async () => {
+            if (!building?.blocks?.length || !currentBlock?.id || currentBlock.type !== 'residential') {
+                if (!cancelled) setLinkedStylobateFloors([]);
+                return;
+            }
+
+            const linkedStylobateBlocks = building.blocks.filter((block) => {
+                if (block.type !== 'non_residential') return false;
+                const detailsKey = `${building.id}_${block.id}`;
+                const details = buildingDetails?.[detailsKey] || {};
+                return Array.isArray(details.parentBlocks) && details.parentBlocks.includes(currentBlock.id);
+            });
+
+            if (linkedStylobateBlocks.length === 0) {
+                if (!cancelled) setLinkedStylobateFloors([]);
+                return;
+            }
+
+            try {
+                const floorsByBlock = await Promise.all(linkedStylobateBlocks.map((block) => ApiService.getFloors(block.id)));
+                const stylobateFloors = floorsByBlock.flat().filter((floor) => isLinkedStylobateFloor(floor));
+                if (!cancelled) setLinkedStylobateFloors(stylobateFloors);
+            } catch (e) {
+                console.error('Failed to load linked stylobate floors for mop', e);
+                if (!cancelled) setLinkedStylobateFloors([]);
+            }
+        };
+
+        loadLinkedStylobateFloors();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [building, buildingDetails, currentBlock]);
+
+    const linkedStylobateFloorIds = useMemo(() => linkedStylobateFloors.map((f) => f.id).filter(Boolean), [linkedStylobateFloors]);
     const { entrances, matrixMap } = useDirectMatrix(currentBlock?.id);
-    const { mops, upsertMop, clearAllMops } = useDirectCommonAreas(currentBlock?.id);
+    const { mops, upsertMop, clearAllMops } = useDirectCommonAreas(currentBlock?.id, linkedStylobateFloorIds);
     const { options: mopTypeOptions } = useCatalog('dict_mop_types');
 
     const mopLabelByCode = useMemo(() => {
@@ -74,17 +140,21 @@ export default function MopEditor({ buildingId, onBack }) {
 
     // 3. Logic
     const floors = useMemo(() => {
-        // Фильтруем этажи, где есть МОПы по матрице
-        if (!rawFloors) return [];
-        return rawFloors.filter(f => !f.isStylobate).filter(f => {
-            // Показываем этаж, если хотя бы в одном подъезде задано кол-во МОП > 0
-            return entrances.some(e => {
-                const key = `${f.id}_${e.number}`;
-                const qty = parseInt(matrixMap[key]?.mopQty || 0);
-                return qty > 0;
-            });
-        });
-    }, [rawFloors, entrances, matrixMap]);
+        const mergedFloors = [...(rawFloors || []), ...linkedStylobateFloors];
+        const uniqueFloors = Array.from(new Map(mergedFloors.map((floor) => [floor.id, floor])).values());
+
+        return uniqueFloors
+            .filter((f) => !f?.isStylobate && !f?.flags?.isStylobate)
+            .filter((f) => {
+                // Показываем этаж, если хотя бы в одном подъезде задано кол-во МОП > 0
+                return entrances.some((e) => {
+                    const key = `${f.id}_${e.number}`;
+                    const qty = parseInt(matrixMap[key]?.mopQty || 0);
+                    return qty > 0;
+                });
+            })
+            .sort((a, b) => (Number(a.index) || 0) - (Number(b.index) || 0));
+    }, [rawFloors, linkedStylobateFloors, entrances, matrixMap]);
 
     // Группировка МОП для рендера [floorId][entranceId] -> Array<Mop>
     const mopGrid = useMemo(() => {
