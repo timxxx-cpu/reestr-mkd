@@ -8,6 +8,11 @@ import { useProject } from '../../context/ProjectContext';
 import { useDirectIntegration } from '../../hooks/api/useDirectIntegration';
 import { Card, Button, Badge, useReadOnly, TabButton } from '../ui/UIKit';
 import { useToast } from '../../context/ToastContext';
+import {
+    createVirtualApartmentCadastre,
+    createVirtualCommercialCadastre,
+    createVirtualParkingCadastre
+} from '../../lib/cadastre';
 
 const SYNC_STATUS = {
     IDLE: 'IDLE',
@@ -106,9 +111,10 @@ export default function IntegrationUnits() {
 
         for (const obj of allObjects) {
             if (!obj.cadastreNumber) {
-                const uniquePart = Math.floor(100000 + Math.random() * 900000);
-                const generatedCadastre = `11:05:04:02:0077:${obj.category === 'parking' ? 'P:' : ''}${uniquePart}`;
-                
+                let generatedCadastre = createVirtualCommercialCadastre();
+                if (obj.category === 'living') generatedCadastre = createVirtualApartmentCadastre();
+                if (obj.category === 'parking') generatedCadastre = createVirtualParkingCadastre();
+
                 promises.push(setUnitCadastre({ id: obj.id, cadastre: generatedCadastre }));
                 processedCount++;
             }
