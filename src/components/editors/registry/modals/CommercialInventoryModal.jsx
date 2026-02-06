@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Trash2, Plus, Copy } from 'lucide-react';
 import { Input, Select, useReadOnly } from '../../../ui/UIKit';
@@ -14,6 +14,11 @@ export default function CommercialInventoryModal({ unit, unitsList = [], buildin
     // Используем explication (комнаты из БД)
     const [rooms, setRooms] = useState(unit.explication || []); 
     const [copySourceNum, setCopySourceNum] = useState(''); 
+
+    useEffect(() => {
+        setRooms(unit.explication || []);
+        setCopySourceNum('');
+    }, [unit.id, unit.explication]);
 
     const { data: roomTypesRows = [] } = useQuery({
         queryKey: ['catalog', 'dict_room_types', 'commercial'],

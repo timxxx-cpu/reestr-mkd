@@ -9,7 +9,13 @@ import {
   Wand2,
   Building,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Users,
+  Plus,
+  Trash2,
+  Briefcase,
+  UserCog,
+  Landmark
 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { useDirectProjectInfo } from '../../hooks/api/useDirectProjectInfo';
@@ -24,6 +30,12 @@ const STATUS_CONFIG = {
   'Введенный': { color: 'bg-emerald-500', text: 'Объект сдан', icon: CheckCircle2 }
 };
 
+const PARTICIPANT_ROLES = [
+  { key: 'developer', label: 'Застройщик', icon: Briefcase },
+  { key: 'contractor', label: 'Подрядчик', icon: UserCog },
+  { key: 'customer', label: 'Заказчик', icon: Landmark }
+];
+
 export default function PassportEditor() {
   const { projectId } = useProject();
   const isReadOnly = useReadOnly();
@@ -31,8 +43,13 @@ export default function PassportEditor() {
   const {
     complexInfo,
     cadastre,
+    participants,
+    documents,
     isLoading,
     updateProjectInfo,
+    updateParticipant,
+    upsertDocument,
+    deleteDocument,
     isSaving
   } = useDirectProjectInfo(projectId);
 
@@ -55,6 +72,8 @@ export default function PassportEditor() {
     area: ''
   });
 
+  const [participantDrafts, setParticipantDrafts] = useState({});
+  const [newDoc, setNewDoc] = useState({ name: '', type: '', number: '', date: '', url: '' });
   const [isInitialDataLoaded, setIsInitialDataLoaded] = useState(false);
 
   useEffect(() => {
@@ -81,15 +100,17 @@ export default function PassportEditor() {
         setLocalCadastre((prev) => ({
           ...prev,
           ...safeCadastre,
-          number: safeCadastre.number || '',
-          address: safeCadastre.address || '',
-          area: safeCadastre.area || ''
+          number: safeCadastre.number || ''
         }));
       }
 
       setIsInitialDataLoaded(true);
     }
   }, [complexInfo, cadastre, isLoading, isInitialDataLoaded]);
+
+  useEffect(() => {
+    setParticipantDrafts(participants || {});
+  }, [participants]);
 
   useEffect(() => {
     if (!isInitialDataLoaded || isReadOnly) return;
@@ -106,6 +127,27 @@ export default function PassportEditor() {
 
   const handleManualSave = async () => {
     await updateProjectInfo({ info: localInfo, cadastreData: localCadastre });
+  };
+
+  const handleParticipantChange = (role, field, value) => {
+    setParticipantDrafts((prev) => ({
+      ...prev,
+      [role]: {
+        ...(prev[role] || {}),
+        role,
+        [field]: value
+      }
+    }));
+  };
+
+  const handleParticipantSave = async (role) => {
+    await updateParticipant({ role, data: participantDrafts[role] || {} });
+  };
+
+  const handleAddDocument = async () => {
+    if (!newDoc.name?.trim()) return;
+    await upsertDocument(newDoc);
+    setNewDoc({ name: '', type: '', number: '', date: '', url: '' });
   };
 
   const autoFill = () => {
@@ -162,23 +204,18 @@ export default function PassportEditor() {
                 <Wand2 size={15} className="mr-1" />
                 Автозаполнение
               </Button>
-
-              <Button
-                onClick={handleManualSave}
-                disabled={isReadOnly || isSaving}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                {isSaving ? <Loader2 size={15} className="animate-spin mr-1" /> : <Save size={15} className="mr-1" />}
+              <Button onClick={handleManualSave} disabled={isReadOnly || isSaving} className="bg-blue-500 hover:bg-blue-400 text-white">
+                {isSaving ? <Loader2 size={14} className="animate-spin mr-1" /> : <Save size={14} className="mr-1" />}
                 Сохранить
               </Button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="rounded-2xl border border-white/15 bg-white/5 p-4">
-              <div className="text-xs text-slate-300 mb-2">Статус проекта</div>
+              <div className="text-xs text-slate-300 mb-2">Статус</div>
               <div className="flex items-center gap-2">
-                <span className={`h-2.5 w-2.5 rounded-full ${statusConfig.color}`} />
+                <span className={`w-2.5 h-2.5 rounded-full ${statusConfig.color}`} />
                 <StatusIcon size={16} className="text-blue-200" />
                 <select
                   value={localInfo.status || 'Проектный'}
@@ -219,30 +256,15 @@ export default function PassportEditor() {
               <div className="space-y-4">
                 <div>
                   <Label>Наименование</Label>
-                  <Input
-                    value={localInfo.name}
-                    onChange={(e) => handleInfoChange('name', e.target.value)}
-                    placeholder="Название ЖК"
-                    disabled={isReadOnly}
-                  />
+                  <Input value={localInfo.name} onChange={(e) => handleInfoChange('name', e.target.value)} placeholder="Название ЖК" disabled={isReadOnly} />
                 </div>
                 <div>
                   <Label>Кадастровый номер</Label>
-                  <Input
-                    value={localCadastre.number}
-                    onChange={(e) => handleCadastreChange('number', e.target.value)}
-                    placeholder="00:00:00:00:0000"
-                    disabled={isReadOnly}
-                  />
+                  <Input value={localCadastre.number} onChange={(e) => handleCadastreChange('number', e.target.value)} placeholder="00:00:00:00:0000" disabled={isReadOnly} />
                 </div>
                 <div>
                   <Label>Адрес</Label>
-                  <Input
-                    value={localInfo.street}
-                    onChange={(e) => handleInfoChange('street', e.target.value)}
-                    placeholder="Улица, дом"
-                    disabled={isReadOnly}
-                  />
+                  <Input value={localInfo.street} onChange={(e) => handleInfoChange('street', e.target.value)} placeholder="Улица, дом" disabled={isReadOnly} />
                 </div>
               </div>
 
@@ -271,52 +293,103 @@ export default function PassportEditor() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Начало (План)</Label>
-                  <Input
-                    type="date"
-                    value={localInfo.dateStartProject || ''}
-                    onChange={(e) => handleInfoChange('dateStartProject', e.target.value)}
-                    disabled={isReadOnly}
-                    className="text-xs"
-                  />
+                  <Input type="date" value={localInfo.dateStartProject || ''} onChange={(e) => handleInfoChange('dateStartProject', e.target.value)} disabled={isReadOnly} className="text-xs" />
                 </div>
                 <div>
                   <Label>Окончание (План)</Label>
-                  <Input
-                    type="date"
-                    value={localInfo.dateEndProject || ''}
-                    onChange={(e) => handleInfoChange('dateEndProject', e.target.value)}
-                    disabled={isReadOnly}
-                    className="text-xs"
-                  />
+                  <Input type="date" value={localInfo.dateEndProject || ''} onChange={(e) => handleInfoChange('dateEndProject', e.target.value)} disabled={isReadOnly} className="text-xs" />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3 pt-4 border-t border-slate-100">
                 <div>
                   <Label className="text-slate-400">Начало (Факт)</Label>
-                  <Input
-                    type="date"
-                    value={localInfo.dateStartFact || ''}
-                    onChange={(e) => handleInfoChange('dateStartFact', e.target.value)}
-                    disabled={isReadOnly}
-                    className="text-xs bg-slate-50"
-                  />
+                  <Input type="date" value={localInfo.dateStartFact || ''} onChange={(e) => handleInfoChange('dateStartFact', e.target.value)} disabled={isReadOnly} className="text-xs bg-slate-50" />
                 </div>
                 <div>
                   <Label className="text-slate-400">Окончание (Факт)</Label>
-                  <Input
-                    type="date"
-                    value={localInfo.dateEndFact || ''}
-                    onChange={(e) => handleInfoChange('dateEndFact', e.target.value)}
-                    disabled={isReadOnly}
-                    className="text-xs bg-slate-50"
-                  />
+                  <Input type="date" value={localInfo.dateEndFact || ''} onChange={(e) => handleInfoChange('dateEndFact', e.target.value)} disabled={isReadOnly} className="text-xs bg-slate-50" />
                 </div>
               </div>
             </div>
           </Card>
         </div>
       </div>
+
+      <Card className="p-6 shadow-sm">
+        <SectionTitle icon={Users}>Участники проекта</SectionTitle>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+          {PARTICIPANT_ROLES.map((roleItem) => {
+            const { key, label } = roleItem;
+            const row = participantDrafts[key] || { role: key, name: '', inn: '' };
+            return (
+              <div key={key} className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                  {React.createElement(roleItem.icon, { size: 14, className: 'text-blue-600' })} {label}
+                </div>
+                <div>
+                  <Label>Наименование</Label>
+                  <Input value={row.name || ''} onChange={(e) => handleParticipantChange(key, 'name', e.target.value)} disabled={isReadOnly} />
+                </div>
+                <div>
+                  <Label>ИНН</Label>
+                  <Input value={row.inn || ''} onChange={(e) => handleParticipantChange(key, 'inn', e.target.value)} disabled={isReadOnly} />
+                </div>
+                <Button onClick={() => handleParticipantSave(key)} disabled={isReadOnly || isSaving} className="w-full bg-slate-900 text-white hover:bg-slate-800">
+                  <Save size={14} className="mr-2" /> Сохранить
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      <Card className="p-6 shadow-sm">
+        <SectionTitle icon={FileText}>Документы проекта</SectionTitle>
+        <div className="overflow-x-auto mt-4 border border-slate-200 rounded-xl">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
+              <tr>
+                <th className="p-3 text-left">Название</th>
+                <th className="p-3 text-left">Тип</th>
+                <th className="p-3 text-left">Номер</th>
+                <th className="p-3 text-left">Дата</th>
+                <th className="p-3 text-left">URL</th>
+                <th className="p-3 text-left">Действия</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(documents || []).map((doc) => (
+                <tr key={doc.id} className="border-t border-slate-100">
+                  <td className="p-3">{doc.name}</td>
+                  <td className="p-3">{doc.type || '-'}</td>
+                  <td className="p-3">{doc.number || '-'}</td>
+                  <td className="p-3">{doc.date || '-'}</td>
+                  <td className="p-3 truncate max-w-[260px]">{doc.url || '-'}</td>
+                  <td className="p-3">
+                    <button onClick={() => deleteDocument(doc.id)} disabled={isReadOnly} className="px-2 py-1 rounded border text-red-600 border-red-200 hover:bg-red-50 disabled:opacity-50">
+                      <Trash2 size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+
+              <tr className="border-t border-slate-200 bg-slate-50/70">
+                <td className="p-2"><Input value={newDoc.name} onChange={(e) => setNewDoc((d) => ({ ...d, name: e.target.value }))} placeholder="Название документа" disabled={isReadOnly} /></td>
+                <td className="p-2"><Input value={newDoc.type} onChange={(e) => setNewDoc((d) => ({ ...d, type: e.target.value }))} placeholder="Тип" disabled={isReadOnly} /></td>
+                <td className="p-2"><Input value={newDoc.number} onChange={(e) => setNewDoc((d) => ({ ...d, number: e.target.value }))} placeholder="Номер" disabled={isReadOnly} /></td>
+                <td className="p-2"><Input type="date" value={newDoc.date} onChange={(e) => setNewDoc((d) => ({ ...d, date: e.target.value }))} disabled={isReadOnly} /></td>
+                <td className="p-2"><Input value={newDoc.url} onChange={(e) => setNewDoc((d) => ({ ...d, url: e.target.value }))} placeholder="https://..." disabled={isReadOnly} /></td>
+                <td className="p-2">
+                  <Button onClick={handleAddDocument} disabled={isReadOnly || !newDoc.name.trim()} className="bg-blue-600 text-white hover:bg-blue-500 whitespace-nowrap">
+                    <Plus size={14} className="mr-2" /> Добавить
+                  </Button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
 }

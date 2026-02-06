@@ -1,4 +1,4 @@
-import { WORKFLOW_STAGES } from './constants';
+import { WORKFLOW_STAGES } from './constants.js';
 
 /**
  * Определяет номер этапа на основе индекса шага.

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Save, CheckCircle2, LogOut, ArrowRight, Loader2, 
   ArrowLeft, Send, History, ThumbsUp, XCircle, ShieldCheck,
@@ -142,7 +142,8 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       reviewStage, 
       isReadOnly,
       hasUnsavedChanges,
-      getValidationSnapshot
+      getValidationSnapshot,
+      refetch
   } = projectContext;
   
   const toast = useToast();
@@ -154,6 +155,22 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   const [saveNotice, setSaveNotice] = useState({ open: false, status: 'saving', message: '', onOk: null });
   
   const [validationErrors, setValidationErrors] = useState([]);
+  const [isTaskSwitchBlocking, setIsTaskSwitchBlocking] = useState(false);
+  const [pendingStepTarget, setPendingStepTarget] = useState(null);
+
+  useEffect(() => {
+      if (!isTaskSwitchBlocking) return;
+      if (pendingStepTarget === null) return;
+      if (currentStep !== pendingStepTarget) return;
+
+      // Даем React дорендерить следующий экран шага, затем снимаем блокировку кликов.
+      requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+              setIsTaskSwitchBlocking(false);
+              setPendingStepTarget(null);
+          });
+      });
+  }, [isTaskSwitchBlocking, pendingStepTarget, currentStep]);
 
   if (!applicationInfo) return null;
 
@@ -239,13 +256,17 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       setSaveNotice({ open: true, status: 'saving', message: 'Сохранение и проверка данных перед завершением...', onOk: null });
 
       try {
-          await saveProjectImmediate();
-          // Даем React применить обновленный контекст после refetch,
-          // чтобы валидация увидела свежие данные текущего шага.
-          await new Promise(resolve => setTimeout(resolve, 0));
+          // Сначала сохраняем локальные pending-изменения в БД без промежуточного refetch.
+          await saveProjectImmediate({ shouldRefetch: false });
+
+          // Затем принудительно берем свежий снимок из БД и валидируем именно его,
+          // чтобы не требовался ручной refresh страницы.
+          const refetchResult = await refetch();
+          const dbSnapshot = refetchResult?.data;
 
           const currentStepId = STEPS_CONFIG[currentStep]?.id;
-          const validationData = typeof getValidationSnapshot === 'function' ? getValidationSnapshot() : projectContext;
+          const fallbackSnapshot = typeof getValidationSnapshot === 'function' ? getValidationSnapshot() : projectContext;
+          const validationData = dbSnapshot || fallbackSnapshot;
           const errors = validateStepCompletion(currentStepId, validationData);
 
           setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
@@ -277,11 +298,15 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
               toast.success('Этап завершен. Отправлено на проверку.');
               onExit(true); // Авто-выход на рабочий стол
           } else {
+              setIsTaskSwitchBlocking(true);
+              setPendingStepTarget(nextIndex);
               toast.success('Задача выполнена.');
               setCurrentStep(nextIndex); // Авто-переход на след шаг
           }
       } catch (e) {
           console.error(e);
+          setIsTaskSwitchBlocking(false);
+          setPendingStepTarget(null);
           setSaveNotice({ open: true, status: 'error', message: 'Ошибка: запись не произведена.', onOk: () => setSaveNotice({ ...saveNotice, open: false }) });
       } finally {
           setIsLoading(false);
@@ -413,6 +438,18 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
                     message={saveNotice.message}
                     onOk={handleSaveNoticeOk}
                 />
+            )}
+
+            {isTaskSwitchBlocking && (
+                <div className="fixed inset-0 z-[140] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center pointer-events-auto">
+                    <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 px-6 py-5 flex items-center gap-3">
+                        <Loader2 size={18} className="animate-spin text-blue-600" />
+                        <div>
+                            <div className="text-sm font-bold text-slate-800">Переход к следующей задаче</div>
+                            <div className="text-xs text-slate-500">Пожалуйста, подождите. Экран временно заблокирован.</div>
+                        </div>
+                    </div>
+                </div>
             )}
 
             <div className="bg-slate-900 border-b border-slate-800 px-8 py-4 flex items-center justify-between sticky top-0 z-30 shadow-xl shadow-slate-900/10 animate-in slide-in-from-top-2 text-white">

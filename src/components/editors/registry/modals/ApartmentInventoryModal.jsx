@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Trash2, Plus, Copy } from 'lucide-react';
 import { Input, Select, useReadOnly } from '../../../ui/UIKit';
@@ -22,6 +22,11 @@ export default function ApartmentInventoryModal({ unit, unitsList = [], building
     // Используем explication для хранения комнат
     const [rooms, setRooms] = useState(unit.explication || []); 
     const [copySourceNum, setCopySourceNum] = useState(''); 
+
+    useEffect(() => {
+        setRooms(unit.explication || []);
+        setCopySourceNum('');
+    }, [unit.id, unit.explication]);
     
     const isDuplex = ['duplex_up', 'duplex_down'].includes(unit.type);
 
