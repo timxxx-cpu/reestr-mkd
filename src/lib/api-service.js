@@ -13,6 +13,7 @@ import { floorKeyToVirtualId, SPECIAL_FLOOR_IDS } from './model-keys';
 import { createProjectApi } from './api/project-api';
 import { createWorkflowApi } from './api/workflow-api';
 import { createRegistryApi } from './api/registry-api';
+import { normalizeProjectStatusFromDb, normalizeProjectStatusToDb } from './project-status';
 
 // ... (Оставляем существующие функции mapBuildingToDb, mapBlockToDb, mapBlockTypeToDb, mapDbTypeToUi без изменений) ...
 
@@ -217,7 +218,7 @@ const LegacyApiService = {
                 id: project.id,
                 applicationId: app?.id || null,
                 name: project.name || 'Без названия',
-                status: project.construction_status,
+                status: normalizeProjectStatusFromDb(project.construction_status),
                 lastModified: app?.updated_at || project.updated_at,
 
                 applicationInfo: {
@@ -272,7 +273,7 @@ const LegacyApiService = {
                 name: appData.applicant ? `ЖК от ${appData.applicant}` : 'Новый проект',
                 address: appData.address,
                 cadastre_number: appData.cadastre,
-                construction_status: 'Проектный'
+                construction_status: normalizeProjectStatusToDb('Проектный')
             })
             .select()
             .single();
@@ -544,7 +545,7 @@ const LegacyApiService = {
                     blockId: floorCtx.blockId,
                     buildingId: floorCtx.buildingId,
                     floorId: row.floor_id,
-                    entranceId: entranceNumberById[row.entrance_id] || null,
+                    entranceId: row.entrance_id || null,
                     entranceIndex: entranceNumberById[row.entrance_id] || null,
                     num: row.number,
                     number: row.number,
@@ -656,7 +657,7 @@ const LegacyApiService = {
         return {
             complexInfo: {
                 name: project.name,
-                status: project.construction_status,
+                status: normalizeProjectStatusFromDb(project.construction_status),
                 region: project.region,
                 district: project.district,
                 street: project.address,
@@ -708,7 +709,7 @@ const LegacyApiService = {
 
         const payload = {
             name: info.name,
-            construction_status: info.status,
+            construction_status: normalizeProjectStatusToDb(info.status),
             region: info.region,
             district: info.district,
             address: info.street,
@@ -1311,7 +1312,7 @@ const LegacyApiService = {
             const ci = generalData.complexInfo;
             promises.push(supabase.from('projects').update({
                 name: ci.name,
-                construction_status: ci.status,
+                construction_status: normalizeProjectStatusToDb(ci.status),
                 region: ci.region,
                 district: ci.district,
                 address: ci.street,

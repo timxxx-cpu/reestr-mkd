@@ -520,12 +520,12 @@ const validateApartments = (data) => {
 
                 const relevantUnits = Object.values(flatMatrix).filter((u) => {
                     if (u.blockId !== block.id) return false;
-                    if (parseInt(u.entranceId, 10) !== entranceNumber) return false;
+                    if (Number(u.entranceIndex || 0) !== entranceNumber) return false;
                     if (matchedFloorIds.size > 0) {
                         return matchedFloorIds.has(String(u.floorId));
                     }
                     return String(u.floorId) === String(virtualFloorId);
-                }).filter((u) => u.type !== 'office' && u.type !== 'pantry');
+                }).filter((u) => ['flat', 'duplex_up', 'duplex_down'].includes(u.type));
 
                 const numberedUnits = relevantUnits.filter((u) => {
                     const num = String(u.num || u.number || '').trim();

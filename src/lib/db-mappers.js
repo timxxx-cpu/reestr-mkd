@@ -7,6 +7,7 @@
 /** @typedef {import('./dto').DbUnitRow} DbUnitRow */
 /** @typedef {import('./dto').DbMopRow} DbMopRow */
 /** @typedef {import('./dto').UiFloor} UiFloor */
+import { normalizeProjectStatusFromDb } from './project-status';
 
 // Хелпер для безопасного извлечения (Supabase может вернуть массив или объект)
 const getOne = (val) => Array.isArray(val) ? (val[0] || {}) : (val || {});
@@ -26,7 +27,7 @@ export const mapProjectAggregate = (project, app, history = [], steps = [], part
         id: project.id,
         applicationId: app.id,
         name: project.name,
-        status: project.construction_status, 
+        status: normalizeProjectStatusFromDb(project.construction_status), 
         lastModified: app.updated_at,
         
         applicationInfo: {
@@ -54,7 +55,7 @@ export const mapProjectAggregate = (project, app, history = [], steps = [], part
         
         complexInfo: {
             name: project.name,
-            status: project.construction_status,
+            status: normalizeProjectStatusFromDb(project.construction_status),
             region: project.region,
             district: project.district,
             street: project.address,
