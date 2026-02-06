@@ -144,7 +144,7 @@ export const Validators = {
             // БЛОКИРУЕМ ввод офисов для этажей стилобата (они управляются в редакторе нежилого блока)
             if (floor.type === 'stylobate') return false; 
             
-            return floor.isComm; 
+            return !!(floor.isComm || floor.isCommercial || floor.flags?.isCommercial); 
         }
         
         return true;

@@ -30,6 +30,7 @@ drop table if exists projects cascade;
 
 -- catalogs
 drop table if exists dict_unit_types cascade;
+drop table if exists dict_room_types cascade;
 drop table if exists dict_mop_types cascade;
 drop table if exists dict_infra_types cascade;
 drop table if exists dict_parking_construction_types cascade;
@@ -352,7 +353,7 @@ create index idx_common_areas_floor on common_areas(floor_id);
 -- -----------------------------
 create table dict_project_statuses (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null,
   label text not null,
   sort_order int not null default 100,
   is_active boolean not null default true
@@ -360,7 +361,7 @@ create table dict_project_statuses (
 
 create table dict_application_statuses (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null,
   label text not null,
   sort_order int not null default 100,
   is_active boolean not null default true
@@ -368,7 +369,7 @@ create table dict_application_statuses (
 
 create table dict_external_systems (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null,
   label text not null,
   sort_order int not null default 100,
   is_active boolean not null default true
@@ -376,7 +377,7 @@ create table dict_external_systems (
 
 create table dict_foundations (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null,
   label text not null,
   sort_order int not null default 100,
   is_active boolean not null default true
@@ -384,7 +385,7 @@ create table dict_foundations (
 
 create table dict_wall_materials (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null,
   label text not null,
   sort_order int not null default 100,
   is_active boolean not null default true
@@ -392,7 +393,7 @@ create table dict_wall_materials (
 
 create table dict_slab_types (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null,
   label text not null,
   sort_order int not null default 100,
   is_active boolean not null default true
@@ -400,7 +401,7 @@ create table dict_slab_types (
 
 create table dict_roof_types (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null,
   label text not null,
   sort_order int not null default 100,
   is_active boolean not null default true
@@ -408,7 +409,7 @@ create table dict_roof_types (
 
 create table dict_light_structure_types (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null,
   label text not null,
   sort_order int not null default 100,
   is_active boolean not null default true
@@ -416,7 +417,7 @@ create table dict_light_structure_types (
 
 create table dict_parking_types (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null,
   label text not null,
   sort_order int not null default 100,
   is_active boolean not null default true
@@ -424,7 +425,7 @@ create table dict_parking_types (
 
 create table dict_parking_construction_types (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null,
   label text not null,
   sort_order int not null default 100,
   is_active boolean not null default true
@@ -432,7 +433,7 @@ create table dict_parking_construction_types (
 
 create table dict_infra_types (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null,
   label text not null,
   sort_order int not null default 100,
   is_active boolean not null default true
@@ -440,7 +441,7 @@ create table dict_infra_types (
 
 create table dict_mop_types (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null,
   label text not null,
   sort_order int not null default 100,
   is_active boolean not null default true
@@ -448,11 +449,27 @@ create table dict_mop_types (
 
 create table dict_unit_types (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text not null,
   label text not null,
   sort_order int not null default 100,
   is_active boolean not null default true
 );
+
+create table dict_room_types (
+  id uuid primary key default gen_random_uuid(),
+  code text not null,
+  label text not null,
+  room_scope text not null default 'residential',
+  area_bucket text not null default 'useful',
+  coefficient numeric(6,3) not null default 1.0,
+  sort_order int not null default 100,
+  unique (code, room_scope),
+  is_active boolean not null default true,
+  check (room_scope in ('residential', 'commercial')),
+  check (area_bucket in ('living', 'main', 'useful', 'aux', 'summer', 'other')),
+  check (coefficient >= 0)
+);
+
 
 -- -----------------------------
 -- MINIMUM SEED
@@ -500,6 +517,28 @@ insert into dict_mop_types(code, label, sort_order) values
 ('OTHER', 'Другое', 100)
 on conflict (code) do nothing;
 
+insert into dict_room_types(code, label, room_scope, area_bucket, coefficient, sort_order) values
+('living', 'Жилая комната', 'residential', 'living', 1.0, 10),
+('kitchen', 'Кухня', 'residential', 'useful', 1.0, 20),
+('kitchen_living', 'Кухня-гостиная', 'residential', 'living', 1.0, 30),
+('bathroom', 'Ванная / С/У', 'residential', 'useful', 1.0, 40),
+('corridor', 'Коридор / Холл', 'residential', 'useful', 1.0, 50),
+('pantry', 'Кладовая / Гардероб', 'residential', 'useful', 1.0, 60),
+('staircase', 'Внутрикв. лестница', 'residential', 'useful', 1.0, 70),
+('loggia', 'Лоджия', 'residential', 'summer', 0.5, 80),
+('balcony', 'Балкон', 'residential', 'summer', 0.3, 90),
+('other', 'Другое', 'residential', 'other', 1.0, 100),
+('main_hall', 'Торговый зал / Опенспейс', 'commercial', 'main', 1.0, 210),
+('cabinet', 'Кабинет', 'commercial', 'main', 1.0, 220),
+('storage', 'Склад / Подсобное', 'commercial', 'aux', 1.0, 230),
+('kitchen', 'Кухня (для персонала)', 'commercial', 'aux', 1.0, 240),
+('bathroom', 'Санузел', 'commercial', 'aux', 1.0, 250),
+('corridor', 'Коридор', 'commercial', 'aux', 1.0, 260),
+('tambour', 'Тамбур / Входная группа', 'commercial', 'aux', 1.0, 270),
+('tech', 'Тех. помещение', 'commercial', 'aux', 1.0, 280),
+('terrace', 'Терраса', 'commercial', 'summer', 0.3, 290)
+on conflict (code, room_scope) do nothing;
+
 -- lightweight defaults for remaining dicts
 insert into dict_foundations(code, label) values ('MONOLITH', 'Монолитный') on conflict (code) do nothing;
 insert into dict_wall_materials(code, label) values ('BRICK', 'Кирпич') on conflict (code) do nothing;
@@ -509,5 +548,57 @@ insert into dict_light_structure_types(code, label) values ('STANDARD', 'Ста�
 insert into dict_parking_types(code, label) values ('underground', 'Подземный'), ('aboveground', 'Наземный') on conflict (code) do nothing;
 insert into dict_parking_construction_types(code, label) values ('separate', 'Отдельностоящий'), ('integrated', 'Встроенный') on conflict (code) do nothing;
 insert into dict_infra_types(code, label) values ('school', 'Школа'), ('kindergarten', 'Детский сад'), ('other', 'Другое') on conflict (code) do nothing;
+
+
+-- -----------------------------
+-- DEV RLS: enable + full access for anon/authenticated
+-- WARNING: only for test/dev environments
+-- -----------------------------
+
+grant usage on schema public to anon, authenticated;
+grant all on all tables in schema public to anon, authenticated;
+grant all on all sequences in schema public to anon, authenticated;
+alter default privileges in schema public grant all on tables to anon, authenticated;
+alter default privileges in schema public grant all on sequences to anon, authenticated;
+
+do $$
+declare
+  tbl record;
+begin
+  for tbl in
+    select tablename
+    from pg_tables
+    where schemaname = 'public'
+  loop
+    execute format('alter table public.%I enable row level security', tbl.tablename);
+
+    if not exists (
+      select 1
+      from pg_policies
+      where schemaname = 'public'
+        and tablename = tbl.tablename
+        and policyname = 'anon_full_access'
+    ) then
+      execute format(
+        'create policy anon_full_access on public.%I for all to anon using (true) with check (true)',
+        tbl.tablename
+      );
+    end if;
+
+    if not exists (
+      select 1
+      from pg_policies
+      where schemaname = 'public'
+        and tablename = tbl.tablename
+        and policyname = 'authenticated_full_access'
+    ) then
+      execute format(
+        'create policy authenticated_full_access on public.%I for all to authenticated using (true) with check (true)',
+        tbl.tablename
+      );
+    end if;
+  end loop;
+end
+$$;
 
 commit;

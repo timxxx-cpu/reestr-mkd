@@ -1439,16 +1439,123 @@ export const ApiService = {
         // В новой архитектуре мы стараемся сохранять матрицы сразу (debounce), 
         // но если Context накопил изменения, они придут сюда.
         if (buildingSpecificData) {
-            // Реализация сложная, так как требует разбора структур {floorKey: ...}
-            // Для MVP лучше полагаться на то, что компоненты вызывают upsertMatrixCell / upsertUnit напрямую.
-            // Но для `completeTask` мы сохраняем всё.
-            
-            // Здесь мы можем пропустить детальное сохранение ячеек, 
-            // если предполагаем, что `useEffect` в компонентах уже всё сохранил.
-            // Однако, Context содержит "pendingUpdates".
-            
-            // TODO: Если критично - реализовать парсинг floorData/entrancesData и batch upsert.
-            // Пока оставим пустым, так как мы переводим редакторы на Direct API calls.
+            const matrixPromises = [];
+
+            const parseFloorKey = (key) => {
+                // Формат: {buildingId}_{blockId}_{virtualFloorId}
+                const parts = String(key || '').split('_');
+                if (parts.length < 3) return null;
+                return {
+                    buildingId: parts[0],
+                    blockId: parts[1],
+                    virtualId: parts.slice(2).join('_')
+                };
+            };
+
+            const parseEntranceKey = (key) => {
+                // Формат: {buildingId}_{blockId}_ent{n}_{virtualFloorId}
+                const match = String(key || '').match(/^([^_]+)_([^_]+)_ent(\d+)_(.+)$/);
+                if (!match) return null;
+                return {
+                    buildingId: match[1],
+                    blockId: match[2],
+                    entranceNumber: parseInt(match[3], 10),
+                    virtualId: match[4]
+                };
+            };
+
+            for (const [buildingId, buildingPayload] of Object.entries(buildingSpecificData)) {
+                const floorData = buildingPayload?.floorData || {};
+                const entrancesData = buildingPayload?.entrancesData || {};
+
+                const floorEntries = Object.entries(floorData).filter(([key]) => key.startsWith(`${buildingId}_`));
+                const entranceEntries = Object.entries(entrancesData).filter(([key]) => key.startsWith(`${buildingId}_`));
+
+                if (floorEntries.length === 0 && entranceEntries.length === 0) continue;
+
+                const relatedBlockIds = new Set();
+                floorEntries.forEach(([key]) => {
+                    const parsed = parseFloorKey(key);
+                    if (parsed?.blockId) relatedBlockIds.add(parsed.blockId);
+                });
+                entranceEntries.forEach(([key]) => {
+                    const parsed = parseEntranceKey(key);
+                    if (parsed?.blockId) relatedBlockIds.add(parsed.blockId);
+                });
+
+                if (relatedBlockIds.size === 0) continue;
+
+                const { data: floorsRows, error: floorsErr } = await supabase
+                    .from('floors')
+                    .select('id, block_id, floor_key, index')
+                    .in('block_id', Array.from(relatedBlockIds));
+                if (floorsErr) throw floorsErr;
+
+                const floorIdByVirtual = new Map();
+                (floorsRows || []).forEach(row => {
+                    const virtualId = _mapFloorKeyToVirtualId(row.floor_key || `floor:${row.index}`) || row.id;
+                    floorIdByVirtual.set(`${row.block_id}|${virtualId}`, row.id);
+                });
+
+                floorEntries.forEach(([key, floor]) => {
+                    const parsed = parseFloorKey(key);
+                    if (!parsed) return;
+                    const floorId = floorIdByVirtual.get(`${parsed.blockId}|${parsed.virtualId}`);
+                    if (!floorId) return;
+
+                    const updatePayload = {};
+                    if (floor?.height !== undefined) updatePayload.height = floor.height;
+                    if (floor?.areaProj !== undefined) updatePayload.area_proj = floor.areaProj;
+                    if (floor?.areaFact !== undefined) updatePayload.area_fact = floor.areaFact;
+                    if (floor?.isDuplex !== undefined) updatePayload.is_duplex = !!floor.isDuplex;
+                    if (floor?.label !== undefined) updatePayload.label = floor.label;
+                    if (floor?.type !== undefined) updatePayload.floor_type = floor.type;
+                    if (floor?.flags?.isTechnical !== undefined) updatePayload.is_technical = !!floor.flags.isTechnical;
+                    if (floor?.flags?.isCommercial !== undefined) updatePayload.is_commercial = !!floor.flags.isCommercial;
+                    if (floor?.flags?.isStylobate !== undefined) updatePayload.is_stylobate = !!floor.flags.isStylobate;
+                    if (floor?.flags?.isBasement !== undefined) updatePayload.is_basement = !!floor.flags.isBasement;
+                    if (floor?.flags?.isAttic !== undefined) updatePayload.is_attic = !!floor.flags.isAttic;
+                    if (floor?.flags?.isLoft !== undefined) updatePayload.is_loft = !!floor.flags.isLoft;
+                    if (floor?.flags?.isRoof !== undefined) updatePayload.is_roof = !!floor.flags.isRoof;
+
+                    if (Object.keys(updatePayload).length > 0) {
+                        matrixPromises.push(
+                            supabase
+                                .from('floors')
+                                .update(updatePayload)
+                                .eq('id', floorId)
+                        );
+                    }
+                });
+
+                entranceEntries.forEach(([key, entry]) => {
+                    const parsed = parseEntranceKey(key);
+                    if (!parsed || !Number.isFinite(parsed.entranceNumber)) return;
+
+                    const floorId = floorIdByVirtual.get(`${parsed.blockId}|${parsed.virtualId}`);
+                    if (!floorId) return;
+
+                    matrixPromises.push(
+                        supabase
+                            .from('entrance_matrix')
+                            .upsert({
+                                block_id: parsed.blockId,
+                                floor_id: floorId,
+                                entrance_number: parsed.entranceNumber,
+                                flats_count: parseInt(entry?.apts || 0, 10) || 0,
+                                commercial_count: parseInt(entry?.units || 0, 10) || 0,
+                                mop_count: parseInt(entry?.mopQty || 0, 10) || 0,
+                                updated_at: new Date()
+                            }, { onConflict: 'block_id,floor_id,entrance_number' })
+                    );
+                });
+            }
+
+            if (matrixPromises.length > 0) {
+                const matrixResults = await Promise.all(matrixPromises);
+                const matrixError = matrixResults.find(r => r?.error)?.error;
+                if (matrixError) throw matrixError;
+            }
         }
 
         await Promise.all(promises);

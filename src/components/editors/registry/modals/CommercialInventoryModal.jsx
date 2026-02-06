@@ -1,19 +1,21 @@
 import React, { useState, useMemo } from 'react';
-import { Briefcase, Warehouse, Utensils, Bath, Box, Layers, Sun, Trash2, Plus, Copy } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Trash2, Plus, Copy } from 'lucide-react';
 import { Input, Select, useReadOnly } from '../../../ui/UIKit';
 import { useToast } from '../../../../context/ToastContext';
 import RegistryModalLayout, { StatBadge } from './RegistryModalLayout';
+import { CatalogService } from '../../../../lib/catalog-service';
 
-const COMMERCIAL_ROOMS = [
-    { id: 'main_hall', label: 'Торговый зал / Опенспейс', icon: Briefcase, k: 1.0, category: 'main' },
-    { id: 'cabinet', label: 'Кабинет', icon: Briefcase, k: 1.0, category: 'main' },
-    { id: 'storage', label: 'Склад / Подсобное', icon: Warehouse, k: 1.0, category: 'aux' },
-    { id: 'kitchen', label: 'Кухня (для персонала)', icon: Utensils, k: 1.0, category: 'aux' },
-    { id: 'bathroom', label: 'Санузел', icon: Bath, k: 1.0, category: 'aux' },
-    { id: 'corridor', label: 'Коридор', icon: Box, k: 1.0, category: 'aux' },
-    { id: 'tambour', label: 'Тамбур / Входная группа', icon: Box, k: 1.0, category: 'aux' },
-    { id: 'tech', label: 'Тех. помещение', icon: Layers, k: 1.0, category: 'aux' },
-    { id: 'terrace', label: 'Терраса (k=0.3)', icon: Sun, k: 0.3, category: 'summer' },
+const COMMERCIAL_ROOMS_FALLBACK = [
+    { code: 'main_hall', label: 'Торговый зал / Опенспейс', area_bucket: 'main', coefficient: 1.0 },
+    { code: 'cabinet', label: 'Кабинет', area_bucket: 'main', coefficient: 1.0 },
+    { code: 'storage', label: 'Склад / Подсобное', area_bucket: 'aux', coefficient: 1.0 },
+    { code: 'kitchen', label: 'Кухня (для персонала)', area_bucket: 'aux', coefficient: 1.0 },
+    { code: 'bathroom', label: 'Санузел', area_bucket: 'aux', coefficient: 1.0 },
+    { code: 'corridor', label: 'Коридор', area_bucket: 'aux', coefficient: 1.0 },
+    { code: 'tambour', label: 'Тамбур / Входная группа', area_bucket: 'aux', coefficient: 1.0 },
+    { code: 'tech', label: 'Тех. помещение', area_bucket: 'aux', coefficient: 1.0 },
+    { code: 'terrace', label: 'Терраса', area_bucket: 'summer', coefficient: 0.3 },
 ];
 
 export default function CommercialInventoryModal({ unit, unitsList = [], buildingLabel, onClose, onSave }) {
@@ -23,7 +25,23 @@ export default function CommercialInventoryModal({ unit, unitsList = [], buildin
     // Используем explication (комнаты из БД)
     const [rooms, setRooms] = useState(unit.explication || []); 
     const [copySourceNum, setCopySourceNum] = useState(''); 
-    
+
+    const { data: roomTypesRows = [] } = useQuery({
+        queryKey: ['catalog', 'dict_room_types', 'commercial'],
+        queryFn: () => CatalogService.getCatalog('dict_room_types')
+    });
+
+    const commercialRoomTypes = useMemo(() => {
+        const rows = (roomTypesRows || []).filter(r => r.room_scope === 'commercial');
+        const source = rows.length ? rows : COMMERCIAL_ROOMS_FALLBACK;
+        return source.map(r => ({
+            id: r.code || r.id,
+            label: r.label,
+            k: Number(r.coefficient ?? r.k ?? 1),
+            category: r.area_bucket || r.category || 'aux'
+        }));
+    }, [roomTypesRows]);
+
     // Расчет ТЭП Коммерции
     const stats = useMemo(() => {
         let s_total = 0;
@@ -33,7 +51,7 @@ export default function CommercialInventoryModal({ unit, unitsList = [], buildin
 
         rooms.forEach(r => {
             const rawArea = parseFloat(r.area) || 0;
-            const typeConfig = COMMERCIAL_ROOMS.find(t => t.id === r.type) || { k: 1.0, category: 'aux' };
+            const typeConfig = commercialRoomTypes.find(t => t.id === r.type) || { k: 1.0, category: 'aux' };
             const effectiveArea = rawArea * typeConfig.k;
 
             s_total += effectiveArea;
@@ -52,11 +70,11 @@ export default function CommercialInventoryModal({ unit, unitsList = [], buildin
             aux: s_aux.toFixed(2),
             main_rooms_count: count_main
         };
-    }, [rooms]);
+    }, [rooms, commercialRoomTypes]);
 
     const addRoom = () => {
         if (isReadOnly) return;
-        setRooms([...rooms, { id: crypto.randomUUID(), type: 'main_hall', area: '', unitId: unit.id }]);
+        setRooms([...rooms, { id: crypto.randomUUID(), type: commercialRoomTypes[0]?.id || 'main_hall', area: '', unitId: unit.id }]);
     };
 
     const removeRoom = (id) => {
@@ -147,7 +165,7 @@ export default function CommercialInventoryModal({ unit, unitsList = [], buildin
                 </div>
 
                 {rooms.map((room, idx) => {
-                    const typeInfo = COMMERCIAL_ROOMS.find(t => t.id === room.type);
+                    const typeInfo = commercialRoomTypes.find(t => t.id === room.type);
                     const k = typeInfo?.k || 1;
                     
                     return (
@@ -158,7 +176,7 @@ export default function CommercialInventoryModal({ unit, unitsList = [], buildin
 
                             <div className="col-span-8">
                                 <Select value={room.type} onChange={(e) => updateRoom(room.id, 'type', e.target.value)} className="text-xs py-2 bg-slate-50 border-slate-100 w-full" disabled={isReadOnly}>
-                                    {COMMERCIAL_ROOMS.map(t => <option key={t.id} value={t.id}>{t.label} {t.k < 1 ? `(k=${t.k})` : ''}</option>)}
+                                    {commercialRoomTypes.map(t => <option key={t.id} value={t.id}>{t.label} {t.k < 1 ? `(k=${t.k})` : ''}</option>)}
                                 </Select>
                             </div>
 
