@@ -4,7 +4,7 @@ import { getBlocksList } from './utils';
  * Генерация списка этажей и признаков для блока здания.
  * Используется для синхронизации floors и для UI.
  * @param {import('./types').BuildingMeta} building
- * @param {import('./types').BuildingBlock} currentBlock
+ * @param {import('./dto').BuildingBlock} currentBlock
  * @param {Record<string, any>} buildingDetails
  */
 export const buildFloorList = (building, currentBlock, buildingDetails = {}) => {

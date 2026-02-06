@@ -3,6 +3,7 @@ import { Loader2, User, FolderOpen, KeyRound, LogOut, Shield, Users, X, Settings
 import { Routes, Route, useNavigate, useParams, Navigate, useSearchParams, useLocation } from 'react-router-dom';
 
 import { AuthService } from './lib/auth-service';
+import { ApiService } from './lib/api-service';
 import { ToastProvider, useToast } from './context/ToastContext'; 
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { STEPS_CONFIG, ROLES, WORKFLOW_STAGES } from './lib/constants';
@@ -40,38 +41,18 @@ const DB_SCOPE = 'shared_dev_env';
 
 const PersonaContext = createContext(null);
 
-const TEST_USERS = [
-    { id: 'timur_admin', name: 'Тимур', role: ROLES.ADMIN, group: 'Тимур' },
-    { id: 'timur_contr', name: 'Тимур', role: ROLES.CONTROLLER, group: 'Тимур' },
-    { id: 'timur_tech',  name: 'Тимур', role: ROLES.TECHNICIAN, group: 'Тимур' },
-
-    { id: 'abdu_admin', name: 'Абдурашид', role: ROLES.ADMIN, group: 'Абдурашид' },
-    { id: 'abdu_contr', name: 'Абдурашид', role: ROLES.CONTROLLER, group: 'Абдурашид' },
-    { id: 'abdu_tech',  name: 'Абдурашид', role: ROLES.TECHNICIAN, group: 'Абдурашид' },
-
-    { id: 'vakhit_admin', name: 'Вахит', role: ROLES.ADMIN, group: 'Вахит' },
-    { id: 'vakhit_contr', name: 'Вахит', role: ROLES.CONTROLLER, group: 'Вахит' },
-    { id: 'vakhit_tech',  name: 'Вахит', role: ROLES.TECHNICIAN, group: 'Вахит' },
-
-    { id: 'abbos_admin', name: 'Аббос', role: ROLES.ADMIN, group: 'Аббос' },
-    { id: 'abbos_contr', name: 'Аббос', role: ROLES.CONTROLLER, group: 'Аббос' },
-    { id: 'abbos_tech',  name: 'Аббос', role: ROLES.TECHNICIAN, group: 'Аббос' },
-];
-
 const DevRoleSwitcher = ({ disabled }) => {
-    const { activePersona, setActivePersona } = useContext(PersonaContext);
+    const { activePersona, setActivePersona, availablePersonas } = useContext(PersonaContext);
     const [isOpen, setIsOpen] = useState(false);
 
-    const groups = TEST_USERS.reduce((acc, user) => {
-        if (!acc[user.group]) acc[user.group] = [];
-        acc[user.group].push(user);
-        return acc;
-    }, {});
+    const roleVariants = (availablePersonas || []).filter(u =>
+        u.group === activePersona.group || u.name === activePersona.name
+    );
 
     if (!activePersona) return null;
 
     return (
-        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none">
+        <div className="fixed top-20 right-6 z-50 flex flex-col items-end pointer-events-none">
             {!disabled && (
                 <div className={`
                     bg-slate-900 border border-slate-700 shadow-2xl rounded-2xl p-4 mb-4 w-72 pointer-events-auto
@@ -80,19 +61,17 @@ const DevRoleSwitcher = ({ disabled }) => {
                 `}>
                     <div className="flex justify-between items-center mb-3 pb-3 border-b border-slate-700">
                         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                            <Settings size={14} /> Тестовые роли
+                            <Settings size={14} /> Роль пользователя
                         </h3>
                         <button onClick={() => setIsOpen(false)} className="text-slate-500 hover:text-white">
                             <X size={16} />
                         </button>
                     </div>
                     
-                    <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
-                        {Object.entries(groups).map(([groupName, users]) => (
-                            <div key={groupName}>
-                                <div className="text-[10px] font-bold text-slate-500 mb-1.5 ml-1">{groupName}</div>
-                                <div className="grid grid-cols-3 gap-1">
-                                    {users.map(user => {
+                    <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
+                        <div className="text-[10px] font-bold text-slate-500 mb-1.5 ml-1">{activePersona.group || activePersona.name}</div>
+                        <div className="grid grid-cols-3 gap-1">
+                                    {roleVariants.map(user => {
                                         const isActive = activePersona.id === user.id;
                                         let roleLabel = 'Тех';
                                         let roleColor = 'text-blue-400 bg-blue-400/10 border-blue-400/20';
@@ -122,9 +101,7 @@ const DevRoleSwitcher = ({ disabled }) => {
                                             </button>
                                         );
                                     })}
-                                </div>
-                            </div>
-                        ))}
+                        </div>
                     </div>
                 </div>
             )}
@@ -139,7 +116,7 @@ const DevRoleSwitcher = ({ disabled }) => {
                         : (isOpen ? 'bg-slate-700 text-white rotate-90' : 'bg-slate-900 text-blue-400 hover:bg-blue-600 hover:text-white hover:scale-110')
                     }
                 `}
-                title={disabled ? "Смена роли недоступна внутри задачи" : "Сменить пользователя"}
+                title={disabled ? "Смена роли недоступна внутри задачи" : "Сменить роль"}
             >
                 <Users size={20} />
             </button>
@@ -148,10 +125,20 @@ const DevRoleSwitcher = ({ disabled }) => {
 };
 
 
-function LoginScreen({ onLogin, isLoading }) {
+function LoginScreen({ onLogin, isLoading, users = [], usersLoading }) {
+    const [selectedUserId, setSelectedUserId] = useState('');
+
+    useEffect(() => {
+        if (!selectedUserId && users.length > 0) {
+            setSelectedUserId(users[0].id);
+        }
+    }, [users, selectedUserId]);
+
+    const selectedUser = users.find(u => u.id === selectedUserId) || null;
+
     return (
         <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center space-y-8 animate-in fade-in zoom-in duration-500">
+            <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-lg w-full text-center space-y-8 animate-in fade-in zoom-in duration-500">
                 <div className="space-y-2">
                     <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-blue-600/30">
                         <span className="text-3xl font-black text-white">Р</span>
@@ -162,16 +149,30 @@ function LoginScreen({ onLogin, isLoading }) {
                     <p className="text-slate-500 text-sm">Система обработки заявлений и инвентаризации</p>
                 </div>
 
-                <div className="space-y-4">
-                    <button 
-                        onClick={onLogin} 
-                        disabled={isLoading}
+                <div className="space-y-4 text-left">
+                    <label className="text-xs font-bold uppercase text-slate-500">Пользователь</label>
+                    <select
+                        value={selectedUserId}
+                        onChange={(e) => setSelectedUserId(e.target.value)}
+                        disabled={usersLoading || isLoading || users.length === 0}
+                        className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm outline-none focus:border-blue-500"
+                    >
+                        {users.map(u => (
+                            <option key={u.id} value={u.id}>{u.name} — {u.role}</option>
+                        ))}
+                    </select>
+
+                    <button
+                        onClick={() => selectedUser && onLogin(selectedUser)}
+                        disabled={isLoading || usersLoading || !selectedUser}
                         className="w-full py-3.5 bg-slate-900 hover:bg-black text-white rounded-xl font-bold flex items-center justify-center gap-3 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed"
                     >
                         {isLoading ? <Loader2 className="animate-spin" size={20}/> : <KeyRound size={20}/>}
-                        {isLoading ? 'Вход в систему...' : 'Войти в систему'}
+                        {isLoading ? 'Вход в систему...' : 'Войти'}
                     </button>
-                    <p className="text-xs text-slate-400">Доступ для сотрудников</p>
+                    <p className="text-xs text-slate-400 text-center">
+                        {usersLoading ? 'Загрузка пользователей...' : 'Выберите пользователя из справочника'}
+                    </p>
                 </div>
             </div>
         </div>
@@ -389,7 +390,8 @@ const MainLayout = ({ activePersona }) => {
 
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
-  
+  const [availablePersonas, setAvailablePersonas] = useState([]);
+
   const [activePersona, setActivePersona] = useState(() => {
       try {
           const saved = localStorage.getItem('dev_active_persona');
@@ -399,10 +401,48 @@ export default function App() {
       } catch (e) {
           console.error("Ошибка чтения роли из storage", e);
       }
-      return TEST_USERS[0];
+      return null;
   });
 
   const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [isUsersLoading, setIsUsersLoading] = useState(false);
+
+  useEffect(() => {
+      let mounted = true;
+      const loadUsers = async () => {
+          setIsUsersLoading(true);
+          try {
+              const users = await ApiService.getSystemUsers();
+              if (!mounted) return;
+              setAvailablePersonas(users);
+
+              if (users.length > 0) {
+                  setActivePersona(prev => prev || users[0]);
+              }
+          } catch (e) {
+              console.error('Не удалось загрузить пользователей из БД', e);
+              if (mounted) setAvailablePersonas([]);
+          } finally {
+              if (mounted) setIsUsersLoading(false);
+          }
+      };
+
+      loadUsers();
+      return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+      if (!activePersona || availablePersonas.length === 0) return;
+      const fresh = availablePersonas.find(u => u.id === activePersona.id);
+      if (!fresh) return;
+
+      const changed =
+          fresh.name !== activePersona.name
+          || fresh.role !== activePersona.role
+          || fresh.group !== activePersona.group;
+
+      if (changed) setActivePersona(fresh);
+  }, [availablePersonas, activePersona]);
 
   useEffect(() => {
       if (activePersona) {
@@ -417,10 +457,12 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  const handleLogin = async () => {
+  const handleLogin = async (selectedPersona) => {
+      if (!selectedPersona) return;
       setIsAuthLoading(true);
       try {
-          await AuthService.signInDemo();
+          await AuthService.signInDemo(selectedPersona);
+          setActivePersona(selectedPersona);
       } catch (error) {
           console.error("Login failed", error);
       } finally {
@@ -429,11 +471,15 @@ export default function App() {
   };
 
   if (!firebaseUser) {
-      return <LoginScreen onLogin={handleLogin} isLoading={isAuthLoading} />;
+      return <LoginScreen onLogin={handleLogin} isLoading={isAuthLoading} users={availablePersonas} usersLoading={isUsersLoading} />;
+  }
+
+  if (!activePersona) {
+      return <div className="flex items-center justify-center h-screen bg-slate-50"><Loader2 className="animate-spin text-slate-400"/></div>;
   }
 
   return (
-    <PersonaContext.Provider value={{ activePersona, setActivePersona }}>
+    <PersonaContext.Provider value={{ activePersona, setActivePersona, availablePersonas }}>
         <ToastProvider>
             <Routes>
                 <Route path="/" element={<MainLayout activePersona={activePersona} />} />

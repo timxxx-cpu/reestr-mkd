@@ -270,7 +270,7 @@ export default function StandardView({ building, mode }) {
                             building={building}
                             currentBlock={currentBlock}
                             hasElevatorIssue={hasElevatorIssue}
-                            errorBorder={errorBorder}
+                            _errorBorder={errorBorder}
                         />
                         <EngineeringCard details={details} updateDetail={updateDetail} />
                     </div>

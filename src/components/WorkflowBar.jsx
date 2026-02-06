@@ -112,6 +112,40 @@ const RollbackConfirmationModal = ({ currentStepTitle, prevStepTitle, onCancel, 
     </div>
 );
 
+// --- МОДАЛКА ПОДТВЕРЖДЕНИЯ ПРИНЯТИЯ ЭТАПА (ДЛЯ БРИГАДИРА) ---
+const ApproveStageModal = ({ stageNum, onCancel, onConfirm, isLoading }) => (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5 scale-100 animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-emerald-100 bg-emerald-50 flex items-center gap-3">
+                <div className="p-2 bg-white rounded-full text-emerald-600 shadow-sm border border-emerald-100">
+                    <ThumbsUp size={18} />
+                </div>
+                <div>
+                    <h3 className="text-lg font-bold text-emerald-900 leading-tight">Подтвердить принятие этапа</h3>
+                    <p className="text-xs text-emerald-700">Проверка бригадиром</p>
+                </div>
+            </div>
+
+            <div className="p-6 text-sm text-slate-700 space-y-3">
+                <p>
+                    Вы подтверждаете, что <span className="font-bold">Этап {stageNum}</span> проверен и принят.
+                </p>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                    После подтверждения система сохранит решение и переведет процесс к следующему этапу.
+                </p>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+                <Button variant="ghost" onClick={onCancel} disabled={isLoading} className="h-10">Отмена</Button>
+                <Button onClick={onConfirm} disabled={isLoading} className="h-10 bg-emerald-600 hover:bg-emerald-700 text-white">
+                    {isLoading ? <Loader2 size={16} className="animate-spin mr-2"/> : <ThumbsUp size={16} className="mr-2"/>}
+                    Подтвердить
+                </Button>
+            </div>
+        </div>
+    </div>
+);
+
 // --- МОДАЛКА ЗАВЕРШЕНИЯ ЗАДАЧИ ---
 const CompleteTaskModal = ({ onCancel, onConfirm, message }) => (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -185,6 +219,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
   const [showRollbackConfirm, setShowRollbackConfirm] = useState(false);
+  const [showApproveConfirm, setShowApproveConfirm] = useState(false);
   const [saveNotice, setSaveNotice] = useState({ open: false, status: 'saving', message: '', onOk: null });
   
   const [validationErrors, setValidationErrors] = useState([]);
@@ -375,8 +410,8 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   };
 
   // --- REVIEW HANDLERS (CONTROLLER) ---
-  const handleApproveStage = async () => {
-      if (!confirm(`Одобрить результаты Этапа?`)) return;
+  const performApproveStage = async () => {
+      setShowApproveConfirm(false);
       setIsLoading(true);
       setSaveNotice({ open: true, status: 'saving', message: 'Сохранение решения...', onOk: null });
       
@@ -391,6 +426,10 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       } finally {
           setIsLoading(false);
       }
+  };
+
+  const handleApproveStage = async () => {
+      setShowApproveConfirm(true);
   };
 
   const handleRejectStage = async () => {
@@ -417,6 +456,14 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       return (
           <>
           {saveNotice.open && <SaveProgressModal status={saveNotice.status} message={saveNotice.message} onOk={handleSaveNoticeOk} />}
+          {showApproveConfirm && (
+              <ApproveStageModal
+                  stageNum={Math.max(1, (applicationInfo?.currentStage || 1) - 1)}
+                  onCancel={() => setShowApproveConfirm(false)}
+                  onConfirm={performApproveStage}
+                  isLoading={isLoading}
+              />
+          )}
           <div className="bg-indigo-900 border-b border-indigo-800 px-8 py-4 flex items-center justify-between sticky top-0 z-30 shadow-xl animate-in slide-in-from-top-2 text-white">
               <div className="flex items-center gap-4">
                   <div className="flex flex-col">

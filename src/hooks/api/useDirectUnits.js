@@ -60,6 +60,7 @@ export function useDirectUnits(blockId) {
 
     // --- BATCH UPDATE (Auto-numbering) ---
     const batchUpsertMutation = useMutation({
+        /** @param {Array<any>} list */
         mutationFn: (list) => ApiService.batchUpsertUnits(list),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey });
@@ -71,11 +72,14 @@ export function useDirectUnits(blockId) {
         }
     });
 
+    /** @type {(list: Array<any>) => Promise<any>} */
+    const batchUpsertUnits = batchUpsertMutation.mutateAsync;
+
     return {
         units,
         isLoading,
         upsertUnit: upsertUnitMutation.mutateAsync,
-        batchUpsertUnits: batchUpsertMutation.mutateAsync,
+        batchUpsertUnits,
         isMutating: upsertUnitMutation.isPending || batchUpsertMutation.isPending
     };
 }

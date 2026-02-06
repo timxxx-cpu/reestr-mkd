@@ -82,13 +82,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
             if (dataKey === 'apartmentsData') {
                 const unitsArray = Object.values(dataVal);
-                promise = ApiService.saveUnits(dbScope, projectId, buildingId, unitsArray);
-            } else if (dataKey === 'floorData') {
-                const floorsArray = Object.entries(dataVal).map(([k, v]) => ({ ...v, legacyKey: k }));
-                promise = ApiService.saveFloors(dbScope, projectId, buildingId, floorsArray);
-            } else if (dataKey === 'parkingData') {
-                const parkingArray = Object.entries(dataVal).map(([k, v]) => ({ ...v, legacyKey: k }));
-                promise = ApiService.saveParkingPlaces(dbScope, projectId, buildingId, parkingArray);
+                promise = ApiService.batchUpsertUnits(unitsArray);
             } else {
                 promise = ApiService.saveData(dbScope, projectId, {
                     buildingSpecificData: {

@@ -1,12 +1,13 @@
 // src/lib/auth-service.js
 export const AuthService = {
   // Эмуляция входа
-  signInDemo: async () => {
+  signInDemo: async (persona = null) => {
     const user = {
-        uid: 'test-user-id',
+        uid: persona?.id || 'test-user-id',
         email: 'dev@reestr.uz',
-        displayName: 'Разработчик',
-        role: 'admin'
+        displayName: persona?.name || 'Разработчик',
+        role: persona?.role || 'admin',
+        personaId: persona?.id || null
     };
     localStorage.setItem('mock_user', JSON.stringify(user));
     return user;

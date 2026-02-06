@@ -11,9 +11,12 @@ const getTypeConfig = (type) => {
         case 'office_inventory': return { label: 'Нежилое (Инв.)', color: 'bg-teal-50 text-teal-700 border-teal-200', icon: FileText };
         case 'non_res_block': return { label: 'Нежилой блок', color: 'bg-amber-50 text-amber-700 border-amber-200', icon: Building2 };
         case 'infrastructure': return { label: 'Инфраструктура', color: 'bg-orange-50 text-orange-700 border-orange-200', icon: School };
+        case 'pantry': return { label: 'Кладовая', color: 'bg-slate-100 text-slate-700 border-slate-200', icon: FileText };
         default: return { label: type, color: 'bg-slate-100 text-slate-600', icon: FileText };
     }
 };
+
+const COMMERCIAL_TYPES = new Set(['office', 'office_inventory', 'non_res_block', 'infrastructure', 'pantry']);
 
 export default function CommercialRegistry({ onSaveUnit, projectId }) {
     const queryClient = useQueryClient();
@@ -32,19 +35,25 @@ export default function CommercialRegistry({ onSaveUnit, projectId }) {
         const blMap = {}; blocks.forEach(b => blMap[b.id] = b);
         const fMap = {}; floors.forEach(f => fMap[f.id] = f);
 
-        // 1. Фильтруем только коммерцию
-        const commercial = units.filter(u => 
-            ['office', 'office_inventory', 'non_res_block', 'infrastructure'].includes(u.type)
-        );
-
-        // 2. Обогащаем данными
-        const enriched = commercial.map(u => {
+        // 1. Обогащаем и определяем коммерческие объекты через контекст,
+        // даже если unit_type заполнен неконсистентно.
+        const enriched = units.map(u => {
             const floor = fMap[u.floorId];
             const block = floor ? blMap[floor.blockId] : null;
             const building = block ? bMap[block.buildingId] : null; 
+
+            const isCommercialByContext =
+                COMMERCIAL_TYPES.has(u.type)
+                || block?.type === 'Н'
+                || block?.type === 'non_residential'
+                || building?.category === 'infrastructure'
+                || floor?.floor_type === 'office'
+                || floor?.is_commercial === true;
             
             return {
                 ...u,
+                type: u.type || (isCommercialByContext ? 'office' : 'flat'),
+                isCommercialByContext,
                 floorLabel: floor?.label || '-',
                 blockLabel: block?.tabLabel || block?.label || '-',
                 buildingLabel: building?.label || '-',
@@ -53,10 +62,14 @@ export default function CommercialRegistry({ onSaveUnit, projectId }) {
             };
         });
 
+        // 2. Фильтруем только нежилые
+        const commercial = enriched.filter(item => item.isCommercialByContext);
+
         // 3. Поиск
-        const filtered = enriched.filter(item => {
+        const filtered = commercial.filter(item => {
             if (!searchTerm) return true;
-            return item.number.toLowerCase().includes(searchTerm.toLowerCase());
+            const low = searchTerm.toLowerCase();
+            return String(item.number || item.num || '').toLowerCase().includes(low);
         });
 
         // 4. Статистика

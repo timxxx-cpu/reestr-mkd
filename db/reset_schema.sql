@@ -43,6 +43,7 @@ drop table if exists dict_foundations cascade;
 drop table if exists dict_external_systems cascade;
 drop table if exists dict_application_statuses cascade;
 drop table if exists dict_project_statuses cascade;
+drop table if exists dict_system_users cascade;
 
 -- -----------------------------
 -- CORE
@@ -470,6 +471,19 @@ create table dict_room_types (
   check (coefficient >= 0)
 );
 
+create table dict_system_users (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  role text not null,
+  group_name text,
+  sort_order int not null default 100,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (role in ('admin', 'controller', 'technician'))
+);
+
 -- ---------------------------------------------------------
 -- Ensure UNIQUE(code) for all dict_* tables except dict_room_types
 -- (required for ON CONFLICT (code) ...; safe for re-runs)
@@ -530,6 +544,21 @@ insert into dict_external_systems(code, label, sort_order) values
 ('EPIGU', 'ЕПИГУ (my.gov.uz)', 20),
 ('ESCROW', 'ЭСКРОУ', 30),
 ('SHAFOF', 'Шаффоф Курилиш', 40)
+on conflict (code) do nothing;
+
+insert into dict_system_users(code, name, role, group_name, sort_order) values
+('timur_admin', 'Тимур', 'admin', 'Тимур', 10),
+('timur_contr', 'Тимур', 'controller', 'Тимур', 20),
+('timur_tech', 'Тимур', 'technician', 'Тимур', 30),
+('abdu_admin', 'Абдурашид', 'admin', 'Абдурашид', 40),
+('abdu_contr', 'Абдурашид', 'controller', 'Абдурашид', 50),
+('abdu_tech', 'Абдурашид', 'technician', 'Абдурашид', 60),
+('vakhit_admin', 'Вахит', 'admin', 'Вахит', 70),
+('vakhit_contr', 'Вахит', 'controller', 'Вахит', 80),
+('vakhit_tech', 'Вахит', 'technician', 'Вахит', 90),
+('abbos_admin', 'Аббос', 'admin', 'Аббос', 100),
+('abbos_contr', 'Аббос', 'controller', 'Аббос', 110),
+('abbos_tech', 'Аббос', 'technician', 'Аббос', 120)
 on conflict (code) do nothing;
 
 insert into dict_unit_types(code, label, sort_order) values
