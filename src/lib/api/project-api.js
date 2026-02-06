@@ -1,4 +1,5 @@
 export const createProjectApi = (legacyApi) => ({
+    getSystemUsers: legacyApi.getSystemUsers,
     getProjectsList: legacyApi.getProjectsList,
     getExternalApplications: legacyApi.getExternalApplications,
     createProjectFromApplication: legacyApi.createProjectFromApplication,

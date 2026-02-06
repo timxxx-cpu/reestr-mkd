@@ -41,15 +41,15 @@ export default function ParkingRegistry({ onSaveUnit, projectId }) {
         // 3. Поиск
         const filtered = enriched.filter(item => {
             if (!searchTerm) return true;
-            return item.number.toLowerCase().includes(searchTerm.toLowerCase());
+            return String(item.number || item.num || '').toLowerCase().includes(searchTerm.toLowerCase());
         });
 
         // 4. Статистика
         const totalArea = filtered.reduce((sum, item) => sum + (parseFloat(item.area) || 0), 0);
         const totalSold = filtered.filter(i => i.isSold).length;
         
-        return { 
-            data: filtered.sort((a,b) => parseInt(a.number) - parseInt(b.number)),
+        return {
+            data: filtered.sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'ru', { numeric: true })),
             stats: {
                 count: filtered.length,
                 area: totalArea,
@@ -108,7 +108,6 @@ export default function ParkingRegistry({ onSaveUnit, projectId }) {
                                 <th className="p-4 border-l border-slate-700">Тип</th>
                                 <th className="p-4 text-center">Уровень</th>
                                 <th className="p-4 text-right bg-slate-700/50 text-emerald-300 border-l border-slate-700">Площадь (м²)</th>
-                                <th className="p-4 text-center border-l border-slate-700">Статус продажи</th>
                                 <th className="p-4 text-center border-l border-slate-700">Заполнение</th>
                             </tr>
                         </thead>
@@ -120,24 +119,18 @@ export default function ParkingRegistry({ onSaveUnit, projectId }) {
                                         <td className="p-4 text-xs text-slate-400 text-center font-mono">{idx + 1}</td>
                                         <td className="p-4 text-center"><div className="inline-flex items-center justify-center w-8 h-8 rounded bg-white border border-slate-200 font-bold text-slate-700 text-xs shadow-sm">{item.houseNumber}</div></td>
                                         <td className="p-4 text-center relative border-x border-blue-100 bg-blue-50/20 group-hover:bg-blue-100/50 transition-colors">
-                                            <span className="font-black text-slate-800 text-lg">{item.number}</span>
+                                            <span className="font-black text-slate-800 text-lg">{item.number || '-'}</span>
                                         </td>
                                         <td className="p-4"><span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase border bg-slate-100 text-slate-700 border-slate-200"><Car size={12}/> М/М</span></td>
                                         <td className="p-4 text-center font-medium text-slate-700">{item.floorLabel}</td>
-                                        <td className="p-4 text-right font-mono font-bold text-slate-800 bg-emerald-50/30 border-l border-emerald-100/50">{parseFloat(item.area).toFixed(2)}</td>
-                                        <td className="p-4 text-center border-l border-slate-100">
-                                            {item.isSold ? 
-                                                <span className="text-[10px] font-bold bg-red-100 text-red-600 px-2 py-1 rounded border border-red-200">ПРОДАНО</span> : 
-                                                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-600 px-2 py-1 rounded border border-emerald-200">СВОБОДНО</span>
-                                            }
-                                        </td>
+                                        <td className="p-4 text-right font-mono font-bold text-slate-800 bg-emerald-50/30 border-l border-emerald-100/50">{item.area ? parseFloat(item.area).toFixed(2) : '-'}</td>
                                         <td className="p-4 text-center border-l border-slate-100">
                                             {isFilled ? (<div className="inline-flex items-center gap-1.5 text-emerald-600 px-2 py-0.5 rounded-full text-[10px] font-bold"><CheckCircle2 size={14} className="text-emerald-500"/><span>Готов</span></div>) : (<span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded">Не заполнен</span>)}
                                         </td>
                                     </tr>
                                 );
                             }) : (
-                                <tr><td colSpan={8} className="p-12 text-center text-slate-400">Нет машиномест</td></tr>
+                                <tr><td colSpan={7} className="p-12 text-center text-slate-400">Нет машиномест</td></tr>
                             )}
                         </tbody>
                     </table>

@@ -38,6 +38,27 @@
  * @property {number} [areaProj]
  * @property {number} [areaFact]
  * @property {boolean} [isDuplex]
+ * @property {boolean} [isComm]
+ * @property {boolean} [isCommercial]
+ * @property {number} [sortOrder]
+ * @property {number|null} [parentFloorIndex]
+ * @property {string|null} [basementId]
+ * @property {{
+ *   isTechnical?: boolean,
+ *   isCommercial?: boolean,
+ *   isStylobate?: boolean,
+ *   isBasement?: boolean,
+ *   isAttic?: boolean,
+ *   isLoft?: boolean,
+ *   isRoof?: boolean
+ * }} [flags]
+ */
+
+/**
+ * @typedef {Object} BuildingBlock
+ * @property {string} id
+ * @property {string} [type]
+ * @property {string} [originalType]
  */
 
 /**

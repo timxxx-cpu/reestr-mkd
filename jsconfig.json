@@ -6,7 +6,9 @@
     "checkJs": true,
     "jsx": "react",
     "baseUrl": "./src",
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "maxNodeModuleJsDepth": 0
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

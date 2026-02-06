@@ -12,10 +12,13 @@ export default function ProjectsPage({ onSelectProject }) {
     const [newProjectName, setNewProjectName] = useState('');
 
     // Чтение списка
-    const { data: projects = [], isLoading } = useQuery({
+    /** @type {Array<any>} */
+    const emptyProjects = [];
+    const { data: projects = emptyProjects, isLoading } = useQuery({
         queryKey: ['projects-list'],
         queryFn: ApiService.getProjectsList
     });
+    const projectsList = Array.isArray(projects) ? projects : emptyProjects;
 
     // Создание
     const createMutation = useMutation({
@@ -29,7 +32,10 @@ export default function ProjectsPage({ onSelectProject }) {
             setIsCreating(false);
             setNewProjectName('');
             // Можно сразу переходить в него
-            if(onSelectProject) onSelectProject(newProject.id);
+            if (onSelectProject && newProject && typeof newProject === 'object' && 'id' in newProject) {
+                // @ts-ignore
+                onSelectProject(newProject.id);
+            }
         },
         onError: () => toast.error("Ошибка создания")
     });
@@ -95,14 +101,14 @@ export default function ProjectsPage({ onSelectProject }) {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {projects.length === 0 && !isCreating && (
+                {projectsList.length === 0 && !isCreating && (
                     <div className="col-span-full py-20 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">
                         <FolderOpen size={48} className="mx-auto mb-4 opacity-50"/>
                         <p>Список проектов пуст</p>
                     </div>
                 )}
 
-                {projects.map(project => (
+                {projectsList.map(project => (
                     <div 
                         key={project.id}
                         onClick={() => onSelectProject && onSelectProject(project.id)}

@@ -88,13 +88,18 @@ const upsertWithConflict = (table, payload, options = {}) => {
     }
 
     const { select, single } = options;
-    let query = supabase.from(table).upsert(payload, { onConflict: conflict });
+    const baseQuery = supabase.from(table).upsert(payload, { onConflict: conflict });
 
-    if (select) query = query.select(select);
-    else if (single) query = query.select();
+    if (single) {
+        const selectedQuery = select ? baseQuery.select(select) : baseQuery.select();
+        return selectedQuery.single();
+    }
 
-    if (single) query = query.single();
-    return query;
+    if (select) {
+        return baseQuery.select(select);
+    }
+
+    return baseQuery;
 };
 
 const syncFloorsForBlockFromDetails = async (building, currentBlock, buildingDetails) => {
@@ -154,6 +159,26 @@ const syncFloorsForBlockFromDetails = async (building, currentBlock, buildingDet
 };
 
 const LegacyApiService = {
+
+    getSystemUsers: async () => {
+        const { data, error } = await supabase
+            .from('dict_system_users')
+            .select('id, code, name, role, group_name, is_active, sort_order')
+            .eq('is_active', true)
+            .order('sort_order', { ascending: true })
+            .order('name', { ascending: true });
+
+        if (error) throw error;
+
+        return (data || []).map((u) => ({
+            id: u.id,
+            code: u.code,
+            name: u.name,
+            role: u.role,
+            group: u.group_name || u.name,
+            sortOrder: u.sort_order || 100
+        }));
+    },
 
     // --- DASHBOARD & LISTS ---
 
@@ -1018,6 +1043,7 @@ const LegacyApiService = {
         };
         const { data: savedUnit, error } = await upsertWithConflict('units', unitPayload, { single: true });
         if (error) throw error;
+        if (!savedUnit) throw new Error('Unit upsert returned empty payload');
 
         // Sync rooms
         if (unitData.explication && Array.isArray(unitData.explication)) {
@@ -1157,19 +1183,14 @@ const LegacyApiService = {
 
         if (targetCount > currentCount) {
             const toAdd = targetCount - currentCount;
-            let maxNum = 0;
-            existing.forEach(u => {
-                const n = parseInt(u.number);
-                if (!isNaN(n) && n > maxNum) maxNum = n;
-            });
             const newUnits = [];
             for(let i=1; i<=toAdd; i++) {
                 newUnits.push({
                     id: crypto.randomUUID(),
                     floor_id: floorId,
                     unit_type: 'parking_place',
-                    number: String(maxNum + i),
-                    total_area: 13.25,
+                    number: null,
+                    total_area: null,
                     status: 'free'
                 });
             }
