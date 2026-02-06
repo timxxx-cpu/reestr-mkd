@@ -22,20 +22,30 @@ export default function BuildingSelector({ stepId, onSelect }) {
     const filteredItems = useMemo(() => {
         return buildings.filter(item => {
             if (stepId === 'registry_nonres') {
-                if (item.category === 'residential') return false; 
-                return item.category === 'infrastructure' || 
-                       item.category === 'parking_separate' || 
+                if (item.category === 'residential') return false;
+                return item.category === 'infrastructure' ||
+                       item.category === 'parking_separate' ||
                        (item.category === 'residential_multiblock' && item.nonResBlocks > 0);
             }
-            
+
             if (stepId === 'registry_res') {
                 return item.category.includes('residential');
             }
-            
-            if (['floors', 'entrances', 'mop', 'apartments'].includes(stepId)) {
-                 if (stepId === 'apartments') return item.category.includes('residential');
+
+            if (stepId === 'floors') {
+                const isParking = item.category === 'parking_separate';
+                const isUnderground = item.parkingType === 'underground';
+                const isGroundLightOrOpen = !isUnderground && ['light', 'open'].includes(item.constructionType);
+
+                if (isParking && isGroundLightOrOpen) return false;
+                return true;
             }
-            return true; 
+
+            if (['entrances', 'mop', 'apartments'].includes(stepId)) {
+                if (stepId === 'apartments') return item.category.includes('residential');
+            }
+
+            return true;
         });
     }, [buildings, stepId]);
 
