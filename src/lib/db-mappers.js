@@ -122,6 +122,7 @@ export const mapBlockDetailsFromDB = (b, block) => {
         vehicleEntries: block.vehicle_entries || 0,
         levelsDepth: block.levels_depth || 0,
         lightStructureType: block.light_structure_type || "", 
+        parentBlocks: block.parent_blocks || [],
         floorsFrom: block.floors_from || 1,
         floorsTo: block.floors_to || (block.floors_count || 1),
         

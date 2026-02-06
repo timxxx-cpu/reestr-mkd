@@ -1441,6 +1441,7 @@ const LegacyApiService = {
                         vehicle_entries: details.vehicleEntries,
                         levels_depth: details.levelsDepth,
                         light_structure_type: details.lightStructureType,
+                        parent_blocks: details.parentBlocks || [],
                         floors_from: details.floorsFrom,
                         floors_to: details.floorsTo,
                         has_basement: details.hasBasementFloor,

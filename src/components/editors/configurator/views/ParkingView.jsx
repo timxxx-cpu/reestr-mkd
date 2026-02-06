@@ -67,7 +67,18 @@ export default function ParkingView({ building, typeInfo }) {
         updateFeatures({ basements: updated });
     };
 
-    const availableParents = composition.filter(c => c.id !== building.id && c.category.includes('residential'));
+    const availableParents = composition
+        .filter(c => c.id !== building.id && c.category.includes('residential'))
+        .flatMap(parentBuilding => (parentBuilding.blocks || [])
+            .filter(block => block.type === 'residential')
+            .map(block => ({
+                id: block.id,
+                buildingId: parentBuilding.id,
+                houseNumber: parentBuilding.houseNumber,
+                buildingLabel: parentBuilding.label,
+                label: block.label || block.tabLabel || `Блок ${block.id?.slice?.(0, 4) || ''}`
+            }))
+        );
     
     const toggleParentBlock = (blockId) => {
         if (isReadOnly) return;
@@ -135,10 +146,8 @@ export default function ParkingView({ building, typeInfo }) {
     // --- РЕНДЕР: КАПИТАЛЬНЫЙ ПАРКИНГ (3 КОЛОНКИ) ---
     return (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-            
-            {/* ЛЕВАЯ КОЛОНКА (4/12): Параметры паркинга */}
-            <div className="xl:col-span-4 space-y-6">
-                 <ParkingParametersCard 
+            <div className="xl:col-span-12 space-y-6">
+                <ParkingParametersCard 
                     details={details}
                     updateDetail={updateDetail}
                     isUnderground={isUnderground}
@@ -156,23 +165,21 @@ export default function ParkingView({ building, typeInfo }) {
                 />
             </div>
 
-            {/* ЦЕНТРАЛЬНАЯ КОЛОНКА (4/12): Инженерия */}
-            <div className="xl:col-span-4 space-y-6">
+            <div className="xl:col-span-6 space-y-6">
                 <EngineeringCard details={details} updateDetail={updateDetail} />
             </div>
 
-            {/* ПРАВАЯ КОЛОНКА (4/12): Конструктив + Подвал */}
-            <div className="xl:col-span-4 space-y-6">
+            <div className="xl:col-span-6 space-y-6">
                 <ConstructiveCard details={details} updateDetail={updateDetail} errors={errors} />
-                
-                {/* Если вдруг у паркинга есть еще и подвал (тех. этаж) */}
-                <BasementCard 
-                    blockBasements={blockBasements}
-                    canAddBasement={canAddBasement}
-                    createBlockBasement={createBlockBasement}
-                    removeBasement={removeBasement}
-                    updateBasement={updateBasement}
-                />
+                {isUnderground && (
+                    <BasementCard 
+                        blockBasements={blockBasements}
+                        canAddBasement={canAddBasement}
+                        createBlockBasement={createBlockBasement}
+                        removeBasement={removeBasement}
+                        updateBasement={updateBasement}
+                    />
+                )}
             </div>
         </div>
     );

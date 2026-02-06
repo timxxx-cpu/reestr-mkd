@@ -3,7 +3,7 @@ import { ArrowRight, Building2, Search, Loader2 } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext'; // Оставляем только для projectId
 import { useDirectBuildings } from '../../hooks/api/useDirectBuildings'; // Новый хук
 import { STEPS_CONFIG } from '../../lib/constants';
-import { calculateProgress, getStageColor } from '../../lib/utils';
+import { getStageColor } from '../../lib/utils';
 
 const PARKING_CONSTRUCTION_NAMES = {
     capital: "Капитальный",
@@ -67,7 +67,7 @@ export default function BuildingSelector({ stepId, onSelect }) {
                     <div className="col-span-1 text-center">Дом №</div>
                     <div className="col-span-4">Наименование</div>
                     <div className="col-span-3">Тип / Характеристики</div>
-                    <div className="col-span-2">Статус / Прогресс</div>
+                    <div className="col-span-2">Статус</div>
                     <div className="col-span-1 text-right"></div>
                  </div>
 
@@ -82,8 +82,6 @@ export default function BuildingSelector({ stepId, onSelect }) {
                  <div className="divide-y divide-slate-100">
                      {filteredItems.map((item, idx) => {
                          const isRes = item.category.includes('residential');
-                         const progress = calculateProgress(item.dateStart, item.dateEnd);
-                         
                          let detailsBadge = null;
                          if (item.category === 'parking_separate') {
                              const pType = item.parkingType === 'ground' ? 'Наземный' : 'Подземный';
@@ -107,12 +105,10 @@ export default function BuildingSelector({ stepId, onSelect }) {
                                         {detailsBadge && <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[9px] font-bold">{detailsBadge}</span>}
                                      </div>
                                  </div>
-                                 <div className="col-span-2 pr-6">
-                                     <div className="flex items-center justify-between mb-1.5">
-                                         <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}>{item.stage || 'Проект'}</span>
-                                         <span className="text-[10px] font-bold text-slate-400">{Math.round(progress)}%</span>
-                                     </div>
-                                     <div className="h-1 w-full bg-slate-200 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${progress}%` }} /></div>
+                                 <div className="col-span-2 pr-4">
+                                     <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}>
+                                         {item.stage || 'Проект'}
+                                     </span>
                                  </div>
                                  <div className="col-span-1 flex justify-end">
                                      <div className="w-8 h-8 rounded-full bg-white border border-slate-100 flex items-center justify-center text-slate-300 shadow-sm group-hover:bg-blue-600 group-hover:border-blue-600 group-hover:text-white transition-all"><ArrowRight size={14} /></div>

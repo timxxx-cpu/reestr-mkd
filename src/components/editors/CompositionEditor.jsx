@@ -6,7 +6,7 @@ import {
 import { useProject } from '../../context/ProjectContext';
 import { useDirectBuildings } from '../../hooks/api/useDirectBuildings';
 import { Button, Input, Select, Label, SectionTitle, useReadOnly } from '../ui/UIKit';
-import { calculateProgress, getStageColor } from '../../lib/utils';
+import { getStageColor } from '../../lib/utils';
 import { BuildingModalSchema } from '../../lib/schemas';
 import { useValidation } from '../../hooks/useValidation';
 import { useCatalog } from '../../hooks/useCatalogs';
@@ -182,11 +182,22 @@ const BuildingModal = ({ modal, setModal, onCommit, isSaving, parkingTypeOptions
                             <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-in fade-in">
                                 <div className="space-y-1.5">
                                     <Label>Тип паркинга</Label>
-                                    <Select value={modal.parkingType} onChange={e => setModal(m => ({...m, parkingType: e.target.value}))} disabled={isReadOnly || isSaving}>
+                                    <Select
+                                        value={modal.parkingType}
+                                        onChange={e => {
+                                            const nextType = e.target.value;
+                                            setModal(m => ({
+                                                ...m,
+                                                parkingType: nextType,
+                                                parkingConstruction: nextType === 'underground' ? 'capital' : m.parkingConstruction
+                                            }));
+                                        }}
+                                        disabled={isReadOnly || isSaving}
+                                    >
                                         {parkingTypeOptions.map(opt => <option key={opt.code} value={opt.code}>{opt.label}</option>)}
                                     </Select>
                                 </div>
-                                {modal.parkingType === 'ground' && (
+                                {(modal.parkingType === 'ground' || modal.parkingType === 'aboveground') && (
                                     <div className="space-y-1.5 animate-in slide-in-from-top-2">
                                         <Label>Конструктив</Label>
                                         <Select value={modal.parkingConstruction} onChange={e => setModal(m => ({...m, parkingConstruction: e.target.value}))} disabled={isReadOnly || isSaving}>
@@ -337,11 +348,12 @@ export default function CompositionEditor() {
          const isParking = modal.category === 'parking_separate';
          const isInfrastructure = modal.category === 'infrastructure';
 
+         const isAbovegroundParking = modal.parkingType === 'ground' || modal.parkingType === 'aboveground';
          const buildingData = {
              label: modal.baseName,
              houseNumber: modal.houseNumber,
              category: modal.category,
-             constructionType: isParking ? modal.parkingConstruction : null,
+             constructionType: isParking ? (isAbovegroundParking ? modal.parkingConstruction : 'capital') : null,
              parkingType: isParking ? modal.parkingType : null,
              infraType: isInfrastructure ? modal.infraType : null,
              hasNonResPart: modal.hasNonResPart,
@@ -422,8 +434,8 @@ export default function CompositionEditor() {
                     <div className="col-span-1 text-center">Дом №</div>
                     <div className="col-span-3">Наименование</div>
                     <div className="col-span-3">Характеристики</div>
-                    <div className="col-span-3">Статус / Сроки</div>
-                    <div className="col-span-1 text-right"></div>
+                    <div className="col-span-2">Статус</div>
+                    <div className="col-span-3 text-right"></div>
                 </div>
 
                 {buildings.length === 0 && (
@@ -436,7 +448,6 @@ export default function CompositionEditor() {
 
                 <div className="divide-y divide-slate-100">
                     {buildings.map((item, idx) => {
-                        const progress = calculateProgress(item.dateStart, item.dateEnd);
                         const isRes = item.category.includes('residential');
                         let detailsBadge = null;
                         if (item.category === 'parking_separate') {
@@ -463,18 +474,12 @@ export default function CompositionEditor() {
                                         {detailsBadge && <span className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold">{detailsBadge}</span>}
                                     </div>
                                 </div>
-                                <div className="col-span-3 pr-8">
-                                    <div className="flex items-center justify-between mb-1.5">
-                                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}>{item.stage || 'Проект'}</span>
-                                        <span className="text-[10px] font-bold text-slate-400">{Math.round(progress)}%</span>
-                                    </div>
-                                    <div className="h-1 w-full bg-slate-200 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${progress}%` }} /></div>
-                                    <div className="flex justify-between text-[9px] text-slate-400 mt-1 font-mono">
-                                        <span>{item.dateStart ? new Date(item.dateStart).toLocaleDateString('ru-RU') : '...'}</span>
-                                        <span>{item.dateEnd ? new Date(item.dateEnd).toLocaleDateString('ru-RU') : '...'}</span>
-                                    </div>
+                                <div className="col-span-2 pr-4">
+                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}>
+                                        {item.stage || 'Проект'}
+                                    </span>
                                 </div>
-                                <div className="col-span-1 flex justify-end gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                                <div className="col-span-3 flex justify-end gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
                                     <button onClick={() => openEditing(item)} title={isReadOnly ? "Просмотр" : "Редактировать"} className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">{isReadOnly ? <Eye size={16}/> : <Pencil size={16}/>}</button>
                                     {!isReadOnly && <button onClick={() => deleteItem(item.id)} className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>}
                                 </div>

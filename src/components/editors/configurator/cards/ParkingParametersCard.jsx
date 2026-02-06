@@ -51,7 +51,7 @@ export default function ParkingParametersCard({
                             <div className="mt-4 p-4 bg-blue-50 rounded-xl border border-blue-100">
                                 <Label className="flex items-center gap-2 mb-3 text-blue-800"><MapPin size={14}/> Расположен под блоками:</Label>
                                 {availableParents.length > 0 ? (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto pr-1 scrollbar-thin">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-1 scrollbar-thin">
                                         {availableParents.map(parent => {
                                             const isSelected = (details.parentBlocks || []).includes(parent.id);
                                             return (
@@ -63,7 +63,12 @@ export default function ParkingParametersCard({
                                                 >
                                                     <div className="flex items-center gap-3">
                                                         <div className={`font-black text-xs px-1.5 py-0.5 rounded border border-white/20 ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>{parent.houseNumber}</div>
-                                                        <span className="text-[11px] font-bold line-clamp-1">{parent.label}</span>
+                                                        <div className="min-w-0">
+                                                            <span className="text-[11px] font-bold line-clamp-1 block">{parent.label}</span>
+                                                            <span className={`text-[10px] line-clamp-1 block ${isSelected ? 'text-blue-100' : 'text-slate-500'}`}>
+                                                                {parent.buildingLabel}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                     {isSelected && <div className="w-2 h-2 rounded-full bg-white shrink-0"/>}
                                                 </button>
@@ -71,7 +76,7 @@ export default function ParkingParametersCard({
                                         })}
                                     </div>
                                 ) : (
-                                    <div className="text-center text-[10px] text-slate-400 py-4 border border-dashed rounded-lg bg-white">Нет подходящих зданий</div>
+                                    <div className="text-center text-[10px] text-slate-400 py-4 border border-dashed rounded-lg bg-white">Нет подходящих жилых блоков</div>
                                 )}
                             </div>
                         </div>
