@@ -6,7 +6,7 @@ import {
   AlertTriangle, X
 } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
-import { Button } from './ui/UIKit';
+import { Button, SaveIndicator, useEscapeKey } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
 import { ROLES, STEPS_CONFIG, WORKFLOW_STAGES, APP_STATUS } from '../lib/constants';
 import { getStepStage } from '../lib/workflow-utils';
@@ -15,7 +15,10 @@ import { getStepStage } from '../lib/workflow-utils';
 import { validateStepCompletion } from '../lib/step-validators';
 
 // --- МОДАЛКА ОШИБОК ВАЛИДАЦИИ (НОВАЯ) ---
-const ValidationErrorsModal = ({ errors, onClose }) => (
+const ValidationErrorsModal = ({ errors, onClose }) => {
+    useEscapeKey(onClose);
+    
+    return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
         <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5 scale-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[80vh]">
             {/* Header */}
@@ -57,10 +60,14 @@ const ValidationErrorsModal = ({ errors, onClose }) => (
             </div>
         </div>
     </div>
-);
+    );
+};
 
 // --- МОДАЛКА ВЫХОДА ---
-const ExitConfirmationModal = ({ onCancel, onConfirm }) => (
+const ExitConfirmationModal = ({ onCancel, onConfirm }) => {
+    useEscapeKey(onCancel);
+    
+    return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
         <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5 scale-100 animate-in zoom-in-95 duration-200">
             <div className="p-6 text-center">
@@ -79,10 +86,14 @@ const ExitConfirmationModal = ({ onCancel, onConfirm }) => (
             </div>
         </div>
     </div>
-);
+    );
+};
 
 // --- МОДАЛКА ВОЗВРАТА НА ПРЕДЫДУЩУЮ ЗАДАЧУ ---
-const RollbackConfirmationModal = ({ currentStepTitle, prevStepTitle, onCancel, onConfirm, isLoading }) => (
+const RollbackConfirmationModal = ({ currentStepTitle, prevStepTitle, onCancel, onConfirm, isLoading }) => {
+    useEscapeKey(onCancel);
+    
+    return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
         <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5 scale-100 animate-in zoom-in-95 duration-200">
             <div className="px-6 py-4 border-b border-amber-100 bg-amber-50 flex items-center gap-3">
@@ -111,10 +122,14 @@ const RollbackConfirmationModal = ({ currentStepTitle, prevStepTitle, onCancel, 
             </div>
         </div>
     </div>
-);
+    );
+};
 
 // --- МОДАЛКА ПОДТВЕРЖДЕНИЯ ПРИНЯТИЯ ЭТАПА (ДЛЯ БРИГАДИРА) ---
-const ApproveStageModal = ({ stageNum, onCancel, onConfirm, isLoading }) => (
+const ApproveStageModal = ({ stageNum, onCancel, onConfirm, isLoading }) => {
+    useEscapeKey(onCancel);
+    
+    return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
         <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5 scale-100 animate-in zoom-in-95 duration-200">
             <div className="px-6 py-4 border-b border-emerald-100 bg-emerald-50 flex items-center gap-3">
@@ -145,10 +160,14 @@ const ApproveStageModal = ({ stageNum, onCancel, onConfirm, isLoading }) => (
             </div>
         </div>
     </div>
-);
+    );
+};
 
 // --- МОДАЛКА ЗАВЕРШЕНИЯ ЗАДАЧИ ---
-const CompleteTaskModal = ({ onCancel, onConfirm, message }) => (
+const CompleteTaskModal = ({ onCancel, onConfirm, message }) => {
+    useEscapeKey(onCancel);
+    
+    return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
         <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5 scale-100 animate-in zoom-in-95 duration-200">
             <div className="p-6 text-center">
@@ -167,7 +186,8 @@ const CompleteTaskModal = ({ onCancel, onConfirm, message }) => (
             </div>
         </div>
     </div>
-);
+    );
+};
 
 const SaveProgressModal = ({ status, message, onOk }) => {
     const isSaving = status === 'saving';
@@ -600,9 +620,18 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
                         Выйти без сохранения
                     </Button>
 
-                    <Button onClick={handleSave} disabled={isActionDisabled} className={`h-10 shadow-sm transition-all border ${hasUnsavedChanges ? 'bg-blue-600 text-white border-blue-500 hover:bg-blue-500 ring-2 ring-blue-500/30 animate-pulse' : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 hover:text-white'}`}>
+                    <Button 
+                        onClick={handleSave} 
+                        disabled={isActionDisabled} 
+                        className={`relative h-10 shadow-sm transition-all border ${
+                            hasUnsavedChanges 
+                                ? 'bg-blue-600 text-white border-blue-500 hover:bg-blue-500 ring-2 ring-blue-500/30' 
+                                : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 hover:text-white'
+                        }`}
+                    >
+                        <SaveIndicator hasChanges={hasUnsavedChanges} />
                         {isLoading ? <Loader2 size={16} className="animate-spin mr-2"/> : <Save size={16} className="mr-2"/>}
-                        {hasUnsavedChanges ? "Сохранить *" : "Сохранить"}
+                        Сохранить
                     </Button>
 
                     <Button variant="secondary" onClick={handleSaveAndExit} disabled={isActionDisabled} className="bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 hover:text-white h-10 shadow-sm">

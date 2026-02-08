@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { ROLES, APP_STATUS, APP_STATUS_LABELS, STEPS_CONFIG } from '../lib/constants';
 import { useCatalog } from '../hooks/useCatalogs';
-import { Button, Input, Badge, Card, SectionTitle } from './ui/UIKit';
+import { Button, Input, Badge, Card, SectionTitle, TableSkeleton, Tooltip } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
 import { getStageColor } from '../lib/utils';
 import { ApiService } from '../lib/api-service'; // CHANGED
@@ -46,16 +46,25 @@ function MetricCard({ label, value, icon: _Icon, color, isActive, onClick }) {
         <div 
             onClick={onClick}
             className={`
-                p-4 rounded-xl border transition-all duration-200 cursor-pointer shadow-sm
+                group p-5 rounded-xl border-2 transition-all duration-200 cursor-pointer
+                hover:shadow-2xl hover:-translate-y-1 hover:scale-[1.02]
                 flex items-center gap-4 ${activeClass}
             `}
         >
-            <div className={`w-12 h-12 rounded-lg flex items-center justify-center bg-white shadow-sm border border-slate-100 ${color}`}>
-                <_Icon size={24} />
+            <div className={`
+                w-14 h-14 rounded-xl flex items-center justify-center 
+                bg-white shadow-sm border border-slate-100
+                group-hover:scale-110 transition-transform ${color}
+            `}>
+                <_Icon size={28} />
             </div>
-            <div>
-                <div className="text-2xl font-black text-slate-800 leading-none">{value}</div>
-                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-1">{label}</div>
+            <div className="flex-1">
+                <div className="text-3xl font-black text-slate-800 leading-none">
+                    {value}
+                </div>
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-1.5">
+                    {label}
+                </div>
             </div>
         </div>
     );
@@ -353,9 +362,11 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                             </div>
                         )}
                         {activeTab === 'inbox' && (
-                            <Button onClick={handleEmulateIncoming} disabled={isLoadingApps} className="bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 h-10 text-xs px-5 rounded-xl">
-                                <Zap size={14} className={isLoadingApps ? 'animate-spin' : ''}/> Эмуляция (API)
-                            </Button>
+                            <Tooltip content="Сгенерировать тестовую заявку из внешней системы">
+                                <Button onClick={handleEmulateIncoming} disabled={isLoadingApps} className="bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 h-10 text-xs px-5 rounded-xl">
+                                    <Zap size={14} className={isLoadingApps ? 'animate-spin' : ''}/> Эмуляция (API)
+                                </Button>
+                            </Tooltip>
                         )}
                     </div>
 
@@ -415,8 +426,8 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
 }
 
 // --- ТАБЛИЦА ЗАДАЧ ---
-const ProjectsTable = ({ data, user, onSelect, onDelete }) => {
-    if (data.length === 0) return <EmptyState />;
+const ProjectsTable = ({ data, user, onSelect, onDelete, isLoading = false }) => {
+    if (!isLoading && data.length === 0) return <EmptyState />;
 
     return (
         <div className="flex-1 overflow-y-auto">
@@ -437,8 +448,11 @@ const ProjectsTable = ({ data, user, onSelect, onDelete }) => {
                         <th className="px-5 py-4 text-right">Действия</th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
-                    {data.map((p, idx) => {
+                {isLoading ? (
+                    <TableSkeleton rows={5} cols={12} />
+                ) : (
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                        {data.map((p, idx) => {
                         const app = p.applicationInfo || {};
                         const info = p.complexInfo || {};
                         const statusConfig = APP_STATUS_LABELS[app.status] || { label: p.status, color: getStageColor(p.status) };
@@ -517,19 +531,32 @@ const ProjectsTable = ({ data, user, onSelect, onDelete }) => {
                                 </td>
                                 <td className="px-5 py-4 text-right">
                                     <div className="flex justify-end gap-2">
-                                        <button onClick={() => onSelect(p.id, 'view')} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100" title="Просмотр"><Eye size={16}/></button>
+                                        <Tooltip content="Открыть в режиме просмотра">
+                                            <button onClick={() => onSelect(p.id, 'view')} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100">
+                                                <Eye size={16}/>
+                                            </button>
+                                        </Tooltip>
                                         {!isCompleted && canEdit && (
-                                            <button onClick={() => onSelect(p.id, 'edit')} className="p-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-lg transition-all shadow-sm hover:shadow active:scale-95" title="Взять в работу"><PlayCircle size={16}/></button>
+                                            <Tooltip content="Взять в работу и редактировать">
+                                                <button onClick={() => onSelect(p.id, 'edit')} className="p-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-lg transition-all shadow-sm hover:shadow active:scale-95">
+                                                    <PlayCircle size={16}/>
+                                                </button>
+                                            </Tooltip>
                                         )}
                                         {onDelete && (
-                                            <button onClick={() => onDelete(p.id)} className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"><Trash2 size={16}/></button>
+                                            <Tooltip content="Удалить проект" placement="left">
+                                                <button onClick={() => onDelete(p.id)} className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100">
+                                                    <Trash2 size={16}/>
+                                                </button>
+                                            </Tooltip>
                                         )}
                                     </div>
                                 </td>
                             </tr>
                         );
                     })}
-                </tbody>
+                    </tbody>
+                )}
             </table>
         </div>
     );
