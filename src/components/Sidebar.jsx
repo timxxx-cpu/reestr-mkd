@@ -7,7 +7,7 @@ import { STEPS_CONFIG, ROLES } from '../lib/constants';
 import { useProject } from '../context/ProjectContext';
 import { useTheme } from '../context/ThemeContext';
 import { getStepStage } from '../lib/workflow-utils';
-import { Button } from './ui/UIKit';
+import { Button, Tooltip } from './ui/UIKit';
 
 // --- МОДАЛКА ВЫХОДА (ТОЛЬКО ДЛЯ КНОПКИ "НА РАБОЧИЙ СТОЛ") ---
 const ExitConfirmationModal = ({ onCancel, onConfirm }) => (
@@ -177,16 +177,17 @@ export default function Sidebar({
                  </div>
              </div>
 
-             <button 
-                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 hover:bg-slate-800 text-slate-400 hover:text-white ${!isOpen && 'justify-center'}`}
-                title="Сменить тему"
-             >
-                {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-                <span className={`text-xs font-bold transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
-                    {theme === 'dark' ? 'Светлая тема' : 'Темная тема'}
-                </span>
-             </button>
+             <Tooltip content={theme === 'dark' ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'} placement="right">
+                 <button 
+                    onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 hover:bg-slate-800 text-slate-400 hover:text-white ${!isOpen && 'justify-center'}`}
+                 >
+                    {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+                    <span className={`text-xs font-bold transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
+                        {theme === 'dark' ? 'Светлая тема' : 'Темная тема'}
+                    </span>
+                 </button>
+             </Tooltip>
           </div>
         </aside>
     </>

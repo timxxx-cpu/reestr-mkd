@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { ROLES, APP_STATUS, APP_STATUS_LABELS, STEPS_CONFIG } from '../lib/constants';
 import { useCatalog } from '../hooks/useCatalogs';
-import { Button, Input, Badge, Card, SectionTitle, TableSkeleton } from './ui/UIKit';
+import { Button, Input, Badge, Card, SectionTitle, TableSkeleton, Tooltip } from './ui/UIKit';
 import { useToast } from '../context/ToastContext';
 import { getStageColor } from '../lib/utils';
 import { ApiService } from '../lib/api-service'; // CHANGED
@@ -362,9 +362,11 @@ export default function ApplicationsDashboard({ user, projects, dbScope, onSelec
                             </div>
                         )}
                         {activeTab === 'inbox' && (
-                            <Button onClick={handleEmulateIncoming} disabled={isLoadingApps} className="bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 h-10 text-xs px-5 rounded-xl">
-                                <Zap size={14} className={isLoadingApps ? 'animate-spin' : ''}/> Эмуляция (API)
-                            </Button>
+                            <Tooltip content="Сгенерировать тестовую заявку из внешней системы">
+                                <Button onClick={handleEmulateIncoming} disabled={isLoadingApps} className="bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 h-10 text-xs px-5 rounded-xl">
+                                    <Zap size={14} className={isLoadingApps ? 'animate-spin' : ''}/> Эмуляция (API)
+                                </Button>
+                            </Tooltip>
                         )}
                     </div>
 
@@ -529,12 +531,24 @@ const ProjectsTable = ({ data, user, onSelect, onDelete, isLoading = false }) =>
                                 </td>
                                 <td className="px-5 py-4 text-right">
                                     <div className="flex justify-end gap-2">
-                                        <button onClick={() => onSelect(p.id, 'view')} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100" title="Просмотр"><Eye size={16}/></button>
+                                        <Tooltip content="Открыть в режиме просмотра">
+                                            <button onClick={() => onSelect(p.id, 'view')} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100">
+                                                <Eye size={16}/>
+                                            </button>
+                                        </Tooltip>
                                         {!isCompleted && canEdit && (
-                                            <button onClick={() => onSelect(p.id, 'edit')} className="p-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-lg transition-all shadow-sm hover:shadow active:scale-95" title="Взять в работу"><PlayCircle size={16}/></button>
+                                            <Tooltip content="Взять в работу и редактировать">
+                                                <button onClick={() => onSelect(p.id, 'edit')} className="p-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-lg transition-all shadow-sm hover:shadow active:scale-95">
+                                                    <PlayCircle size={16}/>
+                                                </button>
+                                            </Tooltip>
                                         )}
                                         {onDelete && (
-                                            <button onClick={() => onDelete(p.id)} className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"><Trash2 size={16}/></button>
+                                            <Tooltip content="Удалить проект" placement="left">
+                                                <button onClick={() => onDelete(p.id)} className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100">
+                                                    <Trash2 size={16}/>
+                                                </button>
+                                            </Tooltip>
                                         )}
                                     </div>
                                 </td>
