@@ -1559,6 +1559,7 @@ const LegacyApiService = {
         ...b,
         label: b.label,
         houseNumber: b.house_number,
+        buildingCode: b.building_code,
       })),
       blocks: (blocks || []).map(b => ({
         ...b,
@@ -1578,6 +1579,7 @@ const LegacyApiService = {
       })),
       units: (units || []).map(u => ({
         id: u.id,
+        unitCode: u.unit_code,
         number: u.number,
         num: u.number,
         type: u.unit_type,

@@ -97,4 +97,53 @@ export const FullIdentifier = ({ projectCode, buildingCode, unitCode, className 
   );
 };
 
+/**
+ * Компонент для отображения полного идентификатора в виде одной строки
+ * @param {string} fullCode - Полный код вида UJ000001-ZR01-EF001
+ */
+export const FullIdentifierCompact = ({ fullCode, variant = 'default', className = '' }) => {
+  const toast = useToast();
+  const [copied, setCopied] = React.useState(false);
+
+  if (!fullCode) return null;
+
+  const sizeStyles = {
+    compact: 'text-[9px] px-1.5 py-0.5',
+    default: 'text-[10px] px-2 py-0.5',
+    large: 'text-xs px-2.5 py-1',
+  };
+
+  const handleCopy = (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(fullCode).then(() => {
+      setCopied(true);
+      toast?.success?.('Код скопирован');
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      toast?.error?.('Не удалось скопировать');
+    });
+  };
+
+  return (
+    <span 
+      onClick={handleCopy}
+      className={`
+        inline-flex items-center gap-1 rounded border font-mono font-bold
+        bg-blue-50 border-blue-200 text-blue-700
+        ${sizeStyles[variant]}
+        cursor-pointer hover:scale-105 hover:shadow-sm active:scale-95 transition-all duration-150
+        ${className}
+      `}
+      title="Нажмите, чтобы скопировать"
+    >
+      {fullCode}
+      {variant !== 'compact' && (
+        <span className={`transition-opacity ${copied ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+          {copied ? <Check size={10} /> : <Copy size={10} />}
+        </span>
+      )}
+    </span>
+  );
+};
+
 export default IdentifierBadge;

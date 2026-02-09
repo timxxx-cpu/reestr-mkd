@@ -9,10 +9,12 @@ import {
   Search,
 } from 'lucide-react';
 import { Card, DebouncedInput } from '@components/ui/UIKit';
+import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
+import { formatFullIdentifier } from '@lib/uj-identifier';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
+import { useProject } from '@context/ProjectContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { IdentifierBadge } from '@components/ui/IdentifierBadge';
 import CommercialInventoryModal from '../modals/CommercialInventoryModal';
 
 const getTypeConfig = type => {
@@ -62,12 +64,15 @@ const COMMERCIAL_TYPES = new Set([
 
 const CommercialRegistry = ({ onSaveUnit, projectId }) => {
   const queryClient = useQueryClient();
+  const { complexInfo } = useProject();
   // Читаем данные из БД
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
   const tableContainerRef = useRef(null);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [editingUnit, setEditingUnit] = useState(null);
+  
+  const projectUjCode = complexInfo?.ujCode;
 
   const { data, stats } = useMemo(() => {
     if (!fullRegistry || !fullRegistry.units) return { data: [], stats: null };
@@ -103,6 +108,7 @@ const CommercialRegistry = ({ onSaveUnit, projectId }) => {
         floorLabel: floor?.label || '-',
         blockLabel: block?.tabLabel || block?.label || '-',
         buildingLabel: building?.label || '-',
+        buildingCode: building?.building_code || building?.buildingCode || null,
         houseNumber: building?.houseNumber || '-',
         entrance: u.entranceId ? '?' : '-',
       };
@@ -240,10 +246,9 @@ const CommercialRegistry = ({ onSaveUnit, projectId }) => {
                       <td className="p-4 text-center relative border-x border-emerald-100 bg-emerald-50/20 group-hover:bg-emerald-100/50 transition-colors">
                         <div className="flex flex-col items-center gap-0.5">
                           <span className="font-black text-slate-800 text-lg">{item.number}</span>
-                          {item.unitCode && (
-                            <IdentifierBadge 
-                              code={item.unitCode} 
-                              type="unit" 
+                          {item.unitCode && item.buildingCode && projectUjCode && (
+                            <FullIdentifierCompact 
+                              fullCode={formatFullIdentifier(projectUjCode, item.buildingCode, item.unitCode)}
                               variant="compact"
                               className="bg-emerald-100 border-emerald-200 text-emerald-600"
                             />

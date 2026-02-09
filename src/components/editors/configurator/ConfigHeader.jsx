@@ -1,7 +1,9 @@
 import React from 'react';
 import { ArrowLeft, MapPin, Building2, Hash, Layers, Car, Box } from 'lucide-react';
 import { getStageColor } from '@lib/utils';
-import { IdentifierBadge } from '@components/ui/IdentifierBadge';
+import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
+import { formatFullIdentifier } from '@lib/uj-identifier';
+import { useProject } from '@context/ProjectContext';
 
 const PARKING_TYPE_LABELS = {
   capital: 'Капитальный',
@@ -17,6 +19,8 @@ export default function ConfigHeader({
   onBack,
   isSticky = true, // [NEW] Возможность отключить sticky-позиционирование
 }) {
+  const { complexInfo } = useProject();
+  const projectUjCode = complexInfo?.ujCode;
   // Определяем иконку и ЦВЕТ типа
   let TypeIcon = Building2;
   let accentColor = 'border-blue-500'; // Дефолт (Жилье)
@@ -58,15 +62,14 @@ export default function ConfigHeader({
         <div className="flex-1 p-4 flex flex-col gap-2">
           {/* Верхняя строка: Название + Статус + ID */}
           <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <div className={`p-2 rounded-lg ${iconBg}`}>
                 <TypeIcon size={18} />
               </div>
               <h1 className="text-xl font-bold text-slate-800 leading-none">{building.label}</h1>
-              {building.buildingCode && (
-                <IdentifierBadge 
-                  code={building.buildingCode} 
-                  type="building" 
+              {building.buildingCode && projectUjCode && (
+                <FullIdentifierCompact 
+                  fullCode={formatFullIdentifier(projectUjCode, building.buildingCode)}
                   variant="default"
                 />
               )}

@@ -1,7 +1,10 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { Home, Layers, CheckCircle2, Loader2, Search } from 'lucide-react';
 import { Card, DebouncedInput, Select } from '@components/ui/UIKit';
+import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
+import { formatFullIdentifier } from '@lib/uj-identifier';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
+import { useProject } from '@context/ProjectContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import ApartmentInventoryModal from '../modals/ApartmentInventoryModal';
@@ -29,8 +32,11 @@ const getTypeConfig = type => {
 
 const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
   const queryClient = useQueryClient();
+  const { complexInfo } = useProject();
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
   const tableContainerRef = useRef(null);
+  
+  const projectUjCode = complexInfo?.ujCode;
 
   const [searchTerm, setSearchTerm] = useState('');
   const [editingUnit, setEditingUnit] = useState(null);
@@ -77,6 +83,7 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
         floorLabel: floor?.label || '-',
         blockLabel: block?.tabLabel || block?.label || '-',
         buildingLabel: building?.label || '-',
+        buildingCode: building?.building_code || building?.buildingCode || null,
         houseNumber: building?.houseNumber || '-',
         buildingId: building?.id || null,
         entrance: entrance ?? '-',
@@ -295,10 +302,11 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
                       <td className="p-4 text-center relative border-x border-blue-100 bg-blue-50/20 group-hover:bg-blue-100/50 transition-colors">
                         <div className="flex flex-col items-center gap-0.5">
                           <span className="font-black text-slate-800 text-lg">{item.number}</span>
-                          {item.unitCode && (
-                            <span className="text-[9px] font-mono font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded">
-                              {item.unitCode}
-                            </span>
+                          {item.unitCode && item.buildingCode && projectUjCode && (
+                            <FullIdentifierCompact 
+                              fullCode={formatFullIdentifier(projectUjCode, item.buildingCode, item.unitCode)}
+                              variant="compact"
+                            />
                           )}
                         </div>
                       </td>
