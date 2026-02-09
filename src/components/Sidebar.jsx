@@ -5,13 +5,10 @@ import {
   ChevronRight,
   LayoutDashboard,
   PieChart,
-  Sun,
-  Moon,
   AlertTriangle,
 } from 'lucide-react';
 import { STEPS_CONFIG, ROLES } from '@lib/constants';
 import { useProject } from '@context/ProjectContext';
-import { useTheme } from '@context/ThemeContext';
 import { getStepStage } from '@lib/workflow-utils';
 import { Button, Tooltip } from '@components/ui/UIKit';
 
@@ -61,7 +58,6 @@ export default function Sidebar({
   const { complexInfo, applicationInfo, userProfile, hasUnsavedChanges, setHasUnsavedChanges } =
     useProject();
 
-  const { theme, setTheme } = useTheme();
   const [showExitConfirm, setShowExitConfirm] = useState(false);
 
   const currentStage = applicationInfo?.currentStage || 1;
@@ -252,24 +248,6 @@ export default function Sidebar({
             </div>
           </div>
 
-          <Tooltip
-            content={
-              theme === 'dark' ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'
-            }
-            placement="right"
-          >
-            <button
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 hover:bg-slate-800 text-slate-400 hover:text-white ${!isOpen && 'justify-center'}`}
-            >
-              {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-              <span
-                className={`text-xs font-bold transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}
-              >
-                {theme === 'dark' ? 'Светлая тема' : 'Темная тема'}
-              </span>
-            </button>
-          </Tooltip>
         </div>
       </aside>
     </>
