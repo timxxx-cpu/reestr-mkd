@@ -19,6 +19,14 @@ import {
   formatBuildingCadastre,
   formatComplexCadastre,
 } from './cadastre';
+import {
+  generateProjectCode,
+  generateBuildingCode,
+  generateUnitCode,
+  getBuildingPrefix,
+  getUnitPrefix,
+  getNextSequenceNumber,
+} from './uj-identifier';
 
 // ... (Оставляем существующие функции mapBuildingToDb, mapBlockToDb, mapBlockTypeToDb, mapDbTypeToUi без изменений) ...
 
@@ -89,6 +97,102 @@ const fetchAllPaged = async (queryFactory, pageSize = 1000) => {
   }
 
   return rows;
+};
+
+// === UJ IDENTIFIER GENERATION ===
+
+/**
+ * Генерация UJ-кода для нового проекта
+ * @param {string} scope - Scope ID
+ * @returns {Promise<string>} UJ-код формата UJ000000
+ */
+const generateNextProjectCode = async scope => {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('uj_code')
+    .eq('scope_id', scope)
+    .not('uj_code', 'is', null)
+    .order('uj_code', { ascending: false });
+
+  if (error) throw error;
+
+  const existingCodes = (data || []).map(p => p.uj_code).filter(Boolean);
+  const nextNumber = getNextSequenceNumber(existingCodes, 'UJ');
+
+  return generateProjectCode(nextNumber);
+};
+
+/**
+ * Генерация кода здания для проекта
+ * @param {string} projectId - ID проекта
+ * @param {string} category - Категория здания
+ * @param {number} blocksCount - Количество блоков (для определения ZR/ZM)
+ * @returns {Promise<string>} Код здания формата ZD00
+ */
+const generateNextBuildingCode = async (projectId, category, blocksCount = 0) => {
+  const hasMultipleBlocks = blocksCount > 1;
+  const prefix = getBuildingPrefix(category, hasMultipleBlocks);
+
+  const { data, error } = await supabase
+    .from('buildings')
+    .select('building_code')
+    .eq('project_id', projectId)
+    .not('building_code', 'is', null)
+    .ilike('building_code', `${prefix}%`);
+
+  if (error) throw error;
+
+  const existingCodes = (data || []).map(b => b.building_code).filter(Boolean);
+  const nextNumber = getNextSequenceNumber(existingCodes, prefix);
+
+  return generateBuildingCode(prefix, nextNumber);
+};
+
+/**
+ * Генерация кода помещения для здания
+ * @param {string} buildingId - ID здания
+ * @param {string} unitType - Тип помещения
+ * @returns {Promise<string>} Код помещения формата EL000
+ */
+const generateNextUnitCode = async (buildingId, unitType) => {
+  const prefix = getUnitPrefix(unitType);
+
+  // Получаем все блоки здания
+  const { data: blocks, error: blocksErr } = await supabase
+    .from('building_blocks')
+    .select('id')
+    .eq('building_id', buildingId);
+
+  if (blocksErr) throw blocksErr;
+
+  const blockIds = (blocks || []).map(b => b.id);
+  if (blockIds.length === 0) return generateUnitCode(prefix, 1);
+
+  // Получаем все этажи блоков
+  const { data: floors, error: floorsErr } = await supabase
+    .from('floors')
+    .select('id')
+    .in('block_id', blockIds);
+
+  if (floorsErr) throw floorsErr;
+
+  const floorIds = (floors || []).map(f => f.id);
+  if (floorIds.length === 0) return generateUnitCode(prefix, 1);
+
+  // Получаем все помещения данного типа
+  const { data: units, error: unitsErr } = await supabase
+    .from('units')
+    .select('unit_code')
+    .in('floor_id', floorIds)
+    .not('unit_code', 'is', null)
+    .ilike('unit_code', `${prefix}%`);
+
+  if (unitsErr) throw unitsErr;
+
+  const existingCodes = (units || []).map(u => u.unit_code).filter(Boolean);
+  const nextNumber = getNextSequenceNumber(existingCodes, prefix);
+
+  return generateUnitCode(prefix, nextNumber);
 };
 
 export const UPSERT_ON_CONFLICT = Object.freeze({
@@ -291,11 +395,15 @@ const LegacyApiService = {
   createProjectFromApplication: async (scope, appData, user) => {
     if (!scope) throw new Error('No scope provided');
 
+    // Генерируем UJ-код для проекта
+    const ujCode = await generateNextProjectCode(scope);
+
     // 1. Создаем проект
     const { data: project, error: pErr } = await supabase
       .from('projects')
       .insert({
         scope_id: scope,
+        uj_code: ujCode,
         name: appData.applicant ? `ЖК от ${appData.applicant}` : 'Новый проект',
         address: appData.address,
         cadastre_number: formatComplexCadastre(appData.cadastre),
@@ -897,10 +1005,19 @@ const LegacyApiService = {
   createBuilding: async (projectId, buildingData, blocksData) => {
     const normalizedFields = sanitizeBuildingCategoryFields(buildingData);
 
+    // Генерируем код здания
+    const blocksCount = Array.isArray(blocksData) ? blocksData.length : 0;
+    const buildingCode = await generateNextBuildingCode(
+      projectId,
+      buildingData.category,
+      blocksCount
+    );
+
     const { data: building, error: bError } = await supabase
       .from('buildings')
       .insert({
         project_id: projectId,
+        building_code: buildingCode,
         label: buildingData.label,
         house_number: buildingData.houseNumber,
         category: buildingData.category,
@@ -1145,10 +1262,36 @@ const LegacyApiService = {
   },
 
   upsertUnit: async unitData => {
+    // Генерируем unit_code для новых помещений (если его еще нет)
+    let unitCode = unitData.unitCode || null;
+
+    // Если это новое помещение (нет ID или нет кода), генерируем код
+    if (!unitCode && unitData.floorId && unitData.type) {
+      // Получаем building_id через floor -> block -> building
+      const { data: floor } = await supabase
+        .from('floors')
+        .select('block_id')
+        .eq('id', unitData.floorId)
+        .single();
+
+      if (floor?.block_id) {
+        const { data: block } = await supabase
+          .from('building_blocks')
+          .select('building_id')
+          .eq('id', floor.block_id)
+          .single();
+
+        if (block?.building_id) {
+          unitCode = await generateNextUnitCode(block.building_id, unitData.type);
+        }
+      }
+    }
+
     const unitPayload = {
       id: unitData.id || crypto.randomUUID(),
       floor_id: unitData.floorId,
       entrance_id: unitData.entranceId,
+      unit_code: unitCode,
       number: unitData.num || unitData.number,
       unit_type: unitData.type,
       total_area: unitData.area,

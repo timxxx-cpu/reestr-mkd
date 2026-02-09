@@ -51,6 +51,7 @@ drop table if exists dict_system_users cascade;
 create table projects (
   id uuid primary key default gen_random_uuid(),
   scope_id text not null,
+  uj_code text,
   name text not null,
   region text,
   district text,
@@ -68,6 +69,7 @@ create table projects (
 );
 create index idx_projects_scope on projects(scope_id);
 create index idx_projects_updated on projects(updated_at desc);
+create unique index idx_projects_uj_code on projects(uj_code) where uj_code is not null;
 
 create table applications (
   id uuid primary key default gen_random_uuid(),
@@ -142,6 +144,7 @@ create index idx_project_documents_project_date on project_documents(project_id,
 create table buildings (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects(id) on delete cascade,
+  building_code text,
   label text not null,
   house_number text,
   category text not null,
@@ -157,6 +160,7 @@ create table buildings (
   updated_at timestamptz not null default now()
 );
 create index idx_buildings_project on buildings(project_id);
+create unique index idx_buildings_code on buildings(building_code) where building_code is not null;
 
 create table building_blocks (
   id uuid primary key default gen_random_uuid(),
@@ -314,6 +318,7 @@ create table units (
   id uuid primary key default gen_random_uuid(),
   floor_id uuid not null references floors(id) on delete cascade,
   entrance_id uuid references entrances(id) on delete set null,
+  unit_code text,
   number text,
   unit_type text not null,
   total_area numeric(14,2) default 0,
@@ -330,6 +335,7 @@ create index idx_units_entrance on units(entrance_id);
 create index idx_units_type on units(unit_type);
 -- Performance: composite index for units by floor and entrance queries
 create index idx_units_floor_entrance on units(floor_id, entrance_id);
+create unique index idx_units_code on units(unit_code) where unit_code is not null;
 
 create table rooms (
   id uuid primary key default gen_random_uuid(),

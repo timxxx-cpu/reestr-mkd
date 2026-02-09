@@ -717,8 +717,15 @@ const CompositionEditor = () => {
                   </div>
                 </div>
                 <div className="col-span-3 pr-4">
-                  <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">
-                    {item.label}
+                  <div className="flex items-center gap-2">
+                    <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">
+                      {item.label}
+                    </div>
+                    {item.buildingCode && (
+                      <div className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700 text-[10px] font-mono font-bold">
+                        {item.buildingCode}
+                      </div>
+                    )}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">
                     {TYPE_NAMES[item.category] || item.category}

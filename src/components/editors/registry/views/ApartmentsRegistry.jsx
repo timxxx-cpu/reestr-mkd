@@ -293,7 +293,14 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
                         {item.entrance}
                       </td>
                       <td className="p-4 text-center relative border-x border-blue-100 bg-blue-50/20 group-hover:bg-blue-100/50 transition-colors">
-                        <span className="font-black text-slate-800 text-lg">{item.number}</span>
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span className="font-black text-slate-800 text-lg">{item.number}</span>
+                          {item.unitCode && (
+                            <span className="text-[9px] font-mono font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded">
+                              {item.unitCode}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-4">
                         <span

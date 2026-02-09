@@ -56,6 +56,7 @@ const PassportEditor = () => {
 
   const [localInfo, setLocalInfo] = useState({
     name: '',
+    ujCode: '',
     status: 'Проектный',
     region: '',
     district: '',
@@ -189,8 +190,15 @@ const PassportEditor = () => {
         <div className="relative z-10 p-6 md:p-8 space-y-6">
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
             <div>
-              <div className="text-xs uppercase tracking-[0.2em] text-blue-200/80 font-semibold">
-                Паспорт объекта
+              <div className="flex items-center gap-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-blue-200/80 font-semibold">
+                  Паспорт объекта
+                </div>
+                {complexInfo?.ujCode && (
+                  <div className="px-2.5 py-1 rounded-lg bg-blue-500/20 border border-blue-400/30 text-blue-200 text-xs font-mono font-semibold">
+                    {complexInfo.ujCode}
+                  </div>
+                )}
               </div>
               <h1 className="mt-2 text-2xl md:text-3xl font-black tracking-tight">
                 {localInfo.name || 'Новый жилой комплекс'}
