@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { execSync } from 'child_process'
 import { resolve } from 'path'
+import { fileURLToPath } from 'url'
 import packageJson from './package.json'
 
 // Безопасная функция получения 
@@ -23,18 +24,19 @@ const getBuildDate = () => {
 
 const commitHash = getVersionInfo();
 const buildDate = getBuildDate();
+const rootDir = fileURLToPath(new URL('.', import.meta.url));
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   
   // Path aliases для удобных импортов
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src'),
-      '@components': resolve(__dirname, './src/components'),
-      '@lib': resolve(__dirname, './src/lib'),
-      '@hooks': resolve(__dirname, './src/hooks'),
-      '@context': resolve(__dirname, './src/context'),
+      '@': resolve(rootDir, './src'),
+      '@components': resolve(rootDir, './src/components'),
+      '@lib': resolve(rootDir, './src/lib'),
+      '@hooks': resolve(rootDir, './src/hooks'),
+      '@context': resolve(rootDir, './src/context'),
     }
   },
   
@@ -67,6 +69,6 @@ export default defineConfig({
   
   // Удаление console.log в production
   esbuild: {
-    drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : []
+    drop: mode === 'production' ? ['console', 'debugger'] : []
   }
-})
+}))

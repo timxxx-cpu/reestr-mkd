@@ -375,13 +375,11 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     });
   }, [isTaskSwitchBlocking, pendingStepTarget, currentStep]);
 
-  if (!applicationInfo) return null;
-
-  const taskIndex = applicationInfo.currentStepIndex || 0;
+  const taskIndex = applicationInfo?.currentStepIndex || 0;
   const isCurrentTask = currentStep === taskIndex;
   const canGoBack = currentStep > 0;
 
-  const appStatus = applicationInfo.status;
+  const appStatus = applicationInfo?.status;
   const isReviewMode = appStatus === APP_STATUS.REVIEW;
 
   const isController = user.role === ROLES.CONTROLLER || user.role === ROLES.ADMIN;
@@ -666,6 +664,8 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     ],
     shortcutsEnabled && !isLoading
   );
+
+  if (!applicationInfo) return null;
 
   const handleRejectStage = async () => {
     const reason = prompt('Укажите причину возврата (обязательно):');
