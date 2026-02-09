@@ -1,33 +1,197 @@
-# 9. Роли, шаги и жизненный цикл данных (расширенно)
+# 9. Роли, шаги и жизненный цикл данных (полное описание)
 
-Цель: дать полную расшифровку **кто**, **когда**, **в какие таблицы/поля БД** пишет, и **как это поле называется/понимается в UI на русском**.
+**Цель**: Полная расшифровка **кто**, **когда**, **в какие таблицы/поля БД** пишет данные, **какая логика работает**, **откуда берутся значения** из справочников, и **как это поле называется/понимается в UI на русском**.
 
-## 9.1 Роли
+## 9.1 Роли и права доступа
 
-- `admin` -> **Полные права на контент и workflow**.
-- `technician` -> **Основной ввод/редактирование данных объекта**.
-- `controller` -> **Проверка этапов и решения approve/reject**.
+### Таблица ролей и их действий
 
-## 9.2 Шаг `passport`
+| Роль | Чтение | Создание | Редактирование | Удаление | Workflow-операции |
+|------|--------|---------|---------------|----------|-------------------|
+| **Admin** | ✅ Все | ✅ Все | ✅ Все | ✅ Все | ✅ Complete, Rollback, Approve, Reject |
+| **Technician** | ✅ Все | ✅ Данные | ✅ Данные (в DRAFT/REJECTED/INTEGRATION) | ✅ Данные | ✅ Complete, Rollback |
+| **Controller** | ✅ Все | ❌ Нет | ❌ Нет | ❌ Нет | ✅ Approve, Reject |
 
-### Таблицы и поля
-- `projects.name` -> `complexInfo.name` -> **Наименование ЖК**.
-- `projects.construction_status` -> `complexInfo.status` -> **Статус строительства проекта**.
-- `projects.region` -> `complexInfo.region` -> **Регион**.
-- `projects.district` -> `complexInfo.district` -> **Район**.
-- `projects.address` -> `complexInfo.street` -> **Адрес проекта**.
-- `projects.landmark` -> `complexInfo.landmark` -> **Ориентир**.
-- `projects.date_start_project/date_end_project` -> `complexInfo.*` -> **Плановые даты**.
-- `projects.date_start_fact/date_end_fact` -> `complexInfo.*` -> **Фактические даты**.
-- `projects.cadastre_number` -> `cadastre.number` -> **Кадастровый номер комплекса**.
-- `project_participants.role` -> `participants[role]` -> **Роль участника**.
-- `project_participants.name` -> `participants[role].name` -> **Наименование/ФИО участника**.
-- `project_participants.inn` -> `participants[role].inn` -> **ИНН участника**.
-- `project_documents.name` -> `documents[].name` -> **Название документа**.
-- `project_documents.doc_type` -> `documents[].type` -> **Тип документа**.
-- `project_documents.doc_number` -> `documents[].number` -> **Номер документа**.
-- `project_documents.doc_date` -> `documents[].date` -> **Дата документа**.
-- `project_documents.file_url` -> `documents[].url` -> **Ссылка/файл документа**.
+### Детализация по ролям
+
+#### Admin (Администратор)
+
+**Может делать**:
+- Создавать проекты и заявки
+- Редактировать любые данные в любом статусе
+- Выполнять все workflow-операции
+- Изменять статусы вручную
+- Удалять любые объекты
+- Обходить валидацию (с записью в историю)
+
+**Доступ к таблицам**: Все таблицы, полный доступ
+
+#### Technician (Техник-инвентаризатор)
+
+**Может делать**:
+- Создавать и редактировать данные в статусах: DRAFT, NEW, REJECTED, INTEGRATION
+- Завершать текущий шаг (COMPLETE_STEP)
+- Откатывать шаг (ROLLBACK_STEP)
+- Создавать/редактировать/удалять: здания, блоки, этажи, подъезды, помещения, МОП
+
+**Не может**:
+- Редактировать в статусах: REVIEW, APPROVED, COMPLETED
+- Выполнять Approve/Reject
+- Изменять workflow-статусы напрямую
+
+**Доступ к таблицам**:
+- Чтение: Все таблицы
+- Запись: projects, buildings, building_blocks, block_construction, block_engineering, basements, basement_parking_levels, floors, entrances, entrance_matrix, units, rooms, common_areas, block_floor_markers
+- Нет доступа к записи: applications (только через workflow), application_history, application_steps
+
+#### Controller (Контролер-бригадир)
+
+**Может делать**:
+- Просматривать все данные
+- Выполнять Approve/Reject для этапов в статусе REVIEW
+- Добавлять комментарии к решениям
+- Просматривать историю изменений
+
+**Не может**:
+- Редактировать данные (проекты, здания, этажи, помещения)
+- Завершать или откатывать шаги
+- Изменять конфигурацию
+
+**Доступ к таблицам**:
+- Чтение: Все таблицы
+- Запись: Только application_history (через Approve/Reject)
+
+## 9.2 Шаг 0: `passport` — Паспорт жилого комплекса
+
+### Кто заполняет
+
+**Роль**: Technician или Admin
+
+**Статус заявки**: NEW → DRAFT
+
+### Когда создаются объекты
+
+**При первом открытии проекта**:
+1. Создается запись в `projects` (если новый проект)
+2. Создается запись в `applications` (связанная с проектом)
+
+**При заполнении формы**:
+1. Обновляются поля в `projects`
+2. Создаются записи в `project_participants` (при добавлении участников)
+3. Создаются записи в `project_documents` (при добавлении документов)
+
+### Таблицы и мутации данных
+
+#### Таблица `projects`
+
+| Поле БД | UI-поле | Русское название | Когда заполняется | Откуда берется |
+|---------|---------|-----------------|------------------|----------------|
+| `id` | - | ID проекта | При создании | Автоматически (UUID) |
+| `scope_id` | - | Контур данных | При создании | Из авторизации |
+| `uj_code` | - | Код проекта | При создании | Автогенерация `UJ000001` |
+| `name` | `complexInfo.name` | Наименование ЖК | Ввод пользователя | Input field |
+| `region` | `complexInfo.region` | Регион | Ввод пользователя | Input field |
+| `district` | `complexInfo.district` | Район | Ввод пользователя | Input field |
+| `address` | `complexInfo.street` | Адрес | Ввод пользователя | Input field |
+| `landmark` | `complexInfo.landmark` | Ориентир | Ввод пользователя | Input field |
+| `cadastre_number` | `cadastre.number` | Кадастровый номер | Ввод пользователя | Input field |
+| `construction_status` | `complexInfo.status` | Статус строительства | Выбор пользователя | Справочник `dict_project_statuses` |
+| `date_start_project` | `complexInfo.dateStartProject` | Плановая дата начала | Ввод пользователя | Date picker |
+| `date_end_project` | `complexInfo.dateEndProject` | Плановая дата завершения | Ввод пользователя | Date picker |
+| `date_start_fact` | `complexInfo.dateStartFact` | Фактическая дата начала | Ввод пользователя | Date picker |
+| `date_end_fact` | `complexInfo.dateEndFact` | Фактическая дата завершения | Ввод пользователя | Date picker |
+| `created_at` | - | Дата создания | При создании | Автоматически |
+| `updated_at` | - | Дата обновления | При каждом UPDATE | Автоматически |
+
+**SQL-операции**:
+```sql
+-- Создание проекта
+INSERT INTO projects (scope_id, uj_code, name, ...)
+VALUES (?, 'UJ000001', ?, ...);
+
+-- Обновление при изменении
+UPDATE projects SET 
+  name = ?, region = ?, district = ?, ..., updated_at = now()
+WHERE id = ?;
+```
+
+#### Таблица `project_participants`
+
+| Поле БД | UI-поле | Русское название | Когда заполняется | Откуда берется |
+|---------|---------|-----------------|------------------|----------------|
+| `id` | - | ID участника | При добавлении | Автоматически (UUID) |
+| `project_id` | - | ID проекта | При добавлении | ID текущего проекта |
+| `role` | `participants[role]` | Роль участника | Выбор пользователя | Константы (developer/contractor/designer/customer) |
+| `name` | `participants[role].name` | Наименование/ФИО | Ввод пользователя | Input field |
+| `inn` | `participants[role].inn` | ИНН | Ввод пользователя | Input field |
+| `created_at` | - | Дата создания | При добавлении | Автоматически |
+| `updated_at` | - | Дата обновления | При обновлении | Автоматически |
+
+**Уникальность**: Один участник на роль (`UNIQUE(project_id, role)`)
+
+**SQL-операции**:
+```sql
+-- Создание/обновление участника
+INSERT INTO project_participants (project_id, role, name, inn)
+VALUES (?, 'developer', ?, ?)
+ON CONFLICT (project_id, role) 
+DO UPDATE SET name = EXCLUDED.name, inn = EXCLUDED.inn, updated_at = now();
+```
+
+#### Таблица `project_documents`
+
+| Поле БД | UI-поле | Русское название | Когда заполняется | Откуда берется |
+|---------|---------|-----------------|------------------|----------------|
+| `id` | `documents[].id` | ID документа | При добавлении | Автоматически (UUID) |
+| `project_id` | - | ID проекта | При добавлении | ID текущего проекта |
+| `name` | `documents[].name` | Название документа | Ввод пользователя | Input field |
+| `doc_type` | `documents[].type` | Тип документа | Ввод пользователя | Input field (свободный ввод) |
+| `doc_number` | `documents[].number` | Номер документа | Ввод пользователя | Input field |
+| `doc_date` | `documents[].date` | Дата документа | Ввод пользователя | Date picker |
+| `file_url` | `documents[].url` | Ссылка на файл | После загрузки | File upload → storage URL |
+| `created_at` | - | Дата создания | При добавлении | Автоматически |
+| `updated_at` | - | Дата обновления | При обновлении | Автоматически |
+
+**SQL-операции**:
+```sql
+-- Добавление документа
+INSERT INTO project_documents (project_id, name, doc_type, doc_number, doc_date, file_url)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- Удаление документа
+DELETE FROM project_documents WHERE id = ?;
+```
+
+### Логика работы
+
+1. **При создании проекта**:
+   - Генерируется `uj_code` через `generateNextProjectCode(scope)`
+   - Запрос существующих кодов в scope
+   - Инкремент максимального номера
+
+2. **При добавлении участника**:
+   - Проверка уникальности роли
+   - Если роль уже существует → UPDATE
+   - Если роль новая → INSERT
+
+3. **При добавлении документа**:
+   - Загрузка файла в storage (если есть)
+   - Получение URL файла
+   - Сохранение метаданных в БД
+
+### Валидация
+
+**Нет обязательных полей** на этом шаге, можно сохранить проект с минимумом данных и продолжить заполнение позже.
+
+### Workflow
+
+**При завершении шага**:
+```javascript
+applications.current_step: 0 → 1
+applications.status: DRAFT (остается)
+application_steps: INSERT (step_index=0, is_completed=true)
+application_history: INSERT (action='COMPLETE_STEP')
+```
 
 ## 9.3 Шаг `composition`
 
