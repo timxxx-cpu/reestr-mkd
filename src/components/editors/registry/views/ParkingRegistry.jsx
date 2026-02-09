@@ -1,18 +1,24 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { Car, CheckCircle2, Loader2, Search } from 'lucide-react';
 import { Card, DebouncedInput } from '@components/ui/UIKit';
+import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
+import { formatFullIdentifier } from '@lib/uj-identifier';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
+import { useProject } from '@context/ProjectContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import ParkingEditModal from '../../ParkingEditModal';
 
 const ParkingRegistry = ({ onSaveUnit, projectId }) => {
   const queryClient = useQueryClient();
+  const { complexInfo } = useProject();
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
   const tableContainerRef = useRef(null);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [editingUnit, setEditingUnit] = useState(null);
+  
+  const projectUjCode = complexInfo?.ujCode;
 
   const { data, stats } = useMemo(() => {
     if (!fullRegistry || !fullRegistry.units) return { data: [], stats: null };
@@ -39,6 +45,7 @@ const ParkingRegistry = ({ onSaveUnit, projectId }) => {
         floorLabel: floor?.label || '-',
         blockLabel: block?.tabLabel || block?.label || '-',
         buildingLabel: building?.label || '-',
+        buildingCode: building?.building_code || building?.buildingCode || null,
         houseNumber: building?.houseNumber || '-',
       };
     });
@@ -168,9 +175,17 @@ const ParkingRegistry = ({ onSaveUnit, projectId }) => {
                         </div>
                       </td>
                       <td className="p-4 text-center relative border-x border-blue-100 bg-blue-50/20 group-hover:bg-blue-100/50 transition-colors">
-                        <span className="font-black text-slate-800 text-lg">
-                          {item.number || '-'}
-                        </span>
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span className="font-black text-slate-800 text-lg">
+                            {item.number || '-'}
+                          </span>
+                          {item.unitCode && item.buildingCode && projectUjCode && (
+                            <FullIdentifierCompact 
+                              fullCode={formatFullIdentifier(projectUjCode, item.buildingCode, item.unitCode)}
+                              variant="compact"
+                            />
+                          )}
+                        </div>
                       </td>
                       <td className="p-4">
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase border bg-slate-100 text-slate-700 border-slate-200">

@@ -32,6 +32,7 @@ import {
   TableSkeleton,
   Tooltip,
 } from '@components/ui/UIKit';
+import { IdentifierBadge } from '@components/ui/IdentifierBadge';
 import { useToast } from '@context/ToastContext';
 import { getStageColor } from '@lib/utils';
 import { ApiService } from '@lib/api-service'; // CHANGED
@@ -254,6 +255,7 @@ const ApplicationsDashboard = ({
       filtered = filtered.filter(
         p =>
           p.name.toLowerCase().includes(lower) ||
+          p.ujCode?.toLowerCase().includes(lower) ||
           p.applicationInfo?.internalNumber?.toLowerCase().includes(lower) ||
           p.applicationInfo?.externalId?.toLowerCase().includes(lower) ||
           p.complexInfo?.street?.toLowerCase().includes(lower) ||
@@ -616,10 +618,15 @@ const ProjectsTable = ({ data, user, onSelect, onDelete, isLoading = false }) =>
                     {app.externalId || '—'}
                   </td>
                   <td className="px-5 py-4">
-                    <div className="font-bold text-slate-800 text-sm line-clamp-1" title={p.name}>
-                      {p.name}
+                    <div className="flex items-center gap-2 mb-1">
+                      {p.ujCode && (
+                        <IdentifierBadge code={p.ujCode} type="project" variant="compact" />
+                      )}
+                      <div className="font-bold text-slate-800 text-sm line-clamp-1" title={p.name}>
+                        {p.name}
+                      </div>
                     </div>
-                    <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
+                    <div className="text-[10px] text-slate-400 font-medium">
                       {p.composition?.length || 0} объектов
                     </div>
                   </td>

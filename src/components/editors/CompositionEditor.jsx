@@ -19,6 +19,8 @@ import {
 import { useProject } from '@context/ProjectContext';
 import { useDirectBuildings } from '@hooks/api/useDirectBuildings';
 import { Button, Input, Select, Label, SectionTitle, useReadOnly } from '@components/ui/UIKit';
+import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
+import { formatFullIdentifier } from '@lib/uj-identifier';
 import { getStageColor } from '@lib/utils';
 import { BuildingModalSchema } from '@lib/schemas';
 import { useValidation } from '@hooks/useValidation';
@@ -717,11 +719,22 @@ const CompositionEditor = () => {
                   </div>
                 </div>
                 <div className="col-span-3 pr-4">
-                  <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">
-                    {item.label}
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">
-                    {TYPE_NAMES[item.category] || item.category}
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1">
+                      <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">
+                        {item.label}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {TYPE_NAMES[item.category] || item.category}
+                      </div>
+                    </div>
+                    {item.buildingCode && projectUjCode && (
+                      <FullIdentifierCompact 
+                        fullCode={formatFullIdentifier(projectUjCode, item.buildingCode)}
+                        variant="compact"
+                        className="shrink-0"
+                      />
+                    )}
                   </div>
                 </div>
                 <div className="col-span-3 pr-4 flex flex-col justify-center gap-1.5">

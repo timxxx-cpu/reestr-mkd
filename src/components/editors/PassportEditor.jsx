@@ -20,6 +20,7 @@ import {
 import { useProject } from '@context/ProjectContext';
 import { useDirectProjectInfo } from '@hooks/api/useDirectProjectInfo';
 import { Card, SectionTitle, Label, Input, Button, useReadOnly } from '@components/ui/UIKit';
+import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { calculateProgress } from '@lib/utils';
 import { useCatalog } from '@hooks/useCatalogs';
 import { createVirtualComplexCadastre, formatComplexCadastre } from '@lib/cadastre';
@@ -56,6 +57,7 @@ const PassportEditor = () => {
 
   const [localInfo, setLocalInfo] = useState({
     name: '',
+    ujCode: '',
     status: 'Проектный',
     region: '',
     district: '',
@@ -189,8 +191,17 @@ const PassportEditor = () => {
         <div className="relative z-10 p-6 md:p-8 space-y-6">
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
             <div>
-              <div className="text-xs uppercase tracking-[0.2em] text-blue-200/80 font-semibold">
-                Паспорт объекта
+              <div className="flex items-center gap-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-blue-200/80 font-semibold">
+                  Паспорт объекта
+                </div>
+                {complexInfo?.ujCode && (
+                  <FullIdentifierCompact 
+                    fullCode={complexInfo.ujCode}
+                    variant="large"
+                    className="bg-blue-500/20 border-blue-400/30 text-blue-200"
+                  />
+                )}
               </div>
               <h1 className="mt-2 text-2xl md:text-3xl font-black tracking-tight">
                 {localInfo.name || 'Новый жилой комплекс'}

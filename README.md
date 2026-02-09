@@ -16,6 +16,7 @@
 - **Состав комплекса** — учет зданий, блоков, типов конструкций и инженерных систем
 - **Инвентаризация** — детальная фиксация этажей, подъездов, помещений, МОП
 - **Квартирография** — нумерация квартир и машиномест
+- **UJ-идентификаторы** — трёхуровневая система идентификации (Проект-Здание-Помещение)
 - **Реестры** — формирование сводных реестров по квартирам, коммерции, паркингу
 - **Интеграция** — подготовка данных для передачи во внешние системы
 - **Workflow** — многоэтапный процесс с контролем на каждом шаге
@@ -268,6 +269,8 @@ psql -h <host> -U postgres -d postgres -f db/reset_schema.sql
 | [project-full-db-schema.md](docs/project-full-db-schema.md) | Подробная схема БД |
 | [project-full-workflow.md](docs/project-full-workflow.md) | Workflow и state machine |
 | [project-full-code-structure.md](docs/project-full-code-structure.md) | Структура кода |
+| [uj-identifiers.md](docs/uj-identifiers.md) | Система UJ-идентификаторов |
+| [uj-full-identifiers-display.md](docs/uj-full-identifiers-display.md) | Отображение идентификаторов в UI |
 | [schema-code-audit.md](docs/schema-code-audit.md) | Аудит соответствия схемы и кода |
 | [db-reset-runbook.md](docs/db-reset-runbook.md) | Инструкция по сбросу БД |
 | [upsert-on-conflict.md](docs/upsert-on-conflict.md) | Стратегия upsert операций |

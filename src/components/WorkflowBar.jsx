@@ -20,6 +20,7 @@ import { Button, SaveIndicator, useEscapeKey } from '@components/ui/UIKit';
 import { useToast } from '@context/ToastContext';
 import { ROLES, STEPS_CONFIG, WORKFLOW_STAGES, APP_STATUS } from '@lib/constants';
 import { getStepStage } from '@lib/workflow-utils';
+import { IdentifierBadge } from '@components/ui/IdentifierBadge';
 
 // Импорт валидатора
 import { validateStepCompletion } from '@lib/step-validators';
@@ -807,9 +808,19 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
               </Button>
             )}
             <div className="flex flex-col">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                Текущая задача
-              </span>
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Текущая задача
+                </span>
+                {projectContext.complexInfo?.ujCode && (
+                  <IdentifierBadge 
+                    code={projectContext.complexInfo.ujCode} 
+                    type="project" 
+                    variant="compact"
+                    className="bg-blue-600/20 border-blue-400/30 text-blue-200"
+                  />
+                )}
+              </div>
               <span className="text-base font-bold text-white tracking-tight">
                 {STEPS_CONFIG[currentStep]?.title}
               </span>

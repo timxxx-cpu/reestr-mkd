@@ -31,6 +31,7 @@ export const mapProjectAggregate = (
 
   return {
     id: project.id,
+    ujCode: project.uj_code,
     applicationId: app.id,
     name: project.name,
     status: normalizeProjectStatusFromDb(project.construction_status),
@@ -63,6 +64,7 @@ export const mapProjectAggregate = (
 
     complexInfo: {
       name: project.name,
+      ujCode: project.uj_code,
       status: normalizeProjectStatusFromDb(project.construction_status),
       region: project.region,
       district: project.district,
@@ -99,6 +101,7 @@ export const mapBuildingFromDB = (b, blocks = []) => {
 
   return {
     id: b.id,
+    buildingCode: b.building_code,
     label: b.label,
     houseNumber: b.house_number,
     category: b.category,
@@ -220,6 +223,7 @@ export const mapFloorFromDB = (f, buildingId, blockId) => ({
  */
 export const mapUnitFromDB = (u, rooms = [], entranceMap = {}, buildingId, blockId) => ({
   id: u.id,
+  unitCode: u.unit_code,
   buildingId, // ВАЖНО
   blockId, // ВАЖНО
   num: u.number,
