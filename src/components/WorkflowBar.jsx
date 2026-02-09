@@ -21,6 +21,7 @@ import { useToast } from '@context/ToastContext';
 import { ROLES, STEPS_CONFIG, WORKFLOW_STAGES, APP_STATUS } from '@lib/constants';
 import { getStepStage } from '@lib/workflow-utils';
 import { IdentifierBadge } from '@components/ui/IdentifierBadge';
+import { useKeyboardShortcuts } from '@hooks/useKeyboardShortcuts';
 
 // Импорт валидатора
 import { validateStepCompletion } from '@lib/step-validators';
@@ -647,6 +648,25 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     setShowApproveConfirm(true);
   };
 
+  const shortcutsEnabled =
+    (isTechnician || user.role === ROLES.ADMIN) &&
+    !isReviewMode &&
+    isCurrentTask &&
+    !isReadOnly &&
+    !showExitConfirm &&
+    !showCompleteConfirm &&
+    !showRollbackConfirm &&
+    !saveNotice.open;
+
+  useKeyboardShortcuts(
+    [
+      { combo: 'ctrl+s', handler: handleSave, allowInInput: true },
+      { combo: 'ctrl+shift+s', handler: handleSaveAndExit, allowInInput: true },
+      { combo: 'ctrl+enter', handler: handleCompleteTaskClick, allowInInput: true },
+    ],
+    shortcutsEnabled && !isLoading
+  );
+
   const handleRejectStage = async () => {
     const reason = prompt('Укажите причину возврата (обязательно):');
     if (!reason || !reason.trim()) return;
@@ -852,6 +872,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
             <Button
               onClick={handleSave}
               disabled={isActionDisabled}
+              title="Ctrl+S"
               className={`relative h-10 shadow-sm transition-all border ${
                 hasUnsavedChanges
                   ? 'bg-blue-600 text-white border-blue-500 hover:bg-blue-500 ring-2 ring-blue-500/30'
@@ -864,16 +885,22 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
               ) : (
                 <Save size={16} className="mr-2" />
               )}
-              Сохранить
+              {isLoading ? 'Сохранение...' : 'Сохранить'}
             </Button>
 
             <Button
               variant="secondary"
               onClick={handleSaveAndExit}
               disabled={isActionDisabled}
+              title="Ctrl+Shift+S"
               className="bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 hover:text-white h-10 shadow-sm"
             >
-              <LogOut size={16} className="mr-2" /> Сохранить и Выйти
+              {isLoading ? (
+                <Loader2 size={16} className="mr-2 animate-spin" />
+              ) : (
+                <LogOut size={16} className="mr-2" />
+              )}
+              {isLoading ? 'Сохранение...' : 'Сохранить и Выйти'}
             </Button>
 
             <div className="h-8 w-px bg-slate-700 mx-1"></div>
@@ -881,6 +908,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
             <Button
               onClick={handleCompleteTaskClick}
               disabled={isActionDisabled}
+              title="Ctrl+Enter"
               className={`${isStageBoundary ? 'bg-indigo-500 hover:bg-indigo-400 shadow-indigo-900/20' : 'bg-blue-600 hover:bg-blue-500 shadow-blue-900/20'} text-white shadow-lg h-10 px-6 active:scale-95 transition-transform border-0`}
             >
               {actionBtnText}

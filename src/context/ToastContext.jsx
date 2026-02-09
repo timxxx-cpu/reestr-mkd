@@ -2,12 +2,30 @@ import React, { createContext, useContext, useState, useCallback, useMemo } from
 import { X, CheckCircle2, AlertCircle, Info, Loader2 } from 'lucide-react';
 
 /**
+ * @typedef {'success' | 'error' | 'info' | 'warning' | 'loading'} ToastType
+ */
+
+/**
+ * @typedef {Object} ToastAction
+ * @property {string} label
+ * @property {() => void} onClick
+ */
+
+/**
+ * @typedef {Object} ToastOptions
+ * @property {number} [duration]
+ * @property {React.ReactNode} [icon]
+ * @property {ToastAction} [action]
+ */
+
+/**
  * @typedef {Object} ToastContextType
- * @property {function(string): string} success
- * @property {function(string): string} error
- * @property {function(string): string} info
- * @property {function(string): string} loading
- * @property {function(string): void} dismiss
+ * @property {(message: string, options?: ToastOptions) => string} success
+ * @property {(message: string, options?: ToastOptions) => string} error
+ * @property {(message: string, options?: ToastOptions) => string} info
+ * @property {(message: string, options?: ToastOptions) => string} warning
+ * @property {(message: string, options?: ToastOptions) => string} loading
+ * @property {(id: string) => void} dismiss
  */
 
 const ToastContext = createContext(/** @type {ToastContextType | null} */ (null));
@@ -28,16 +46,16 @@ export const ToastProvider = ({ children }) => {
   }, []);
 
   const addToast = useCallback(
-    (message, type = 'info') => {
-      // ИСПОЛЬЗУЕМ БЕЗОПАСНЫЙ UUID
+    (message, type = 'info', options = {}) => {
       const id = crypto.randomUUID();
+      const { duration = type === 'loading' ? 0 : 3000, icon = null, action = null } = options;
 
-      setToasts(prev => [...prev, { id, message, type }]);
+      setToasts(prev => [...prev, { id, message, type, icon, action }]);
 
-      if (type !== 'loading') {
+      if (duration > 0) {
         setTimeout(() => {
           removeToast(id);
-        }, 3000);
+        }, duration);
       }
 
       return id;
@@ -47,10 +65,11 @@ export const ToastProvider = ({ children }) => {
 
   const toast = useMemo(
     () => ({
-      success: msg => addToast(msg, 'success'),
-      error: msg => addToast(msg, 'error'),
-      info: msg => addToast(msg, 'info'),
-      loading: msg => addToast(msg, 'loading'),
+      success: (msg, options) => addToast(msg, 'success', options),
+      error: (msg, options) => addToast(msg, 'error', options),
+      info: (msg, options) => addToast(msg, 'info', options),
+      warning: (msg, options) => addToast(msg, 'warning', options),
+      loading: (msg, options) => addToast(msg, 'loading', options),
       dismiss: id => removeToast(id),
     }),
     [addToast, removeToast]
@@ -69,17 +88,35 @@ export const ToastProvider = ({ children }) => {
                             ${t.type === 'success' ? 'bg-white border-emerald-100 text-emerald-800' : ''}
                             ${t.type === 'error' ? 'bg-white border-red-100 text-red-800' : ''}
                             ${t.type === 'info' ? 'bg-slate-800 border-slate-700 text-white' : ''}
+                            ${t.type === 'warning' ? 'bg-amber-50 border-amber-200 text-amber-800' : ''}
                             ${t.type === 'loading' ? 'bg-blue-50 border-blue-100 text-blue-800' : ''}
                         `}
           >
             <div className="shrink-0">
-              {t.type === 'success' && <CheckCircle2 size={18} className="text-emerald-500" />}
-              {t.type === 'error' && <AlertCircle size={18} className="text-red-500" />}
-              {t.type === 'info' && <Info size={18} className="text-slate-400" />}
-              {t.type === 'loading' && <Loader2 size={18} className="animate-spin text-blue-500" />}
+              {t.icon || (
+                <>
+                  {t.type === 'success' && <CheckCircle2 size={18} className="text-emerald-500" />}
+                  {t.type === 'error' && <AlertCircle size={18} className="text-red-500" />}
+                  {t.type === 'info' && <Info size={18} className="text-slate-400" />}
+                  {t.type === 'warning' && <AlertCircle size={18} className="text-amber-500" />}
+                  {t.type === 'loading' && <Loader2 size={18} className="animate-spin text-blue-500" />}
+                </>
+              )}
             </div>
 
             <span className="text-sm font-bold">{t.message}</span>
+
+            {t.action && (
+              <button
+                onClick={() => {
+                  t.action.onClick();
+                  removeToast(t.id);
+                }}
+                className="ml-1 px-2 py-1 rounded-md text-xs font-bold bg-black/5 hover:bg-black/10 transition-colors"
+              >
+                {t.action.label}
+              </button>
+            )}
 
             <button
               onClick={() => removeToast(t.id)}

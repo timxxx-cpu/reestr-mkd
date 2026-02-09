@@ -26,6 +26,7 @@ import {
   createVirtualParkingCadastre,
 } from '@lib/cadastre';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
+import EmptyState from '@components/ui/EmptyState';
 import { formatFullIdentifier } from '@lib/uj-identifier';
 
 const SYNC_STATUS = {
@@ -244,13 +245,21 @@ export default function IntegrationUnits() {
           </div>
 
           <div className="flex gap-3 w-full md:w-auto">
-            {status === SYNC_STATUS.IDLE && (
+            {(status === SYNC_STATUS.IDLE || status === SYNC_STATUS.SENDING) && (
               <Button
                 onClick={handleSendToUzkad}
-                disabled={isReadOnly || allObjects.length === 0}
+                disabled={isReadOnly || allObjects.length === 0 || status === SYNC_STATUS.SENDING}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200 w-full md:w-auto"
               >
-                <Send size={16} className="mr-2" /> Отправить реестр
+                {status === SYNC_STATUS.SENDING ? (
+                  <>
+                    <Loader2 size={16} className="mr-2 animate-spin" /> Отправка...
+                  </>
+                ) : (
+                  <>
+                    <Send size={16} className="mr-2" /> Отправить реестр
+                  </>
+                )}
               </Button>
             )}
             {status === SYNC_STATUS.WAITING && (
@@ -308,8 +317,13 @@ export default function IntegrationUnits() {
               <tbody className="divide-y divide-slate-100">
                 {filteredList.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-12 text-center text-slate-400">
-                      Нет объектов в этой категории
+                    <td colSpan={6}>
+                      <EmptyState
+                        icon={Database}
+                        title="Нет объектов в этой категории"
+                        description="Переключите вкладку или заполните инвентаризацию, чтобы подготовить реестр к интеграции."
+                        compact
+                      />
                     </td>
                   </tr>
                 ) : (

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { Home, Layers, CheckCircle2, Loader2, Search } from 'lucide-react';
 import { Card, DebouncedInput, Select } from '@components/ui/UIKit';
+import EmptyState from '@components/ui/EmptyState';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { formatFullIdentifier } from '@lib/uj-identifier';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
@@ -354,8 +355,13 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
                 })
               ) : (
                 <tr>
-                  <td colSpan={10} className="p-12 text-center text-slate-400">
-                    Нет объектов
+                  <td colSpan={10}>
+                    <EmptyState
+                      icon={Home}
+                      title="Нет объектов"
+                      description="Добавьте квартиры/дуплексы в инвентаризацию, чтобы сформировать реестр."
+                      compact
+                    />
                   </td>
                 </tr>
               )}

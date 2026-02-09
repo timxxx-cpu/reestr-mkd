@@ -19,6 +19,7 @@ import { Card, Button, SectionTitle, Badge, useReadOnly } from '@components/ui/U
 import { useToast } from '@context/ToastContext';
 import { createVirtualBuildingCadastre, formatBuildingCadastre } from '@lib/cadastre';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
+import EmptyState from '@components/ui/EmptyState';
 import { formatFullIdentifier } from '@lib/uj-identifier';
 
 const SYNC_STATUS = {
@@ -164,13 +165,21 @@ export default function IntegrationBuildings() {
           </div>
 
           <div className="flex items-center gap-3 w-full md:w-auto">
-            {status === SYNC_STATUS.IDLE && (
+            {(status === SYNC_STATUS.IDLE || status === SYNC_STATUS.SENDING) && (
               <Button
                 onClick={handleSendToUzkad}
-                disabled={isReadOnly || buildings.length === 0}
+                disabled={isReadOnly || buildings.length === 0 || status === SYNC_STATUS.SENDING}
                 className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200 px-8 h-12 text-sm"
               >
-                <Send size={18} className="mr-2" /> Отправить в УЗКАД
+                {status === SYNC_STATUS.SENDING ? (
+                  <>
+                    <Loader2 size={18} className="mr-2 animate-spin" /> Отправка...
+                  </>
+                ) : (
+                  <>
+                    <Send size={18} className="mr-2" /> Отправить в УЗКАД
+                  </>
+                )}
               </Button>
             )}
 
@@ -216,8 +225,13 @@ export default function IntegrationBuildings() {
             <tbody className="divide-y divide-slate-100">
               {buildings.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-12 text-center text-slate-400">
-                    Нет зданий для передачи
+                  <td colSpan={5}>
+                    <EmptyState
+                      icon={Building2}
+                      title="Нет зданий для передачи"
+                      description="Добавьте объект в состав комплекса, чтобы сформировать пакет для регистрации."
+                      compact
+                    />
                   </td>
                 </tr>
               ) : (

@@ -9,6 +9,7 @@ import {
   Search,
 } from 'lucide-react';
 import { Card, DebouncedInput } from '@components/ui/UIKit';
+import EmptyState from '@components/ui/EmptyState';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { formatFullIdentifier } from '@lib/uj-identifier';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
@@ -291,8 +292,13 @@ const CommercialRegistry = ({ onSaveUnit, projectId }) => {
                 })
               ) : (
                 <tr>
-                  <td colSpan={10} className="p-12 text-center text-slate-400">
-                    Нет объектов
+                  <td colSpan={10}>
+                    <EmptyState
+                      icon={Briefcase}
+                      title="Нет объектов"
+                      description="Добавьте коммерческие помещения, чтобы заполнить реестр нежилых объектов."
+                      compact
+                    />
                   </td>
                 </tr>
               )}

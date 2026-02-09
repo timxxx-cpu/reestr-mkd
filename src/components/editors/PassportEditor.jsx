@@ -429,13 +429,18 @@ const PassportEditor = () => {
                     disabled={isReadOnly}
                   />
                 </div>
-                <Button
-                  onClick={() => handleParticipantSave(key)}
-                  disabled={isReadOnly || isSaving}
-                  className="w-full bg-slate-900 text-white hover:bg-slate-800"
-                >
-                  <Save size={14} className="mr-2" /> Сохранить
-                </Button>
+              <Button
+                onClick={() => handleParticipantSave(key)}
+                disabled={isReadOnly || isSaving}
+                className="w-full bg-slate-900 text-white hover:bg-slate-800"
+              >
+                {isSaving ? (
+                  <Loader2 size={14} className="mr-2 animate-spin" />
+                ) : (
+                  <Save size={14} className="mr-2" />
+                )}
+                {isSaving ? 'Сохранение...' : 'Сохранить'}
+              </Button>
               </div>
             );
           })}
