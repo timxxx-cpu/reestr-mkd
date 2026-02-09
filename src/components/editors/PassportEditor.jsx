@@ -37,7 +37,7 @@ const PARTICIPANT_ROLES = [
   { key: 'customer', label: 'Заказчик', icon: Landmark },
 ];
 
-export default function PassportEditor() {
+const PassportEditor = () => {
   const { projectId } = useProject();
   const isReadOnly = useReadOnly();
 
@@ -522,4 +522,6 @@ export default function PassportEditor() {
       </Card>
     </div>
   );
-}
+};
+
+export default React.memo(PassportEditor);

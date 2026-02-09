@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import ParkingEditModal from '../../ParkingEditModal';
 
-export default function ParkingRegistry({ onSaveUnit, projectId }) {
+const ParkingRegistry = ({ onSaveUnit, projectId }) => {
   const queryClient = useQueryClient();
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
   const tableContainerRef = useRef(null);
@@ -220,4 +220,6 @@ export default function ParkingRegistry({ onSaveUnit, projectId }) {
       )}
     </div>
   );
-}
+};
+
+export default React.memo(ParkingRegistry);

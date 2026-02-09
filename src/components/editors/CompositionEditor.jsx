@@ -410,7 +410,7 @@ const BuildingModal = ({
   );
 };
 
-export default function CompositionEditor() {
+const CompositionEditor = () => {
   const { projectId } = useProject();
   const isReadOnly = useReadOnly();
 
@@ -802,4 +802,6 @@ export default function CompositionEditor() {
       )}
     </div>
   );
-}
+};
+
+export default React.memo(CompositionEditor);

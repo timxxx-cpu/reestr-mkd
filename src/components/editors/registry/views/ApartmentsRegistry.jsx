@@ -27,7 +27,7 @@ const getTypeConfig = type => {
   }
 };
 
-export default function ApartmentsRegistry({ onSaveUnit, projectId }) {
+const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
   const queryClient = useQueryClient();
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
   const tableContainerRef = useRef(null);
@@ -360,4 +360,6 @@ export default function ApartmentsRegistry({ onSaveUnit, projectId }) {
       )}
     </div>
   );
-}
+};
+
+export default React.memo(ApartmentsRegistry);

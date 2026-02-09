@@ -59,7 +59,7 @@ const COMMERCIAL_TYPES = new Set([
   'pantry',
 ]);
 
-export default function CommercialRegistry({ onSaveUnit, projectId }) {
+const CommercialRegistry = ({ onSaveUnit, projectId }) => {
   const queryClient = useQueryClient();
   // Читаем данные из БД
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
@@ -297,4 +297,6 @@ export default function CommercialRegistry({ onSaveUnit, projectId }) {
       )}
     </div>
   );
-}
+};
+
+export default React.memo(CommercialRegistry);

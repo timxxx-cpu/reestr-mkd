@@ -117,14 +117,14 @@ const UserAvatar = ({ name, role }) => {
   );
 };
 
-export default function ApplicationsDashboard({
+const ApplicationsDashboard = ({
   user,
   projects,
   dbScope,
   onSelectProject,
   onLogout,
   onOpenCatalogs,
-}) {
+}) => {
   const [activeTab, setActiveTab] = useState('my_tasks');
   const [taskFilter, setTaskFilter] = useState('work');
 
@@ -792,3 +792,5 @@ const EmptyState = ({ label = 'Список пуст', subLabel = 'Нет дан
     <p className="text-xs mt-1">{subLabel}</p>
   </div>
 );
+
+export default React.memo(ApplicationsDashboard);

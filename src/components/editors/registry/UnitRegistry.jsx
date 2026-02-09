@@ -16,7 +16,7 @@ const MODES = {
   parking: { component: ParkingRegistry, icon: Car, title: 'Паркинг' },
 };
 
-export default function UnitRegistry({ mode = 'apartments' }) {
+const UnitRegistry = ({ mode = 'apartments' }) => {
   const { projectId } = useProject();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState(mode);
@@ -114,4 +114,6 @@ export default function UnitRegistry({ mode = 'apartments' }) {
       </div>
     </div>
   );
-}
+};
+
+export default React.memo(UnitRegistry);

@@ -109,7 +109,7 @@ const StatCard = ({
   );
 };
 
-export default function SummaryDashboard() {
+const SummaryDashboard = () => {
   const { projectId, complexInfo } = useProject();
 
   // [NEW] Загружаем данные из БД
@@ -417,4 +417,6 @@ export default function SummaryDashboard() {
       </div>
     </div>
   );
-}
+};
+
+export default React.memo(SummaryDashboard);

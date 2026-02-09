@@ -14,7 +14,7 @@ const PARKING_CONSTRUCTION_NAMES = {
 /**
  * @param {{ stepId: string, onSelect: (id: string) => void }} props
  */
-export default function BuildingSelector({ stepId, onSelect }) {
+const BuildingSelector = ({ stepId, onSelect }) => {
   const { projectId } = useProject();
   // [FIX] Читаем напрямую из БД
   const { buildings, isLoading } = useDirectBuildings(projectId);
@@ -184,4 +184,6 @@ export default function BuildingSelector({ stepId, onSelect }) {
       </div>
     </div>
   );
-}
+};
+
+export default React.memo(BuildingSelector);
