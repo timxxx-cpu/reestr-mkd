@@ -132,7 +132,10 @@ export const useProjectSyncLayer = ({
       };
 
       const queuedSave = saveQueueRef.current.then(runSave, runSave);
-      saveQueueRef.current = queuedSave.catch(() => {});
+      saveQueueRef.current = queuedSave.catch(error => {
+        // Логируем ошибку, но не пробрасываем дальше, чтобы очередь продолжила работу
+        console.error('[Sync Queue] Unhandled save error:', error);
+      });
       return queuedSave;
     },
     [
