@@ -122,14 +122,28 @@ const generateNextProjectCode = async scope => {
   return generateProjectCode(nextNumber);
 };
 
+const extractBuildingSegment = code => {
+  if (!code) return null;
+  const str = String(code);
+  const parts = str.split('-');
+  return parts.length > 1 ? parts[parts.length - 1] : str;
+};
+
+const extractUnitSegment = code => {
+  if (!code) return null;
+  const str = String(code);
+  const parts = str.split('-');
+  return parts.length > 2 ? parts[parts.length - 1] : str;
+};
+
 /**
- * Генерация кода здания для проекта
- * @param {string} projectId - ID проекта
+ * Генерация кода здания внутри проекта (сегмент ZD00)
+ * @param {string} projectId - ID проекта (оставлен для совместимости вызова)
  * @param {string} category - Категория здания
  * @param {number} blocksCount - Количество блоков (для определения ZR/ZM)
- * @returns {Promise<string>} Код здания формата ZD00
+ * @returns {Promise<string>} Код-сегмент формата ZD00
  */
-const generateNextBuildingCode = async (projectId, category, blocksCount = 0) => {
+  const generateNextBuildingCode = async (projectId, category, blocksCount = 0) => {
   const hasMultipleBlocks = blocksCount > 1;
   const prefix = getBuildingPrefix(category, hasMultipleBlocks);
 
@@ -137,27 +151,30 @@ const generateNextBuildingCode = async (projectId, category, blocksCount = 0) =>
     .from('buildings')
     .select('building_code')
     .eq('project_id', projectId)
-    .not('building_code', 'is', null)
-    .ilike('building_code', `${prefix}%`);
+    .not('building_code', 'is', null);
 
   if (error) throw error;
 
-  const existingCodes = (data || []).map(b => b.building_code).filter(Boolean);
+ const existingCodes = (data || [])
+    .map(b => extractBuildingSegment(b.building_code))
+    .filter(Boolean);
   const nextNumber = getNextSequenceNumber(existingCodes, prefix);
 
   return generateBuildingCode(prefix, nextNumber);
 };
 
+const isBuildingCodeConflict = error =>
+  error?.code === '23505' && String(error?.message || '').includes('idx_buildings_code');
+
 /**
- * Генерация кода помещения для здания
+ * Генерация кода помещения внутри здания (сегмент EL000)
  * @param {string} buildingId - ID здания
  * @param {string} unitType - Тип помещения
- * @returns {Promise<string>} Код помещения формата EL000
+ * @returns {Promise<string>} Код-сегмент формата EL000
  */
 const generateNextUnitCode = async (buildingId, unitType) => {
   const prefix = getUnitPrefix(unitType);
 
-  // Получаем все блоки здания
   const { data: blocks, error: blocksErr } = await supabase
     .from('building_blocks')
     .select('id')
@@ -168,7 +185,6 @@ const generateNextUnitCode = async (buildingId, unitType) => {
   const blockIds = (blocks || []).map(b => b.id);
   if (blockIds.length === 0) return generateUnitCode(prefix, 1);
 
-  // Получаем все этажи блоков
   const { data: floors, error: floorsErr } = await supabase
     .from('floors')
     .select('id')
@@ -179,21 +195,24 @@ const generateNextUnitCode = async (buildingId, unitType) => {
   const floorIds = (floors || []).map(f => f.id);
   if (floorIds.length === 0) return generateUnitCode(prefix, 1);
 
-  // Получаем все помещения данного типа
   const { data: units, error: unitsErr } = await supabase
     .from('units')
     .select('unit_code')
     .in('floor_id', floorIds)
-    .not('unit_code', 'is', null)
-    .ilike('unit_code', `${prefix}%`);
+    .not('unit_code', 'is', null);
 
   if (unitsErr) throw unitsErr;
 
-  const existingCodes = (units || []).map(u => u.unit_code).filter(Boolean);
+  const existingCodes = (units || [])
+    .map(u => extractUnitSegment(u.unit_code))
+    .filter(Boolean);
   const nextNumber = getNextSequenceNumber(existingCodes, prefix);
 
   return generateUnitCode(prefix, nextNumber);
 };
+
+const isUnitCodeConflict = error =>
+  error?.code === '23505' && String(error?.message || '').includes('idx_units_code');
 
 export const UPSERT_ON_CONFLICT = Object.freeze({
   projects: 'id',
@@ -1002,35 +1021,57 @@ const LegacyApiService = {
     }));
   },
 
-  createBuilding: async (projectId, buildingData, blocksData) => {
+   createBuilding: async (projectId, buildingData, blocksData) => {
     const normalizedFields = sanitizeBuildingCategoryFields(buildingData);
-
-    // Генерируем код здания
     const blocksCount = Array.isArray(blocksData) ? blocksData.length : 0;
-    const buildingCode = await generateNextBuildingCode(
-      projectId,
-      buildingData.category,
-      blocksCount
-    );
+     const maxCodeRetries = 3;
 
-    const { data: building, error: bError } = await supabase
-      .from('buildings')
-      .insert({
-        project_id: projectId,
-        building_code: buildingCode,
-        label: buildingData.label,
-        house_number: buildingData.houseNumber,
-        category: buildingData.category,
-        construction_type: normalizedFields.constructionType,
-        parking_type: normalizedFields.parkingType,
-        infra_type: normalizedFields.infraType,
-        has_non_res_part: buildingData.hasNonResPart || false,
-      })
-      .select()
+    const { data: projectRow, error: projectErr } = await supabase
+      .from('projects')
+      .select('uj_code')
+      .eq('id', projectId)
       .single();
 
-    if (bError) throw bError;
+    if (projectErr) throw projectErr;
 
+    let building = null;
+    let bError = null;
+
+    for (let attempt = 1; attempt <= maxCodeRetries; attempt += 1) {
+      const buildingSegment = await generateNextBuildingCode(
+        projectId,
+        buildingData.category,
+        blocksCount
+      );
+      const buildingCode = projectRow?.uj_code
+        ? `${projectRow.uj_code}-${buildingSegment}`
+        : buildingSegment;
+
+      const insertResult = await supabase
+        .from('buildings')
+        .insert({
+          project_id: projectId,
+          building_code: buildingCode,
+          label: buildingData.label,
+          house_number: buildingData.houseNumber,
+          category: buildingData.category,
+          construction_type: normalizedFields.constructionType,
+          parking_type: normalizedFields.parkingType,
+          infra_type: normalizedFields.infraType,
+          has_non_res_part: buildingData.hasNonResPart || false,
+        })
+        .select()
+        .single();
+
+      building = insertResult.data;
+      bError = insertResult.error;
+
+      if (!bError) break;
+      if (!isBuildingCodeConflict(bError) || attempt === maxCodeRetries) {
+        throw bError;
+      }
+    }
+   
     if (blocksData && blocksData.length > 0) {
       const blocksPayload = blocksData.map(b => ({
         id: b.id,
@@ -1262,12 +1303,10 @@ const LegacyApiService = {
   },
 
   upsertUnit: async unitData => {
-    // Генерируем unit_code для новых помещений (если его еще нет)
-    let unitCode = unitData.unitCode || null;
+    let buildingId = null;
+    let buildingCode = null;
 
-    // Если это новое помещение (нет ID или нет кода), генерируем код
-    if (!unitCode && unitData.floorId && unitData.type) {
-      // Получаем building_id через floor -> block -> building
+    if (!unitData.unitCode && unitData.floorId && unitData.type) {
       const { data: floor } = await supabase
         .from('floors')
         .select('block_id')
@@ -1282,29 +1321,60 @@ const LegacyApiService = {
           .single();
 
         if (block?.building_id) {
-          unitCode = await generateNextUnitCode(block.building_id, unitData.type);
+         buildingId = block.building_id;
+          const { data: building } = await supabase
+            .from('buildings')
+            .select('building_code')
+            .eq('id', block.building_id)
+            .single();
+          buildingCode = building?.building_code || null;
         }
       }
     }
 
-    const unitPayload = {
-      id: unitData.id || crypto.randomUUID(),
-      floor_id: unitData.floorId,
-      entrance_id: unitData.entranceId,
-      unit_code: unitCode,
-      number: unitData.num || unitData.number,
-      unit_type: unitData.type,
-      total_area: unitData.area,
-      living_area: unitData.livingArea || 0,
-      useful_area: unitData.usefulArea || 0,
-      rooms_count: unitData.rooms || 0,
-      status: unitData.isSold ? 'sold' : 'free',
-      updated_at: new Date(),
-    };
-    const { data: savedUnit, error } = await upsertWithConflict('units', unitPayload, {
-      single: true,
-    });
-    if (error) throw error;
+    const unitId = unitData.id || crypto.randomUUID();
+    const maxCodeRetries = 3;
+    let savedUnit = null;
+
+    for (let attempt = 1; attempt <= maxCodeRetries; attempt += 1) {
+      const unitSegment =
+        unitData.unitCode ||
+        (buildingId && unitData.type ? await generateNextUnitCode(buildingId, unitData.type) : null);
+
+      const unitCode =
+        unitData.unitCode ||
+        (buildingCode && unitSegment ? `${buildingCode}-${extractUnitSegment(unitSegment)}` : unitSegment);
+
+      const unitPayload = {
+        id: unitId,
+        floor_id: unitData.floorId,
+        entrance_id: unitData.entranceId,
+        unit_code: unitCode,
+        number: unitData.num || unitData.number,
+        unit_type: unitData.type,
+        total_area: unitData.area,
+        living_area: unitData.livingArea || 0,
+        useful_area: unitData.usefulArea || 0,
+        rooms_count: unitData.rooms || 0,
+        status: unitData.isSold ? 'sold' : 'free',
+        updated_at: new Date(),
+      };
+
+      const upsertResult = await upsertWithConflict('units', unitPayload, {
+        single: true,
+      });
+
+      savedUnit = upsertResult.data;
+      const error = upsertResult.error;
+
+      if (!error) break;
+
+      const canRetryCode = !unitData.unitCode && buildingId && isUnitCodeConflict(error);
+      if (!canRetryCode || attempt === maxCodeRetries) {
+        throw error;
+      }
+    }
+
     if (!savedUnit) throw new Error('Unit upsert returned empty payload');
 
     // Sync rooms
