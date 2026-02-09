@@ -55,10 +55,11 @@
 
 Ключевые контейнеры:
 
-- `ProjectsDashboard` / `ApplicationsDashboard` — списки проектов и заявок;
-- `ProjectsPage` — оболочка для работы с конкретным проектом;
+- `ApplicationsDashboard` — главный дашборд со списком проектов и заявок;
 - `Sidebar`, `WorkflowBar`, `StepIndicator` — управление навигацией и статусами процесса;
 - редакторы шагов в `src/components/editors/*`.
+
+**Примечание:** Компоненты `ProjectsDashboard` и `ProjectsPage` более не используются и могут быть удалены (см. `docs/project-recommendations.md`).
 
 ## 3.2 Контекст проекта (state orchestration)
 
