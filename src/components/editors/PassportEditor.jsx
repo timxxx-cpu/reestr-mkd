@@ -20,6 +20,7 @@ import {
 import { useProject } from '@context/ProjectContext';
 import { useDirectProjectInfo } from '@hooks/api/useDirectProjectInfo';
 import { Card, SectionTitle, Label, Input, Button, useReadOnly } from '@components/ui/UIKit';
+import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { calculateProgress } from '@lib/utils';
 import { useCatalog } from '@hooks/useCatalogs';
 import { createVirtualComplexCadastre, formatComplexCadastre } from '@lib/cadastre';
@@ -195,9 +196,11 @@ const PassportEditor = () => {
                   Паспорт объекта
                 </div>
                 {complexInfo?.ujCode && (
-                  <div className="px-2.5 py-1 rounded-lg bg-blue-500/20 border border-blue-400/30 text-blue-200 text-xs font-mono font-semibold">
-                    {complexInfo.ujCode}
-                  </div>
+                  <FullIdentifierCompact 
+                    fullCode={complexInfo.ujCode}
+                    variant="large"
+                    className="bg-blue-500/20 border-blue-400/30 text-blue-200"
+                  />
                 )}
               </div>
               <h1 className="mt-2 text-2xl md:text-3xl font-black tracking-tight">
