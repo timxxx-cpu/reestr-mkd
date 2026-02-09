@@ -99,16 +99,33 @@ export const formatFullIdentifier = (projectCode, buildingCode = null, unitCode 
     return '';
   }
 
-  if (!buildingCode) {
+  const normalizedBuildingCode = buildingCode ? String(buildingCode).split('-').pop() : null;
+  const normalizedUnitCode = unitCode
+    ? (() => {
+        const unitParts = String(unitCode).split('-').filter(Boolean);
+
+        if (!normalizedBuildingCode || unitParts.length === 1) {
+          return unitParts[unitParts.length - 1] || null;
+        }
+
+        if (unitParts[0] === normalizedBuildingCode) {
+          return unitParts[unitParts.length - 1] || null;
+        }
+
+        return unitParts[unitParts.length - 1] || null;
+      })()
+    : null;
+
+  if (!normalizedBuildingCode) {
     return projectCode;
   }
 
-  const parts = [projectCode, buildingCode];
-  if (unitCode) {
-    parts.push(unitCode);
+  const parts = [projectCode, normalizedBuildingCode];
+  if (normalizedUnitCode) {
+    parts.push(normalizedUnitCode);
   }
 
-  return parts.filter(Boolean).join('-');
+  return parts.join('-');
 };
 
 /**

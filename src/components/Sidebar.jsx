@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Lock,
@@ -76,6 +76,17 @@ export default function Sidebar({
   }).length;
 
   const progressPercent = Math.round((completedStepsCount / totalSteps) * 100);
+
+  const activeStepRef = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (userProfile?.role !== ROLES.TECHNICIAN) return;
+    if (!activeStepRef.current) return;
+
+    activeStepRef.current.focus({ preventScroll: true });
+    activeStepRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [isOpen, currentStep, userProfile?.role]);
 
   // --- ЛОГИКА ВЫХОДА (Критическая зона) ---
   const handleDashboardClick = () => {
@@ -190,6 +201,7 @@ export default function Sidebar({
             return (
               <button
                 key={step.id}
+                ref={isActive ? activeStepRef : null}
                 onClick={() => handleStepClick(idx)}
                 disabled={isLocked}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 relative group ${!isOpen && 'justify-center'} ${isActive ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : isLocked ? 'text-slate-600 cursor-not-allowed opacity-40' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}

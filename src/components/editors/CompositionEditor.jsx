@@ -413,8 +413,9 @@ const BuildingModal = ({
 };
 
 const CompositionEditor = () => {
-  const { projectId } = useProject();
+  const { projectId, complexInfo } = useProject();
   const isReadOnly = useReadOnly();
+  const projectUjCode = complexInfo?.ujCode;
 
   const { buildings, isLoading, createBuilding, updateBuilding, deleteBuilding, isMutating } =
     useDirectBuildings(projectId);
