@@ -283,6 +283,8 @@ create unique index uq_floors_block_idx_parent_basement_expr
     coalesce(parent_floor_index, -99999),
     coalesce(basement_id, '00000000-0000-0000-0000-000000000000'::uuid)
   );
+-- Performance: composite index for sorted floor queries
+create index idx_floors_block_index on floors(block_id, index);
 
 create table entrances (
   id uuid primary key default gen_random_uuid(),
@@ -326,6 +328,8 @@ create table units (
 create index idx_units_floor on units(floor_id);
 create index idx_units_entrance on units(entrance_id);
 create index idx_units_type on units(unit_type);
+-- Performance: composite index for units by floor and entrance queries
+create index idx_units_floor_entrance on units(floor_id, entrance_id);
 
 create table rooms (
   id uuid primary key default gen_random_uuid(),
@@ -338,6 +342,8 @@ create table rooms (
   updated_at timestamptz not null default now()
 );
 create index idx_rooms_unit on rooms(unit_id);
+-- Performance: composite index for room queries with type filtering
+create index idx_rooms_unit_type on rooms(unit_id, room_type);
 
 create table common_areas (
   id uuid primary key default gen_random_uuid(),
@@ -349,6 +355,8 @@ create table common_areas (
   updated_at timestamptz not null default now()
 );
 create index idx_common_areas_floor on common_areas(floor_id);
+-- Performance: composite index for common areas by floor and entrance queries
+create index idx_common_areas_floor_entrance on common_areas(floor_id, entrance_id);
 
 -- -----------------------------
 -- CATALOGS (dict_*)

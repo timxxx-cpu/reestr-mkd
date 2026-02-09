@@ -10,8 +10,8 @@ const cn = (...classes) => classes.filter(Boolean).join(' ');
 export function Skeleton({ className, ...props }) {
   return (
     <div
-      className={cn("animate-pulse rounded-md bg-slate-200 dark:bg-slate-700", className)}
+      className={cn('animate-pulse rounded-md bg-slate-200 dark:bg-slate-700', className)}
       {...props}
     />
-  )
+  );
 }

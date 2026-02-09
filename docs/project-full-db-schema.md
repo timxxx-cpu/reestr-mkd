@@ -212,7 +212,8 @@
 
 Индексы:
 
-- по `floor_id`, `entrance_id`, `unit_type`.
+- по `floor_id`, `entrance_id`, `unit_type`
+- составной индекс `idx_units_floor_entrance` для оптимизации запросов по этажу и подъезду
 
 ## 5.5 `rooms`
 

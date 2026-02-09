@@ -3,87 +3,87 @@ import { ApiService } from '../../lib/api-service';
 import { useToast } from '../../context/ToastContext';
 
 export function useDirectMatrix(blockId) {
-    const queryClient = useQueryClient();
-    const toast = useToast();
-    
-    // Ключи для кэша
-    const keys = {
-        entrances: ['direct-entrances', blockId],
-        matrix: ['direct-matrix', blockId]
-    };
+  const queryClient = useQueryClient();
+  const toast = useToast();
 
-    // --- READ ---
-    
-    const { data: entrances = [] } = useQuery({
-        queryKey: keys.entrances,
-        queryFn: () => ApiService.getEntrances(blockId),
-        enabled: !!blockId,
-    });
+  // Ключи для кэша
+  const keys = {
+    entrances: ['direct-entrances', blockId],
+    matrix: ['direct-matrix', blockId],
+  };
 
-    const { data: matrixMap = {} } = useQuery({
-        queryKey: keys.matrix,
-        queryFn: () => ApiService.getMatrix(blockId),
-        enabled: !!blockId,
-    });
+  // --- READ ---
 
-    // --- WRITE ---
+  const { data: entrances = [] } = useQuery({
+    queryKey: keys.entrances,
+    queryFn: () => ApiService.getEntrances(blockId),
+    enabled: !!blockId,
+  });
 
-    // Обновление ячейки (debounced input будет вызывать это)
-    const updateCellMutation = useMutation({
-        /**
-         * @param {{ floorId: string, entranceNumber: number, values: any }} params
-         */
-        mutationFn: ({ floorId, entranceNumber, values }) => 
-            ApiService.upsertMatrixCell(blockId, floorId, entranceNumber, values),
-        
-        onMutate: async ({ floorId, entranceNumber, values }) => {
-            await queryClient.cancelQueries({ queryKey: keys.matrix });
-            const prevMatrix = queryClient.getQueryData(keys.matrix);
+  const { data: matrixMap = {} } = useQuery({
+    queryKey: keys.matrix,
+    queryFn: () => ApiService.getMatrix(blockId),
+    enabled: !!blockId,
+  });
 
-            // [FIXED] Явная проверка типа для успокоения линтера (TS2698)
-            queryClient.setQueryData(keys.matrix, (old) => {
-                const map = (old && typeof old === 'object') ? old : {};
-                const cellKey = `${floorId}_${entranceNumber}`;
-                
-                // Проверяем, что map[cellKey] тоже объект
-                const existingCell = (map[cellKey] && typeof map[cellKey] === 'object') ? map[cellKey] : {};
+  // --- WRITE ---
 
-                return {
-                    ...map,
-                    [cellKey]: { 
-                        ...existingCell, 
-                        ...values 
-                    }
-                };
-            });
+  // Обновление ячейки (debounced input будет вызывать это)
+  const updateCellMutation = useMutation({
+    /**
+     * @param {{ floorId: string, entranceNumber: number, values: any }} params
+     */
+    mutationFn: ({ floorId, entranceNumber, values }) =>
+      ApiService.upsertMatrixCell(blockId, floorId, entranceNumber, values),
 
-            return { prevMatrix };
-        },
-        onError: (err, vars, context) => {
-            if (context?.prevMatrix) {
-                queryClient.setQueryData(keys.matrix, context.prevMatrix);
-            }
-            toast.error("Ошибка сохранения ячейки");
-        },
-        onSettled: () => {
-            queryClient.invalidateQueries({ queryKey: keys.matrix });
-        }
-    });
+    onMutate: async ({ floorId, entranceNumber, values }) => {
+      await queryClient.cancelQueries({ queryKey: keys.matrix });
+      const prevMatrix = queryClient.getQueryData(keys.matrix);
 
-    // Синхронизация количества подъездов (вызывается при изменении конфига блока)
-    const syncEntrancesMutation = useMutation({
-        /**
-         * @param {number} count
-         */
-        mutationFn: (count) => ApiService.syncEntrances(blockId, count),
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.entrances })
-    });
+      // [FIXED] Явная проверка типа для успокоения линтера (TS2698)
+      queryClient.setQueryData(keys.matrix, old => {
+        const map = old && typeof old === 'object' ? old : {};
+        const cellKey = `${floorId}_${entranceNumber}`;
 
-    return {
-        entrances,
-        matrixMap,
-        updateCell: updateCellMutation.mutateAsync,
-        syncEntrances: syncEntrancesMutation.mutateAsync,
-        isLoading: updateCellMutation.isPending
-    };
+        // Проверяем, что map[cellKey] тоже объект
+        const existingCell = map[cellKey] && typeof map[cellKey] === 'object' ? map[cellKey] : {};
+
+        return {
+          ...map,
+          [cellKey]: {
+            ...existingCell,
+            ...values,
+          },
+        };
+      });
+
+      return { prevMatrix };
+    },
+    onError: (err, vars, context) => {
+      if (context?.prevMatrix) {
+        queryClient.setQueryData(keys.matrix, context.prevMatrix);
+      }
+      toast.error('Ошибка сохранения ячейки');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: keys.matrix });
+    },
+  });
+
+  // Синхронизация количества подъездов (вызывается при изменении конфига блока)
+  const syncEntrancesMutation = useMutation({
+    /**
+     * @param {number} count
+     */
+    mutationFn: count => ApiService.syncEntrances(blockId, count),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.entrances }),
+  });
+
+  return {
+    entrances,
+    matrixMap,
+    updateCell: updateCellMutation.mutateAsync,
+    syncEntrances: syncEntrancesMutation.mutateAsync,
+    isLoading: updateCellMutation.isPending,
+  };
 }
