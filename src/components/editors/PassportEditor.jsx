@@ -15,26 +15,26 @@ import {
   Trash2,
   Briefcase,
   UserCog,
-  Landmark
+  Landmark,
 } from 'lucide-react';
-import { useProject } from '../../context/ProjectContext';
-import { useDirectProjectInfo } from '../../hooks/api/useDirectProjectInfo';
-import { Card, SectionTitle, Label, Input, Button, useReadOnly } from '../ui/UIKit';
-import { calculateProgress } from '../../lib/utils';
-import { useCatalog } from '../../hooks/useCatalogs';
-import { createVirtualComplexCadastre, formatComplexCadastre } from '../../lib/cadastre';
+import { useProject } from '@context/ProjectContext';
+import { useDirectProjectInfo } from '@hooks/api/useDirectProjectInfo';
+import { Card, SectionTitle, Label, Input, Button, useReadOnly } from '@components/ui/UIKit';
+import { calculateProgress } from '@lib/utils';
+import { useCatalog } from '@hooks/useCatalogs';
+import { createVirtualComplexCadastre, formatComplexCadastre } from '@lib/cadastre';
 
 const STATUS_CONFIG = {
-  'Проектный': { color: 'bg-purple-500', text: 'Проектирование', icon: FileText },
-  'Строящийся': { color: 'bg-blue-500', text: 'Стройка идет', icon: Building },
+  Проектный: { color: 'bg-purple-500', text: 'Проектирование', icon: FileText },
+  Строящийся: { color: 'bg-blue-500', text: 'Стройка идет', icon: Building },
   'Готовый к вводу': { color: 'bg-orange-500', text: 'Сдача ГК', icon: AlertCircle },
-  'Введенный': { color: 'bg-emerald-500', text: 'Объект сдан', icon: CheckCircle2 }
+  Введенный: { color: 'bg-emerald-500', text: 'Объект сдан', icon: CheckCircle2 },
 };
 
 const PARTICIPANT_ROLES = [
   { key: 'developer', label: 'Застройщик', icon: Briefcase },
   { key: 'contractor', label: 'Подрядчик', icon: UserCog },
-  { key: 'customer', label: 'Заказчик', icon: Landmark }
+  { key: 'customer', label: 'Заказчик', icon: Landmark },
 ];
 
 export default function PassportEditor() {
@@ -51,7 +51,7 @@ export default function PassportEditor() {
     updateParticipant,
     upsertDocument,
     deleteDocument,
-    isSaving
+    isSaving,
   } = useDirectProjectInfo(projectId);
 
   const [localInfo, setLocalInfo] = useState({
@@ -64,13 +64,13 @@ export default function PassportEditor() {
     dateStartProject: '',
     dateEndProject: '',
     dateStartFact: '',
-    dateEndFact: ''
+    dateEndFact: '',
   });
 
   const [localCadastre, setLocalCadastre] = useState({
     number: '',
     address: '',
-    area: ''
+    area: '',
   });
 
   const [participantDrafts, setParticipantDrafts] = useState({});
@@ -82,7 +82,7 @@ export default function PassportEditor() {
     const safeCadastre = /** @type {any} */ (cadastre || {});
 
     if (!isLoading && Object.keys(safeComplexInfo).length > 0 && !isInitialDataLoaded) {
-      setLocalInfo((prev) => ({
+      setLocalInfo(prev => ({
         ...prev,
         ...safeComplexInfo,
         name: safeComplexInfo.name || '',
@@ -94,14 +94,14 @@ export default function PassportEditor() {
         dateStartProject: safeComplexInfo.dateStartProject || '',
         dateEndProject: safeComplexInfo.dateEndProject || '',
         dateStartFact: safeComplexInfo.dateStartFact || '',
-        dateEndFact: safeComplexInfo.dateEndFact || ''
+        dateEndFact: safeComplexInfo.dateEndFact || '',
       }));
 
       if (Object.keys(safeCadastre).length > 0) {
-        setLocalCadastre((prev) => ({
+        setLocalCadastre(prev => ({
           ...prev,
           ...safeCadastre,
-          number: formatComplexCadastre(safeCadastre.number || '')
+          number: formatComplexCadastre(safeCadastre.number || ''),
         }));
       }
 
@@ -123,28 +123,29 @@ export default function PassportEditor() {
     return () => clearTimeout(timer);
   }, [localInfo, localCadastre, updateProjectInfo, isReadOnly, isInitialDataLoaded]);
 
-  const handleInfoChange = (field, value) => setLocalInfo((prev) => ({ ...prev, [field]: value }));
-  const handleCadastreChange = (field, value) => setLocalCadastre((prev) => ({
-    ...prev,
-    [field]: field === 'number' ? formatComplexCadastre(value) : value
-  }));
+  const handleInfoChange = (field, value) => setLocalInfo(prev => ({ ...prev, [field]: value }));
+  const handleCadastreChange = (field, value) =>
+    setLocalCadastre(prev => ({
+      ...prev,
+      [field]: field === 'number' ? formatComplexCadastre(value) : value,
+    }));
 
   const handleManualSave = async () => {
     await updateProjectInfo({ info: localInfo, cadastreData: localCadastre });
   };
 
   const handleParticipantChange = (role, field, value) => {
-    setParticipantDrafts((prev) => ({
+    setParticipantDrafts(prev => ({
       ...prev,
       [role]: {
         ...(prev[role] || {}),
         role,
-        [field]: value
-      }
+        [field]: value,
+      },
     }));
   };
 
-  const handleParticipantSave = async (role) => {
+  const handleParticipantSave = async role => {
     await updateParticipant({ role, data: participantDrafts[role] || {} });
   };
 
@@ -156,15 +157,15 @@ export default function PassportEditor() {
 
   const autoFill = () => {
     if (isReadOnly) return;
-    setLocalInfo((prev) => ({
+    setLocalInfo(prev => ({
       ...prev,
       status: 'Строящийся',
       region: 'Ташкент',
       district: 'Мирзо-Улугбекский',
       dateStartProject: '2024-01-01',
-      dateEndProject: '2026-12-31'
+      dateEndProject: '2026-12-31',
     }));
-    setLocalCadastre((prev) => ({ ...prev, number: createVirtualComplexCadastre(), area: '2.5' }));
+    setLocalCadastre(prev => ({ ...prev, number: createVirtualComplexCadastre(), area: '2.5' }));
   };
 
   const { options: projectStatusOptions } = useCatalog('dict_project_statuses');
@@ -188,7 +189,9 @@ export default function PassportEditor() {
         <div className="relative z-10 p-6 md:p-8 space-y-6">
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
             <div>
-              <div className="text-xs uppercase tracking-[0.2em] text-blue-200/80 font-semibold">Паспорт объекта</div>
+              <div className="text-xs uppercase tracking-[0.2em] text-blue-200/80 font-semibold">
+                Паспорт объекта
+              </div>
               <h1 className="mt-2 text-2xl md:text-3xl font-black tracking-tight">
                 {localInfo.name || 'Новый жилой комплекс'}
               </h1>
@@ -208,8 +211,16 @@ export default function PassportEditor() {
                 <Wand2 size={15} className="mr-1" />
                 Автозаполнение
               </Button>
-              <Button onClick={handleManualSave} disabled={isReadOnly || isSaving} className="bg-blue-500 hover:bg-blue-400 text-white">
-                {isSaving ? <Loader2 size={14} className="animate-spin mr-1" /> : <Save size={14} className="mr-1" />}
+              <Button
+                onClick={handleManualSave}
+                disabled={isReadOnly || isSaving}
+                className="bg-blue-500 hover:bg-blue-400 text-white"
+              >
+                {isSaving ? (
+                  <Loader2 size={14} className="animate-spin mr-1" />
+                ) : (
+                  <Save size={14} className="mr-1" />
+                )}
                 Сохранить
               </Button>
             </div>
@@ -223,11 +234,11 @@ export default function PassportEditor() {
                 <StatusIcon size={16} className="text-blue-200" />
                 <select
                   value={localInfo.status || 'Проектный'}
-                  onChange={(e) => handleInfoChange('status', e.target.value)}
+                  onChange={e => handleInfoChange('status', e.target.value)}
                   disabled={isReadOnly}
                   className="bg-transparent text-sm font-semibold text-white outline-none w-full"
                 >
-                  {projectStatusOptions.map((s) => (
+                  {projectStatusOptions.map(s => (
                     <option key={s.code} value={s.label} className="text-slate-900">
                       {s.label}
                     </option>
@@ -238,14 +249,19 @@ export default function PassportEditor() {
 
             <div className="rounded-2xl border border-white/15 bg-white/5 p-4">
               <div className="text-xs text-slate-300 mb-2">Кадастровый номер</div>
-              <div className="text-sm font-semibold truncate">{localCadastre.number || 'Не указан'}</div>
+              <div className="text-sm font-semibold truncate">
+                {localCadastre.number || 'Не указан'}
+              </div>
             </div>
 
             <div className="rounded-2xl border border-white/15 bg-white/5 p-4">
               <div className="text-xs text-slate-300 mb-2">Прогресс (план)</div>
               <div className="text-sm font-semibold">{progress}%</div>
               <div className="h-2 rounded-full bg-white/15 mt-2 overflow-hidden">
-                <div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
+                <div
+                  className="h-full bg-blue-500 transition-all"
+                  style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
+                />
               </div>
             </div>
           </div>
@@ -260,30 +276,57 @@ export default function PassportEditor() {
               <div className="space-y-4">
                 <div>
                   <Label>Наименование</Label>
-                  <Input value={localInfo.name} onChange={(e) => handleInfoChange('name', e.target.value)} placeholder="Название ЖК" disabled={isReadOnly} />
+                  <Input
+                    value={localInfo.name}
+                    onChange={e => handleInfoChange('name', e.target.value)}
+                    placeholder="Название ЖК"
+                    disabled={isReadOnly}
+                  />
                 </div>
                 <div>
                   <Label>Кадастровый номер</Label>
-                  <Input value={localCadastre.number} onChange={(e) => handleCadastreChange('number', e.target.value)} placeholder="10:09:03:02:01:0021" disabled={isReadOnly} />
+                  <Input
+                    value={localCadastre.number}
+                    onChange={e => handleCadastreChange('number', e.target.value)}
+                    placeholder="10:09:03:02:01:0021"
+                    disabled={isReadOnly}
+                  />
                 </div>
                 <div>
                   <Label>Адрес</Label>
-                  <Input value={localInfo.street} onChange={(e) => handleInfoChange('street', e.target.value)} placeholder="Улица, дом" disabled={isReadOnly} />
+                  <Input
+                    value={localInfo.street}
+                    onChange={e => handleInfoChange('street', e.target.value)}
+                    placeholder="Улица, дом"
+                    disabled={isReadOnly}
+                  />
                 </div>
               </div>
 
               <div className="space-y-4">
                 <div>
                   <Label>Регион</Label>
-                  <Input value={localInfo.region} onChange={(e) => handleInfoChange('region', e.target.value)} disabled={isReadOnly} />
+                  <Input
+                    value={localInfo.region}
+                    onChange={e => handleInfoChange('region', e.target.value)}
+                    disabled={isReadOnly}
+                  />
                 </div>
                 <div>
                   <Label>Район</Label>
-                  <Input value={localInfo.district} onChange={(e) => handleInfoChange('district', e.target.value)} disabled={isReadOnly} />
+                  <Input
+                    value={localInfo.district}
+                    onChange={e => handleInfoChange('district', e.target.value)}
+                    disabled={isReadOnly}
+                  />
                 </div>
                 <div>
                   <Label>Ориентир</Label>
-                  <Input value={localInfo.landmark} onChange={(e) => handleInfoChange('landmark', e.target.value)} disabled={isReadOnly} />
+                  <Input
+                    value={localInfo.landmark}
+                    onChange={e => handleInfoChange('landmark', e.target.value)}
+                    disabled={isReadOnly}
+                  />
                 </div>
               </div>
             </div>
@@ -297,22 +340,46 @@ export default function PassportEditor() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Начало (План)</Label>
-                  <Input type="date" value={localInfo.dateStartProject || ''} onChange={(e) => handleInfoChange('dateStartProject', e.target.value)} disabled={isReadOnly} className="text-xs" />
+                  <Input
+                    type="date"
+                    value={localInfo.dateStartProject || ''}
+                    onChange={e => handleInfoChange('dateStartProject', e.target.value)}
+                    disabled={isReadOnly}
+                    className="text-xs"
+                  />
                 </div>
                 <div>
                   <Label>Окончание (План)</Label>
-                  <Input type="date" value={localInfo.dateEndProject || ''} onChange={(e) => handleInfoChange('dateEndProject', e.target.value)} disabled={isReadOnly} className="text-xs" />
+                  <Input
+                    type="date"
+                    value={localInfo.dateEndProject || ''}
+                    onChange={e => handleInfoChange('dateEndProject', e.target.value)}
+                    disabled={isReadOnly}
+                    className="text-xs"
+                  />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3 pt-4 border-t border-slate-100">
                 <div>
                   <Label className="text-slate-400">Начало (Факт)</Label>
-                  <Input type="date" value={localInfo.dateStartFact || ''} onChange={(e) => handleInfoChange('dateStartFact', e.target.value)} disabled={isReadOnly} className="text-xs bg-slate-50" />
+                  <Input
+                    type="date"
+                    value={localInfo.dateStartFact || ''}
+                    onChange={e => handleInfoChange('dateStartFact', e.target.value)}
+                    disabled={isReadOnly}
+                    className="text-xs bg-slate-50"
+                  />
                 </div>
                 <div>
                   <Label className="text-slate-400">Окончание (Факт)</Label>
-                  <Input type="date" value={localInfo.dateEndFact || ''} onChange={(e) => handleInfoChange('dateEndFact', e.target.value)} disabled={isReadOnly} className="text-xs bg-slate-50" />
+                  <Input
+                    type="date"
+                    value={localInfo.dateEndFact || ''}
+                    onChange={e => handleInfoChange('dateEndFact', e.target.value)}
+                    disabled={isReadOnly}
+                    className="text-xs bg-slate-50"
+                  />
                 </div>
               </div>
             </div>
@@ -323,23 +390,39 @@ export default function PassportEditor() {
       <Card className="p-6 shadow-sm">
         <SectionTitle icon={Users}>Участники проекта</SectionTitle>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-          {PARTICIPANT_ROLES.map((roleItem) => {
+          {PARTICIPANT_ROLES.map(roleItem => {
             const { key, label } = roleItem;
             const row = participantDrafts[key] || { role: key, name: '', inn: '' };
             return (
-              <div key={key} className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3">
+              <div
+                key={key}
+                className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3"
+              >
                 <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                  {React.createElement(roleItem.icon, { size: 14, className: 'text-blue-600' })} {label}
+                  {React.createElement(roleItem.icon, { size: 14, className: 'text-blue-600' })}{' '}
+                  {label}
                 </div>
                 <div>
                   <Label>Наименование</Label>
-                  <Input value={row.name || ''} onChange={(e) => handleParticipantChange(key, 'name', e.target.value)} disabled={isReadOnly} />
+                  <Input
+                    value={row.name || ''}
+                    onChange={e => handleParticipantChange(key, 'name', e.target.value)}
+                    disabled={isReadOnly}
+                  />
                 </div>
                 <div>
                   <Label>ИНН</Label>
-                  <Input value={row.inn || ''} onChange={(e) => handleParticipantChange(key, 'inn', e.target.value)} disabled={isReadOnly} />
+                  <Input
+                    value={row.inn || ''}
+                    onChange={e => handleParticipantChange(key, 'inn', e.target.value)}
+                    disabled={isReadOnly}
+                  />
                 </div>
-                <Button onClick={() => handleParticipantSave(key)} disabled={isReadOnly || isSaving} className="w-full bg-slate-900 text-white hover:bg-slate-800">
+                <Button
+                  onClick={() => handleParticipantSave(key)}
+                  disabled={isReadOnly || isSaving}
+                  className="w-full bg-slate-900 text-white hover:bg-slate-800"
+                >
                   <Save size={14} className="mr-2" /> Сохранить
                 </Button>
               </div>
@@ -363,7 +446,7 @@ export default function PassportEditor() {
               </tr>
             </thead>
             <tbody>
-              {(documents || []).map((doc) => (
+              {(documents || []).map(doc => (
                 <tr key={doc.id} className="border-t border-slate-100">
                   <td className="p-3">{doc.name}</td>
                   <td className="p-3">{doc.type || '-'}</td>
@@ -371,7 +454,11 @@ export default function PassportEditor() {
                   <td className="p-3">{doc.date || '-'}</td>
                   <td className="p-3 truncate max-w-[260px]">{doc.url || '-'}</td>
                   <td className="p-3">
-                    <button onClick={() => deleteDocument(doc.id)} disabled={isReadOnly} className="px-2 py-1 rounded border text-red-600 border-red-200 hover:bg-red-50 disabled:opacity-50">
+                    <button
+                      onClick={() => deleteDocument(doc.id)}
+                      disabled={isReadOnly}
+                      className="px-2 py-1 rounded border text-red-600 border-red-200 hover:bg-red-50 disabled:opacity-50"
+                    >
                       <Trash2 size={14} />
                     </button>
                   </td>
@@ -379,13 +466,52 @@ export default function PassportEditor() {
               ))}
 
               <tr className="border-t border-slate-200 bg-slate-50/70">
-                <td className="p-2"><Input value={newDoc.name} onChange={(e) => setNewDoc((d) => ({ ...d, name: e.target.value }))} placeholder="Название документа" disabled={isReadOnly} /></td>
-                <td className="p-2"><Input value={newDoc.type} onChange={(e) => setNewDoc((d) => ({ ...d, type: e.target.value }))} placeholder="Тип" disabled={isReadOnly} /></td>
-                <td className="p-2"><Input value={newDoc.number} onChange={(e) => setNewDoc((d) => ({ ...d, number: e.target.value }))} placeholder="Номер" disabled={isReadOnly} /></td>
-                <td className="p-2"><Input type="date" value={newDoc.date} onChange={(e) => setNewDoc((d) => ({ ...d, date: e.target.value }))} disabled={isReadOnly} /></td>
-                <td className="p-2"><Input value={newDoc.url} onChange={(e) => setNewDoc((d) => ({ ...d, url: e.target.value }))} placeholder="https://..." disabled={isReadOnly} /></td>
                 <td className="p-2">
-                  <Button onClick={handleAddDocument} disabled={isReadOnly || !newDoc.name.trim()} className="bg-blue-600 text-white hover:bg-blue-500 whitespace-nowrap">
+                  <Input
+                    value={newDoc.name}
+                    onChange={e => setNewDoc(d => ({ ...d, name: e.target.value }))}
+                    placeholder="Название документа"
+                    disabled={isReadOnly}
+                  />
+                </td>
+                <td className="p-2">
+                  <Input
+                    value={newDoc.type}
+                    onChange={e => setNewDoc(d => ({ ...d, type: e.target.value }))}
+                    placeholder="Тип"
+                    disabled={isReadOnly}
+                  />
+                </td>
+                <td className="p-2">
+                  <Input
+                    value={newDoc.number}
+                    onChange={e => setNewDoc(d => ({ ...d, number: e.target.value }))}
+                    placeholder="Номер"
+                    disabled={isReadOnly}
+                  />
+                </td>
+                <td className="p-2">
+                  <Input
+                    type="date"
+                    value={newDoc.date}
+                    onChange={e => setNewDoc(d => ({ ...d, date: e.target.value }))}
+                    disabled={isReadOnly}
+                  />
+                </td>
+                <td className="p-2">
+                  <Input
+                    value={newDoc.url}
+                    onChange={e => setNewDoc(d => ({ ...d, url: e.target.value }))}
+                    placeholder="https://..."
+                    disabled={isReadOnly}
+                  />
+                </td>
+                <td className="p-2">
+                  <Button
+                    onClick={handleAddDocument}
+                    disabled={isReadOnly || !newDoc.name.trim()}
+                    className="bg-blue-600 text-white hover:bg-blue-500 whitespace-nowrap"
+                  >
                     <Plus size={14} className="mr-2" /> Добавить
                   </Button>
                 </td>

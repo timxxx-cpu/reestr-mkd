@@ -14,7 +14,7 @@ export const CATALOG_TABLES = [
   'dict_infra_types',
   'dict_mop_types',
   'dict_unit_types',
-  'dict_room_types'
+  'dict_room_types',
 ];
 
 export const CatalogService = {
@@ -46,7 +46,7 @@ export const CatalogService = {
       code: item.code,
       label: item.label,
       sort_order: Number(item.sort_order || item.sortOrder || 100),
-      is_active: item.is_active ?? item.isActive ?? true
+      is_active: item.is_active ?? item.isActive ?? true,
     };
 
     const { error } = await supabase.from(table).upsert(payload);
@@ -56,5 +56,5 @@ export const CatalogService = {
   async setCatalogItemActive(table, id, isActive) {
     const { error } = await supabase.from(table).update({ is_active: isActive }).eq('id', id);
     if (error) throw error;
-  }
+  },
 };

@@ -18,7 +18,7 @@ const TITLES = {
   dict_infra_types: 'Типы инфраструктуры',
   dict_mop_types: 'Типы МОП',
   dict_unit_types: 'Типы помещений',
-  dict_room_types: 'Типы комнат'
+  dict_room_types: 'Типы комнат',
 };
 
 export default function CatalogsAdminPanel() {
@@ -29,7 +29,7 @@ export default function CatalogsAdminPanel() {
 
   const { data = [], isLoading } = useQuery({
     queryKey: ['catalog-admin', active],
-    queryFn: () => CatalogService.getCatalogAll(active)
+    queryFn: () => CatalogService.getCatalogAll(active),
   });
 
   const rows = useMemo(() => data, [data]);
@@ -39,12 +39,12 @@ export default function CatalogsAdminPanel() {
     await qc.invalidateQueries({ queryKey: ['catalog', active] });
   };
 
-  const save = async (item) => {
+  const save = async item => {
     await CatalogService.upsertCatalogItem(active, item);
     await refresh();
   };
 
-  const toggle = async (item) => {
+  const toggle = async item => {
     await CatalogService.setCatalogItemActive(active, item.id, !item.is_active);
     await refresh();
   };
@@ -73,8 +73,12 @@ export default function CatalogsAdminPanel() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {CATALOG_TABLES.map((t) => (
-            <button key={t} onClick={() => setActive(t)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${active === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'}`}>
+          {CATALOG_TABLES.map(t => (
+            <button
+              key={t}
+              onClick={() => setActive(t)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${active === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'}`}
+            >
               {TITLES[t] || t}
             </button>
           ))}
@@ -92,24 +96,59 @@ export default function CatalogsAdminPanel() {
               </tr>
             </thead>
             <tbody>
-              {isLoading && <tr><td colSpan={5} className="p-3 text-slate-400">Загрузка...</td></tr>}
-              {rows.map((r) => (
+              {isLoading && (
+                <tr>
+                  <td colSpan={5} className="p-3 text-slate-400">
+                    Загрузка...
+                  </td>
+                </tr>
+              )}
+              {rows.map(r => (
                 <tr key={r.id} className="border-t">
                   <td className="p-2">{r.code}</td>
                   <td className="p-2">{r.label}</td>
                   <td className="p-2">{r.sort_order}</td>
                   <td className="p-2">{r.is_active ? 'yes' : 'no'}</td>
                   <td className="p-2 flex gap-2">
-                    <button onClick={() => save(r)} className="px-2 py-1 text-xs rounded border"><Save size={12}/></button>
-                    <button onClick={() => toggle(r)} className="px-2 py-1 text-xs rounded border">{r.is_active ? <PowerOff size={12}/> : <Power size={12}/>}</button>
+                    <button onClick={() => save(r)} className="px-2 py-1 text-xs rounded border">
+                      <Save size={12} />
+                    </button>
+                    <button onClick={() => toggle(r)} className="px-2 py-1 text-xs rounded border">
+                      {r.is_active ? <PowerOff size={12} /> : <Power size={12} />}
+                    </button>
                   </td>
                 </tr>
               ))}
               <tr className="border-t bg-slate-50">
-                <td className="p-2"><input className="border rounded px-2 py-1 w-full" value={draft.code} onChange={(e) => setDraft((d) => ({ ...d, code: e.target.value }))} /></td>
-                <td className="p-2"><input className="border rounded px-2 py-1 w-full" value={draft.label} onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))} /></td>
-                <td className="p-2"><input className="border rounded px-2 py-1 w-24" type="number" value={draft.sort_order} onChange={(e) => setDraft((d) => ({ ...d, sort_order: Number(e.target.value) }))} /></td>
-                <td className="p-2"><input type="checkbox" checked={draft.is_active} onChange={(e) => setDraft((d) => ({ ...d, is_active: e.target.checked }))} /></td>
+                <td className="p-2">
+                  <input
+                    className="border rounded px-2 py-1 w-full"
+                    value={draft.code}
+                    onChange={e => setDraft(d => ({ ...d, code: e.target.value }))}
+                  />
+                </td>
+                <td className="p-2">
+                  <input
+                    className="border rounded px-2 py-1 w-full"
+                    value={draft.label}
+                    onChange={e => setDraft(d => ({ ...d, label: e.target.value }))}
+                  />
+                </td>
+                <td className="p-2">
+                  <input
+                    className="border rounded px-2 py-1 w-24"
+                    type="number"
+                    value={draft.sort_order}
+                    onChange={e => setDraft(d => ({ ...d, sort_order: Number(e.target.value) }))}
+                  />
+                </td>
+                <td className="p-2">
+                  <input
+                    type="checkbox"
+                    checked={draft.is_active}
+                    onChange={e => setDraft(d => ({ ...d, is_active: e.target.checked }))}
+                  />
+                </td>
                 <td className="p-2">
                   <button
                     onClick={async () => {
@@ -117,7 +156,10 @@ export default function CatalogsAdminPanel() {
                       setDraft({ code: '', label: '', sort_order: 100, is_active: true });
                     }}
                     className="px-2 py-1 text-xs rounded border flex items-center gap-1"
-                  ><Plus size={12}/>Добавить</button>
+                  >
+                    <Plus size={12} />
+                    Добавить
+                  </button>
                 </td>
               </tr>
             </tbody>
