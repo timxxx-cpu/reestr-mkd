@@ -173,21 +173,3 @@
 
 ---
 
-## 8. Точки расширения
-
-1. Добавление нового шага workflow:
-   - расширить `STEPS_CONFIG` и stage-границы;
-   - обновить state-machine и step validators;
-   - добавить UI-экран редактора.
-
-2. Добавление новой сущности БД:
-   - таблица + unique/FK в SQL;
-   - mappers в `db-mappers.js`;
-   - CRUD в `api-service.js`;
-   - схемы в `schemas.js`;
-   - экран/хуки в UI.
-
-3. Переход от Supabase к прямому PostgreSQL API:
-   - заменить адаптер data access в `api-service`;
-   - сохранить формат DTO/UI моделей;
-   - покрыть контрактными smoke-тестами.
