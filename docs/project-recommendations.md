@@ -229,15 +229,26 @@ Bundle увеличился незначительно: +16 KB gzipped.
 **Текущее состояние:** 2/5  
 **Проблемы:**
 - ❌ Нет aria-labels на большинстве кнопок
-- ❌ Отсутствует keyboard navigation для модальных окон
-- ❌ Нет focus management
+- ✅ **ВНЕДРЕНО**: Keyboard navigation для модальных окон (9 февраля 2026)
+- ✅ **ВНЕДРЕНО**: Focus management (9 февраля 2026)
 - ❌ Цветовые схемы не протестированы на контрастность (WCAG)
 
-**Рекомендации:**
-- Внедрить `eslint-plugin-jsx-a11y`
-- Добавить aria-labels для иконочных кнопок
-- Проверить keyboard navigation (Tab, Enter, Escape)
-- Использовать инструменты типа axe DevTools для аудита
+**Что сделано:**
+- ✅ Установлен `eslint-plugin-jsx-a11y` для автоматических проверок
+- ✅ Добавлен keyboard navigation (Escape) для модальных окон
+- ✅ Реализован focus management (автофокус на модалку)
+- ✅ Добавлены aria-labels для иконочных кнопок
+- ✅ Добавлены ARIA атрибуты (role="dialog", aria-modal, aria-labelledby)
+
+**Компоненты с улучшениями:**
+- `HistoryModal` — полная accessibility поддержка
+- `RegistryModalLayout` — используется всеми реестрами
+- `ApartmentInventoryModal` — aria-labels на кнопках
+
+**Рекомендации (дополнительно):**
+- Протестировать цветовые схемы на контрастность (WCAG)
+- Добавить Tab-навигацию внутри модальных окон (focus trap)
+- Использовать инструменты типа axe DevTools для полного аудита
 
 ---
 

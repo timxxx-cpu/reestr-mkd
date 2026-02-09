@@ -1,11 +1,35 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { X, Clock, MessageSquare, ArrowRight, User } from 'lucide-react';
 import { APP_STATUS_LABELS } from '../lib/constants';
 
 export default function HistoryModal({ history, onClose }) {
+    const modalRef = useRef(null);
+
+    // Keyboard navigation: Escape для закрытия
+    useEffect(() => {
+        const handleEscape = (e) => {
+            if (e.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', handleEscape);
+        return () => window.removeEventListener('keydown', handleEscape);
+    }, [onClose]);
+
+    // Автофокус на модалку при открытии
+    useEffect(() => {
+        modalRef.current?.focus();
+    }, []);
+
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+            <div 
+                ref={modalRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="history-modal-title"
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] focus:outline-none"
+            >
                 
                 {/* Header */}
                 <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
@@ -14,11 +38,15 @@ export default function HistoryModal({ history, onClose }) {
                             <Clock size={20} />
                         </div>
                         <div>
-                            <h3 className="font-bold text-slate-800 text-lg">История событий</h3>
+                            <h3 id="history-modal-title" className="font-bold text-slate-800 text-lg">История событий</h3>
                             <p className="text-xs text-slate-500">Журнал изменений статуса проекта</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-200">
+                    <button 
+                        onClick={onClose} 
+                        aria-label="Закрыть модальное окно истории"
+                        className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-200"
+                    >
                         <X size={18} className="text-slate-400 hover:text-slate-700"/>
                     </button>
                 </div>

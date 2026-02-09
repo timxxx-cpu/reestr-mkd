@@ -153,7 +153,7 @@ export default function ApartmentInventoryModal({ unit, unitsList = [], building
                         onKeyDown={(e) => e.key === 'Enter' && handleCopy()}
                         disabled={isReadOnly}
                     />
-                    <button onClick={handleCopy} disabled={isReadOnly} className="p-1 bg-white border border-slate-200 rounded-md hover:text-blue-600"><Copy size={14}/></button>
+                    <button onClick={handleCopy} disabled={isReadOnly} aria-label="Скопировать экспликацию из другой квартиры" className="p-1 bg-white border border-slate-200 rounded-md hover:text-blue-600"><Copy size={14}/></button>
                 </div>
             </div>
         </div>
@@ -207,7 +207,7 @@ export default function ApartmentInventoryModal({ unit, unitsList = [], building
                             </div>
                             
                             <div className="col-span-1 flex justify-end">
-                                {!isReadOnly && <button onClick={() => removeRoom(room.id)} className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg"><Trash2 size={14}/></button>}
+                                {!isReadOnly && <button onClick={() => removeRoom(room.id)} aria-label="Удалить помещение" className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg"><Trash2 size={14}/></button>}
                             </div>
                         </div>
                     );

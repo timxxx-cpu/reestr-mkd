@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { X, Check } from 'lucide-react';
 import { Button } from '../../../ui/UIKit';
 
@@ -20,17 +20,45 @@ export default function RegistryModalLayout({
     statsContent, 
     children 
 }) {
+    const modalRef = useRef(null);
+
+    // Keyboard navigation: Escape для закрытия
+    useEffect(() => {
+        const handleEscape = (e) => {
+            if (e.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', handleEscape);
+        return () => window.removeEventListener('keydown', handleEscape);
+    }, [onClose]);
+
+    // Автофокус на модалку при открытии
+    useEffect(() => {
+        modalRef.current?.focus();
+    }, []);
+
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+            <div 
+                ref={modalRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="registry-modal-title"
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] focus:outline-none"
+            >
                 
                 {/* Header */}
                 <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                     <div>
                         <div className="text-slate-500 text-xs mb-1 font-bold uppercase">{subTitle}</div>
-                        <h3 className="text-2xl font-black text-slate-800">{title}</h3>
+                        <h3 id="registry-modal-title" className="text-2xl font-black text-slate-800">{title}</h3>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-200">
+                    <button 
+                        onClick={onClose} 
+                        aria-label="Закрыть модальное окно"
+                        className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-200"
+                    >
                         <X size={20} className="text-slate-400 hover:text-slate-700"/>
                     </button>
                 </div>
