@@ -250,8 +250,12 @@ npm install @tanstack/react-virtual
 
 #### 7.1 Добавить составные индексы
 
+✅ **ВНЕДРЕНО** (9 февраля 2026)
+
+Добавлены следующие составные индексы:
+
 ```sql
--- Для запросов "все этажи блока"
+-- Для запросов "все этажи блока" (с сортировкой)
 CREATE INDEX idx_floors_block_index ON floors(block_id, index);
 
 -- Для запросов "все юниты этажа и подъезда"
@@ -259,7 +263,12 @@ CREATE INDEX idx_units_floor_entrance ON units(floor_id, entrance_id);
 
 -- Для запросов "все common_areas этажа и подъезда"
 CREATE INDEX idx_common_areas_floor_entrance ON common_areas(floor_id, entrance_id);
+
+-- Для экспликации помещений с фильтрацией по типу
+CREATE INDEX idx_rooms_unit_type ON rooms(unit_id, room_type);
 ```
+
+Ожидаемое улучшение производительности: 2-10x для JOIN-запросов.
 
 #### 7.2 Мониторинг медленных запросов
 
