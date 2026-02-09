@@ -18,6 +18,8 @@ import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
 import { Card, Button, SectionTitle, Badge, useReadOnly } from '@components/ui/UIKit';
 import { useToast } from '@context/ToastContext';
 import { createVirtualBuildingCadastre, formatBuildingCadastre } from '@lib/cadastre';
+import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
+import { formatFullIdentifier } from '@lib/uj-identifier';
 
 const SYNC_STATUS = {
   IDLE: 'IDLE',
@@ -40,7 +42,7 @@ const TYPE_NAMES = {
 };
 
 export default function IntegrationBuildings() {
-  const { projectId } = useProject();
+  const { projectId, complexInfo } = useProject();
   const isReadOnly = useReadOnly();
   const toast = useToast();
 
@@ -248,6 +250,12 @@ export default function IntegrationBuildings() {
                           <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
                             Дом {item.houseNumber}
                           </span>
+                          {item.buildingCode && complexInfo?.ujCode && (
+                            <FullIdentifierCompact 
+                              fullCode={formatFullIdentifier(complexInfo.ujCode, item.buildingCode)}
+                              variant="compact"
+                            />
+                          )}
                         </div>
                       </td>
 
