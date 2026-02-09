@@ -12,6 +12,7 @@ import { Card, DebouncedInput } from '@components/ui/UIKit';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
 import { useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { IdentifierBadge } from '@components/ui/IdentifierBadge';
 import CommercialInventoryModal from '../modals/CommercialInventoryModal';
 
 const getTypeConfig = type => {
@@ -236,8 +237,18 @@ const CommercialRegistry = ({ onSaveUnit, projectId }) => {
                       <td className="p-4 text-center font-bold text-slate-500 border-l border-slate-100">
                         {item.entrance}
                       </td>
-                      <td className="p-4 text-center relative border-x border-blue-100 bg-blue-50/20 group-hover:bg-blue-100/50 transition-colors">
-                        <span className="font-black text-slate-800 text-lg">{item.number}</span>
+                      <td className="p-4 text-center relative border-x border-emerald-100 bg-emerald-50/20 group-hover:bg-emerald-100/50 transition-colors">
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span className="font-black text-slate-800 text-lg">{item.number}</span>
+                          {item.unitCode && (
+                            <IdentifierBadge 
+                              code={item.unitCode} 
+                              type="unit" 
+                              variant="compact"
+                              className="bg-emerald-100 border-emerald-200 text-emerald-600"
+                            />
+                          )}
+                        </div>
                       </td>
                       <td className="p-4">
                         <span

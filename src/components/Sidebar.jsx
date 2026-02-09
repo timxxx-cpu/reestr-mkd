@@ -11,6 +11,7 @@ import { STEPS_CONFIG, ROLES } from '@lib/constants';
 import { useProject } from '@context/ProjectContext';
 import { getStepStage } from '@lib/workflow-utils';
 import { Button, Tooltip } from '@components/ui/UIKit';
+import { IdentifierBadge } from '@components/ui/IdentifierBadge';
 
 // --- МОДАЛКА ВЫХОДА (ТОЛЬКО ДЛЯ КНОПКИ "НА РАБОЧИЙ СТОЛ") ---
 const ExitConfirmationModal = ({ onCancel, onConfirm }) => (
@@ -132,8 +133,18 @@ export default function Sidebar({
 
         {isOpen && (
           <div className="p-6 pb-2 animate-in fade-in duration-300">
-            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Объект
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                Объект
+              </div>
+              {complexInfo?.ujCode && (
+                <IdentifierBadge 
+                  code={complexInfo.ujCode} 
+                  type="project" 
+                  variant="compact"
+                  className="bg-blue-600/20 border-blue-400/30 text-blue-200"
+                />
+              )}
             </div>
             <h2
               className="text-sm font-bold text-white leading-snug line-clamp-2"

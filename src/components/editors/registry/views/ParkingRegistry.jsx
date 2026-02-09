@@ -4,6 +4,7 @@ import { Card, DebouncedInput } from '@components/ui/UIKit';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
 import { useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { IdentifierBadge } from '@components/ui/IdentifierBadge';
 import ParkingEditModal from '../../ParkingEditModal';
 
 const ParkingRegistry = ({ onSaveUnit, projectId }) => {
@@ -168,9 +169,19 @@ const ParkingRegistry = ({ onSaveUnit, projectId }) => {
                         </div>
                       </td>
                       <td className="p-4 text-center relative border-x border-blue-100 bg-blue-50/20 group-hover:bg-blue-100/50 transition-colors">
-                        <span className="font-black text-slate-800 text-lg">
-                          {item.number || '-'}
-                        </span>
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span className="font-black text-slate-800 text-lg">
+                            {item.number || '-'}
+                          </span>
+                          {item.unitCode && (
+                            <IdentifierBadge 
+                              code={item.unitCode} 
+                              type="unit" 
+                              variant="compact"
+                              className="bg-blue-100 border-blue-200 text-blue-600"
+                            />
+                          )}
+                        </div>
                       </td>
                       <td className="p-4">
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase border bg-slate-100 text-slate-700 border-slate-200">

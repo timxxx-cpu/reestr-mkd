@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowLeft, MapPin, Building2, Hash, Layers, Car, Box } from 'lucide-react';
 import { getStageColor } from '@lib/utils';
+import { IdentifierBadge } from '@components/ui/IdentifierBadge';
 
 const PARKING_TYPE_LABELS = {
   capital: 'Капитальный',
@@ -62,6 +63,13 @@ export default function ConfigHeader({
                 <TypeIcon size={18} />
               </div>
               <h1 className="text-xl font-bold text-slate-800 leading-none">{building.label}</h1>
+              {building.buildingCode && (
+                <IdentifierBadge 
+                  code={building.buildingCode} 
+                  type="building" 
+                  variant="default"
+                />
+              )}
               <span
                 className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${getStageColor(building.stage)}`}
               >
