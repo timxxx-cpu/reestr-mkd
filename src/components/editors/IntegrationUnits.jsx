@@ -25,6 +25,8 @@ import {
   createVirtualCommercialCadastre,
   createVirtualParkingCadastre,
 } from '@lib/cadastre';
+import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
+import { formatFullIdentifier } from '@lib/uj-identifier';
 
 const SYNC_STATUS = {
   IDLE: 'IDLE',
@@ -81,7 +83,7 @@ const getTypeConfig = type => {
 };
 
 export default function IntegrationUnits() {
-  const { projectId } = useProject();
+  const { projectId, complexInfo } = useProject();
   const isReadOnly = useReadOnly();
   const toast = useToast();
 
@@ -109,12 +111,7 @@ export default function IntegrationUnits() {
 
     // Квартиры и офисы
     units.forEach(u => {
-      const _bLabel = bMap[u.buildingId] || 'Объект'; // buildingId нужно прокинуть из API
-      // Внимание: API getProjectFullRegistry возвращает юниты без buildingId (join сложный).
-      // Но мы можем найти buildingId через floor -> block -> building.
-      // Упрощение: в API getProjectFullRegistry мы не джойнили buildingId.
-      // Давайте пока без имени здания, или добавим логику в API.
-      // Допустим API вернет plain list.
+      const buildingLabel = bMap[u.buildingId] || 'Объект';
 
       let category = 'nonres';
       if (['flat', 'duplex_up', 'duplex_down'].includes(u.type)) category = 'living';
@@ -123,7 +120,8 @@ export default function IntegrationUnits() {
       list.push({
         ...u,
         category,
-        buildingLabel: '...', // Заглушка, если нет данных
+        buildingLabel,
+        buildingCode: u.buildingCode,
         cadastreNumber: u.cadastreNumber,
       });
     });
@@ -323,7 +321,19 @@ export default function IntegrationUnits() {
                     return (
                       <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4 text-center text-slate-400 text-xs">{idx + 1}</td>
-                        <td className="px-6 py-4 font-black text-slate-700">{item.number}</td>
+                        <td className="px-6 py-4">
+                          <div className="font-black text-slate-700 mb-0.5">{item.number}</div>
+                          {item.unitCode && item.buildingCode && complexInfo?.ujCode && (
+                            <FullIdentifierCompact 
+                              fullCode={formatFullIdentifier(
+                                complexInfo.ujCode,
+                                item.buildingCode,
+                                item.unitCode
+                              )}
+                              variant="compact"
+                            />
+                          )}
+                        </td>
                         <td className="px-6 py-4">
                           <span
                             className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold uppercase border ${typeConf.color}`}

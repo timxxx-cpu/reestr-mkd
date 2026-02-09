@@ -1554,6 +1554,23 @@ const LegacyApiService = {
         .range(from, to)
     );
 
+    // Создаем маппинг для быстрого доступа к buildingCode через floor -> block -> building
+    const floorToBlockMap = {};
+    const blockToBuildingMap = {};
+    const buildingCodeMap = {};
+
+    (floors || []).forEach(f => {
+      floorToBlockMap[f.id] = f.block_id;
+    });
+
+    (blocks || []).forEach(b => {
+      blockToBuildingMap[b.id] = b.building_id;
+    });
+
+    (buildings || []).forEach(b => {
+      buildingCodeMap[b.id] = b.building_code;
+    });
+
     return {
       buildings: (buildings || []).map(b => ({
         ...b,
@@ -1577,27 +1594,36 @@ const LegacyApiService = {
         blockId: e.block_id,
         number: e.number,
       })),
-      units: (units || []).map(u => ({
-        id: u.id,
-        unitCode: u.unit_code,
-        number: u.number,
-        num: u.number,
-        type: u.unit_type,
-        area: u.total_area,
-        livingArea: u.living_area,
-        usefulArea: u.useful_area,
-        rooms: u.rooms_count,
-        floorId: u.floor_id,
-        entranceId: u.entrance_id,
-        cadastreNumber: u.cadastre_number,
-        explication: (u.rooms || []).map(r => ({
-          id: r.id,
-          type: r.room_type,
-          label: r.name,
-          area: r.area,
-          level: r.level,
-        })),
-      })),
+      units: (units || []).map(u => {
+        // Получаем buildingId и buildingCode через цепочку floor -> block -> building
+        const blockId = floorToBlockMap[u.floor_id];
+        const buildingId = blockToBuildingMap[blockId];
+        const buildingCode = buildingCodeMap[buildingId];
+
+        return {
+          id: u.id,
+          unitCode: u.unit_code,
+          number: u.number,
+          num: u.number,
+          type: u.unit_type,
+          area: u.total_area,
+          livingArea: u.living_area,
+          usefulArea: u.useful_area,
+          rooms: u.rooms_count,
+          floorId: u.floor_id,
+          entranceId: u.entrance_id,
+          buildingId: buildingId,
+          buildingCode: buildingCode,
+          cadastreNumber: u.cadastre_number,
+          explication: (u.rooms || []).map(r => ({
+            id: r.id,
+            type: r.room_type,
+            label: r.name,
+            area: r.area,
+            level: r.level,
+          })),
+        };
+      }),
     };
   },
 
