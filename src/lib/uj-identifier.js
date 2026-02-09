@@ -94,9 +94,13 @@ export const generateUnitCode = (prefix, sequenceNumber) => {
  * @param {string} unitCode - Код помещения (EL000)
  * @returns {string} Полный код формата UJ000000-ZD00-EL000
  */
-export const formatFullIdentifier = (projectCode, buildingCode, unitCode = null) => {
+export const formatFullIdentifier = (projectCode, buildingCode = null, unitCode = null) => {
+  if (!projectCode) {
+    return '';
+  }
+
   if (!buildingCode) {
-    return projectCode || '';
+    return projectCode;
   }
 
   const parts = [projectCode, buildingCode];
