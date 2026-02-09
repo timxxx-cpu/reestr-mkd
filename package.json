@@ -13,6 +13,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.93.3",
     "@tanstack/react-query": "^5.90.20",
+    "@tanstack/react-virtual": "^3.13.18",
     "lucide-react": "^0.303.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
