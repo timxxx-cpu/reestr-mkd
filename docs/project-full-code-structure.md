@@ -136,9 +136,6 @@
 - `HistoryModal` — журнал истории заявки
 - `CatalogsAdminPanel` — административная панель справочников
 
-**Устаревшие компоненты (не используются):**
-- ~~`ProjectsDashboard`~~ → удален, заменен на `ApplicationsDashboard`
-- ~~`ProjectsPage`~~ → удален, функциональность в `ApplicationsDashboard`
 
 ## 5.3 Editor-экраны шагов
 
