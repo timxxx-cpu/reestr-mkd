@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { Car, CheckCircle2, Loader2, Search } from 'lucide-react';
 import { Card, DebouncedInput } from '@components/ui/UIKit';
+import EmptyState from '@components/ui/EmptyState';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { formatFullIdentifier } from '@lib/uj-identifier';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
@@ -215,8 +216,13 @@ const ParkingRegistry = ({ onSaveUnit, projectId }) => {
                 })
               ) : (
                 <tr>
-                  <td colSpan={7} className="p-12 text-center text-slate-400">
-                    Нет машиномест
+                  <td colSpan={7}>
+                    <EmptyState
+                      icon={Car}
+                      title="Нет машиномест"
+                      description="Добавьте парковочные места в инвентаризацию, чтобы отобразить их в реестре."
+                      compact
+                    />
                   </td>
                 </tr>
               )}

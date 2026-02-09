@@ -598,7 +598,12 @@ const CompositionEditor = () => {
             variant="secondary"
             className={`bg-white border border-slate-200 transition-all shadow-sm ${isReadOnly ? 'opacity-50 cursor-not-allowed text-slate-400' : 'hover:bg-purple-50 hover:text-purple-600'}`}
           >
-            <Sparkles size={16} /> Демо-данные
+            {isMutating ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Sparkles size={16} />
+            )}{' '}
+            {isMutating ? 'Создание...' : 'Демо-данные'}
           </Button>
           <div className="h-10 px-4 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center shadow-lg shadow-slate-900/20">
             {buildings.length} объектов
@@ -646,8 +651,8 @@ const CompositionEditor = () => {
                 disabled={isMutating}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all active:scale-95 shadow-sm ${btn.color}`}
               >
-                <btn.icon size={14} />
-                {btn.label}
+                {isMutating ? <Loader2 size={14} className="animate-spin" /> : <btn.icon size={14} />}
+                {isMutating ? 'Сохранение...' : btn.label}
               </button>
             ))}
           </div>
