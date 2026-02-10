@@ -8,9 +8,10 @@
 
 | Роль | Чтение | Создание | Редактирование | Удаление | Workflow-операции |
 |------|--------|---------|---------------|----------|-------------------|
-| **Admin** | ✅ Все | ✅ Все | ✅ Все | ✅ Все | ✅ Complete, Rollback, Approve, Reject |
-| **Technician** | ✅ Все | ✅ Данные | ✅ Данные (в DRAFT/REJECTED/INTEGRATION) | ✅ Данные | ✅ Complete, Rollback |
-| **Controller** | ✅ Все | ❌ Нет | ❌ Нет | ❌ Нет | ✅ Approve, Reject |
+| **Admin** | ✅ Все | ✅ Все | ✅ Все | ✅ Все | ✅ Complete, Rollback, Approve, Reject, Decline, Restore |
+| **Branch Manager** | ✅ Все | ✅ Принятие заявок | ❌ Нет | ❌ Нет | ✅ Decline, Return from decline, Assign technician |
+| **Technician** | ✅ Все | ✅ Данные | ✅ Данные (в DRAFT/REVISION/RETURNED_BY_MANAGER/INTEGRATION) | ✅ Данные | ✅ Complete, Rollback, Request decline |
+| **Controller** | ✅ Все | ❌ Нет | ❌ Нет | ❌ Нет | ✅ Approve, Reject, Decline (при REVIEW) |
 
 ### Детализация по ролям
 
@@ -18,26 +19,48 @@
 
 **Может делать**:
 - Создавать проекты и заявки
-- Редактировать любые данные в любом статусе
-- Выполнять все workflow-операции
+- Редактировать любые данные в любом подстатусе
+- Выполнять все workflow-операции (Complete, Rollback, Approve, Reject, Decline, Restore)
 - Изменять статусы вручную
 - Удалять любые объекты
-- Обходить валидацию (с записью в историю)
+- Принимать входящие заявления
+- Назначать техника-исполнителя
+- Рассматривать запросы на отказ
 
 **Доступ к таблицам**: Все таблицы, полный доступ
+
+#### Branch Manager (Начальник филиала)
+
+**Может делать**:
+- Принимать входящие заявления из внешних систем
+- Назначать техника-исполнителя
+- Отказывать заявления с рабочего стола (DECLINE)
+- Рассматривать запросы техника на отказ (DECLINE / RETURN_FROM_DECLINE)
+- Просматривать все данные (read-only)
+
+**Не может**:
+- Редактировать данные проектов
+- Завершать или откатывать шаги
+- Выполнять Approve/Reject этапов
+- Удалять проекты
+
+**Доступ к таблицам**:
+- Чтение: Все таблицы
+- Запись: applications (status, workflow_substatus, assignee_name), application_history
 
 #### Technician (Техник-инвентаризатор)
 
 **Может делать**:
-- Создавать и редактировать данные в статусах: DRAFT, NEW, REJECTED, INTEGRATION
+- Создавать и редактировать данные в подстатусах: DRAFT, REVISION, RETURNED_BY_MANAGER, INTEGRATION
 - Завершать текущий шаг (COMPLETE_STEP)
 - Откатывать шаг (ROLLBACK_STEP)
+- Запрашивать отказ заявления (REQUEST_DECLINE)
 - Создавать/редактировать/удалять: здания, блоки, этажи, подъезды, помещения, МОП
 
 **Не может**:
-- Редактировать в статусах: REVIEW, APPROVED, COMPLETED
+- Редактировать в подстатусах: REVIEW, PENDING_DECLINE, DONE
 - Выполнять Approve/Reject
-- Изменять workflow-статусы напрямую
+- Отказывать заявления напрямую (только через REQUEST_DECLINE)
 
 **Доступ к таблицам**:
 - Чтение: Все таблицы
@@ -48,9 +71,10 @@
 
 **Может делать**:
 - Просматривать все данные
-- Выполнять Approve/Reject для этапов в статусе REVIEW
+- Выполнять Approve/Reject для этапов в подстатусе REVIEW
 - Добавлять комментарии к решениям
 - Просматривать историю изменений
+- Отказывать заявления в подстатусе REVIEW (DECLINE)
 
 **Не может**:
 - Редактировать данные (проекты, здания, этажи, помещения)
@@ -59,7 +83,7 @@
 
 **Доступ к таблицам**:
 - Чтение: Все таблицы
-- Запись: Только application_history (через Approve/Reject)
+- Запись: Только application_history (через Approve/Reject/Decline)
 
 ## 9.2 Шаг 0: `passport` — Паспорт жилого комплекса
 
@@ -188,7 +212,8 @@ DELETE FROM project_documents WHERE id = ?;
 **При завершении шага**:
 ```javascript
 applications.current_step: 0 → 1
-applications.status: DRAFT (остается)
+applications.status: IN_PROGRESS (остается)
+applications.workflow_substatus: DRAFT (остается)
 application_steps: INSERT (step_index=0, is_completed=true)
 application_history: INSERT (action='COMPLETE_STEP')
 ```
@@ -290,15 +315,32 @@ application_history: INSERT (action='COMPLETE_STEP')
 ## 9.11 Действия контролера (`APPROVE` / `REJECT`)
 
 ### Что меняется при `APPROVE`
-- `applications.status` -> **Новый статус после принятия этапа**.
+- `applications.workflow_substatus` -> **DRAFT или INTEGRATION** (внешний статус остается IN_PROGRESS).
 - `applications.current_step/current_stage` -> **Точка продолжения работ**.
 - `application_steps.is_verified` -> **Подтверждение шагов этапа**.
 - `application_history.action/comment/user_name` -> **Фиксация решения контролера**.
 
 ### Что меняется при `REJECT`
-- `applications.status='REJECTED'` -> **Возврат на доработку**.
+- `applications.workflow_substatus='REVISION'` -> **Возврат на доработку** (внешний статус остается IN_PROGRESS).
 - `applications.current_step/current_stage` -> **Откат шага/этапа**.
 - `application_history.comment` -> **Причина возврата**.
+
+### Что меняется при `REQUEST_DECLINE` (Техник запрашивает отказ)
+- `applications.workflow_substatus='PENDING_DECLINE'` -> **На рассмотрении у начальника филиала**.
+- `applications.requested_decline_reason` -> **Причина запроса**.
+- `applications.requested_decline_step` -> **Шаг, на котором запрошен отказ**.
+- `applications.requested_decline_by` -> **Имя техника**.
+- `application_history.action='REQUEST_DECLINE'` -> **Запись в историю**.
+
+### Что меняется при `DECLINE` (Отказ заявления)
+- `applications.status='DECLINED'` -> **Заявка отклонена**.
+- `applications.workflow_substatus` -> **DECLINED_BY_ADMIN / DECLINED_BY_CONTROLLER / DECLINED_BY_MANAGER**.
+- `application_history.action='DECLINE'` -> **Запись в историю с причиной**.
+
+### Что меняется при `RETURN_FROM_DECLINE` (Начальник возвращает)
+- `applications.workflow_substatus='RETURNED_BY_MANAGER'` -> **Техник продолжает с того же шага**.
+- `applications.requested_decline_*` -> **Очищаются**.
+- `application_history.action='RETURN_FROM_DECLINE'` -> **Запись в историю**.
 
 ## 9.12 Справочники (где используются)
 
