@@ -81,10 +81,15 @@ create table applications (
   applicant text,
   submission_date timestamptz,
   assignee_name text,
-  status text not null default 'DRAFT',
+  status text not null default 'IN_PROGRESS',
+  workflow_substatus text not null default 'DRAFT',
   current_step int not null default 0,
   current_stage int not null default 1,
   integration_data jsonb default '{}'::jsonb,
+  requested_decline_reason text,
+  requested_decline_step int,
+  requested_decline_by text,
+  requested_decline_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -544,14 +549,34 @@ insert into dict_project_statuses(code, label, sort_order) values
 ('done', 'Введенный', 40)
 on conflict (code) do nothing;
 
+-- Внешние статусы заявлений (3 вида)
 insert into dict_application_statuses(code, label, sort_order) values
-('NEW', 'Новая', 10),
-('DRAFT', 'В работе', 20),
-('REVIEW', 'На проверке', 30),
-('APPROVED', 'Принято', 40),
-('REJECTED', 'Возврат', 50),
-('INTEGRATION', 'Интеграция', 60),
-('COMPLETED', 'Закрыта', 70)
+('IN_PROGRESS', 'В работе', 10),
+('COMPLETED', 'Завершено', 20),
+('DECLINED', 'Отказано', 30)
+on conflict (code) do nothing;
+
+-- Подстатусы workflow (внутренние)
+create table if not exists dict_workflow_substatuses (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  parent_status text not null,
+  label text not null,
+  sort_order int not null default 100,
+  is_active boolean not null default true
+);
+
+insert into dict_workflow_substatuses(code, parent_status, label, sort_order) values
+('DRAFT',                  'IN_PROGRESS', 'Ввод данных',             10),
+('REVIEW',                 'IN_PROGRESS', 'На проверке',             20),
+('REVISION',               'IN_PROGRESS', 'На доработке',            30),
+('PENDING_DECLINE',        'IN_PROGRESS', 'Запрос на отказ',         35),
+('RETURNED_BY_MANAGER',    'IN_PROGRESS', 'Возвращено начальником',  37),
+('INTEGRATION',            'IN_PROGRESS', 'Интеграция',              40),
+('DONE',                   'COMPLETED',   'Завершено',               50),
+('DECLINED_BY_ADMIN',      'DECLINED',    'Отказано (админ)',         60),
+('DECLINED_BY_CONTROLLER', 'DECLINED',    'Отказано (контролер)',     70),
+('DECLINED_BY_MANAGER',    'DECLINED',    'Отказано (нач. филиала)',  75)
 on conflict (code) do nothing;
 
 insert into dict_external_systems(code, label, sort_order) values
@@ -563,15 +588,19 @@ on conflict (code) do nothing;
 
 insert into dict_system_users(code, name, role, group_name, sort_order) values
 ('timur_admin', 'Тимур', 'admin', 'Тимур', 10),
+('timur_manager', 'Тимур', 'branch_manager', 'Тимур', 15),
 ('timur_contr', 'Тимур', 'controller', 'Тимур', 20),
 ('timur_tech', 'Тимур', 'technician', 'Тимур', 30),
 ('abdu_admin', 'Абдурашид', 'admin', 'Абдурашид', 40),
+('abdu_manager', 'Абдурашид', 'branch_manager', 'Абдурашид', 45),
 ('abdu_contr', 'Абдурашид', 'controller', 'Абдурашид', 50),
 ('abdu_tech', 'Абдурашид', 'technician', 'Абдурашид', 60),
 ('vakhit_admin', 'Вахит', 'admin', 'Вахит', 70),
+('vakhit_manager', 'Вахит', 'branch_manager', 'Вахит', 75),
 ('vakhit_contr', 'Вахит', 'controller', 'Вахит', 80),
 ('vakhit_tech', 'Вахит', 'technician', 'Вахит', 90),
 ('abbos_admin', 'Аббос', 'admin', 'Аббос', 100),
+('abbos_manager', 'Аббос', 'branch_manager', 'Аббос', 105),
 ('abbos_contr', 'Аббос', 'controller', 'Аббос', 110),
 ('abbos_tech', 'Аббос', 'technician', 'Аббос', 120)
 on conflict (code) do nothing;
