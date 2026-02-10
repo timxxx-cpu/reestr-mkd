@@ -14,12 +14,15 @@ import {
   ShieldCheck,
   AlertTriangle,
   X,
+  Ban,
+  Clock,
 } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { Button, SaveIndicator, useEscapeKey } from '@components/ui/UIKit';
 import { useToast } from '@context/ToastContext';
-import { ROLES, STEPS_CONFIG, WORKFLOW_STAGES, APP_STATUS } from '@lib/constants';
-import { getStepStage } from '@lib/workflow-utils';
+import { ROLES, STEPS_CONFIG, WORKFLOW_STAGES, APP_STATUS, WORKFLOW_SUBSTATUS } from '@lib/constants';
+import { getStepStage, isPendingDecline } from '@lib/workflow-utils';
+import { canRequestDecline, canReviewDeclineRequest } from '@lib/workflow-state-machine';
 import { IdentifierBadge } from '@components/ui/IdentifierBadge';
 import { useKeyboardShortcuts } from '@hooks/useKeyboardShortcuts';
 
@@ -335,6 +338,9 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     completeTask,
     rollbackTask,
     reviewStage,
+    requestDecline,
+    confirmDecline,
+    returnFromDecline,
     isReadOnly,
     hasUnsavedChanges,
     getValidationSnapshot,
@@ -380,10 +386,15 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   const canGoBack = currentStep > 0;
 
   const appStatus = applicationInfo?.status;
-  const isReviewMode = appStatus === APP_STATUS.REVIEW;
+  const appSubstatus = applicationInfo?.workflowSubstatus || WORKFLOW_SUBSTATUS.DRAFT;
+  const isReviewMode = appSubstatus === WORKFLOW_SUBSTATUS.REVIEW;
+  const isPendingDeclineMode = isPendingDecline(appSubstatus);
 
   const isController = user.role === ROLES.CONTROLLER || user.role === ROLES.ADMIN;
   const isTechnician = user.role === ROLES.TECHNICIAN;
+  const isBranchManager = user.role === ROLES.BRANCH_MANAGER;
+  const canTechRequestDecline = canRequestDecline(user.role, appSubstatus);
+  const canManagerReviewDecline = canReviewDeclineRequest(user.role, appSubstatus);
 
   const currentStageNum = getStepStage(currentStep);
 
@@ -665,6 +676,85 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     shortcutsEnabled && !isLoading
   );
 
+  // --- REQUEST DECLINE (Техник) ---
+  const handleRequestDecline = async () => {
+    const reason = prompt('Укажите причину запроса на отказ (обязательно, мин. 10 символов):');
+    if (!reason || reason.trim().length < 10) {
+      if (reason !== null) toast.error('Причина должна быть не менее 10 символов');
+      return;
+    }
+
+    setIsLoading(true);
+    setSaveNotice({ open: true, status: 'saving', message: 'Отправка запроса на отказ...', onOk: null });
+
+    try {
+      await requestDecline(reason);
+      setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+      toast.info('Запрос на отказ отправлен начальнику филиала');
+      onExit(true);
+    } catch (e) {
+      console.error(e);
+      setSaveNotice({
+        open: true,
+        status: 'error',
+        message: 'Ошибка при отправке запроса',
+        onOk: () => setSaveNotice({ open: false, status: 'saving', message: '', onOk: null }),
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- CONFIRM DECLINE (Начальник филиала) ---
+  const handleConfirmDecline = async () => {
+    const comment = prompt('Подтвердите отказ заявления. Укажите комментарий (необязательно):') || '';
+
+    setIsLoading(true);
+    setSaveNotice({ open: true, status: 'saving', message: 'Отказ заявления...', onOk: null });
+
+    try {
+      await confirmDecline(comment);
+      setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+      toast.error('Заявление отклонено');
+      onExit(true);
+    } catch (e) {
+      console.error(e);
+      setSaveNotice({
+        open: true,
+        status: 'error',
+        message: 'Ошибка при отказе',
+        onOk: () => setSaveNotice({ open: false, status: 'saving', message: '', onOk: null }),
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- RETURN FROM DECLINE (Начальник филиала) ---
+  const handleReturnFromDecline = async () => {
+    const comment = prompt('Укажите причину возврата на доработку:') || '';
+
+    setIsLoading(true);
+    setSaveNotice({ open: true, status: 'saving', message: 'Возврат на доработку...', onOk: null });
+
+    try {
+      await returnFromDecline(comment);
+      setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+      toast.success('Заявление возвращено технику на доработку');
+      onExit(true);
+    } catch (e) {
+      console.error(e);
+      setSaveNotice({
+        open: true,
+        status: 'error',
+        message: 'Ошибка при возврате',
+        onOk: () => setSaveNotice({ open: false, status: 'saving', message: '', onOk: null }),
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   if (!applicationInfo) return null;
 
   const handleRejectStage = async () => {
@@ -750,9 +840,109 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     );
   }
 
+  // --- PENDING DECLINE: Панель для начальника филиала (решение по запросу на отказ) ---
+  if (isPendingDeclineMode && canManagerReviewDecline) {
+    return (
+      <>
+        {saveNotice.open && (
+          <SaveProgressModal
+            status={saveNotice.status}
+            message={saveNotice.message}
+            onOk={handleSaveNoticeOk}
+          />
+        )}
+        <div className="bg-amber-900 border-b border-amber-800 px-8 py-4 flex items-center justify-between sticky top-0 z-30 shadow-xl animate-in slide-in-from-top-2 text-white">
+          <div className="flex items-center gap-4">
+            <div className="p-2 bg-amber-800 rounded-xl border border-amber-700">
+              <Clock size={20} className="text-amber-300" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
+                Запрос на отказ от техника
+              </span>
+              <span className="text-base font-bold text-white tracking-tight">
+                {applicationInfo.requestedDeclineBy || 'Техник'}: {applicationInfo.requestedDeclineReason || 'Причина не указана'}
+              </span>
+              <span className="text-[10px] text-amber-400 mt-0.5">
+                Шаг: {STEPS_CONFIG[applicationInfo.requestedDeclineStep]?.title || 'Не указан'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              onClick={onOpenHistory}
+              className="text-amber-300 hover:text-white hover:bg-white/10 px-2 h-9"
+              title="История действий"
+            >
+              <History size={18} />
+            </Button>
+            <div className="h-8 w-px bg-amber-700 mx-1"></div>
+            <Button
+              onClick={handleReturnFromDecline}
+              disabled={isLoading}
+              className="bg-white text-amber-700 hover:bg-amber-50 border border-transparent shadow-sm h-10 px-4"
+            >
+              <ArrowLeft size={16} className="mr-2" /> Вернуть на доработку
+            </Button>
+            <Button
+              onClick={handleConfirmDecline}
+              disabled={isLoading}
+              className="bg-red-500 hover:bg-red-400 text-white shadow-lg shadow-red-900/20 h-10 px-6 border-0"
+            >
+              <Ban size={16} className="mr-2" /> Подтвердить отказ
+            </Button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // --- PENDING DECLINE: Панель для техника (read-only, ожидание решения) ---
+  if (isPendingDeclineMode && isTechnician) {
+    return (
+      <div className="bg-amber-900 border-b border-amber-800 px-8 py-4 flex items-center justify-between sticky top-0 z-30 shadow-xl animate-in slide-in-from-top-2 text-white">
+        <div className="flex items-center gap-4">
+          <div className="p-2 bg-amber-800 rounded-xl border border-amber-700">
+            <Clock size={20} className="text-amber-300 animate-pulse" />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
+              Ожидание решения
+            </span>
+            <span className="text-sm font-bold text-white tracking-tight">
+              Заявление направлено начальнику филиала для рассмотрения отказа
+            </span>
+            <span className="text-[10px] text-amber-400 mt-0.5">
+              Данные доступны только для просмотра. Ожидайте решения.
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            onClick={onOpenHistory}
+            className="h-9 px-3 text-xs bg-amber-800 border border-amber-700 hover:bg-amber-700 text-amber-300 hover:text-white"
+          >
+            <History size={14} className="mr-2" /> История
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => onExit(false)}
+            className="h-9 px-3 text-xs bg-amber-800 border border-amber-700 hover:bg-amber-700 text-amber-300 hover:text-white"
+          >
+            <LogOut size={14} className="mr-2" /> Выйти
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (
     (isTechnician || user.role === ROLES.ADMIN) &&
     !isReviewMode &&
+    !isPendingDeclineMode &&
     isCurrentTask &&
     !isReadOnly
   ) {
@@ -868,6 +1058,19 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
             >
               Выйти без сохранения
             </Button>
+
+            {canTechRequestDecline && (
+              <Button
+                variant="ghost"
+                onClick={handleRequestDecline}
+                disabled={isActionDisabled}
+                className="text-amber-400 hover:text-amber-300 hover:bg-amber-900/20 px-3 h-10 border border-transparent transition-colors text-xs font-bold"
+                title="Запросить отказ заявления"
+              >
+                <Ban size={14} className="mr-1.5" />
+                Запросить отказ
+              </Button>
+            )}
 
             <Button
               onClick={handleSave}
