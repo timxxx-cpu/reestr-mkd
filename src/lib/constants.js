@@ -119,6 +119,33 @@ export const SUBSTATUS_TO_STATUS = {
   [WORKFLOW_SUBSTATUS.DECLINED_BY_MANAGER]: APP_STATUS.DECLINED,
 };
 
+// --- 2c. СТАТУСЫ ВЕРСИЙ ОБЪЕКТОВ ---
+export const VERSION_STATUS = {
+  ACTUAL: 'ACTUAL',
+  IN_WORK: 'IN_WORK',
+  DECLINED: 'DECLINED',
+  ARCHIVED: 'ARCHIVED',
+};
+
+export const VERSION_STATUS_LABELS = {
+  [VERSION_STATUS.ACTUAL]: {
+    label: 'Актуальная',
+    color: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  },
+  [VERSION_STATUS.IN_WORK]: {
+    label: 'В работе',
+    color: 'bg-blue-100 text-blue-700 border-blue-200',
+  },
+  [VERSION_STATUS.DECLINED]: {
+    label: 'Отказанная',
+    color: 'bg-red-100 text-red-700 border-red-200',
+  },
+  [VERSION_STATUS.ARCHIVED]: {
+    label: 'Архивированная',
+    color: 'bg-slate-100 text-slate-500 border-slate-200',
+  },
+};
+
 // --- КОНФИГУРАЦИЯ ЭТАПОВ ПРОВЕРКИ ---
 // lastStepIndex - индекс шага в STEPS_CONFIG, после которого нужно отправлять на проверку
 export const WORKFLOW_STAGES = {

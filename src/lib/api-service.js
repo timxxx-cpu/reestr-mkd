@@ -13,6 +13,7 @@ import { floorKeyToVirtualId, SPECIAL_FLOOR_IDS } from './model-keys';
 import { createProjectApi } from './api/project-api';
 import { createWorkflowApi } from './api/workflow-api';
 import { createRegistryApi } from './api/registry-api';
+import { createVersionsApi } from './api/versions-api-factory';
 import { normalizeProjectStatusFromDb, normalizeProjectStatusToDb } from './project-status';
 import {
   createVirtualComplexCadastre,
@@ -413,11 +414,106 @@ const LegacyApiService = {
     ];
   },
 
+
+
+  // --- WORK LOCK (защита от одновременного редактирования) ---
+  acquireApplicationLock: async ({ scope, projectId, userName, userRole, ttlMinutes = 20 }) => {
+    const { data: app, error } = await supabase
+      .from('applications')
+      .select('id')
+      .eq('scope_id', scope)
+      .eq('project_id', projectId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!app?.id) return { ok: false, reason: 'NOT_FOUND', message: 'Заявка не найдена' };
+
+    const { data, error: rpcErr } = await supabase.rpc('acquire_application_lock', {
+      p_application_id: app.id,
+      p_owner_user_id: userName,
+      p_owner_role: userRole,
+      p_ttl_seconds: Math.max(60, Math.floor(ttlMinutes * 60)),
+    });
+    if (rpcErr) throw rpcErr;
+
+    const row = Array.isArray(data) ? data[0] : data;
+    return {
+      ok: !!row?.ok,
+      reason: row?.reason || null,
+      message: row?.message || null,
+      expiresAt: row?.expires_at || null,
+      applicationId: app.id,
+    };
+  },
+
+  refreshApplicationLock: async ({ applicationId, userName, ttlMinutes = 20 }) => {
+    const { data, error } = await supabase.rpc('refresh_application_lock', {
+      p_application_id: applicationId,
+      p_owner_user_id: userName,
+      p_ttl_seconds: Math.max(60, Math.floor(ttlMinutes * 60)),
+    });
+    if (error) throw error;
+
+    const row = Array.isArray(data) ? data[0] : data;
+    return {
+      ok: !!row?.ok,
+      reason: row?.reason || null,
+      message: row?.message || null,
+      expiresAt: row?.expires_at || null,
+    };
+  },
+
+  releaseApplicationLock: async ({ applicationId, userName }) => {
+    if (!applicationId) return { ok: false };
+
+    const { data, error } = await supabase.rpc('release_application_lock', {
+      p_application_id: applicationId,
+      p_owner_user_id: userName,
+    });
+    if (error) throw error;
+
+    const row = Array.isArray(data) ? data[0] : data;
+    return {
+      ok: !!row?.ok,
+      reason: row?.reason || null,
+      message: row?.message || null,
+    };
+  },
+
   // --- WORKFLOW & CREATION ---
 
   // [UPDATED] Создание проекта из заявки (Транзакция)
   createProjectFromApplication: async (scope, appData, user) => {
     if (!scope) throw new Error('No scope provided');
+
+    // Бизнес-правило повторной подачи: если по ЖК уже есть активная заявка в работе,
+    // новую повторную заявку принимать нельзя.
+    if (appData?.reapplicationForProjectId || appData?.cadastre) {
+      const normalizedCadastre = appData?.cadastre ? formatComplexCadastre(appData.cadastre) : null;
+
+      let activeAppsQuery = supabase
+        .from('applications')
+        .select('id, project_id, status, projects!inner(id, name, cadastre_number)')
+        .eq('scope_id', scope)
+        .eq('status', 'IN_PROGRESS')
+        .limit(1);
+
+      if (appData?.reapplicationForProjectId) {
+        activeAppsQuery = activeAppsQuery.eq('project_id', appData.reapplicationForProjectId);
+      } else if (normalizedCadastre) {
+        activeAppsQuery = activeAppsQuery.eq('projects.cadastre_number', normalizedCadastre);
+      }
+
+      const { data: activeApps, error: activeAppsErr } = await activeAppsQuery;
+      if (activeAppsErr) throw activeAppsErr;
+
+      if ((activeApps || []).length > 0) {
+        const active = activeApps[0];
+        const projectName = active?.projects?.name || 'ЖК';
+        throw new Error(
+          `Отказ в принятии: по ${projectName} уже есть активное заявление в работе. Повторная подача отклонена.`
+        );
+      }
+    }
 
     // Генерируем UJ-код для проекта
     const ujCode = await generateNextProjectCode(scope);
@@ -1602,6 +1698,234 @@ const LegacyApiService = {
     await supabase.from('units').update({ cadastre_number: cadastre }).eq('id', id);
   },
 
+
+
+  declineApplication: async ({ applicationId, nextSubstatus, prevStatus, userName, reason }) => {
+    const { error: appErr } = await supabase
+      .from('applications')
+      .update({
+        status: 'DECLINED',
+        workflow_substatus: nextSubstatus,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', applicationId);
+    if (appErr) throw appErr;
+
+    const { error: histErr } = await supabase.from('application_history').insert({
+      application_id: applicationId,
+      action: 'DECLINE',
+      prev_status: prevStatus,
+      next_status: 'DECLINED',
+      user_name: userName,
+      comment: reason,
+    });
+    if (histErr) throw histErr;
+  },
+
+  requestDecline: async ({ applicationId, reason, stepIndex, requestedBy }) => {
+    const { error } = await supabase
+      .from('applications')
+      .update({
+        workflow_substatus: 'PENDING_DECLINE',
+        requested_decline_reason: reason,
+        requested_decline_step: stepIndex,
+        requested_decline_by: requestedBy,
+        requested_decline_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', applicationId);
+    if (error) throw error;
+  },
+
+  returnFromDecline: async ({ applicationId, userName, comment }) => {
+    const { error: appErr } = await supabase
+      .from('applications')
+      .update({
+        status: 'IN_PROGRESS',
+        workflow_substatus: 'RETURNED_BY_MANAGER',
+        requested_decline_reason: null,
+        requested_decline_step: null,
+        requested_decline_by: null,
+        requested_decline_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', applicationId);
+    if (appErr) throw appErr;
+
+    const { error: histErr } = await supabase.from('application_history').insert({
+      application_id: applicationId,
+      action: 'RETURN_FROM_DECLINE',
+      prev_status: 'IN_PROGRESS',
+      next_status: 'IN_PROGRESS',
+      user_name: userName,
+      comment: comment || 'Возврат на доработку после запроса на отказ',
+    });
+    if (histErr) throw histErr;
+  },
+
+  assignTechnician: async ({ applicationId, assigneeName }) => {
+    const { error } = await supabase
+      .from('applications')
+      .update({ assignee_name: assigneeName, updated_at: new Date().toISOString() })
+      .eq('id', applicationId);
+    if (error) throw error;
+  },
+
+  restoreApplication: async ({ applicationId, userName, comment }) => {
+    const { error: appErr } = await supabase
+      .from('applications')
+      .update({
+        status: 'IN_PROGRESS',
+        workflow_substatus: 'DRAFT',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', applicationId);
+    if (appErr) throw appErr;
+
+    const { error: histErr } = await supabase.from('application_history').insert({
+      application_id: applicationId,
+      action: 'RESTORE',
+      prev_status: 'DECLINED',
+      next_status: 'IN_PROGRESS',
+      user_name: userName,
+      comment: comment || 'Восстановление заявления',
+    });
+    if (histErr) throw histErr;
+  },
+
+  getVersions: async (entityType, entityId) => {
+    const { data, error } = await supabase
+      .from('object_versions')
+      .select('*')
+      .eq('entity_type', entityType)
+      .eq('entity_id', entityId)
+      .order('version_number', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+
+  createVersion: async ({ entityType, entityId, snapshotData, createdBy, applicationId }) => {
+    const { data: latest, error: latestErr } = await supabase
+      .from('object_versions')
+      .select('version_number')
+      .eq('entity_type', entityType)
+      .eq('entity_id', entityId)
+      .order('version_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestErr) throw latestErr;
+
+    const { error: archiveInWorkError } = await supabase
+      .from('object_versions')
+      .update({ version_status: 'ARCHIVED', updated_at: new Date().toISOString() })
+      .eq('entity_type', entityType)
+      .eq('entity_id', entityId)
+      .eq('version_status', 'IN_WORK');
+    if (archiveInWorkError) throw archiveInWorkError;
+
+    const { data, error } = await supabase
+      .from('object_versions')
+      .insert({
+        entity_type: entityType,
+        entity_id: entityId,
+        version_number: (latest?.version_number || 0) + 1,
+        version_status: 'IN_WORK',
+        snapshot_data: snapshotData || {},
+        created_by: createdBy || null,
+        application_id: applicationId || null,
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  approveVersion: async ({ versionId, approvedBy }) => {
+    const { data: current, error: currentErr } = await supabase
+      .from('object_versions')
+      .select('id, entity_type, entity_id')
+      .eq('id', versionId)
+      .single();
+    if (currentErr) throw currentErr;
+
+    const { error: archiveErr } = await supabase
+      .from('object_versions')
+      .update({ version_status: 'ARCHIVED', updated_at: new Date().toISOString() })
+      .eq('entity_type', current.entity_type)
+      .eq('entity_id', current.entity_id)
+      .eq('version_status', 'ACTUAL')
+      .neq('id', versionId);
+    if (archiveErr) throw archiveErr;
+
+    const { data, error } = await supabase
+      .from('object_versions')
+      .update({
+        version_status: 'ACTUAL',
+        approved_by: approvedBy || null,
+        declined_by: null,
+        decline_reason: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', versionId)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  declineVersion: async ({ versionId, reason, declinedBy }) => {
+    const { data, error } = await supabase
+      .from('object_versions')
+      .update({
+        version_status: 'DECLINED',
+        decline_reason: reason || null,
+        declined_by: declinedBy || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', versionId)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  getVersionSnapshot: async versionId => {
+    const { data, error } = await supabase
+      .from('object_versions')
+      .select('snapshot_data')
+      .eq('id', versionId)
+      .single();
+    if (error) throw error;
+    return data?.snapshot_data || {};
+  },
+
+  restoreVersion: async ({ versionId }) => {
+    const { data: current, error: currentErr } = await supabase
+      .from('object_versions')
+      .select('id, entity_type, entity_id')
+      .eq('id', versionId)
+      .single();
+    if (currentErr) throw currentErr;
+
+    const { error: archiveInWorkError } = await supabase
+      .from('object_versions')
+      .update({ version_status: 'ARCHIVED', updated_at: new Date().toISOString() })
+      .eq('entity_type', current.entity_type)
+      .eq('entity_id', current.entity_id)
+      .eq('version_status', 'IN_WORK')
+      .neq('id', versionId);
+    if (archiveInWorkError) throw archiveInWorkError;
+
+    const { data, error } = await supabase
+      .from('object_versions')
+      .update({ version_status: 'IN_WORK', updated_at: new Date().toISOString() })
+      .eq('id', versionId)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
   getProjectFullRegistry: async projectId => {
     // Тяжелый запрос для сводной.
     // Можно оптимизировать RPC, но пока так:
@@ -2187,5 +2511,6 @@ export const ApiService = {
   ...createProjectApi(LegacyApiService),
   ...createWorkflowApi(LegacyApiService),
   ...createRegistryApi(LegacyApiService),
+  ...createVersionsApi(LegacyApiService),
   saveData: LegacyApiService.saveData,
 };

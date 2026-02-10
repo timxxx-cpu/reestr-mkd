@@ -33,14 +33,16 @@
    - RLS-политики для Supabase
 
 5. [Workflow: роли, статусы, этапы, переходы](./05-workflow.md) ✨ **РАСШИРЕНО**
-   - Детальное описание ролей (admin, technician, controller)
-   - Жизненный цикл заявки (NEW → DRAFT → REVIEW → APPROVED → INTEGRATION → COMPLETED)
+   - Детальное описание ролей (admin, branch_manager, technician, controller)
+   - Жизненный цикл заявки (IN_PROGRESS + workflow_substatus → COMPLETED/DECLINED)
    - Конфигурация этапов и шагов
    - Полное описание workflow-операций:
      - COMPLETE_STEP (алгоритм, изменения в БД, примеры)
      - ROLLBACK_STEP (алгоритм, изменения в БД, примеры)
      - REVIEW_APPROVE (алгоритм, изменения в БД, примеры)
      - REVIEW_REJECT (алгоритм, изменения в БД, примеры)
+     - Повторная подача по ЖК (проверка активного IN_PROGRESS и отказ при конфликте)
+     - Передача заявки между техниками + блокировка конкурентного редактирования
 
 6. [Пошаговый рабочий процесс](./06-operational-flow.md)
    - Пошаговое описание работы с каждым шагом
@@ -76,13 +78,12 @@
    - Workflow-изменения при завершении шага
 
 10. [Система идентификаторов УЖ (UJ Identifier System)](./10-uj-identifier-system.md) ✨ **НОВЫЙ**
-    - Трехуровневая система идентификаторов (UJ000000-ZD00-EL000)
-    - Уровень I: Проект (UJ000000)
-    - Уровень II: Здание (ZR00, ZM00, ZP00, ZI00)
-    - Уровень III: Помещение (EF000, EO000, EP000)
-    - Алгоритмы генерации и валидации
-    - Использование в системе
-    - Связь с кадастровыми номерами
+
+11. [Версионирование объектов и логика работы](./11-object-versioning.md) ✨ **НОВЫЙ**
+    - Таблица `object_versions` и справочник `dict_version_statuses`
+    - Операции API: создание/утверждение/отклонение/восстановление версий
+    - UI-компоненты: `VersionBadge`, `VersionHistory`
+
 
 ## Ключевые особенности документации
 
@@ -112,12 +113,12 @@
 2. **Для аналитиков**: [05-workflow.md](./05-workflow.md) и [09-role-step-data-lifecycle.md](./09-role-step-data-lifecycle.md)
 3. **Для тестировщиков**: [07-validations.md](./07-validations.md) и [06-operational-flow.md](./06-operational-flow.md)
 4. **Для БД-специалистов**: [02-database-structure.md](./02-database-structure.md) и [03-er-and-integrity.md](./03-er-and-integrity.md)
-5. **Для интеграторов**: [10-uj-identifier-system.md](./10-uj-identifier-system.md) и [08-integration-sync-and-migration.md](./08-integration-sync-and-migration.md)
+5. **Для интеграторов**: [10-uj-identifier-system.md](./10-uj-identifier-system.md), [08-integration-sync-and-migration.md](./08-integration-sync-and-migration.md), [11-object-versioning.md](./11-object-versioning.md)
 
 ## Статус документации
 
 ✅ **Завершено**: Все основные разделы документированы  
-✅ **Актуально**: Соответствует текущей версии кода  
+✅ **Актуально**: Соответствует текущей версии кода и схеме (включая workflow_substatus + versioning)  
 ✅ **Проверено**: Документация сверена с исходным кодом и схемой БД  
 
 ## Обратная связь
