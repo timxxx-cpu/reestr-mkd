@@ -537,7 +537,7 @@ create table object_versions (
   entity_type text not null,
   entity_id uuid not null,
   version_number int not null default 1,
-  version_status text not null default 'IN_WORK',
+  version_status text not null default 'PENDING',
   snapshot_data jsonb not null default '{}'::jsonb,
   created_by text,
   approved_by text,
@@ -547,15 +547,15 @@ create table object_versions (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint uq_entity_version unique (entity_type, entity_id, version_number),
-  constraint chk_obj_version_status check (version_status in ('ACTUAL', 'IN_WORK', 'DECLINED', 'ARCHIVED'))
+  constraint chk_obj_version_status check (version_status in ('CURRENT', 'PENDING', 'REJECTED', 'PREVIOUS'))
 );
 create index idx_obj_versions_entity on object_versions(entity_type, entity_id);
 create index idx_obj_versions_status on object_versions(version_status);
 create index idx_obj_versions_app on object_versions(application_id);
 create unique index uq_entity_actual on object_versions(entity_type, entity_id)
-  where version_status = 'ACTUAL';
+  where version_status = 'CURRENT';
 create unique index uq_entity_in_work on object_versions(entity_type, entity_id)
-  where version_status = 'IN_WORK';
+  where version_status = 'PENDING';
 
 create table dict_version_statuses (
   id uuid primary key default gen_random_uuid(),
@@ -776,10 +776,10 @@ on conflict (code) do nothing;
 
 
 insert into dict_version_statuses(code, label, color, sort_order) values
-('ACTUAL', 'Актуальная', 'bg-emerald-100 text-emerald-700 border-emerald-200', 10),
-('IN_WORK', 'В работе', 'bg-blue-100 text-blue-700 border-blue-200', 20),
-('DECLINED', 'Отказанная', 'bg-red-100 text-red-700 border-red-200', 30),
-('ARCHIVED', 'Архивированная', 'bg-slate-100 text-slate-500 border-slate-200', 40)
+('CURRENT', 'Текущая', 'bg-emerald-100 text-emerald-700 border-emerald-200', 10),
+('PENDING', 'В ожидании', 'bg-blue-100 text-blue-700 border-blue-200', 20),
+('REJECTED', 'Отклонена', 'bg-red-100 text-red-700 border-red-200', 30),
+('PREVIOUS', 'Предыдущая', 'bg-slate-100 text-slate-500 border-slate-200', 40)
 on conflict (code) do nothing;
 
 insert into dict_external_systems(code, label, sort_order) values

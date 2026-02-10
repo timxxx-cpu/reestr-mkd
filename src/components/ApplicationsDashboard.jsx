@@ -24,6 +24,7 @@ import {
   Ban,
   UserCheck,
   Clock,
+  Undo2,
 } from 'lucide-react';
 import {
   ROLES,
@@ -397,6 +398,32 @@ ${list}`
     }
   };
 
+  const handleReturnFromDecline = async (projectId, projectName) => {
+    const comment =
+      prompt(
+        `Укажите комментарий для возврата "${projectName}" технику на доработку (необязательно):`
+      ) || '';
+
+    try {
+      const project = projects.find(p => p.id === projectId);
+      if (!project?.applicationId) {
+        toast.error('Заявка не найдена');
+        return;
+      }
+
+      await ApiService.returnFromDecline({
+        applicationId: project.applicationId,
+        userName: user.name,
+        comment,
+      });
+
+      toast.success('Заявление возвращено технику на доработку');
+    } catch (e) {
+      console.error(e);
+      toast.error('Ошибка при возврате на доработку');
+    }
+  };
+
   // --- ЛОГИКА ФИЛЬТРАЦИИ ---
   const getFilteredProjects = scope => {
     let filtered = projects;
@@ -749,6 +776,7 @@ ${list}`
               onSelect={onSelectProject}
               onDelete={isAdmin ? handleDeleteProject : undefined}
               onDecline={(isAdmin || isBranchManager || user.role === ROLES.CONTROLLER) ? handleDeclineProject : undefined}
+              onReturnFromDecline={(isAdmin || isBranchManager) ? handleReturnFromDecline : undefined}
               onReassign={(isAdmin || isBranchManager) ? handleReassignProject : undefined}
             />
           )}
@@ -787,7 +815,16 @@ ${list}`
 }
 
 // --- ТАБЛИЦА ЗАДАЧ ---
-const ProjectsTable = ({ data, user, onSelect, onDelete, onDecline, onReassign, isLoading = false }) => {
+const ProjectsTable = ({
+  data,
+  user,
+  onSelect,
+  onDelete,
+  onDecline,
+  onReturnFromDecline,
+  onReassign,
+  isLoading = false,
+}) => {
   if (!isLoading && data.length === 0) return <EmptyState />;
 
   return (
@@ -845,6 +882,7 @@ const ProjectsTable = ({ data, user, onSelect, onDelete, onDecline, onReassign, 
                 (user.role === ROLES.CONTROLLER && substatus === WORKFLOW_SUBSTATUS.REVIEW);
 
               const showDeclineBtn = canDeclineFromDashboard(user.role, app.status, substatus);
+              const isBranchManager = user.role === ROLES.BRANCH_MANAGER;
 
               return (
                 <tr
@@ -977,6 +1015,16 @@ const ProjectsTable = ({ data, user, onSelect, onDelete, onDecline, onReassign, 
                             className="p-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-lg transition-all shadow-sm hover:shadow active:scale-95"
                           >
                             <PlayCircle size={16} />
+                          </button>
+                        </Tooltip>
+                      )}
+                      {isPendingDeclineStatus && onReturnFromDecline && (isBranchManager || user.role === ROLES.ADMIN) && (
+                        <Tooltip content="Вернуть технику на доработку">
+                          <button
+                            onClick={() => onReturnFromDecline(p.id, p.name)}
+                            className="p-2 text-slate-300 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors border border-transparent hover:border-amber-100"
+                          >
+                            <Undo2 size={16} />
                           </button>
                         </Tooltip>
                       )}

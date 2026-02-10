@@ -86,8 +86,7 @@ const fetchAllPaged = async (queryFactory, pageSize = 1000) => {
   const rows = [];
 
   while (true) {
-    // eslint-disable-next-line no-await-in-loop
-    const { data, error } = await queryFactory(from, from + pageSize - 1);
+        const { data, error } = await queryFactory(from, from + pageSize - 1);
     if (error) throw error;
 
     const chunk = data || [];
@@ -308,6 +307,193 @@ const syncFloorsForBlockFromDetails = async (building, currentBlock, buildingDet
   }
 };
 
+const VERSION_STATUS_FLOW = {
+  PENDING: 'PENDING',
+  CURRENT: 'CURRENT',
+  REJECTED: 'REJECTED',
+  PREVIOUS: 'PREVIOUS',
+};
+
+const resolveTargetVersionStatus = appStatus => {
+  if (appStatus === 'COMPLETED') return VERSION_STATUS_FLOW.CURRENT;
+  if (appStatus === 'DECLINED') return VERSION_STATUS_FLOW.REJECTED;
+  return VERSION_STATUS_FLOW.PENDING;
+};
+
+const collectProjectVersionEntities = async projectId => {
+  const entities = [];
+
+  const { data: projectRow } = await supabase.from('projects').select('*').eq('id', projectId).maybeSingle();
+  if (projectRow) {
+    entities.push({ entityType: 'project', entityId: projectRow.id, snapshotData: projectRow });
+  }
+
+  const { data: buildings = [] } = await supabase.from('buildings').select('*').eq('project_id', projectId);
+  for (const row of buildings) {
+    entities.push({ entityType: 'building', entityId: row.id, snapshotData: row });
+  }
+  const buildingIds = buildings.map(b => b.id);
+  if (buildingIds.length === 0) return entities;
+
+  const { data: blocks = [] } = await supabase.from('building_blocks').select('*').in('building_id', buildingIds);
+  for (const row of blocks) {
+    entities.push({ entityType: 'building_block', entityId: row.id, snapshotData: row });
+  }
+
+  const blockIds = blocks.map(b => b.id);
+  if (blockIds.length === 0) return entities;
+
+  const [
+    { data: basements = [] },
+    { data: floors = [] },
+    { data: entrances = [] },
+    { data: blockConstruction = [] },
+    { data: blockEngineering = [] },
+    { data: blockMarkers = [] },
+    { data: entranceMatrix = [] },
+  ] = await Promise.all([
+    supabase.from('basements').select('*').in('building_id', buildingIds),
+    supabase.from('floors').select('*').in('block_id', blockIds),
+    supabase.from('entrances').select('*').in('block_id', blockIds),
+    supabase.from('block_construction').select('*').in('block_id', blockIds),
+    supabase.from('block_engineering').select('*').in('block_id', blockIds),
+    supabase.from('block_floor_markers').select('*').in('block_id', blockIds),
+    supabase.from('entrance_matrix').select('*').in('block_id', blockIds),
+  ]);
+
+  for (const row of basements) entities.push({ entityType: 'basement', entityId: row.id, snapshotData: row });
+  for (const row of floors) entities.push({ entityType: 'floor', entityId: row.id, snapshotData: row });
+  for (const row of entrances)
+    entities.push({ entityType: 'entrance', entityId: row.id, snapshotData: row });
+  for (const row of blockConstruction)
+    entities.push({ entityType: 'block_construction', entityId: row.id, snapshotData: row });
+  for (const row of blockEngineering)
+    entities.push({ entityType: 'block_engineering', entityId: row.id, snapshotData: row });
+  for (const row of blockMarkers)
+    entities.push({ entityType: 'block_floor_marker', entityId: row.id, snapshotData: row });
+  for (const row of entranceMatrix)
+    entities.push({ entityType: 'entrance_matrix', entityId: row.id, snapshotData: row });
+
+  const basementIds = basements.map(r => r.id);
+  const floorIds = floors.map(r => r.id);
+
+  const [
+    { data: basementParkingLevels = [] },
+    { data: units = [] },
+    { data: commonAreas = [] },
+  ] = await Promise.all([
+    basementIds.length
+      ? supabase.from('basement_parking_levels').select('*').in('basement_id', basementIds)
+      : Promise.resolve({ data: [] }),
+    floorIds.length ? supabase.from('units').select('*').in('floor_id', floorIds) : Promise.resolve({ data: [] }),
+    floorIds.length
+      ? supabase.from('common_areas').select('*').in('floor_id', floorIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  for (const row of basementParkingLevels)
+    entities.push({ entityType: 'basement_parking_level', entityId: row.id, snapshotData: row });
+  for (const row of units) entities.push({ entityType: 'unit', entityId: row.id, snapshotData: row });
+  for (const row of commonAreas)
+    entities.push({ entityType: 'common_area', entityId: row.id, snapshotData: row });
+
+  const unitIds = units.map(r => r.id);
+  if (unitIds.length) {
+    const { data: rooms = [] } = await supabase.from('rooms').select('*').in('unit_id', unitIds);
+    for (const row of rooms) entities.push({ entityType: 'room', entityId: row.id, snapshotData: row });
+  }
+
+  return entities;
+};
+
+const createPendingVersionsForApplication = async ({ projectId, applicationId, createdBy = null }) => {
+  const entities = await collectProjectVersionEntities(projectId);
+
+  for (const entity of entities) {
+        const { data: versions, error: versionsErr } = await supabase
+      .from('object_versions')
+      .select('id, version_number, version_status, snapshot_data')
+      .eq('entity_type', entity.entityType)
+      .eq('entity_id', entity.entityId)
+      .order('version_number', { ascending: false });
+    if (versionsErr) throw versionsErr;
+
+    const existing = versions || [];
+    const hasPending = existing.some(v => v.version_status === VERSION_STATUS_FLOW.PENDING);
+    if (hasPending) continue;
+
+    const latestCurrent = existing.find(v => v.version_status === VERSION_STATUS_FLOW.CURRENT);
+
+        const { error: insertErr } = await supabase.from('object_versions').insert({
+      entity_type: entity.entityType,
+      entity_id: entity.entityId,
+      version_number: (existing[0]?.version_number || 0) + 1,
+      version_status: VERSION_STATUS_FLOW.PENDING,
+      snapshot_data: latestCurrent?.snapshot_data || entity.snapshotData || {},
+      created_by: createdBy,
+      application_id: applicationId,
+      updated_at: new Date().toISOString(),
+    });
+    if (insertErr) throw insertErr;
+  }
+};
+
+const syncVersionStatusesByApplicationStatus = async ({ projectId, applicationId, appStatus }) => {
+  const targetStatus = resolveTargetVersionStatus(appStatus);
+
+  if (targetStatus === VERSION_STATUS_FLOW.PENDING) {
+    await createPendingVersionsForApplication({ projectId, applicationId });
+    return;
+  }
+
+  const entities = await collectProjectVersionEntities(projectId);
+
+  for (const entity of entities) {
+        const { data: versions, error: versionsErr } = await supabase
+      .from('object_versions')
+      .select('id, version_number, version_status')
+      .eq('entity_type', entity.entityType)
+      .eq('entity_id', entity.entityId)
+      .order('version_number', { ascending: false });
+    if (versionsErr) throw versionsErr;
+
+    const list = versions || [];
+    const pending = list.find(v => v.version_status === VERSION_STATUS_FLOW.PENDING);
+
+    if (targetStatus === VERSION_STATUS_FLOW.CURRENT) {
+            const { error: prevErr } = await supabase
+        .from('object_versions')
+        .update({ version_status: VERSION_STATUS_FLOW.PREVIOUS, updated_at: new Date().toISOString() })
+        .eq('entity_type', entity.entityType)
+        .eq('entity_id', entity.entityId)
+        .eq('version_status', VERSION_STATUS_FLOW.CURRENT);
+      if (prevErr) throw prevErr;
+
+      if (pending) {
+                const { error: currentErr } = await supabase
+          .from('object_versions')
+          .update({
+            version_status: VERSION_STATUS_FLOW.CURRENT,
+            decline_reason: null,
+            declined_by: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', pending.id);
+        if (currentErr) throw currentErr;
+      }
+      continue;
+    }
+
+    if (targetStatus === VERSION_STATUS_FLOW.REJECTED && pending) {
+            const { error: rejectErr } = await supabase
+        .from('object_versions')
+        .update({ version_status: VERSION_STATUS_FLOW.REJECTED, updated_at: new Date().toISOString() })
+        .eq('id', pending.id);
+      if (rejectErr) throw rejectErr;
+    }
+  }
+};
+
 const LegacyApiService = {
   getSystemUsers: async () => {
     const { data, error } = await supabase
@@ -508,7 +694,8 @@ const LegacyApiService = {
 
       if ((activeApps || []).length > 0) {
         const active = activeApps[0];
-        const projectName = active?.projects?.name || 'ЖК';
+        const activeProject = Array.isArray(active?.projects) ? active.projects[0] : active?.projects;
+        const projectName = activeProject?.name || 'ЖК';
         throw new Error(
           `Отказ в принятии: по ${projectName} уже есть активное заявление в работе. Повторная подача отклонена.`
         );
@@ -535,26 +722,36 @@ const LegacyApiService = {
     if (pErr) throw pErr;
 
     // 2. Создаем заявку (связываем с проектом)
-    const { error: aErr } = await supabase.from('applications').insert({
-      project_id: project.id,
-      scope_id: scope,
-      internal_number: `INT-${Date.now().toString().slice(-6)}`,
-      external_source: appData.source,
-      external_id: appData.externalId,
-      applicant: appData.applicant,
-      submission_date: appData.submissionDate || new Date(),
-      assignee_name: user.name,
-      status: 'IN_PROGRESS', // Внешний статус
-      workflow_substatus: 'DRAFT', // Подстатус — сразу в работу
-      current_step: 0,
-      current_stage: 1,
-    });
+    const { data: createdApp, error: aErr } = await supabase
+      .from('applications')
+      .insert({
+        project_id: project.id,
+        scope_id: scope,
+        internal_number: `INT-${Date.now().toString().slice(-6)}`,
+        external_source: appData.source,
+        external_id: appData.externalId,
+        applicant: appData.applicant,
+        submission_date: appData.submissionDate || new Date(),
+        assignee_name: user.name,
+        status: 'IN_PROGRESS', // Внешний статус
+        workflow_substatus: 'DRAFT', // Подстатус — сразу в работу
+        current_step: 0,
+        current_stage: 1,
+      })
+      .select('id')
+      .single();
 
     if (aErr) {
       // Rollback (удаляем проект, если заявка не создалась)
       await supabase.from('projects').delete().eq('id', project.id);
       throw aErr;
     }
+
+    await createPendingVersionsForApplication({
+      projectId: project.id,
+      applicationId: createdApp?.id || null,
+      createdBy: user?.name || null,
+    });
 
     return project.id;
   },
@@ -1817,10 +2014,10 @@ const LegacyApiService = {
 
     const { error: archiveInWorkError } = await supabase
       .from('object_versions')
-      .update({ version_status: 'ARCHIVED', updated_at: new Date().toISOString() })
+      .update({ version_status: 'PREVIOUS', updated_at: new Date().toISOString() })
       .eq('entity_type', entityType)
       .eq('entity_id', entityId)
-      .eq('version_status', 'IN_WORK');
+      .eq('version_status', 'PENDING');
     if (archiveInWorkError) throw archiveInWorkError;
 
     const { data, error } = await supabase
@@ -1829,7 +2026,7 @@ const LegacyApiService = {
         entity_type: entityType,
         entity_id: entityId,
         version_number: (latest?.version_number || 0) + 1,
-        version_status: 'IN_WORK',
+        version_status: 'PENDING',
         snapshot_data: snapshotData || {},
         created_by: createdBy || null,
         application_id: applicationId || null,
@@ -1850,17 +2047,17 @@ const LegacyApiService = {
 
     const { error: archiveErr } = await supabase
       .from('object_versions')
-      .update({ version_status: 'ARCHIVED', updated_at: new Date().toISOString() })
+      .update({ version_status: 'PREVIOUS', updated_at: new Date().toISOString() })
       .eq('entity_type', current.entity_type)
       .eq('entity_id', current.entity_id)
-      .eq('version_status', 'ACTUAL')
+      .eq('version_status', 'CURRENT')
       .neq('id', versionId);
     if (archiveErr) throw archiveErr;
 
     const { data, error } = await supabase
       .from('object_versions')
       .update({
-        version_status: 'ACTUAL',
+        version_status: 'CURRENT',
         approved_by: approvedBy || null,
         declined_by: null,
         decline_reason: null,
@@ -1877,7 +2074,7 @@ const LegacyApiService = {
     const { data, error } = await supabase
       .from('object_versions')
       .update({
-        version_status: 'DECLINED',
+        version_status: 'REJECTED',
         decline_reason: reason || null,
         declined_by: declinedBy || null,
         updated_at: new Date().toISOString(),
@@ -1909,16 +2106,16 @@ const LegacyApiService = {
 
     const { error: archiveInWorkError } = await supabase
       .from('object_versions')
-      .update({ version_status: 'ARCHIVED', updated_at: new Date().toISOString() })
+      .update({ version_status: 'PREVIOUS', updated_at: new Date().toISOString() })
       .eq('entity_type', current.entity_type)
       .eq('entity_id', current.entity_id)
-      .eq('version_status', 'IN_WORK')
+      .eq('version_status', 'PENDING')
       .neq('id', versionId);
     if (archiveInWorkError) throw archiveInWorkError;
 
     const { data, error } = await supabase
       .from('object_versions')
-      .update({ version_status: 'IN_WORK', updated_at: new Date().toISOString() })
+      .update({ version_status: 'PENDING', updated_at: new Date().toISOString() })
       .eq('id', versionId)
       .select('*')
       .single();
@@ -2041,6 +2238,7 @@ const LegacyApiService = {
     const promises = [];
     const floorSyncTargets = [];
     const entranceSyncTargets = [];
+    let versioningSyncInfo = null;
 
     // 1. Обновление Project/App Info
     if (generalData.complexInfo) {
@@ -2148,6 +2346,12 @@ const LegacyApiService = {
             );
           }
         }
+
+        versioningSyncInfo = {
+          applicationId,
+          appStatus: ai.status,
+          userName: ai.history?.[0]?.user || null,
+        };
 
         if (ai.completedSteps) {
           const stepsPayload = ai.completedSteps.map(idx => ({
@@ -2503,6 +2707,14 @@ const LegacyApiService = {
           generalData.buildingDetails || {}
         );
       }
+    }
+
+    if (versioningSyncInfo?.applicationId && versioningSyncInfo?.appStatus) {
+      await syncVersionStatusesByApplicationStatus({
+        projectId,
+        applicationId: versioningSyncInfo.applicationId,
+        appStatus: versioningSyncInfo.appStatus,
+      });
     }
   },
 };
