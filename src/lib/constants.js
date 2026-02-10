@@ -20,38 +20,103 @@ import {
 export const ROLES = {
   TECHNICIAN: 'technician', // Техник-инвентаризатор (Ввод данных)
   CONTROLLER: 'controller', // Бригадир-контроллер (Проверка)
+  BRANCH_MANAGER: 'branch_manager', // Начальник филиала (Управление заявлениями)
   ADMIN: 'admin', // Администратор (Полный доступ)
 };
 
-// --- 2. СТАТУСЫ ЗАЯВЛЕНИЯ (Жизненный цикл) ---
+// --- 2. СТАТУСЫ ЗАЯВЛЕНИЯ (Внешние — видны пользователю) ---
 export const APP_STATUS = {
-  NEW: 'NEW', // Новая (пришла из внешней системы, еще не взята в работу)
-  DRAFT: 'DRAFT', // Черновик (в работе у Техника)
-  REVIEW: 'REVIEW', // На проверке (отправлена Бригадиру)
-  APPROVED: 'APPROVED', // Утверждена (Бригадир принял, работа завершена)
-  REJECTED: 'REJECTED', // Отклонена (Бригадир вернул на доработку)
-  INTEGRATION: 'INTEGRATION', // [NEW] Готово к передаче в УЗКАД
-  COMPLETED: 'COMPLETED', // Заявка полностью закрыта (финальный статус)
+  IN_PROGRESS: 'IN_PROGRESS', // В работе (объединяет бывшие NEW, DRAFT, REVIEW, APPROVED, REJECTED, INTEGRATION)
+  COMPLETED: 'COMPLETED', // Завершено
+  DECLINED: 'DECLINED', // Отказано
 };
 
-// Настройки отображения статусов (цвета, названия)
+// Настройки отображения внешних статусов (цвета, названия)
 export const APP_STATUS_LABELS = {
-  [APP_STATUS.NEW]: { label: 'Новая', color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  [APP_STATUS.DRAFT]: { label: 'В работе', color: 'bg-slate-100 text-slate-700 border-slate-200' },
-  [APP_STATUS.REVIEW]: {
+  [APP_STATUS.IN_PROGRESS]: {
+    label: 'В работе',
+    color: 'bg-blue-100 text-blue-700 border-blue-200',
+  },
+  [APP_STATUS.COMPLETED]: {
+    label: 'Завершено',
+    color: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  },
+  [APP_STATUS.DECLINED]: {
+    label: 'Отказано',
+    color: 'bg-red-100 text-red-700 border-red-200',
+  },
+};
+
+// --- 2b. ПОДСТАТУСЫ WORKFLOW (Внутренние — для workflow-движка) ---
+export const WORKFLOW_SUBSTATUS = {
+  DRAFT: 'DRAFT', // Техник работает с данными
+  REVIEW: 'REVIEW', // Отправлено на проверку контролеру
+  REVISION: 'REVISION', // Возвращено контролером на доработку
+  PENDING_DECLINE: 'PENDING_DECLINE', // Техник запросил отказ — на рассмотрении у начальника филиала
+  RETURNED_BY_MANAGER: 'RETURNED_BY_MANAGER', // Начальник филиала вернул технику на доработку
+  INTEGRATION: 'INTEGRATION', // Этап интеграции с УЗКАД
+  DONE: 'DONE', // Все шаги пройдены (внешний: COMPLETED)
+  DECLINED_BY_ADMIN: 'DECLINED_BY_ADMIN', // Отказано администратором
+  DECLINED_BY_CONTROLLER: 'DECLINED_BY_CONTROLLER', // Отказано контролером
+  DECLINED_BY_MANAGER: 'DECLINED_BY_MANAGER', // Отказано начальником филиала
+};
+
+// Настройки отображения подстатусов (цвета, названия)
+export const SUBSTATUS_LABELS = {
+  [WORKFLOW_SUBSTATUS.DRAFT]: {
+    label: 'Ввод данных',
+    color: 'bg-slate-100 text-slate-700 border-slate-200',
+  },
+  [WORKFLOW_SUBSTATUS.REVIEW]: {
     label: 'На проверке',
     color: 'bg-orange-100 text-orange-700 border-orange-200',
   },
-  [APP_STATUS.APPROVED]: {
-    label: 'Принято',
-    color: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  [WORKFLOW_SUBSTATUS.REVISION]: {
+    label: 'На доработке',
+    color: 'bg-amber-100 text-amber-700 border-amber-200',
   },
-  [APP_STATUS.REJECTED]: { label: 'Возврат', color: 'bg-red-100 text-red-700 border-red-200' },
-  [APP_STATUS.INTEGRATION]: {
+  [WORKFLOW_SUBSTATUS.PENDING_DECLINE]: {
+    label: 'Запрос на отказ',
+    color: 'bg-amber-100 text-amber-700 border-amber-200',
+  },
+  [WORKFLOW_SUBSTATUS.RETURNED_BY_MANAGER]: {
+    label: 'Возвращено начальником',
+    color: 'bg-amber-100 text-amber-700 border-amber-200',
+  },
+  [WORKFLOW_SUBSTATUS.INTEGRATION]: {
     label: 'Интеграция',
     color: 'bg-indigo-100 text-indigo-700 border-indigo-200',
-  }, // [NEW]
-  [APP_STATUS.COMPLETED]: { label: 'Закрыта', color: 'bg-gray-800 text-white border-gray-900' },
+  },
+  [WORKFLOW_SUBSTATUS.DONE]: {
+    label: 'Завершено',
+    color: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  },
+  [WORKFLOW_SUBSTATUS.DECLINED_BY_ADMIN]: {
+    label: 'Отказано (админ)',
+    color: 'bg-red-100 text-red-700 border-red-200',
+  },
+  [WORKFLOW_SUBSTATUS.DECLINED_BY_CONTROLLER]: {
+    label: 'Отказано (контролер)',
+    color: 'bg-red-100 text-red-700 border-red-200',
+  },
+  [WORKFLOW_SUBSTATUS.DECLINED_BY_MANAGER]: {
+    label: 'Отказано (нач. филиала)',
+    color: 'bg-red-100 text-red-700 border-red-200',
+  },
+};
+
+// Маппинг подстатуса → внешний статус
+export const SUBSTATUS_TO_STATUS = {
+  [WORKFLOW_SUBSTATUS.DRAFT]: APP_STATUS.IN_PROGRESS,
+  [WORKFLOW_SUBSTATUS.REVIEW]: APP_STATUS.IN_PROGRESS,
+  [WORKFLOW_SUBSTATUS.REVISION]: APP_STATUS.IN_PROGRESS,
+  [WORKFLOW_SUBSTATUS.PENDING_DECLINE]: APP_STATUS.IN_PROGRESS,
+  [WORKFLOW_SUBSTATUS.RETURNED_BY_MANAGER]: APP_STATUS.IN_PROGRESS,
+  [WORKFLOW_SUBSTATUS.INTEGRATION]: APP_STATUS.IN_PROGRESS,
+  [WORKFLOW_SUBSTATUS.DONE]: APP_STATUS.COMPLETED,
+  [WORKFLOW_SUBSTATUS.DECLINED_BY_ADMIN]: APP_STATUS.DECLINED,
+  [WORKFLOW_SUBSTATUS.DECLINED_BY_CONTROLLER]: APP_STATUS.DECLINED,
+  [WORKFLOW_SUBSTATUS.DECLINED_BY_MANAGER]: APP_STATUS.DECLINED,
 };
 
 // --- КОНФИГУРАЦИЯ ЭТАПОВ ПРОВЕРКИ ---

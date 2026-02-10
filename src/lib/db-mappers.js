@@ -45,11 +45,16 @@ export const mapProjectAggregate = (
       applicant: app.applicant,
       submissionDate: app.submission_date,
       status: app.status,
+      workflowSubstatus: app.workflow_substatus || 'DRAFT',
       assigneeName: app.assignee_name,
       currentStepIndex: app.current_step,
       currentStage: app.current_stage,
       completedSteps,
       verifiedSteps,
+      requestedDeclineReason: app.requested_decline_reason || null,
+      requestedDeclineStep: app.requested_decline_step ?? null,
+      requestedDeclineBy: app.requested_decline_by || null,
+      requestedDeclineAt: app.requested_decline_at || null,
       history: history
         .map(h => ({
           date: h.created_at,

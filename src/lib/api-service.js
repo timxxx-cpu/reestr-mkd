@@ -370,6 +370,7 @@ const LegacyApiService = {
 
         applicationInfo: {
           status: app?.status,
+          workflowSubstatus: app?.workflow_substatus || 'DRAFT',
           internalNumber: app?.internal_number,
           externalSource: app?.external_source,
           externalId: app?.external_id,
@@ -379,6 +380,10 @@ const LegacyApiService = {
           currentStage: app?.current_stage,
           currentStepIndex: app?.current_step,
           rejectionReason: app?.integration_data?.rejectionReason,
+          requestedDeclineReason: app?.requested_decline_reason || null,
+          requestedDeclineStep: app?.requested_decline_step ?? null,
+          requestedDeclineBy: app?.requested_decline_by || null,
+          requestedDeclineAt: app?.requested_decline_at || null,
         },
         complexInfo: {
           name: project.name,
@@ -443,7 +448,8 @@ const LegacyApiService = {
       applicant: appData.applicant,
       submission_date: appData.submissionDate || new Date(),
       assignee_name: user.name,
-      status: 'DRAFT', // Сразу в работу
+      status: 'IN_PROGRESS', // Внешний статус
+      workflow_substatus: 'DRAFT', // Подстатус — сразу в работу
       current_step: 0,
       current_stage: 1,
     });
@@ -529,10 +535,15 @@ const LegacyApiService = {
       external_id: null,
       applicant: null,
       submission_date: null,
-      status: 'DRAFT',
+      status: 'IN_PROGRESS',
+      workflow_substatus: 'DRAFT',
       assignee_name: null,
       current_step: 0,
       current_stage: 1,
+      requested_decline_reason: null,
+      requested_decline_step: null,
+      requested_decline_by: null,
+      requested_decline_at: null,
     };
 
     const projectData = mapProjectAggregate(
@@ -1754,7 +1765,8 @@ const LegacyApiService = {
             applicant: null,
             submission_date: new Date(),
             assignee_name: null,
-            status: ai.status || 'DRAFT',
+            status: ai.status || 'IN_PROGRESS',
+            workflow_substatus: ai.workflowSubstatus || 'DRAFT',
             current_step: ai.currentStepIndex ?? 0,
             current_stage: ai.currentStage ?? 1,
           })
@@ -1766,15 +1778,31 @@ const LegacyApiService = {
       }
 
       if (applicationId) {
+        const appUpdate = {
+          status: ai.status,
+          current_step: ai.currentStepIndex,
+          current_stage: ai.currentStage,
+          updated_at: new Date(),
+        };
+        if (ai.workflowSubstatus !== undefined) {
+          appUpdate.workflow_substatus = ai.workflowSubstatus;
+        }
+        if (ai.requestedDeclineReason !== undefined) {
+          appUpdate.requested_decline_reason = ai.requestedDeclineReason;
+        }
+        if (ai.requestedDeclineStep !== undefined) {
+          appUpdate.requested_decline_step = ai.requestedDeclineStep;
+        }
+        if (ai.requestedDeclineBy !== undefined) {
+          appUpdate.requested_decline_by = ai.requestedDeclineBy;
+        }
+        if (ai.requestedDeclineAt !== undefined) {
+          appUpdate.requested_decline_at = ai.requestedDeclineAt;
+        }
         promises.push(
           supabase
             .from('applications')
-            .update({
-              status: ai.status,
-              current_step: ai.currentStepIndex,
-              current_stage: ai.currentStage,
-              updated_at: new Date(),
-            })
+            .update(appUpdate)
             .eq('id', applicationId)
         );
 
