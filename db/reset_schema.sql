@@ -108,6 +108,165 @@ create table application_history (
 );
 create index idx_app_history_app_created on application_history(application_id, created_at desc);
 
+
+
+-- -----------------------------
+-- APPLICATION LOCKS
+-- -----------------------------
+create table application_locks (
+  id uuid primary key default gen_random_uuid(),
+  application_id uuid not null unique references applications(id) on delete cascade,
+  owner_user_id text not null,
+  owner_role text,
+  acquired_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index idx_application_locks_expires on application_locks(expires_at);
+
+create table application_lock_audit (
+  id uuid primary key default gen_random_uuid(),
+  application_id uuid not null references applications(id) on delete cascade,
+  action text not null, -- ACQUIRE | REFRESH | RELEASE | DENY
+  actor_user_id text,
+  actor_role text,
+  prev_owner_user_id text,
+  next_owner_user_id text,
+  comment text,
+  created_at timestamptz not null default now()
+);
+create index idx_lock_audit_app_created on application_lock_audit(application_id, created_at desc);
+
+create or replace function acquire_application_lock(
+  p_application_id uuid,
+  p_owner_user_id text,
+  p_owner_role text,
+  p_ttl_seconds int default 1200
+)
+returns table(ok boolean, reason text, message text, expires_at timestamptz)
+language plpgsql
+as $$
+declare
+  v_app applications%rowtype;
+  v_lock application_locks%rowtype;
+  v_expires_at timestamptz;
+begin
+  select * into v_app from applications where id = p_application_id;
+  if not found then
+    return query select false, 'NOT_FOUND'::text, 'Заявка не найдена'::text, null::timestamptz;
+    return;
+  end if;
+
+  if p_owner_role = 'technician' and v_app.assignee_name is not null and v_app.assignee_name <> p_owner_user_id then
+    insert into application_lock_audit(application_id, action, actor_user_id, actor_role, comment)
+    values (p_application_id, 'DENY', p_owner_user_id, p_owner_role, 'ASSIGNEE_MISMATCH');
+
+    return query select false, 'ASSIGNEE_MISMATCH'::text,
+      format('Заявка назначена на %s. Взять в работу нельзя.', v_app.assignee_name), null::timestamptz;
+    return;
+  end if;
+
+  v_expires_at := now() + make_interval(secs => greatest(60, p_ttl_seconds));
+
+  insert into application_locks(application_id, owner_user_id, owner_role, acquired_at, expires_at, updated_at)
+  values (p_application_id, p_owner_user_id, p_owner_role, now(), v_expires_at, now())
+  on conflict (application_id) do update
+    set owner_user_id = excluded.owner_user_id,
+        owner_role = excluded.owner_role,
+        acquired_at = now(),
+        expires_at = excluded.expires_at,
+        updated_at = now()
+    where application_locks.owner_user_id = p_owner_user_id
+       or application_locks.expires_at <= now();
+
+  select * into v_lock from application_locks where application_id = p_application_id;
+
+  if v_lock.owner_user_id = p_owner_user_id then
+    insert into application_lock_audit(application_id, action, actor_user_id, actor_role, next_owner_user_id)
+    values (p_application_id, 'ACQUIRE', p_owner_user_id, p_owner_role, p_owner_user_id);
+
+    return query select true, 'OK'::text, 'LOCK_ACQUIRED'::text, v_lock.expires_at;
+    return;
+  end if;
+
+  insert into application_lock_audit(application_id, action, actor_user_id, actor_role, prev_owner_user_id, comment)
+  values (p_application_id, 'DENY', p_owner_user_id, p_owner_role, v_lock.owner_user_id, 'LOCKED');
+
+  return query select false, 'LOCKED'::text,
+    format('Заявка уже открыта пользователем %s. Попробуйте позже.', v_lock.owner_user_id),
+    v_lock.expires_at;
+end;
+$$;
+
+create or replace function refresh_application_lock(
+  p_application_id uuid,
+  p_owner_user_id text,
+  p_ttl_seconds int default 1200
+)
+returns table(ok boolean, reason text, message text, expires_at timestamptz)
+language plpgsql
+as $$
+declare
+  v_lock application_locks%rowtype;
+  v_expires_at timestamptz;
+begin
+  select * into v_lock from application_locks where application_id = p_application_id;
+  if not found then
+    return query select false, 'NOT_FOUND'::text, 'LOCK_NOT_FOUND'::text, null::timestamptz;
+    return;
+  end if;
+
+  if v_lock.owner_user_id <> p_owner_user_id then
+    return query select false, 'OWNER_MISMATCH'::text, 'LOCK_OWNER_MISMATCH'::text, v_lock.expires_at;
+    return;
+  end if;
+
+  v_expires_at := now() + make_interval(secs => greatest(60, p_ttl_seconds));
+
+  update application_locks
+    set expires_at = v_expires_at,
+        updated_at = now()
+    where application_id = p_application_id
+      and owner_user_id = p_owner_user_id;
+
+  insert into application_lock_audit(application_id, action, actor_user_id, actor_role, prev_owner_user_id, next_owner_user_id)
+  values (p_application_id, 'REFRESH', p_owner_user_id, v_lock.owner_role, p_owner_user_id, p_owner_user_id);
+
+  return query select true, 'OK'::text, 'LOCK_REFRESHED'::text, v_expires_at;
+end;
+$$;
+
+create or replace function release_application_lock(
+  p_application_id uuid,
+  p_owner_user_id text
+)
+returns table(ok boolean, reason text, message text)
+language plpgsql
+as $$
+declare
+  v_lock application_locks%rowtype;
+begin
+  select * into v_lock from application_locks where application_id = p_application_id;
+  if not found then
+    return query select false, 'NOT_FOUND'::text, 'LOCK_NOT_FOUND'::text;
+    return;
+  end if;
+
+  if v_lock.owner_user_id <> p_owner_user_id then
+    return query select false, 'OWNER_MISMATCH'::text, 'LOCK_OWNER_MISMATCH'::text;
+    return;
+  end if;
+
+  delete from application_locks where application_id = p_application_id and owner_user_id = p_owner_user_id;
+
+  insert into application_lock_audit(application_id, action, actor_user_id, actor_role, prev_owner_user_id)
+  values (p_application_id, 'RELEASE', p_owner_user_id, v_lock.owner_role, p_owner_user_id);
+
+  return query select true, 'OK'::text, 'LOCK_RELEASED'::text;
+end;
+$$;
+
 create table application_steps (
   id uuid primary key default gen_random_uuid(),
   application_id uuid not null references applications(id) on delete cascade,
@@ -372,6 +531,41 @@ create index idx_common_areas_floor_entrance on common_areas(floor_id, entrance_
 -- -----------------------------
 -- CATALOGS (dict_*)
 -- -----------------------------
+
+create table object_versions (
+  id uuid primary key default gen_random_uuid(),
+  entity_type text not null,
+  entity_id uuid not null,
+  version_number int not null default 1,
+  version_status text not null default 'IN_WORK',
+  snapshot_data jsonb not null default '{}'::jsonb,
+  created_by text,
+  approved_by text,
+  declined_by text,
+  decline_reason text,
+  application_id uuid references applications(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint uq_entity_version unique (entity_type, entity_id, version_number),
+  constraint chk_obj_version_status check (version_status in ('ACTUAL', 'IN_WORK', 'DECLINED', 'ARCHIVED'))
+);
+create index idx_obj_versions_entity on object_versions(entity_type, entity_id);
+create index idx_obj_versions_status on object_versions(version_status);
+create index idx_obj_versions_app on object_versions(application_id);
+create unique index uq_entity_actual on object_versions(entity_type, entity_id)
+  where version_status = 'ACTUAL';
+create unique index uq_entity_in_work on object_versions(entity_type, entity_id)
+  where version_status = 'IN_WORK';
+
+create table dict_version_statuses (
+  id uuid primary key default gen_random_uuid(),
+  code text not null,
+  label text not null,
+  color text,
+  sort_order int not null default 100,
+  is_active boolean not null default true
+);
+
 create table dict_project_statuses (
   id uuid primary key default gen_random_uuid(),
   code text not null,
@@ -578,6 +772,14 @@ insert into dict_workflow_substatuses(code, parent_status, label, sort_order) va
 ('DECLINED_BY_ADMIN',      'DECLINED',    'Отказано (админ)',         60),
 ('DECLINED_BY_CONTROLLER', 'DECLINED',    'Отказано (контролер)',     70),
 ('DECLINED_BY_MANAGER',    'DECLINED',    'Отказано (нач. филиала)',  75)
+on conflict (code) do nothing;
+
+
+insert into dict_version_statuses(code, label, color, sort_order) values
+('ACTUAL', 'Актуальная', 'bg-emerald-100 text-emerald-700 border-emerald-200', 10),
+('IN_WORK', 'В работе', 'bg-blue-100 text-blue-700 border-blue-200', 20),
+('DECLINED', 'Отказанная', 'bg-red-100 text-red-700 border-red-200', 30),
+('ARCHIVED', 'Архивированная', 'bg-slate-100 text-slate-500 border-slate-200', 40)
 on conflict (code) do nothing;
 
 insert into dict_external_systems(code, label, sort_order) values

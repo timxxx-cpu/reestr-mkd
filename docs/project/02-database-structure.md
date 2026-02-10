@@ -1021,3 +1021,75 @@
 - `branch_manager` — Управление заявлениями, назначение техника, отказ
 - `controller` — Проверка этапов, approve/reject
 - `technician` — Ввод и редактирование данных
+
+---
+
+## 16. Версионирование объектов (`object_versions`, `dict_version_statuses`)
+
+### 16.1 Таблица `object_versions`
+
+| Поле | Тип | Ограничения | Описание |
+|------|-----|-------------|----------|
+| `id` | UUID | PK, DEFAULT `gen_random_uuid()` | Идентификатор версии |
+| `entity_type` | TEXT | NOT NULL | Тип объекта (`project`, `building`, `building_block`, `floor`, `unit`, `common_area`) |
+| `entity_id` | UUID | NOT NULL | ID объекта в соответствующей таблице |
+| `version_number` | INT | NOT NULL, DEFAULT 1 | Номер версии для пары (`entity_type`, `entity_id`) |
+| `version_status` | TEXT | NOT NULL, DEFAULT `IN_WORK`, CHECK IN (`ACTUAL`,`IN_WORK`,`DECLINED`,`ARCHIVED`) | Статус версии |
+| `snapshot_data` | JSONB | NOT NULL, DEFAULT `{}` | Снимок данных объекта |
+| `created_by` | TEXT | NULL | Кто создал версию |
+| `approved_by` | TEXT | NULL | Кто утвердил версию |
+| `declined_by` | TEXT | NULL | Кто отклонил версию |
+| `decline_reason` | TEXT | NULL | Причина отклонения |
+| `application_id` | UUID | FK -> `applications(id)` ON DELETE SET NULL | Связь с заявкой |
+| `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | Дата создания |
+| `updated_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | Дата обновления |
+
+**Ограничения и индексы:**
+- `UNIQUE(entity_type, entity_id, version_number)` — уникальный номер версии на объект.
+- Частичный `UNIQUE` для `ACTUAL` (не более одной актуальной версии на объект).
+- Частичный `UNIQUE` для `IN_WORK` (не более одной рабочей версии на объект).
+
+### 16.2 Таблица `dict_version_statuses`
+
+| Код | Название | Применение |
+|-----|----------|------------|
+| `ACTUAL` | Актуальная | Действующая версия объекта |
+| `IN_WORK` | В работе | Черновик для редактирования |
+| `DECLINED` | Отказанная | Отклоненная версия |
+| `ARCHIVED` | Архивированная | Историческая версия |
+
+
+
+---
+
+## 17. Блокировки заявок (`application_locks`, `application_lock_audit`)
+
+### 17.1 Таблица `application_locks`
+
+| Поле | Тип | Ограничения | Описание |
+|------|-----|-------------|----------|
+| `id` | UUID | PK | Идентификатор lock |
+| `application_id` | UUID | UNIQUE, FK -> `applications(id)` | Одна блокировка на заявку |
+| `owner_user_id` | TEXT | NOT NULL | Пользователь-владелец lock |
+| `owner_role` | TEXT | NULL | Роль владельца |
+| `acquired_at` | TIMESTAMPTZ | NOT NULL | Время захвата |
+| `expires_at` | TIMESTAMPTZ | NOT NULL | Время истечения lock |
+| `created_at` | TIMESTAMPTZ | NOT NULL | Создано |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | Обновлено |
+
+### 17.2 Таблица `application_lock_audit`
+
+Журнал операций над lock:
+
+- `ACQUIRE` — успешный захват
+- `REFRESH` — продление TTL
+- `RELEASE` — освобождение
+- `DENY` — отказ (например, lock занят другим)
+
+### 17.3 SQL-функции (RPC)
+
+- `acquire_application_lock(...)`
+- `refresh_application_lock(...)`
+- `release_application_lock(...)`
+
+Функции обеспечивают атомарность операций конкурентного доступа.

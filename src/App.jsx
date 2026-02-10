@@ -102,10 +102,12 @@ const DevRoleSwitcher = ({ disabled }) => {
                 if (user.role === ROLES.ADMIN) {
                   roleLabel = 'Адм';
                   roleColor = 'text-purple-400 bg-purple-400/10 border-purple-400/20';
-                }
-                if (user.role === ROLES.CONTROLLER) {
+                } else if (user.role === ROLES.CONTROLLER) {
                   roleLabel = 'Бриг';
                   roleColor = 'text-orange-400 bg-orange-400/10 border-orange-400/20';
+                } else if (user.role === ROLES.BRANCH_MANAGER) {
+                  roleLabel = 'Нач';
+                  roleColor = 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20';
                 }
 
                 return (

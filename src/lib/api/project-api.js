@@ -12,4 +12,7 @@ export const createProjectApi = legacyApi => ({
   upsertDocument: legacyApi.upsertDocument,
   deleteDocument: legacyApi.deleteDocument,
   getProjectFullRegistry: legacyApi.getProjectFullRegistry,
+  acquireApplicationLock: legacyApi.acquireApplicationLock,
+  refreshApplicationLock: legacyApi.refreshApplicationLock,
+  releaseApplicationLock: legacyApi.releaseApplicationLock,
 });

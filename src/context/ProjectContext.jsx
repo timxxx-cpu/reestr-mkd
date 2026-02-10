@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
 import { useToast } from './ToastContext';
 import { ApiService } from '../lib/api-service';
 import { useProjectData } from '../hooks/useProjectData';
@@ -30,6 +30,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   const [buildingsState, setBuildingsState] = useState({});
   const [isSyncing, setIsSyncing] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [lockDeniedMessage, setLockDeniedMessage] = useState('');
 
   const saveTimeoutRef = useRef(null);
   const pendingUpdatesRef = useRef({});
@@ -42,10 +43,72 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     userProfile,
   });
 
+  useEffect(() => {
+    let mounted = true;
+    let heartbeatId = null;
+    let acquiredApplicationId = null;
+
+    const isViewMode = new URLSearchParams(window.location.search).get('mode') === 'view';
+    if (!dbScope || !projectId || !userProfile?.name || isViewMode) return undefined;
+
+    const shouldLock = userProfile.role === 'technician' || userProfile.role === 'admin';
+    if (!shouldLock) return undefined;
+
+    const acquire = async () => {
+      try {
+        const res = await ApiService.acquireApplicationLock({
+          scope: dbScope,
+          projectId,
+          userName: userProfile.name,
+          userRole: userProfile.role,
+        });
+
+        if (!mounted) return;
+
+        if (!res?.ok) {
+          const msg = res?.message || 'Заявка уже открыта другим пользователем';
+          setLockDeniedMessage(msg);
+          toast.error(msg);
+          return;
+        }
+
+        setLockDeniedMessage('');
+        acquiredApplicationId = res.applicationId || null;
+
+        heartbeatId = window.setInterval(() => {
+          ApiService.refreshApplicationLock({
+            applicationId: acquiredApplicationId,
+            userName: userProfile.name,
+          }).catch(() => {});
+        }, 60000);
+      } catch (e) {
+        if (!mounted) return;
+        const msg = e?.message || 'Ошибка блокировки заявки';
+        setLockDeniedMessage(msg);
+        toast.error(msg);
+      }
+    };
+
+    acquire();
+
+    return () => {
+      mounted = false;
+      if (heartbeatId) window.clearInterval(heartbeatId);
+      if (acquiredApplicationId) {
+        ApiService.releaseApplicationLock({
+          applicationId: acquiredApplicationId,
+          userName: userProfile?.name,
+        }).catch(() => {});
+      }
+    };
+  }, [dbScope, projectId, userProfile, toast]);
+
+  const effectiveReadOnly = isReadOnly || Boolean(lockDeniedMessage);
+
   const { saveData, saveProjectImmediate } = useProjectSyncLayer({
     dbScope,
     projectId,
-    isReadOnly,
+    isReadOnly: effectiveReadOnly,
     toast,
     refetch,
     mergedComposition: mergedState.composition,
@@ -76,7 +139,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
   const saveBuildingData = useCallback(
     async (buildingId, dataKey, dataVal) => {
-      if (isReadOnly) {
+      if (effectiveReadOnly) {
         toast.error('Редактирование запрещено');
         return;
       }
@@ -117,12 +180,12 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         setIsSyncing(false);
       }
     },
-    [isReadOnly, toast, dbScope, projectId]
+    [effectiveReadOnly, toast, dbScope, projectId]
   );
 
   const deleteProjectBuilding = useCallback(
     async buildingId => {
-      if (isReadOnly) {
+      if (effectiveReadOnly) {
         toast.error('Удаление запрещено');
         return;
       }
@@ -137,7 +200,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         toast.error('Ошибка удаления');
       }
     },
-    [isReadOnly, toast, mergedState.composition]
+    [effectiveReadOnly, toast, mergedState.composition]
   );
 
   const updateStatus = useCallback(async (_newStatus, _newStage = null, _comment = null) => {
@@ -145,7 +208,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   }, []);
 
   const createSetter = key => value => {
-    if (isReadOnly) return;
+    if (effectiveReadOnly) return;
 
     const newValue = typeof value === 'function' ? value(mergedState[key]) : value;
     setProjectMeta(prev => ({ ...prev, [key]: newValue }));
@@ -161,7 +224,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   const value = {
     projectId,
     ...mergedState,
-    isReadOnly,
+    isReadOnly: effectiveReadOnly,
     userProfile,
 
     hasUnsavedChanges,

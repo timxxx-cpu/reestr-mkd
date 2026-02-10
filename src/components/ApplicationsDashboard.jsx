@@ -13,6 +13,7 @@ import {
   AlertCircle,
   Database,
   Zap,
+  RefreshCw,
   Trash2,
   ArrowRight,
   Layers,
@@ -147,6 +148,7 @@ const ApplicationsDashboard = ({
   const [incomingApps, setIncomingApps] = useState([]);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [technicians, setTechnicians] = useState([]);
 
   const toast = useToast();
   const { options: externalSystemOptions } = useCatalog('dict_external_systems');
@@ -166,6 +168,21 @@ const ApplicationsDashboard = ({
       setTaskFilter('work');
     }
   }, [user.role]);
+
+  useEffect(() => {
+    let mounted = true;
+    ApiService.getSystemUsers()
+      .then(users => {
+        if (!mounted) return;
+        setTechnicians((users || []).filter(u => u.role === ROLES.TECHNICIAN));
+      })
+      .catch(() => {
+        if (mounted) setTechnicians([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const loadInbox = useCallback(async () => {
     setIsLoadingApps(true);
@@ -207,12 +224,47 @@ const ApplicationsDashboard = ({
         submissionDate: new Date().toISOString(),
         cadastre: createVirtualComplexCadastre(),
         address: `г. Ташкент, Мирзо-Улугбекский р-н, кв-л ${Math.floor(Math.random() * 20)}`,
-        status: APP_STATUS.NEW,
+        status: 'NEW',
       };
       setIncomingApps(prev => [newApp, ...prev]);
       setIsLoadingApps(false);
       toast.success(`Поступила заявка из ${randomSource.label}`);
     }, 400);
+  };
+
+
+
+  const handleEmulateResubmission = () => {
+    const candidates = (projects || []).filter(p => p?.cadastre?.number || p?.complexInfo?.cadastreNumber);
+    if (candidates.length === 0) {
+      toast.error('Нет ЖК с кадастровым номером для эмуляции повторной подачи');
+      return;
+    }
+
+    setIsLoadingApps(true);
+    setTimeout(() => {
+      const selected = candidates[Math.floor(Math.random() * candidates.length)];
+      const cadastreNumber = selected?.cadastre?.number || selected?.complexInfo?.cadastreNumber;
+      const randomId = Math.floor(1000 + Math.random() * 9000);
+      const source = externalSystemOptions?.[0]?.code || 'EPIGU';
+
+      const newApp = {
+        id: `REAPP-${Date.now()}`,
+        externalId: `${source}-RE-${randomId}`,
+        source,
+        applicant: selected?.participants?.developer?.name || selected?.name || 'Повторная подача',
+        submissionDate: new Date().toISOString(),
+        cadastre: cadastreNumber,
+        address: selected?.complexInfo?.street || selected?.address || 'Адрес не указан',
+        status: 'NEW',
+        reapplicationForProjectId: selected?.id,
+        reapplicationForProjectName: selected?.name,
+      };
+
+      setIncomingApps(prev => [newApp, ...prev]);
+      setIsLoadingApps(false);
+      toast.success(`Эмуляция повторной подачи: ${selected?.name || 'ЖК'} (${cadastreNumber})`);
+    }, 350);
   };
 
   const handleTakeToWork = async app => {
@@ -232,7 +284,65 @@ const ApplicationsDashboard = ({
     } catch (e) {
       console.error(e);
       toast.dismiss(toastId);
-      toast.error('Ошибка: ' + e.message);
+      const message = e?.message || 'Не удалось принять заявление';
+
+      if (message.includes('Отказ в принятии')) {
+        setIncomingApps(prev =>
+          prev.map(item =>
+            item.id === app.id
+              ? {
+                  ...item,
+                  status: 'DECLINED',
+                  declineReason: message,
+                }
+              : item
+          )
+        );
+      }
+
+      toast.error('Ошибка: ' + message);
+    }
+  };
+
+  const handleReassignProject = async (projectId, projectName, currentAssignee) => {
+    if (!(isAdmin || isBranchManager)) return;
+
+    const list = technicians
+      .map((t, idx) => `${idx + 1}. ${t.name}`)
+      .join('\n');
+
+    const raw = prompt(
+      `Передача заявки по ЖК "${projectName}"
+Текущий исполнитель: ${currentAssignee || 'не назначен'}
+
+Выберите номер нового исполнителя:
+${list}`
+    );
+    if (!raw) return;
+
+    const selectedIndex = Number(raw.trim()) - 1;
+    const selected = technicians[selectedIndex];
+    if (!selected) {
+      toast.error('Некорректный выбор исполнителя');
+      return;
+    }
+
+    try {
+      const project = projects.find(p => p.id === projectId);
+      if (!project?.applicationId) {
+        toast.error('Заявка не найдена');
+        return;
+      }
+
+      await ApiService.assignTechnician({
+        applicationId: project.applicationId,
+        assigneeName: selected.name,
+      });
+
+      toast.success(`Исполнитель изменен: ${selected.name}`);
+    } catch (e) {
+      console.error(e);
+      toast.error('Не удалось передать заявку другому исполнителю');
     }
   };
 
@@ -591,15 +701,26 @@ const ApplicationsDashboard = ({
               </div>
             )}
             {activeTab === 'inbox' && (
-              <Tooltip content="Сгенерировать тестовую заявку из внешней системы">
-                <Button
-                  onClick={handleEmulateIncoming}
-                  disabled={isLoadingApps}
-                  className="bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 h-10 text-xs px-5 rounded-xl"
-                >
-                  <Zap size={14} className={isLoadingApps ? 'animate-spin' : ''} /> Эмуляция (API)
-                </Button>
-              </Tooltip>
+              <div className="flex items-center gap-2">
+                <Tooltip content="Сгенерировать тестовую заявку из внешней системы">
+                  <Button
+                    onClick={handleEmulateIncoming}
+                    disabled={isLoadingApps}
+                    className="bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 h-10 text-xs px-5 rounded-xl"
+                  >
+                    <Zap size={14} className={isLoadingApps ? 'animate-spin' : ''} /> Эмуляция (API)
+                  </Button>
+                </Tooltip>
+                <Tooltip content="Эмулировать повторную подачу заявки по существующему ЖК (по кадастровому номеру)">
+                  <Button
+                    onClick={handleEmulateResubmission}
+                    disabled={isLoadingApps}
+                    className="bg-emerald-700 text-white hover:bg-emerald-800 shadow-lg shadow-emerald-200 h-10 text-xs px-5 rounded-xl"
+                  >
+                    <RefreshCw size={14} className={isLoadingApps ? 'animate-spin' : ''} /> Повторная подача
+                  </Button>
+                </Tooltip>
+              </div>
             )}
           </div>
 
@@ -628,6 +749,7 @@ const ApplicationsDashboard = ({
               onSelect={onSelectProject}
               onDelete={isAdmin ? handleDeleteProject : undefined}
               onDecline={(isAdmin || isBranchManager || user.role === ROLES.CONTROLLER) ? handleDeclineProject : undefined}
+              onReassign={(isAdmin || isBranchManager) ? handleReassignProject : undefined}
             />
           )}
         </Card>
@@ -665,7 +787,7 @@ const ApplicationsDashboard = ({
 }
 
 // --- ТАБЛИЦА ЗАДАЧ ---
-const ProjectsTable = ({ data, user, onSelect, onDelete, onDecline, isLoading = false }) => {
+const ProjectsTable = ({ data, user, onSelect, onDelete, onDecline, onReassign, isLoading = false }) => {
   if (!isLoading && data.length === 0) return <EmptyState />;
 
   return (
@@ -708,8 +830,12 @@ const ProjectsTable = ({ data, user, onSelect, onDelete, onDecline, isLoading = 
               const currentStepIdx = app.currentStepIndex || 0;
               const stepTitle = STEPS_CONFIG[currentStepIdx]?.title || 'Завершено';
 
+              const isAssignedToCurrentTechnician =
+                !app.assigneeName || app.assigneeName === user.name;
+
               const canEdit =
                 (user.role === ROLES.TECHNICIAN &&
+                  isAssignedToCurrentTechnician &&
                   [
                     WORKFLOW_SUBSTATUS.DRAFT,
                     WORKFLOW_SUBSTATUS.REVISION,
@@ -841,7 +967,13 @@ const ProjectsTable = ({ data, user, onSelect, onDelete, onDecline, isLoading = 
                       {!isCompleted && canEdit && (
                         <Tooltip content="Взять в работу и редактировать">
                           <button
-                            onClick={() => onSelect(p.id, 'edit')}
+                            onClick={() => {
+                              if (user.role === ROLES.TECHNICIAN && app.assigneeName && app.assigneeName !== user.name) {
+                                alert(`Заявка назначена на ${app.assigneeName}. Взять в работу нельзя.`);
+                                return;
+                              }
+                              onSelect(p.id, 'edit');
+                            }}
                             className="p-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-lg transition-all shadow-sm hover:shadow active:scale-95"
                           >
                             <PlayCircle size={16} />
@@ -855,6 +987,16 @@ const ProjectsTable = ({ data, user, onSelect, onDelete, onDecline, isLoading = 
                             className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
                           >
                             <Ban size={16} />
+                          </button>
+                        </Tooltip>
+                      )}
+                      {onReassign && !isCompleted && !isDeclined && (
+                        <Tooltip content="Передать заявку другому технику">
+                          <button
+                            onClick={() => onReassign(p.id, p.name, app.assigneeName)}
+                            className="p-2 text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors border border-transparent hover:border-emerald-100"
+                          >
+                            <UserCheck size={16} />
                           </button>
                         </Tooltip>
                       )}
@@ -896,7 +1038,9 @@ const InboxTable = ({ data, onTake, canTake }) => {
             <th className="px-6 py-4">Внешний ID</th>
             <th className="px-6 py-4">Дата подачи</th>
             <th className="px-6 py-4">Заявитель</th>
+            <th className="px-6 py-4">Кадастровый номер ЖК</th>
             <th className="px-6 py-4 w-1/3">Адрес участка</th>
+            <th className="px-6 py-4">Статус</th>
             <th className="px-6 py-4 text-right">Действие</th>
           </tr>
         </thead>
@@ -913,12 +1057,31 @@ const InboxTable = ({ data, onTake, canTake }) => {
               </td>
               <td className="px-6 py-4 text-xs text-slate-500">{formatDate(app.submissionDate)}</td>
               <td className="px-6 py-4 font-bold text-slate-800">{app.applicant}</td>
+              <td className="px-6 py-4">
+                <div className="font-mono text-xs text-slate-700">{app.cadastre || '—'}</div>
+                {app.reapplicationForProjectName ? (
+                  <div className="text-[10px] text-emerald-700 font-semibold mt-0.5">
+                    Повторно по ЖК: {app.reapplicationForProjectName}
+                  </div>
+                ) : null}
+              </td>
               <td className="px-6 py-4 text-xs text-slate-600">{app.address}</td>
+              <td className="px-6 py-4">
+                {app.status === 'DECLINED' ? (
+                  <div className="inline-flex items-center px-2 py-1 rounded border border-red-200 bg-red-50 text-red-700 text-[10px] font-bold" title={app.declineReason || 'Отказ в принятии'}>
+                    Отказано
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center px-2 py-1 rounded border border-blue-200 bg-blue-50 text-blue-700 text-[10px] font-bold">
+                    Новая
+                  </div>
+                )}
+              </td>
               <td className="px-6 py-4 text-right">
                 <Button
-                  onClick={() => canTake && onTake(app)}
-                  disabled={!canTake}
-                  className={`h-9 text-xs px-4 shadow-sm rounded-lg ${!canTake ? 'bg-slate-300 opacity-50 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                  onClick={() => canTake && app.status !== 'DECLINED' && onTake(app)}
+                  disabled={!canTake || app.status === 'DECLINED'}
+                  className={`h-9 text-xs px-4 shadow-sm rounded-lg ${!canTake || app.status === 'DECLINED' ? 'bg-slate-300 opacity-50 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
                 >
                   Принять <ArrowRight size={12} className="ml-1" />
                 </Button>
