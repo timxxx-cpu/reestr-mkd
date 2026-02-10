@@ -56,7 +56,15 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     saveTimeoutRef,
   });
 
-  const { completeTask, rollbackTask, reviewStage } = useProjectWorkflowLayer({
+  const {
+    completeTask,
+    rollbackTask,
+    reviewStage,
+    requestDecline,
+    confirmDecline,
+    returnFromDecline,
+    restoreFromDecline,
+  } = useProjectWorkflowLayer({
     dbScope,
     projectId,
     mergedState,
@@ -162,6 +170,10 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     completeTask,
     rollbackTask,
     reviewStage,
+    requestDecline,
+    confirmDecline,
+    returnFromDecline,
+    restoreFromDecline,
     saveProjectImmediate,
     saveData,
     saveBuildingData,
