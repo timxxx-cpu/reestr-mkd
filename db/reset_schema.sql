@@ -501,8 +501,9 @@ create table dict_system_users (
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  check (role in ('admin', 'controller', 'technician'))
+  check (role in ('admin', 'branch_manager', 'controller', 'technician'))
 );
+
 
 -- ---------------------------------------------------------
 -- Ensure UNIQUE(code) for all dict_* tables except dict_room_types
