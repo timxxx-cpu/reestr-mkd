@@ -76,21 +76,34 @@
 | `applicant` | TEXT | NULL | `applicationInfo.applicant` | **Заявитель (ФИО/организация)** | При создании | Ввод пользователя или из внешней системы |
 | `submission_date` | TIMESTAMPTZ | NULL | `applicationInfo.submissionDate` | **Дата подачи заявления** | При создании | Ввод пользователя или текущая дата |
 | `assignee_name` | TEXT | NULL | `applicationInfo.assigneeName` | **Назначенный исполнитель** | При назначении | Выбор из `dict_system_users` |
-| `status` | TEXT | NOT NULL, DEFAULT 'DRAFT' | `applicationInfo.status` | **Текущий статус заявки** | Автоматически при переходах | Машина состояний workflow, значения из `dict_application_statuses` |
+| `status` | TEXT | NOT NULL, DEFAULT 'IN_PROGRESS' | `applicationInfo.status` | **Внешний статус заявки (IN_PROGRESS/COMPLETED/DECLINED)** | Автоматически при переходах | Машина состояний workflow |
+| `workflow_substatus` | TEXT | NOT NULL, DEFAULT 'DRAFT' | `applicationInfo.workflowSubstatus` | **Подстатус workflow** | Автоматически при переходах | Детальное состояние из `dict_workflow_substatuses` |
 | `current_step` | INT | NOT NULL, DEFAULT 0 | `applicationInfo.currentStepIndex` | **Текущий шаг процесса (индекс)** | Автоматически при переходах | Изменяется при COMPLETE_STEP / ROLLBACK_STEP |
 | `current_stage` | INT | NOT NULL, DEFAULT 1 | `applicationInfo.currentStage` | **Текущий этап процесса (1-4)** | Автоматически при переходах | Определяется по WORKFLOW_STAGES |
 | `integration_data` | JSONB | NULL, DEFAULT '{}'::jsonb | (служебно) | **Статусы интеграции с УЗКАД** | Шаги интеграции | Автоматически при обмене |
+| `requested_decline_reason` | TEXT | NULL | `applicationInfo.requestedDeclineReason` | **Причина запроса на отказ** | При REQUEST_DECLINE | Ввод техника |
+| `requested_decline_step` | INT | NULL | `applicationInfo.requestedDeclineStep` | **Шаг запроса на отказ** | При REQUEST_DECLINE | Текущий шаг техника |
+| `requested_decline_by` | TEXT | NULL | `applicationInfo.requestedDeclineBy` | **Кто запросил отказ** | При REQUEST_DECLINE | Имя техника |
+| `requested_decline_at` | TIMESTAMPTZ | NULL | `applicationInfo.requestedDeclineAt` | **Когда запрошен отказ** | При REQUEST_DECLINE | Автоматически |
 | `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата создания** | При создании | Автоматически БД |
 | `updated_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата последнего изменения** | При любом изменении | Автоматически при UPDATE |
 
-**Возможные значения `status`** (из `dict_application_statuses`):
-- `NEW` — Новая заявка
-- `DRAFT` — В работе у техника
-- `REVIEW` — На проверке у контролера
-- `APPROVED` — Принята контролером
-- `REJECTED` — Возвращена на доработку
-- `INTEGRATION` — Готова к передаче в УЗКАД
-- `COMPLETED` — Полностью закрыта
+**Возможные значения `status`** (внешний статус, из `dict_application_statuses`):
+- `IN_PROGRESS` — В работе
+- `COMPLETED` — Завершено
+- `DECLINED` — Отказано
+
+**Возможные значения `workflow_substatus`** (из `dict_workflow_substatuses`):
+- `DRAFT` — Ввод данных
+- `REVIEW` — На проверке
+- `REVISION` — На доработке
+- `PENDING_DECLINE` — Запрос на отказ
+- `RETURNED_BY_MANAGER` — Возвращено начальником
+- `INTEGRATION` — Интеграция
+- `DONE` — Завершено
+- `DECLINED_BY_ADMIN` — Отказано администратором
+- `DECLINED_BY_CONTROLLER` — Отказано контролером
+- `DECLINED_BY_MANAGER` — Отказано начальником филиала
 
 **Связи**:
 - Один-к-одному с `projects` через `project_id`
@@ -740,22 +753,38 @@
 | `ready` | Готовый к вводу | 30 |
 | `done` | Введенный | 40 |
 
-### Таблица `dict_application_statuses` — Статусы workflow заявки
+### Таблица `dict_application_statuses` — Внешние статусы заявки
 
-**Назначение**: Статусы жизненного цикла заявки в системе workflow.
+**Назначение**: Внешние статусы жизненного цикла заявки (видны пользователю).
 
 **Используется в**: `applications.status`
 
 **Стандартные значения**:
 | code | label | sort_order | Описание |
 |------|-------|-----------|----------|
-| `NEW` | Новая | 10 | Заявка создана, еще не взята в работу |
-| `DRAFT` | В работе | 20 | Заявка в работе у техника |
-| `REVIEW` | На проверке | 30 | Заявка отправлена контролеру |
-| `APPROVED` | Принято | 40 | Контролер принял этап |
-| `REJECTED` | Возврат | 50 | Контролер вернул на доработку |
-| `INTEGRATION` | Интеграция | 60 | Готова к передаче в УЗКАД |
-| `COMPLETED` | Закрыта | 70 | Финальный статус |
+| `IN_PROGRESS` | В работе | 10 | Заявка в обработке |
+| `COMPLETED` | Завершено | 20 | Все шаги пройдены |
+| `DECLINED` | Отказано | 30 | Заявка отклонена |
+
+### Таблица `dict_workflow_substatuses` — Подстатусы workflow
+
+**Назначение**: Внутренние подстатусы для workflow-движка.
+
+**Используется в**: `applications.workflow_substatus`
+
+**Стандартные значения**:
+| code | parent_status | label | sort_order |
+|------|--------------|-------|-----------|
+| `DRAFT` | IN_PROGRESS | Ввод данных | 10 |
+| `REVIEW` | IN_PROGRESS | На проверке | 20 |
+| `REVISION` | IN_PROGRESS | На доработке | 30 |
+| `PENDING_DECLINE` | IN_PROGRESS | Запрос на отказ | 35 |
+| `RETURNED_BY_MANAGER` | IN_PROGRESS | Возвращено начальником | 37 |
+| `INTEGRATION` | IN_PROGRESS | Интеграция | 40 |
+| `DONE` | COMPLETED | Завершено | 50 |
+| `DECLINED_BY_ADMIN` | DECLINED | Отказано (админ) | 60 |
+| `DECLINED_BY_CONTROLLER` | DECLINED | Отказано (контролер) | 70 |
+| `DECLINED_BY_MANAGER` | DECLINED | Отказано (нач. филиала) | 75 |
 
 ### Таблица `dict_external_systems` — Внешние системы-источники
 
@@ -972,7 +1001,7 @@
 | `id` | UUID | PRIMARY KEY | Идентификатор |
 | `code` | TEXT | NOT NULL, UNIQUE | Уникальный код пользователя |
 | `name` | TEXT | NOT NULL | Имя пользователя |
-| `role` | TEXT | NOT NULL, CHECK IN ('admin', 'controller', 'technician') | Роль пользователя |
+| `role` | TEXT | NOT NULL, CHECK IN ('admin', 'branch_manager', 'controller', 'technician') | Роль пользователя |
 | `group_name` | TEXT | NULL | Группа/отдел пользователя |
 | `sort_order` | INT | NOT NULL, DEFAULT 100 | Порядок сортировки |
 | `is_active` | BOOLEAN | NOT NULL, DEFAULT true | Активность учетной записи |
@@ -989,5 +1018,6 @@
 
 **Роли пользователей**:
 - `admin` — Полный доступ к данным и workflow
+- `branch_manager` — Управление заявлениями, назначение техника, отказ
 - `controller` — Проверка этапов, approve/reject
 - `technician` — Ввод и редактирование данных

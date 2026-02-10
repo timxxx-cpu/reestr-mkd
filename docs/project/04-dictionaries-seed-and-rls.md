@@ -3,7 +3,8 @@
 ## Справочники: `code` -> целевое поле БД -> русское значение
 
 - `dict_project_statuses.code` -> `projects.construction_status` -> **Статус проекта**.
-- `dict_application_statuses.code` -> `applications.status` -> **Статус заявки**.
+- `dict_application_statuses.code` -> `applications.status` -> **Внешний статус заявки (IN_PROGRESS/COMPLETED/DECLINED)**.
+- `dict_workflow_substatuses.code` -> `applications.workflow_substatus` -> **Подстатус workflow**.
 - `dict_external_systems.code` -> `applications.external_source` -> **Внешний источник заявления**.
 - `dict_foundations.code` -> `block_construction.foundation` -> **Тип фундамента**.
 - `dict_wall_materials.code` -> `block_construction.walls` -> **Материал стен**.

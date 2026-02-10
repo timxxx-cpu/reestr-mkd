@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { APP_STATUS } from '../../lib/constants';
+import { APP_STATUS, WORKFLOW_SUBSTATUS } from '../../lib/constants';
 import { canEditByRoleAndStatus } from '../../lib/workflow-state-machine';
 
 export const useProjectDataLayer = ({
@@ -21,12 +21,17 @@ export const useProjectDataLayer = ({
     const meta = /** @type {any} */ (projectMeta);
 
     const defaultAppInfo = {
-      status: APP_STATUS.DRAFT,
+      status: APP_STATUS.IN_PROGRESS,
+      workflowSubstatus: WORKFLOW_SUBSTATUS.DRAFT,
       currentStage: 1,
       currentStepIndex: 0,
       verifiedSteps: [],
       completedSteps: [],
       rejectionReason: null,
+      requestedDeclineReason: null,
+      requestedDeclineStep: null,
+      requestedDeclineBy: null,
+      requestedDeclineAt: null,
       history: [],
       ...meta.applicationInfo,
     };
@@ -74,9 +79,8 @@ export const useProjectDataLayer = ({
   const isReadOnly = useMemo(() => {
     if (!userProfile) return true;
     const role = userProfile.role;
-    // @ts-ignore
-    const status = mergedState.applicationInfo.status;
-    return !canEditByRoleAndStatus(role, status);
+    const substatus = mergedState.applicationInfo.workflowSubstatus || WORKFLOW_SUBSTATUS.DRAFT;
+    return !canEditByRoleAndStatus(role, substatus);
   }, [userProfile, mergedState.applicationInfo]);
 
   return {

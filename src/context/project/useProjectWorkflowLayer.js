@@ -1,11 +1,16 @@
 import { useCallback } from 'react';
 import { ApiService } from '../../lib/api-service';
-import { APP_STATUS, STEPS_CONFIG, WORKFLOW_STAGES } from '../../lib/constants';
+import { APP_STATUS, STEPS_CONFIG, WORKFLOW_STAGES, WORKFLOW_SUBSTATUS } from '../../lib/constants';
 import {
   getCompletionTransition,
   getRollbackTransition,
   getReviewTransition,
+  getDeclineTransition,
+  getRequestDeclineTransition,
+  getReturnFromDeclineTransition,
+  getRestoreTransition,
 } from '../../lib/workflow-state-machine';
+import { normalizeReturnedSubstatus } from '../../lib/workflow-utils';
 
 const createHistoryEntry = (user, action, comment, details = {}) => ({
   date: new Date().toISOString(),
@@ -33,12 +38,24 @@ export const useProjectWorkflowLayer = ({
   saveProjectImmediate,
   setProjectMeta,
 }) => {
+  // --- COMPLETE TASK ---
   const completeTask = useCallback(
     async currentIndex => {
       await saveProjectImmediate({ shouldRefetch: false });
 
       const currentAppInfo = mergedState.applicationInfo;
-      const transition = getCompletionTransition(currentAppInfo, currentIndex);
+
+      // Автонормализация: если техник начал работу в RETURNED_BY_MANAGER → переход в DRAFT
+      const normalizedSubstatus = normalizeReturnedSubstatus(
+        currentAppInfo.workflowSubstatus || WORKFLOW_SUBSTATUS.DRAFT
+      );
+
+      const appInfoForTransition = {
+        ...currentAppInfo,
+        workflowSubstatus: normalizedSubstatus,
+      };
+
+      const transition = getCompletionTransition(appInfoForTransition, currentIndex);
 
       const newCompleted = [...(currentAppInfo.completedSteps || [])];
       if (!newCompleted.includes(currentIndex)) {
@@ -47,11 +64,11 @@ export const useProjectWorkflowLayer = ({
 
       let historyComment = `Шаг "${STEPS_CONFIG[currentIndex]?.title}" выполнен.`;
       if (transition.isLastStepGlobal) {
-        historyComment = `Проект полностью завершен и переведен в статус "${APP_STATUS.COMPLETED}".`;
+        historyComment = `Проект полностью завершен.`;
       } else if (transition.isStageBoundary) {
-        historyComment = `Этап ${transition.stage} завершен. Отправлен на проверку (REVIEW).`;
+        historyComment = `Этап ${transition.stage} завершен. Отправлен на проверку.`;
       } else if (transition.isIntegrationStart) {
-        historyComment = `Переход к этапу интеграции с УЗКАД. Статус изменен на "${APP_STATUS.INTEGRATION}".`;
+        historyComment = `Переход к этапу интеграции с УЗКАД.`;
       }
 
       const historyItem = createHistoryEntry(
@@ -76,6 +93,7 @@ export const useProjectWorkflowLayer = ({
           completedSteps: newCompleted,
           currentStepIndex: transition.nextStepIndex,
           status: transition.nextStatus,
+          workflowSubstatus: transition.nextSubstatus,
           currentStage: transition.isStageBoundary
             ? transition.nextStage
             : currentAppInfo.currentStage,
@@ -92,6 +110,7 @@ export const useProjectWorkflowLayer = ({
     [saveProjectImmediate, mergedState, userProfile, setProjectMeta, dbScope, projectId, refetch]
   );
 
+  // --- ROLLBACK TASK ---
   const rollbackTask = useCallback(async () => {
     await saveProjectImmediate({ shouldRefetch: false });
 
@@ -121,6 +140,7 @@ export const useProjectWorkflowLayer = ({
         completedSteps: newCompleted,
         currentStepIndex: transition.prevIndex,
         status: transition.nextStatus,
+        workflowSubstatus: transition.nextSubstatus,
         currentStage: transition.nextStage,
         history: [historyItem, ...(currentAppInfo.history || [])],
       },
@@ -133,6 +153,7 @@ export const useProjectWorkflowLayer = ({
     return transition.prevIndex;
   }, [saveProjectImmediate, mergedState, userProfile, setProjectMeta, dbScope, projectId, refetch]);
 
+  // --- REVIEW STAGE (APPROVE / REJECT) ---
   const reviewStage = useCallback(
     async (action, comment = '') => {
       const currentAppInfo = mergedState.applicationInfo;
@@ -174,6 +195,7 @@ export const useProjectWorkflowLayer = ({
         applicationInfo: {
           ...currentAppInfo,
           status: transition.nextStatus,
+          workflowSubstatus: transition.nextSubstatus,
           currentStage: transition.nextStage,
           currentStepIndex: transition.nextStepIndex,
           history: [historyItem, ...(currentAppInfo.history || [])],
@@ -191,9 +213,155 @@ export const useProjectWorkflowLayer = ({
     [mergedState, userProfile, setProjectMeta, dbScope, projectId, refetch]
   );
 
+  // --- REQUEST DECLINE (Техник запрашивает отказ) ---
+  const requestDecline = useCallback(
+    async reason => {
+      await saveProjectImmediate({ shouldRefetch: false });
+
+      const currentAppInfo = mergedState.applicationInfo;
+      const transition = getRequestDeclineTransition(currentAppInfo);
+
+      const historyItem = createHistoryEntry(
+        userProfile,
+        'Запрос на отказ',
+        reason || 'Техник запросил отказ заявления.',
+        {
+          prevStatus: currentAppInfo.status,
+          nextStatus: transition.nextStatus,
+          stepIndex: currentAppInfo.currentStepIndex,
+        }
+      );
+
+      const updates = {
+        applicationInfo: {
+          ...currentAppInfo,
+          status: transition.nextStatus,
+          workflowSubstatus: transition.nextSubstatus,
+          requestedDeclineReason: reason,
+          requestedDeclineStep: currentAppInfo.currentStepIndex,
+          requestedDeclineBy: userProfile.name,
+          requestedDeclineAt: new Date().toISOString(),
+          history: [historyItem, ...(currentAppInfo.history || [])],
+        },
+      };
+
+      setProjectMeta(prev => ({ ...prev, ...updates }));
+      await ApiService.saveData(dbScope, projectId, updates);
+      await refetch();
+    },
+    [saveProjectImmediate, mergedState, userProfile, setProjectMeta, dbScope, projectId, refetch]
+  );
+
+  // --- CONFIRM DECLINE (Начальник филиала / админ подтверждает отказ) ---
+  const confirmDecline = useCallback(
+    async (comment = '') => {
+      const currentAppInfo = mergedState.applicationInfo;
+      const transition = getDeclineTransition(currentAppInfo, userProfile.role);
+
+      const historyItem = createHistoryEntry(
+        userProfile,
+        'Отказ заявления',
+        comment || 'Заявление отклонено.',
+        {
+          prevStatus: currentAppInfo.status,
+          nextStatus: transition.nextStatus,
+          stepIndex: currentAppInfo.currentStepIndex,
+        }
+      );
+
+      const updates = {
+        applicationInfo: {
+          ...currentAppInfo,
+          status: transition.nextStatus,
+          workflowSubstatus: transition.nextSubstatus,
+          history: [historyItem, ...(currentAppInfo.history || [])],
+        },
+      };
+
+      setProjectMeta(prev => ({ ...prev, ...updates }));
+      await ApiService.saveData(dbScope, projectId, updates);
+      await refetch();
+    },
+    [mergedState, userProfile, setProjectMeta, dbScope, projectId, refetch]
+  );
+
+  // --- RETURN FROM DECLINE (Начальник филиала возвращает на доработку) ---
+  const returnFromDecline = useCallback(
+    async (comment = '') => {
+      const currentAppInfo = mergedState.applicationInfo;
+      const transition = getReturnFromDeclineTransition(currentAppInfo);
+
+      const historyItem = createHistoryEntry(
+        userProfile,
+        'Возврат на доработку',
+        comment || 'Начальник филиала вернул заявление на доработку.',
+        {
+          prevStatus: currentAppInfo.status,
+          nextStatus: transition.nextStatus,
+          stepIndex: currentAppInfo.currentStepIndex,
+        }
+      );
+
+      const updates = {
+        applicationInfo: {
+          ...currentAppInfo,
+          status: transition.nextStatus,
+          workflowSubstatus: transition.nextSubstatus,
+          requestedDeclineReason: null,
+          requestedDeclineStep: null,
+          requestedDeclineBy: null,
+          requestedDeclineAt: null,
+          history: [historyItem, ...(currentAppInfo.history || [])],
+        },
+      };
+
+      setProjectMeta(prev => ({ ...prev, ...updates }));
+      await ApiService.saveData(dbScope, projectId, updates);
+      await refetch();
+    },
+    [mergedState, userProfile, setProjectMeta, dbScope, projectId, refetch]
+  );
+
+  // --- RESTORE (Восстановление из отказа, только админ) ---
+  const restoreFromDecline = useCallback(
+    async (comment = '') => {
+      const currentAppInfo = mergedState.applicationInfo;
+      const transition = getRestoreTransition(currentAppInfo);
+
+      const historyItem = createHistoryEntry(
+        userProfile,
+        'Восстановление заявления',
+        comment || 'Заявление восстановлено из статуса "Отказано".',
+        {
+          prevStatus: currentAppInfo.status,
+          nextStatus: transition.nextStatus,
+          stepIndex: currentAppInfo.currentStepIndex,
+        }
+      );
+
+      const updates = {
+        applicationInfo: {
+          ...currentAppInfo,
+          status: transition.nextStatus,
+          workflowSubstatus: transition.nextSubstatus,
+          history: [historyItem, ...(currentAppInfo.history || [])],
+        },
+      };
+
+      setProjectMeta(prev => ({ ...prev, ...updates }));
+      await ApiService.saveData(dbScope, projectId, updates);
+      await refetch();
+    },
+    [mergedState, userProfile, setProjectMeta, dbScope, projectId, refetch]
+  );
+
   return {
     completeTask,
     rollbackTask,
     reviewStage,
+    requestDecline,
+    confirmDecline,
+    returnFromDecline,
+    restoreFromDecline,
   };
 };

@@ -19,9 +19,24 @@ import {
   LogOut,
   Globe,
   CheckCircle2,
-  Server, // [NEW]
+  Server,
+  Ban,
+  UserCheck,
+  Clock,
 } from 'lucide-react';
-import { ROLES, APP_STATUS, APP_STATUS_LABELS, STEPS_CONFIG } from '@lib/constants';
+import {
+  ROLES,
+  APP_STATUS,
+  APP_STATUS_LABELS,
+  SUBSTATUS_LABELS,
+  WORKFLOW_SUBSTATUS,
+  STEPS_CONFIG,
+} from '@lib/constants';
+import {
+  canTakeInboxApplication,
+  canDeclineFromDashboard,
+  canAssignTechnician,
+} from '@lib/workflow-state-machine';
 import { useCatalog } from '@hooks/useCatalogs';
 import {
   Button,
@@ -137,13 +152,16 @@ const ApplicationsDashboard = ({
   const { options: externalSystemOptions } = useCatalog('dict_external_systems');
 
   const isAdmin = user.role === ROLES.ADMIN;
-  const canViewInbox = isAdmin;
-  const canViewRegistry = isAdmin;
+  const isBranchManager = user.role === ROLES.BRANCH_MANAGER;
+  const canViewInbox = isAdmin || isBranchManager;
+  const canViewRegistry = isAdmin || isBranchManager;
 
   // Авто-выбор фильтра по роли
   useEffect(() => {
     if (user.role === ROLES.CONTROLLER) {
       setTaskFilter('review');
+    } else if (user.role === ROLES.BRANCH_MANAGER) {
+      setTaskFilter('pending_decline');
     } else {
       setTaskFilter('work');
     }
@@ -221,11 +239,51 @@ const ApplicationsDashboard = ({
   const handleDeleteProject = async projectId => {
     if (!window.confirm('Удалить проект и все данные?')) return;
     try {
-      await ApiService.deleteProject(dbScope, projectId); // CHANGED
+      await ApiService.deleteProject(dbScope, projectId);
       toast.success('Удалено');
-      // React Query обновит список
     } catch (e) {
       toast.error('Ошибка удаления');
+    }
+  };
+
+  const handleDeclineProject = async (projectId, projectName) => {
+    const reason = prompt(`Укажите причину отказа для "${projectName}" (обязательно, мин. 10 символов):`);
+    if (!reason || reason.trim().length < 10) {
+      if (reason !== null) toast.error('Причина должна быть не менее 10 символов');
+      return;
+    }
+    try {
+      const project = projects.find(p => p.id === projectId);
+      if (!project?.applicationId) {
+        toast.error('Заявка не найдена');
+        return;
+      }
+      const { supabase } = await import('@lib/supabase');
+      await supabase
+        .from('applications')
+        .update({
+          status: APP_STATUS.DECLINED,
+          workflow_substatus:
+            user.role === ROLES.BRANCH_MANAGER
+              ? WORKFLOW_SUBSTATUS.DECLINED_BY_MANAGER
+              : user.role === ROLES.CONTROLLER
+                ? WORKFLOW_SUBSTATUS.DECLINED_BY_CONTROLLER
+                : WORKFLOW_SUBSTATUS.DECLINED_BY_ADMIN,
+          updated_at: new Date(),
+        })
+        .eq('id', project.applicationId);
+      await supabase.from('application_history').insert({
+        application_id: project.applicationId,
+        action: 'DECLINE',
+        prev_status: project.applicationInfo?.status,
+        next_status: APP_STATUS.DECLINED,
+        user_name: user.name,
+        comment: reason,
+      });
+      toast.success('Заявление отклонено');
+    } catch (e) {
+      console.error(e);
+      toast.error('Ошибка при отказе');
     }
   };
 
@@ -233,19 +291,34 @@ const ApplicationsDashboard = ({
   const getFilteredProjects = scope => {
     let filtered = projects;
 
-    // 1. Фильтр по Табу/Роли
+    // 1. Фильтр по Табу/Роли (используем внешний статус + подстатус)
     if (scope === 'my_tasks') {
       if (taskFilter === 'work') {
-        filtered = filtered.filter(p =>
-          [APP_STATUS.NEW, APP_STATUS.DRAFT, APP_STATUS.REJECTED].includes(
-            p.applicationInfo?.status
-          )
-        );
+        filtered = filtered.filter(p => {
+          const sub = p.applicationInfo?.workflowSubstatus;
+          return (
+            p.applicationInfo?.status === APP_STATUS.IN_PROGRESS &&
+            [
+              WORKFLOW_SUBSTATUS.DRAFT,
+              WORKFLOW_SUBSTATUS.REVISION,
+              WORKFLOW_SUBSTATUS.RETURNED_BY_MANAGER,
+            ].includes(sub)
+          );
+        });
       } else if (taskFilter === 'review') {
-        filtered = filtered.filter(p => p.applicationInfo?.status === APP_STATUS.REVIEW);
+        filtered = filtered.filter(
+          p => p.applicationInfo?.workflowSubstatus === WORKFLOW_SUBSTATUS.REVIEW
+        );
       } else if (taskFilter === 'integration') {
-        // [NEW] Фильтр для интеграции
-        filtered = filtered.filter(p => p.applicationInfo?.status === APP_STATUS.INTEGRATION);
+        filtered = filtered.filter(
+          p => p.applicationInfo?.workflowSubstatus === WORKFLOW_SUBSTATUS.INTEGRATION
+        );
+      } else if (taskFilter === 'pending_decline') {
+        filtered = filtered.filter(
+          p => p.applicationInfo?.workflowSubstatus === WORKFLOW_SUBSTATUS.PENDING_DECLINE
+        );
+      } else if (taskFilter === 'declined') {
+        filtered = filtered.filter(p => p.applicationInfo?.status === APP_STATUS.DECLINED);
       }
     }
 
@@ -273,12 +346,28 @@ const ApplicationsDashboard = ({
   // Подсчет счетчиков
   const counts = useMemo(
     () => ({
-      work: projects.filter(p =>
-        [APP_STATUS.NEW, APP_STATUS.DRAFT, APP_STATUS.REJECTED].includes(p.applicationInfo?.status)
+      work: projects.filter(p => {
+        const sub = p.applicationInfo?.workflowSubstatus;
+        return (
+          p.applicationInfo?.status === APP_STATUS.IN_PROGRESS &&
+          [
+            WORKFLOW_SUBSTATUS.DRAFT,
+            WORKFLOW_SUBSTATUS.REVISION,
+            WORKFLOW_SUBSTATUS.RETURNED_BY_MANAGER,
+          ].includes(sub)
+        );
+      }).length,
+      review: projects.filter(
+        p => p.applicationInfo?.workflowSubstatus === WORKFLOW_SUBSTATUS.REVIEW
       ).length,
-      review: projects.filter(p => p.applicationInfo?.status === APP_STATUS.REVIEW).length,
-      integration: projects.filter(p => p.applicationInfo?.status === APP_STATUS.INTEGRATION)
-        .length, // [NEW]
+      integration: projects.filter(
+        p => p.applicationInfo?.workflowSubstatus === WORKFLOW_SUBSTATUS.INTEGRATION
+      ).length,
+      pendingDecline: projects.filter(
+        p => p.applicationInfo?.workflowSubstatus === WORKFLOW_SUBSTATUS.PENDING_DECLINE
+      ).length,
+      declined: projects.filter(p => p.applicationInfo?.status === APP_STATUS.DECLINED).length,
+      completed: projects.filter(p => p.applicationInfo?.status === APP_STATUS.COMPLETED).length,
       total: projects.length,
     }),
     [projects]
@@ -318,14 +407,16 @@ const ApplicationsDashboard = ({
                     ? 'Техник'
                     : user.role === ROLES.CONTROLLER
                       ? 'Бригадир'
-                      : 'Администратор'}
+                      : user.role === ROLES.BRANCH_MANAGER
+                        ? 'Нач. филиала'
+                        : 'Администратор'}
                 </span>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            {isAdmin && onOpenCatalogs && (
+            {(isAdmin) && onOpenCatalogs && (
               <button
                 onClick={onOpenCatalogs}
                 className="px-3 py-2 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700"
@@ -345,7 +436,9 @@ const ApplicationsDashboard = ({
                 >
                   {user.role === ROLES.CONTROLLER
                     ? counts.review
-                    : counts.work + counts.integration}
+                    : user.role === ROLES.BRANCH_MANAGER
+                      ? counts.pendingDecline
+                      : counts.work + counts.integration}
                 </Badge>
               </button>
 
@@ -417,18 +510,32 @@ const ApplicationsDashboard = ({
               }}
             />
 
-            {/* [NEW] Новая плитка */}
-            <MetricCard
-              label="Передача в УЗКАД"
-              value={counts.integration}
-              icon={Globe}
-              color="text-indigo-600"
-              isActive={activeTab === 'my_tasks' && taskFilter === 'integration'}
-              onClick={() => {
-                setActiveTab('my_tasks');
-                setTaskFilter('integration');
-              }}
-            />
+            {/* Плитка для начальника филиала / админа — запросы на отказ */}
+            {(isBranchManager || isAdmin) ? (
+              <MetricCard
+                label="На рассмотрении"
+                value={counts.pendingDecline}
+                icon={Clock}
+                color="text-amber-600"
+                isActive={activeTab === 'my_tasks' && taskFilter === 'pending_decline'}
+                onClick={() => {
+                  setActiveTab('my_tasks');
+                  setTaskFilter('pending_decline');
+                }}
+              />
+            ) : (
+              <MetricCard
+                label="Передача в УЗКАД"
+                value={counts.integration}
+                icon={Globe}
+                color="text-indigo-600"
+                isActive={activeTab === 'my_tasks' && taskFilter === 'integration'}
+                onClick={() => {
+                  setActiveTab('my_tasks');
+                  setTaskFilter('integration');
+                }}
+              />
+            )}
 
             {canViewRegistry ? (
               <MetricCard
@@ -462,13 +569,25 @@ const ApplicationsDashboard = ({
                 >
                   <ShieldCheck size={14} /> На проверке
                 </button>
-                {/* [NEW] Кнопка фильтра интеграции */}
+                {/* Кнопка фильтра интеграции */}
                 <button
                   onClick={() => setTaskFilter('integration')}
                   className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${taskFilter === 'integration' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
                 >
                   <Globe size={14} /> Интеграция
                 </button>
+                {/* Кнопка фильтра запросов на отказ (для начальника/админа) */}
+                {(isBranchManager || isAdmin) && (
+                  <button
+                    onClick={() => setTaskFilter('pending_decline')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${taskFilter === 'pending_decline' ? 'bg-amber-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
+                  >
+                    <Clock size={14} /> На рассмотрении
+                    {counts.pendingDecline > 0 && (
+                      <span className="bg-amber-200 text-amber-800 text-[9px] px-1.5 rounded-full font-bold">{counts.pendingDecline}</span>
+                    )}
+                  </button>
+                )}
               </div>
             )}
             {activeTab === 'inbox' && (
@@ -501,13 +620,14 @@ const ApplicationsDashboard = ({
         {/* Таблица */}
         <Card className="flex-1 overflow-hidden shadow-xl border-0 ring-1 ring-slate-200 rounded-t-2xl rounded-b-none bg-white flex flex-col min-h-0">
           {activeTab === 'inbox' ? (
-            <InboxTable data={incomingApps} onTake={handleTakeToWork} canTake={isAdmin} />
+            <InboxTable data={incomingApps} onTake={handleTakeToWork} canTake={canTakeInboxApplication(user.role)} />
           ) : (
             <ProjectsTable
               data={currentList}
               user={user}
               onSelect={onSelectProject}
               onDelete={isAdmin ? handleDeleteProject : undefined}
+              onDecline={(isAdmin || isBranchManager || user.role === ROLES.CONTROLLER) ? handleDeclineProject : undefined}
             />
           )}
         </Card>
@@ -545,7 +665,7 @@ const ApplicationsDashboard = ({
 }
 
 // --- ТАБЛИЦА ЗАДАЧ ---
-const ProjectsTable = ({ data, user, onSelect, onDelete, isLoading = false }) => {
+const ProjectsTable = ({ data, user, onSelect, onDelete, onDecline, isLoading = false }) => {
   if (!isLoading && data.length === 0) return <EmptyState />;
 
   return (
@@ -574,32 +694,36 @@ const ProjectsTable = ({ data, user, onSelect, onDelete, isLoading = false }) =>
             {data.map((p, idx) => {
               const app = p.applicationInfo || {};
               const info = p.complexInfo || {};
+              const substatus = app.workflowSubstatus || WORKFLOW_SUBSTATUS.DRAFT;
               const statusConfig = APP_STATUS_LABELS[app.status] || {
-                label: p.status,
-                color: getStageColor(p.status),
+                label: app.status,
+                color: getStageColor(app.status),
               };
-              const isRejected = app.status === APP_STATUS.REJECTED;
+              const substatusConfig = SUBSTATUS_LABELS[substatus] || statusConfig;
+              const isDeclined = app.status === APP_STATUS.DECLINED;
               const isCompleted = app.status === APP_STATUS.COMPLETED;
+              const isPendingDeclineStatus = substatus === WORKFLOW_SUBSTATUS.PENDING_DECLINE;
 
               // ДАННЫЕ ДЛЯ ЭТАПА
               const currentStepIdx = app.currentStepIndex || 0;
               const stepTitle = STEPS_CONFIG[currentStepIdx]?.title || 'Завершено';
 
-              // [MODIFIED] Разрешаем редактирование для Техника, если статус INTEGRATION
               const canEdit =
                 (user.role === ROLES.TECHNICIAN &&
                   [
-                    APP_STATUS.NEW,
-                    APP_STATUS.DRAFT,
-                    APP_STATUS.REJECTED,
-                    APP_STATUS.INTEGRATION,
-                  ].includes(app.status)) ||
-                (user.role === ROLES.CONTROLLER && app.status === APP_STATUS.REVIEW);
+                    WORKFLOW_SUBSTATUS.DRAFT,
+                    WORKFLOW_SUBSTATUS.REVISION,
+                    WORKFLOW_SUBSTATUS.RETURNED_BY_MANAGER,
+                    WORKFLOW_SUBSTATUS.INTEGRATION,
+                  ].includes(substatus)) ||
+                (user.role === ROLES.CONTROLLER && substatus === WORKFLOW_SUBSTATUS.REVIEW);
+
+              const showDeclineBtn = canDeclineFromDashboard(user.role, app.status, substatus);
 
               return (
                 <tr
                   key={p.id}
-                  className={`group transition-colors ${isRejected ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-blue-50/30'}`}
+                  className={`group transition-colors ${isDeclined ? 'bg-red-50 hover:bg-red-100' : isPendingDeclineStatus ? 'bg-amber-50/50 hover:bg-amber-50' : 'hover:bg-blue-50/30'}`}
                 >
                   <td className="px-5 py-4 text-center text-slate-400 text-xs">{idx + 1}</td>
                   <td className="px-5 py-4 font-mono text-xs font-bold text-slate-700">
@@ -679,19 +803,26 @@ const ProjectsTable = ({ data, user, onSelect, onDelete, isLoading = false }) =>
                     {formatDate(p.lastModified)}
                   </td>
                   <td className="px-5 py-4 text-center">
-                    <div className="flex justify-center relative group/tooltip">
+                    <div className="flex flex-col items-center gap-1 relative group/tooltip">
                       <span
                         className={`inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold uppercase border shadow-sm ${statusConfig.color}`}
                       >
                         {statusConfig.label}
-                        {isRejected && <AlertCircle size={12} className="ml-1.5" />}
+                        {isDeclined && <AlertCircle size={12} className="ml-1.5" />}
                       </span>
-                      {isRejected && app.rejectionReason && (
+                      {substatus && substatus !== WORKFLOW_SUBSTATUS.DRAFT && substatus !== WORKFLOW_SUBSTATUS.DONE && !isDeclined && (
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold border ${substatusConfig.color}`}
+                        >
+                          {substatusConfig.label}
+                        </span>
+                      )}
+                      {(isDeclined || app.rejectionReason || app.requestedDeclineReason) && (
                         <div className="absolute bottom-full mb-2 w-56 bg-slate-800 text-white text-xs p-3 rounded-xl shadow-xl opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-all z-50 text-left -translate-x-1/2 left-1/2">
                           <div className="font-bold text-red-300 mb-1 border-b border-white/10 pb-1">
-                            Причина возврата:
+                            {isDeclined ? 'Причина отказа:' : isPendingDeclineStatus ? 'Запрос на отказ:' : 'Причина возврата:'}
                           </div>
-                          {app.rejectionReason}
+                          {app.requestedDeclineReason || app.rejectionReason || 'Не указана'}
                           <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
                         </div>
                       )}
@@ -714,6 +845,16 @@ const ProjectsTable = ({ data, user, onSelect, onDelete, isLoading = false }) =>
                             className="p-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-lg transition-all shadow-sm hover:shadow active:scale-95"
                           >
                             <PlayCircle size={16} />
+                          </button>
+                        </Tooltip>
+                      )}
+                      {showDeclineBtn && onDecline && (
+                        <Tooltip content="Отказать заявление">
+                          <button
+                            onClick={() => onDecline(p.id, p.name)}
+                            className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+                          >
+                            <Ban size={16} />
                           </button>
                         </Tooltip>
                       )}
