@@ -121,27 +121,51 @@ export const SUBSTATUS_TO_STATUS = {
 
 // --- 2c. СТАТУСЫ ВЕРСИЙ ОБЪЕКТОВ ---
 export const VERSION_STATUS = {
-  ACTUAL: 'ACTUAL',
-  IN_WORK: 'IN_WORK',
-  DECLINED: 'DECLINED',
-  ARCHIVED: 'ARCHIVED',
+  PENDING: 'PENDING',
+  CURRENT: 'CURRENT',
+  REJECTED: 'REJECTED',
+  PREVIOUS: 'PREVIOUS',
+
+  // Legacy aliases (backward compatibility)
+  ACTUAL: 'CURRENT',
+  IN_WORK: 'PENDING',
+  DECLINED: 'REJECTED',
+  ARCHIVED: 'PREVIOUS',
 };
 
 export const VERSION_STATUS_LABELS = {
-  [VERSION_STATUS.ACTUAL]: {
-    label: 'Актуальная',
+  [VERSION_STATUS.CURRENT]: {
+    label: 'Текущая',
     color: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   },
-  [VERSION_STATUS.IN_WORK]: {
-    label: 'В работе',
+  [VERSION_STATUS.PENDING]: {
+    label: 'В ожидании',
     color: 'bg-blue-100 text-blue-700 border-blue-200',
   },
-  [VERSION_STATUS.DECLINED]: {
-    label: 'Отказанная',
+  [VERSION_STATUS.REJECTED]: {
+    label: 'Отклонена',
     color: 'bg-red-100 text-red-700 border-red-200',
   },
-  [VERSION_STATUS.ARCHIVED]: {
-    label: 'Архивированная',
+  [VERSION_STATUS.PREVIOUS]: {
+    label: 'Предыдущая',
+    color: 'bg-slate-100 text-slate-500 border-slate-200',
+  },
+
+  // Legacy labels mapping
+  ACTUAL: {
+    label: 'Текущая',
+    color: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  },
+  IN_WORK: {
+    label: 'В ожидании',
+    color: 'bg-blue-100 text-blue-700 border-blue-200',
+  },
+  DECLINED: {
+    label: 'Отклонена',
+    color: 'bg-red-100 text-red-700 border-red-200',
+  },
+  ARCHIVED: {
+    label: 'Предыдущая',
     color: 'bg-slate-100 text-slate-500 border-slate-200',
   },
 };

@@ -33,10 +33,10 @@ export const VersionsApi = {
     // Гарантия единственной версии IN_WORK на объект: прошлую переводим в ARCHIVED
     const { error: archiveInWorkError } = await supabase
       .from('object_versions')
-      .update({ version_status: VERSION_STATUS.ARCHIVED, updated_at: new Date().toISOString() })
+      .update({ version_status: VERSION_STATUS.PREVIOUS, updated_at: new Date().toISOString() })
       .eq('entity_type', entityType)
       .eq('entity_id', entityId)
-      .eq('version_status', VERSION_STATUS.IN_WORK);
+      .eq('version_status', VERSION_STATUS.PENDING);
     if (archiveInWorkError) throw archiveInWorkError;
 
     const { data, error } = await supabase
@@ -45,7 +45,7 @@ export const VersionsApi = {
         entity_type: entityType,
         entity_id: entityId,
         version_number: nextVersion,
-        version_status: VERSION_STATUS.IN_WORK,
+        version_status: VERSION_STATUS.PENDING,
         snapshot_data: snapshotData || {},
         created_by: payload.createdBy || null,
         application_id: payload.applicationId || null,
@@ -66,17 +66,17 @@ export const VersionsApi = {
 
     const { error: archiveErr } = await supabase
       .from('object_versions')
-      .update({ version_status: VERSION_STATUS.ARCHIVED, updated_at: new Date().toISOString() })
+      .update({ version_status: VERSION_STATUS.PREVIOUS, updated_at: new Date().toISOString() })
       .eq('entity_type', current.entity_type)
       .eq('entity_id', current.entity_id)
-      .eq('version_status', VERSION_STATUS.ACTUAL)
+      .eq('version_status', VERSION_STATUS.CURRENT)
       .neq('id', versionId);
     if (archiveErr) throw archiveErr;
 
     const { data, error } = await supabase
       .from('object_versions')
       .update({
-        version_status: VERSION_STATUS.ACTUAL,
+        version_status: VERSION_STATUS.CURRENT,
         approved_by: approvedBy,
         decline_reason: null,
         declined_by: null,
@@ -93,7 +93,7 @@ export const VersionsApi = {
     const { data, error } = await supabase
       .from('object_versions')
       .update({
-        version_status: VERSION_STATUS.DECLINED,
+        version_status: VERSION_STATUS.REJECTED,
         decline_reason: reason || null,
         declined_by: declinedBy,
         updated_at: new Date().toISOString(),
@@ -125,16 +125,16 @@ export const VersionsApi = {
 
     const { error: archiveInWorkError } = await supabase
       .from('object_versions')
-      .update({ version_status: VERSION_STATUS.ARCHIVED, updated_at: new Date().toISOString() })
+      .update({ version_status: VERSION_STATUS.PREVIOUS, updated_at: new Date().toISOString() })
       .eq('entity_type', current.entity_type)
       .eq('entity_id', current.entity_id)
-      .eq('version_status', VERSION_STATUS.IN_WORK)
+      .eq('version_status', VERSION_STATUS.PENDING)
       .neq('id', versionId);
     if (archiveInWorkError) throw archiveInWorkError;
 
     const { data, error } = await supabase
       .from('object_versions')
-      .update({ version_status: VERSION_STATUS.IN_WORK, updated_at: new Date().toISOString() })
+      .update({ version_status: VERSION_STATUS.PENDING, updated_at: new Date().toISOString() })
       .eq('id', versionId)
       .select('*')
       .single();
