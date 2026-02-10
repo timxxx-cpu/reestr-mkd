@@ -10,6 +10,11 @@ create extension if not exists "pgcrypto";
 -- -----------------------------
 drop table if exists application_steps cascade;
 drop table if exists application_history cascade;
+drop table if exists application_lock_audit cascade;
+drop table if exists application_locks cascade;
+drop table if exists object_versions cascade;
+drop table if exists dict_version_statuses cascade;
+drop table if exists dict_workflow_substatuses;
 drop table if exists basement_parking_levels cascade;
 drop table if exists common_areas cascade;
 drop table if exists rooms cascade;
