@@ -291,14 +291,22 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     ]
   );
 
-  const createSetter = key => value => {
+  // [FIX] Обновленный createSetter с поддержкой "тихого" режима (silent)
+  // Это позволяет обновлять данные (например, при нормализации) без активации флага unsavedChanges
+  const createSetter = key => (value, options = {}) => {
     if (effectiveReadOnly) return;
 
     const newValue = typeof value === 'function' ? value(mergedState[key]) : value;
     setProjectMeta(prev => ({ ...prev, [key]: newValue }));
 
+    // Проверяем, был ли передан флаг silent
+    const isSilent = options?.silent || false;
+
     if (HEAVY_KEYS.includes(key)) {
-      setHasUnsavedChanges(true);
+      // Ставим флаг "Есть изменения", ТОЛЬКО если обновление не "тихое"
+      if (!isSilent) {
+        setHasUnsavedChanges(true);
+      }
       pendingUpdatesRef.current = { ...pendingUpdatesRef.current, [key]: newValue };
     } else {
       saveData({ [key]: newValue });

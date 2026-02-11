@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { ImageIcon, LayoutGrid } from 'lucide-react'; // Добавил иконку
+import { ImageIcon, LayoutGrid } from 'lucide-react';
 
 // ИМПОРТЫ
 import { useProject } from '@context/ProjectContext';
-import { useReadOnly } from '@components/ui/UIKit'; // TabButton убрал из импорта, сделаем кастомный тут
+import { useReadOnly } from '@components/ui/UIKit';
 import { getBlocksList } from '@lib/utils';
 import { Validators } from '@lib/validators';
 import { BuildingConfigSchema } from '@lib/schemas';
@@ -19,7 +19,7 @@ import GeneralBlockCard from '../cards/GeneralBlockCard';
 import FloorsCard from '../cards/FloorsCard';
 import BasementCard from '../cards/BasementCard';
 
-// [NEW] Кастомный компонент кнопки для темной панели
+// Кастомный компонент кнопки для темной панели
 const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
   <button
     onClick={onClick}
@@ -65,8 +65,8 @@ export default function StandardView({ building, mode }) {
     });
   }, [visibleBlocks]);
 
+  // 1. Сначала определяем текущий блок и ключи
   const currentBlock = blocksList.find(b => b.id === activeTabId);
-
   const detailsKey = currentBlock ? `${building.id}_${currentBlock.id}` : null;
   const featuresKey = `${building.id}_features`;
   const features = buildingDetails[featuresKey] || { basements: [], exploitableRoofs: [] };
@@ -107,26 +107,28 @@ export default function StandardView({ building, mode }) {
     []
   );
 
+  // 2. Затем формируем объект details
   const details = useMemo(
     () => ({ ...defaultDetails, ...(buildingDetails[detailsKey] || {}) }),
     [defaultDetails, buildingDetails, detailsKey]
   );
+
+  // 3. Вызываем хук валидации (он зависит от details)
   const { errors } = useValidation(BuildingConfigSchema, details);
 
-  // ИСПРАВЛЕННЫЙ ЭФФЕКТ
+  // 4. [FIX] Эффект очистки данных идет ПОСЛЕ того, как все переменные объявлены
   useEffect(() => {
     if (!currentBlock || !detailsKey || isReadOnly) return;
 
-    // 1. Вычисляем, как данные должны выглядеть в идеале (без мусора)
+    // Вычисляем, как данные должны выглядеть в идеале
     const cleaned = cleanBlockDetails(building, currentBlock, details);
 
-    // 2. Берем то, что СЕЙЧАС лежит в хранилище (без дефолтных значений)
+    // Берем то, что СЕЙЧАС лежит в хранилище
     const currentStored = buildingDetails[detailsKey] || {};
 
-    // 3. Сравниваем: если в хранилище уже лежит чистая версия, то обновлять не нужно!
-    // Это разрывает цикл перерисовок
+    // Сравниваем и обновляем "тихо" (silent: true), если есть разница
     if (JSON.stringify(cleaned) !== JSON.stringify(currentStored)) {
-      setBuildingDetails(prev => ({ ...prev, [detailsKey]: cleaned }));
+      setBuildingDetails(prev => ({ ...prev, [detailsKey]: cleaned }), { silent: true });
     }
   }, [
     building,
@@ -292,7 +294,7 @@ export default function StandardView({ building, mode }) {
 
   return (
     <>
-      {/* [ИЗМЕНЕНО] Темная панель вкладок */}
+      {/* Темная панель вкладок */}
       <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full mb-8 shadow-inner border border-slate-700">
         {visibleBlocks.map(block => {
           const bKey = `${building.id}_${block.id}`;

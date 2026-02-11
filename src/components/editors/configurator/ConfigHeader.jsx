@@ -1,10 +1,10 @@
 import React from 'react';
-import { ArrowLeft, MapPin, Building2, Hash, Layers, Car, Box, Save, Loader2 } from 'lucide-react'; // Добавил Loader2 для спиннера
+import { ArrowLeft, MapPin, Building2, Hash, Layers, Car, Box, Save, Loader2 } from 'lucide-react';
 import { getStageColor } from '@lib/utils';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { formatFullIdentifier } from '@lib/uj-identifier';
 import { useProject } from '@context/ProjectContext';
-import { SaveIndicator } from '@components/ui/UIKit'; // [NEW] Импорт индикатора
+import { SaveIndicator } from '@components/ui/UIKit';
 
 const PARKING_TYPE_LABELS = {
   capital: 'Капитальный',
@@ -24,8 +24,8 @@ export default function ConfigHeader({
   saveDisabled = false,
   saveLabel = 'Сохранить здание',
 }) {
-  // [UPDATED] Получаем hasUnsavedChanges из контекста
-  const { complexInfo, hasUnsavedChanges } = useProject(); 
+  // [UPDATED] Получаем isReadOnly для скрытия кнопки в режиме просмотра
+  const { complexInfo, hasUnsavedChanges, isReadOnly } = useProject(); 
   const projectUjCode = complexInfo?.ujCode;
   
   // Определяем иконку и ЦВЕТ типа
@@ -51,11 +51,17 @@ export default function ConfigHeader({
   const positionClass = isSticky ? 'sticky top-2 z-30' : 'relative';
 
   // [NEW] Логика стилей кнопки сохранения
-  // Если есть изменения: яркая синяя кнопка
-  // Если нет изменений: спокойная белая/серая кнопка (но все еще доступная для нажатия)
   const saveButtonClass = hasUnsavedChanges
     ? 'bg-blue-600 text-white hover:bg-blue-500 ring-2 ring-blue-500/30 border-transparent shadow-md'
     : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900 shadow-sm';
+
+  // [FIX] Определяем, идет ли реально сохранение.
+  // Просто disabled недостаточно, так как кнопка может быть disabled в readonly (если мы решим её показать)
+  // Используем эвристику по тексту кнопки, так как родитель передает 'Сохраняем...' при сохранении
+  const isSaving = saveDisabled && (saveLabel.toLowerCase().includes('сохраняем') || saveLabel.toLowerCase().includes('saving'));
+
+  // [FIX] Принудительно скрываем кнопку, если глобальный режим ReadOnly (например, mode=view)
+  const shouldRenderSaveButton = showSaveButton && !isReadOnly;
 
   return (
     <div
@@ -71,7 +77,7 @@ export default function ConfigHeader({
           <ArrowLeft size={20} />
         </button>
 
-        {/* ЦЕНТРАЛЬНАЯ ЧАСТЬ: Инфо (без изменений) */}
+        {/* ЦЕНТРАЛЬНАЯ ЧАСТЬ: Инфо */}
         <div className="flex-1 p-4 flex flex-col gap-2">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 flex-wrap">
@@ -137,7 +143,7 @@ export default function ConfigHeader({
         </div>
 
         {/* ПРАВАЯ ЧАСТЬ: Кнопка Сохранить */}
-        {showSaveButton && (
+        {shouldRenderSaveButton && (
           <div className="p-4 border-l border-slate-200 flex items-center justify-center">
             <button
               onClick={onSave}
@@ -145,11 +151,10 @@ export default function ConfigHeader({
               className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all border disabled:opacity-60 disabled:cursor-not-allowed ${saveButtonClass}`}
               title={hasUnsavedChanges ? "Есть несохраненные изменения" : "Сохранить"}
             >
-              {/* Индикатор мигает, если есть изменения */}
               <SaveIndicator hasChanges={hasUnsavedChanges} />
               
-              {/* Показываем спиннер, если сохранение идет, иначе иконку дискеты */}
-              {saveDisabled ? (
+              {/* [FIX] Показываем спиннер только если реально идет сохранение, а не просто disabled */}
+              {isSaving ? (
                 <Loader2 size={14} className="animate-spin" />
               ) : (
                 <Save size={14} />

@@ -14,6 +14,8 @@ import {
   getStepBlocksForStatus,
   buildScopedContextForBlock,
 } from '../../../lib/step-validators';
+// [FIX] 1. Импортируем конфигурацию шагов
+import { STEPS_CONFIG } from '../../../lib/constants'; 
 import { Modal, Button, BlockingLoader } from '../../ui/UIKit';
 import { AlertTriangle } from 'lucide-react';
 
@@ -35,7 +37,8 @@ export default function BuildingConfiguratorIndex({ buildingId, mode = 'all', on
     saveStepBuildingStatuses,
     saveProjectImmediate,
     isReadOnly,
-    setHasUnsavedChanges, // [FIX] Needed to reset the blinking indicator
+    setHasUnsavedChanges,
+    applicationInfo, // [FIX] 2. Достаем информацию о текущем шаге заявки
   } = useProject();
   
   const queryClient = useQueryClient();
@@ -136,8 +139,20 @@ export default function BuildingConfiguratorIndex({ buildingId, mode = 'all', on
     }
   };
 
-  const stepId = getStepId(mode);
-  const showSave = !isReadOnly && !!stepId;
+ const stepId = getStepId(mode);
+
+  // [FIX] 3. Логика проверки совпадения шагов
+  // Получаем ID текущего активного шага из Workflow
+  const currentWorkflowStepIndex = applicationInfo?.currentStepIndex ?? 0;
+  const currentWorkflowStepId = STEPS_CONFIG[currentWorkflowStepIndex]?.id;
+
+  // Кнопка активна, только если:
+  // 1. Проект не ReadOnly
+  // 2. Мы находимся в режиме, который подразумевает сохранение (stepId существует)
+  // 3. ID шага в редакторе СОВПАДАЕТ с текущим активным шагом заявки
+  const isCurrentStepActive = stepId === currentWorkflowStepId;
+  
+  const showSave = !isReadOnly && !!stepId && isCurrentStepActive;
 
   return (
     <div className="animate-in slide-in-from-bottom duration-500 space-y-6 pb-20 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto">
@@ -149,7 +164,7 @@ export default function BuildingConfiguratorIndex({ buildingId, mode = 'all', on
         isInfrastructure={isInfrastructure}
         isUnderground={typeInfo.isUnderground}
         onBack={onBack}
-        showSaveButton={showSave}
+        showSaveButton={showSave} // Теперь это false, если вы смотрите старый шаг
         onSave={handleSave}
         saveDisabled={isSavingStatus}
         saveLabel={isSavingStatus ? 'Сохраняем…' : 'Сохранить'}
