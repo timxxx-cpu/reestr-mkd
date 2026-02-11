@@ -374,9 +374,9 @@ const BuildingModal = ({
                   />
                   <div>
                     <span className="text-sm font-bold text-slate-700 group-hover:text-blue-700 transition-colors">
-                      Есть коммерция
+                      Есть нежилые объекты на жилых этажах
                     </span>
-                    <p className="text-[10px] text-slate-400">Встроенные магазины/офисы</p>
+                    <p className="text-[10px] text-slate-400">Есть квартиры используемые как нежилые объекты</p>
                   </div>
                 </label>
               </div>
@@ -675,12 +675,13 @@ const CompositionEditor = () => {
       )}
 
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-h-[400px]">
-        <div className="grid grid-cols-12 bg-slate-50/80 border-b border-slate-200 py-4 pl-6 pr-4 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
+       <div className="grid grid-cols-12 bg-slate-50/80 border-b border-slate-200 py-4 pl-6 pr-4 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
           <div className="col-span-1 text-center">#</div>
           <div className="col-span-1 text-center">Дом №</div>
+          <div className="col-span-2">Код</div> {/* Новая колонка */}
           <div className="col-span-3">Наименование</div>
-          <div className="col-span-3">Характеристики</div>
-          <div className="col-span-2">Статус</div>
+          <div className="col-span-2">Характеристики</div>
+          <div className="col-span-1">Статус</div>
           <div className="col-span-1 text-right">Ред.</div>
           <div className="col-span-1 text-right">Действия</div>
         </div>
@@ -709,7 +710,7 @@ const CompositionEditor = () => {
               detailsBadge = `${pType} • ${pConstName}`;
             }
 
-            return (
+           return (
               <div
                 key={item.id}
                 className="grid grid-cols-12 items-center py-4 pl-6 pr-4 hover:bg-blue-50/50 transition-colors group even:bg-slate-50/50"
@@ -724,6 +725,19 @@ const CompositionEditor = () => {
                     {item.houseNumber || '?'}
                   </div>
                 </div>
+
+                {/* НОВАЯ КОЛОНКА КОД */}
+                <div className="col-span-2 flex items-center">
+                   {item.buildingCode && projectUjCode ? (
+                      <FullIdentifierCompact 
+                        fullCode={formatFullIdentifier(projectUjCode, item.buildingCode)}
+                        variant="default" 
+                      />
+                   ) : (
+                     <span className="text-slate-300 text-xs px-2">-</span>
+                   )}
+                </div>
+
                 <div className="col-span-3 pr-4">
                   <div className="flex items-start gap-2">
                     <div className="flex-1">
@@ -734,16 +748,10 @@ const CompositionEditor = () => {
                         {TYPE_NAMES[item.category] || item.category}
                       </div>
                     </div>
-                    {item.buildingCode && projectUjCode && (
-                      <FullIdentifierCompact 
-                        fullCode={formatFullIdentifier(projectUjCode, item.buildingCode)}
-                        variant="compact"
-                        className="shrink-0"
-                      />
-                    )}
                   </div>
                 </div>
-                <div className="col-span-3 pr-4 flex flex-col justify-center gap-1.5">
+                
+                <div className="col-span-2 pr-4 flex flex-col justify-center gap-1.5">
                   <div className="flex flex-wrap gap-1">
                     {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
                       <span className="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-[10px] font-bold text-slate-600">
@@ -752,7 +760,7 @@ const CompositionEditor = () => {
                     )}
                     {item.hasNonResPart && (
                       <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">
-                        Коммерция
+                        +Нежилые объекты на жилых этажах
                       </span>
                     )}
                     {item.category === 'infrastructure' && (
@@ -767,7 +775,7 @@ const CompositionEditor = () => {
                     )}
                   </div>
                 </div>
-                <div className="col-span-2 pr-4">
+                <div className="col-span-1 pr-4">
                   <span
                     className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}
                   >

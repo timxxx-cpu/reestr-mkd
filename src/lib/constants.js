@@ -297,7 +297,7 @@ export const STEPS_CONFIG = [
   {
     id: 'integration_units',
     title: 'Регистрация помещений (УЗКАД)',
-    description: 'Квартиры, коммерция, паркинг',
+    description: 'Квартиры, нежилые, паркинги',
     icon: Database,
   },
 

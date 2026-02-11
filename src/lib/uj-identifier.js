@@ -1,10 +1,8 @@
 /**
  * UJ Identifier System
- * 
- * Трёхуровневая система идентификации объектов недвижимости
+ * * Трёхуровневая система идентификации объектов недвижимости
  * Формат: UJ000000-ZD00-EL000
- * 
- * Уровень I: Проект (UJ000000)
+ * * Уровень I: Проект (UJ000000)
  * Уровень II: Здание (ZR00, ZM00, ZP00, ZI00)
  * Уровень III: Помещение (EF000, EO000, EP000)
  */
@@ -36,7 +34,7 @@ export const UNIT_TYPE_PREFIXES = {
  * @returns {string} Код формата UJ000000
  */
 export const generateProjectCode = sequenceNumber => {
-  const num = parseInt(sequenceNumber, 10) || 0;
+  const num = parseInt(String(sequenceNumber), 10) || 0; // FIX: добавлен String()
   return `UJ${String(num).padStart(6, '0')}`;
 };
 
@@ -63,7 +61,7 @@ export const getBuildingPrefix = (category, hasMultipleBlocks = false) => {
  * @returns {string} Код формата ZD00
  */
 export const generateBuildingCode = (prefix, sequenceNumber) => {
-  const num = parseInt(sequenceNumber, 10) || 0;
+  const num = parseInt(String(sequenceNumber), 10) || 0; // FIX: добавлен String()
   return `${prefix}${String(num).padStart(2, '0')}`;
 };
 
@@ -83,7 +81,7 @@ export const getUnitPrefix = unitType => {
  * @returns {string} Код формата EL000
  */
 export const generateUnitCode = (prefix, sequenceNumber) => {
-  const num = parseInt(sequenceNumber, 10) || 0;
+  const num = parseInt(String(sequenceNumber), 10) || 0; // FIX: добавлен String()
   return `${prefix}${String(num).padStart(3, '0')}`;
 };
 

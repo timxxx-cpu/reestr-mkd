@@ -271,7 +271,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     };
     const labels = {
       residential: 'Жилой',
-      mixed: 'Коммерция',
+      mixed: 'Жилой/Нежилой',
       technical: 'Технический',
       basement: 'Подвал',
       attic: 'Мансарда',
@@ -622,14 +622,24 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
                             <DebouncedInput
                               ref={el => (inputsRef.current[`${idx}-${field.id}`] = el)}
                               onKeyDown={e => handleKeyDown(e, idx, field.id)}
-                              type="number"
-                              min="0"
-                              step="0.01"
+                              type="text" // Изменено с "number" на "text"
+                              inputMode="decimal" // Добавлено для цифровой клавиатуры
                               disabled={isReadOnly}
                               className={`w-full h-full text-center rounded-xl text-sm outline-none transition-all border pr-7 ${bgClass} ${borderClass} ${textClass} ${isReadOnly ? 'cursor-default' : ''}`}
                               placeholder={field.ph}
                               value={val || ''}
-                              onChange={v => handleInput(f.id, field.id, v)}
+                              onChange={v => {
+                                // Заменяем запятую на точку и удаляем всё кроме цифр и точки
+                                let clean = v.replace(/,/g, '.').replace(/[^0-9.]/g, '');
+                                
+                                // Проверка на одну точку: если точек больше одной, оставляем только первую
+                                const parts = clean.split('.');
+                                if (parts.length > 2) {
+                                  clean = parts[0] + '.' + parts.slice(1).join('');
+                                }
+                                
+                                handleInput(f.id, field.id, clean);
+                              }}
                             />
 
                             {(finalError || isDiffErr) && !isReadOnly && (

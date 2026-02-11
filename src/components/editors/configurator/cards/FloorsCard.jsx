@@ -164,7 +164,7 @@ export default function FloorsCard({
               <Store size={16} />
             </div>
             <div>
-              <Label className="text-blue-900 mb-0">Нежилые объекты (Коммерция)</Label>
+              <Label className="text-blue-900 mb-0">Смешанные этажи жилой/нежилой</Label>
               <p className="text-[10px] text-blue-500/80 leading-tight">
                 Отметьте этажи с нежилыми помещениями.
               </p>

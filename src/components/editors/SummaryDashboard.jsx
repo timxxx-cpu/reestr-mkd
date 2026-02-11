@@ -203,7 +203,7 @@ const SummaryDashboard = () => {
 
   const chartData = [
     { name: 'Жилая', value: stats.living.area, color: '#3b82f6' },
-    { name: 'Коммерция', value: stats.commercial.area, color: '#10b981' },
+    { name: 'Нежилые объекты', value: stats.commercial.area, color: '#10b981' },
     { name: 'Инфраструктура', value: stats.infrastructure.area, color: '#f59e0b' },
     { name: 'Паркинг', value: stats.parking.area, color: '#6366f1' },
     { name: 'МОП / Тех.', value: stats.mop.area, color: '#94a3b8' },

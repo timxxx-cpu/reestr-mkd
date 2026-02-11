@@ -25,6 +25,7 @@ import { Validators } from '@lib/validators';
 import { ApiService } from '@lib/api-service';
 import ConfigHeader from './configurator/ConfigHeader';
 import { formatBlockSwitcherLabel } from '@lib/building-details';
+import { useToast } from '@context/ToastContext';
 
 const getBlockIcon = type => {
   if (type === 'residential') return Building2;
@@ -78,6 +79,7 @@ const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
 
 export default function EntranceMatrixEditor({ buildingId, onBack }) {
   const { projectId, buildingDetails } = useProject();
+  const toast = useToast();
   const isReadOnly = useReadOnly();
 
   // 1. Здание и жилые блоки
@@ -212,9 +214,58 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
   const toggleDuplex = (floorId, currentVal) => {
     if (isReadOnly) return;
-    updateFloor({ id: floorId, updates: { isDuplex: !currentVal } });
-  };
+    const newValue = !currentVal;
 
+    if (newValue) {
+      const idx = floors.findIndex(f => f.id === floorId);
+      if (idx === -1) return;
+
+      const curr = floors[idx];
+      const prev = floors[idx - 1];
+      const next = floors[idx + 1];
+
+      // 1. Правило: Выбрать можно только жилой или смешанный этаж
+      if (!['residential', 'mixed'].includes(curr.type)) {
+        toast.error('Дуплексом можно отметить только Жилой или Смешанный этаж'); // <--- Было alert
+        return;
+      }
+
+      // 2. Правило: Нельзя выбирать смежные
+      if ((prev && prev.isDuplex) || (next && next.isDuplex)) {
+        toast.error('Нельзя отметить два смежных этажа как дуплекс'); // <--- Было alert
+        return;
+      }
+
+      // 3. Проверка возможности (Вверх или Вниз)
+      let canGoDown = false;
+      let canGoUp = false;
+
+      if (prev && ['basement', 'tsokol'].includes(prev.type)) {
+        canGoDown = true;
+      }
+
+      if (next) {
+        const isNextLiving = ['residential', 'mixed'].includes(next.type);
+        const isNextRoof = ['attic', 'roof'].includes(next.type);
+        if (isNextLiving || isNextRoof) {
+          canGoUp = true;
+        }
+      }
+
+      const isValid = canGoDown || canGoUp;
+
+      if (!isValid) {
+        // Используем duration: 5000, чтобы пользователь успел прочитать длинное сообщение
+        toast.error(
+          'Невозможно установить дуплекс: нет подходящего смежного уровня', 
+          { duration: 5000 }
+        ); 
+        return;
+      }
+    }
+
+    updateFloor({ id: floorId, updates: { isDuplex: newValue } });
+  };
   // --- Bulk Actions ---
 
   const autoFill = async () => {

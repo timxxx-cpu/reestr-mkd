@@ -4,13 +4,12 @@ import { useToast } from '@context/ToastContext';
 
 /**
  * Компонент для отображения UJ-идентификаторов
- * 
  * @param {Object} props
  * @param {string} props.code - Код идентификатора (UJ000001, ZR01, EF001)
- * @param {'project'|'building'|'unit'} props.type - Тип идентификатора
- * @param {'compact'|'default'|'large'} props.variant - Размер бейджа
- * @param {boolean} props.showCopy - Показывать возможность копирования
- * @param {string} props.className - Дополнительные CSS классы
+ * @param {'project'|'building'|'unit'} [props.type] - Тип идентификатора
+ * @param {'compact'|'default'|'large'} [props.variant] - Размер бейджа
+ * @param {boolean} [props.showCopy] - Показывать возможность копирования
+ * @param {string} [props.className] - Дополнительные CSS классы
  */
 export const IdentifierBadge = ({ 
   code, 
@@ -26,16 +25,18 @@ export const IdentifierBadge = ({
 
   // Стили по типу
   const typeStyles = {
-    project: 'bg-blue-50 border-blue-200 text-blue-700',
+    // [ИЗМЕНЕНО] Новый стиль для проекта: Темный фон, Желтый текст
+    project: 'bg-slate-900 border-slate-700 text-yellow-400 shadow-sm ring-1 ring-white/10',
     building: 'bg-blue-50 border-blue-200 text-blue-700',
     unit: 'bg-blue-100 border-blue-200 text-blue-600',
   };
 
   // Размеры
   const sizeStyles = {
-    compact: 'text-[9px] px-1.5 py-0.5',
-    default: 'text-[10px] px-2 py-0.5',
-    large: 'text-xs px-2.5 py-1',
+    // [ИЗМЕНЕНО] Увеличены размеры шрифтов и отступов
+    compact: 'text-[11px] px-2 py-0.5', // Было 9px
+    default: 'text-xs px-2.5 py-1',     // Было 10px
+    large: 'text-sm px-3.5 py-1.5',     // Было xs
   };
 
   const handleCopy = (e) => {
@@ -53,10 +54,10 @@ export const IdentifierBadge = ({
     <span 
       onClick={showCopy ? handleCopy : undefined}
       className={`
-        inline-flex items-center gap-1 rounded border font-mono font-bold
+        inline-flex items-center gap-1 rounded-md border font-mono font-bold tracking-wide
         ${typeStyles[type]} 
         ${sizeStyles[variant]}
-        ${showCopy ? 'cursor-pointer hover:scale-105 hover:shadow-sm active:scale-95 transition-all duration-150' : ''}
+        ${showCopy ? 'cursor-pointer hover:scale-105 hover:shadow-md active:scale-95 transition-all duration-150' : ''}
         ${className}
       `}
       title={showCopy ? 'Нажмите, чтобы скопировать' : code}
@@ -73,8 +74,14 @@ export const IdentifierBadge = ({
 
 /**
  * Компонент для отображения полного идентификатора (с иерархией)
+ * @param {Object} props
+ * @param {string} [props.projectCode]
+ * @param {string} [props.buildingCode]
+ * @param {string} [props.unitCode]
+ * @param {string} [props.className]
  */
 export const FullIdentifier = ({ projectCode, buildingCode, unitCode, className = '' }) => {
+  /** @type {Array<{ code: string, type: 'project'|'building'|'unit' }>} */
   const parts = [];
   
   if (projectCode) parts.push({ code: projectCode, type: 'project' });
@@ -99,7 +106,10 @@ export const FullIdentifier = ({ projectCode, buildingCode, unitCode, className 
 
 /**
  * Компонент для отображения полного идентификатора в виде одной строки
- * @param {string} fullCode - Полный код вида UJ000001-ZR01-EF001
+ * @param {Object} props
+ * @param {string} props.fullCode - Полный код вида UJ000001-ZR01-EF001
+ * @param {'compact'|'default'|'large'} [props.variant]
+ * @param {string} [props.className]
  */
 export const FullIdentifierCompact = ({ fullCode, variant = 'default', className = '' }) => {
   const toast = useToast();
@@ -108,9 +118,9 @@ export const FullIdentifierCompact = ({ fullCode, variant = 'default', className
   if (!fullCode) return null;
 
   const sizeStyles = {
-    compact: 'text-[9px] px-1.5 py-0.5',
-    default: 'text-[10px] px-2 py-0.5',
-    large: 'text-xs px-2.5 py-1',
+    compact: 'text-[10px] px-2 py-0.5',
+    default: 'text-xs px-2.5 py-1',
+    large: 'text-sm px-3.5 py-1.5',
   };
 
   const handleCopy = (e) => {
@@ -128,8 +138,8 @@ export const FullIdentifierCompact = ({ fullCode, variant = 'default', className
     <span 
       onClick={handleCopy}
       className={`
-        inline-flex items-center gap-1 rounded border font-mono font-bold
-        bg-blue-50 border-blue-200 text-blue-700
+        inline-flex items-center gap-1 rounded-md border font-mono font-bold tracking-wide
+        bg-slate-50 border-slate-200 text-slate-700
         ${sizeStyles[variant]}
         cursor-pointer hover:scale-105 hover:shadow-sm active:scale-95 transition-all duration-150
         ${className}

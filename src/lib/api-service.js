@@ -1164,6 +1164,7 @@ const LegacyApiService = {
     return {
       complexInfo: {
         name: project.name,
+        ujCode: project.uj_code,
         status: normalizeProjectStatusFromDb(project.construction_status),
         region: project.region,
         district: project.district,
@@ -1299,6 +1300,7 @@ const LegacyApiService = {
 
     return data.map(b => ({
       id: b.id,
+      buildingCode: b.building_code,
       label: b.label,
       houseNumber: b.house_number,
       category: b.category,
