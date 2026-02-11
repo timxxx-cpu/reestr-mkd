@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { ApiService } from '../../lib/api-service';
 import { useToast } from '../../context/ToastContext';
 
@@ -14,10 +15,10 @@ export function useDirectProjectInfo(projectId) {
     enabled: !!projectId && projectId !== 'undefined',
   });
 
-  const complexInfo = data?.complexInfo || {};
-  const cadastre = data?.cadastre || {};
-  const participants = data?.participants || {};
-  const documents = data?.documents || [];
+const complexInfo = useMemo(() => data?.complexInfo || {}, [data?.complexInfo]);
+  const cadastre = useMemo(() => data?.cadastre || {}, [data?.cadastre]);
+  const participants = useMemo(() => data?.participants || {}, [data?.participants]);
+  const documents = useMemo(() => data?.documents || [], [data?.documents]);
 
   // --- МУТАЦИИ ---
 
