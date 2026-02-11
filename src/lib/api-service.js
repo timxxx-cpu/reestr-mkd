@@ -517,16 +517,17 @@ const LegacyApiService = {
 
   // --- DASHBOARD & LISTS ---
 
-  // [UPDATED] Получить список проектов с джойном заявки (замена RegistryService.getProjectsList)
+  // src/lib/api-service.js
+
+  // [UPDATED] Получить список проектов
   getProjectsList: async scope => {
     if (!scope) return [];
 
-    // Загружаем проекты и заявки отдельно, чтобы не терять проекты,
-    // у которых пока нет строки в applications (частый кейс на DEV при миграциях).
     const [projectsRes, appsRes] = await Promise.all([
       supabase
         .from('projects')
-        .select('id, name, region, address, construction_status, updated_at, created_at')
+        // ДОБАВИЛИ: buildings(count) — это быстрый запрос количества без самих данных
+        .select('id, uj_code, cadastre_number, name, region, address, construction_status, updated_at, created_at, buildings(count)')
         .eq('scope_id', scope)
         .order('updated_at', { ascending: false }),
       supabase
@@ -540,16 +541,20 @@ const LegacyApiService = {
     if (appsRes.error) throw appsRes.error;
 
     const appsByProject = (appsRes.data || []).reduce((acc, app) => {
-      // На всякий случай берем самую свежую заявку по проекту
       if (!acc[app.project_id]) acc[app.project_id] = app;
       return acc;
     }, {});
 
     return (projectsRes.data || []).map(project => {
       const app = appsByProject[project.id];
+      // Извлекаем количество зданий из ответа Supabase
+      // project.buildings вернет массив [{ count: N }]
+      const buildingsCount = project.buildings?.[0]?.count || 0;
 
       return {
         id: project.id,
+        ujCode: project.uj_code,
+        cadastre: project.cadastre_number,
         applicationId: app?.id || null,
         name: project.name || 'Без названия',
         status: normalizeProjectStatusFromDb(project.construction_status),
@@ -577,11 +582,12 @@ const LegacyApiService = {
           region: project.region,
           street: project.address,
         },
-        composition: [],
+        // СОЗДАЕМ "ВИРТУАЛЬНЫЙ" МАССИВ НУЖНОЙ ДЛИНЫ
+        // UI компонент просто смотрит .length, ему не нужны реальные данные внутри
+        composition: Array(buildingsCount).fill(1),
       };
     });
   },
-
 
   saveStepBlockStatuses: async ({ scope, projectId, stepIndex, statuses }) => {
     const { data: app, error: appErr } = await supabase

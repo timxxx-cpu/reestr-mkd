@@ -814,7 +814,7 @@ ${list}`
   );
 }
 
-// --- ТАБЛИЦА ЗАДАЧ ---
+// --- УЛУЧШЕННАЯ ТАБЛИЦА ПРОЕКТОВ (Modern UI) ---
 const ProjectsTable = ({
   data,
   user,
@@ -828,248 +828,325 @@ const ProjectsTable = ({
   if (!isLoading && data.length === 0) return <EmptyState />;
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <table className="w-full text-left text-sm border-collapse relative">
-        <thead className="bg-slate-50/95 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10 backdrop-blur-md shadow-sm">
-          <tr>
-            <th className="px-5 py-4 w-10 text-center">#</th>
-            <th className="px-5 py-4 w-32">№ Заявления</th>
-            <th className="px-5 py-4 w-28">Источник</th>
-            <th className="px-5 py-4 w-32">Внешний №</th>
-            <th className="px-5 py-4">Название ЖК</th>
-            <th className="px-5 py-4 w-56">Адрес</th>
-            <th className="px-5 py-4 w-64">Текущий этап</th>
-            <th className="px-5 py-4">Исполнитель</th>
-            <th className="px-5 py-4 w-28">Принято</th>
-            <th className="px-5 py-4 w-28">Обновлено</th>
-            <th className="px-5 py-4 text-center">Статус</th>
-            <th className="px-5 py-4 text-right">Действия</th>
-          </tr>
-        </thead>
-        {isLoading ? (
-          <TableSkeleton rows={5} cols={12} />
-        ) : (
-          <tbody className="divide-y divide-slate-100 bg-white">
-            {data.map((p, idx) => {
-              const app = p.applicationInfo || {};
-              const info = p.complexInfo || {};
-              const substatus = app.workflowSubstatus || WORKFLOW_SUBSTATUS.DRAFT;
-              const statusConfig = APP_STATUS_LABELS[app.status] || {
-                label: app.status,
-                color: getStageColor(app.status),
-              };
-              const substatusConfig = SUBSTATUS_LABELS[substatus] || statusConfig;
-              const isDeclined = app.status === APP_STATUS.DECLINED;
-              const isCompleted = app.status === APP_STATUS.COMPLETED;
-              const isPendingDeclineStatus = substatus === WORKFLOW_SUBSTATUS.PENDING_DECLINE;
+    // 1. Контейнер с тенью и скруглением
+    <div className="flex-1 overflow-hidden flex flex-col bg-white rounded-t-2xl shadow-[0_0_15px_rgba(0,0,0,0.05)] border border-slate-200/60">
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <table className="w-full text-left text-sm border-collapse relative">
+          
+          {/* 2. Акцентная темная шапка */}
+          <thead className="bg-slate-900 text-slate-300 sticky top-0 z-20 shadow-lg">
+            <tr>
+              {/* Используем text-center для заголовков, как вы просили */}
+              <th className="px-4 py-4 w-12 text-center text-[10px] font-bold uppercase tracking-wider opacity-60">
+                #
+              </th>
+              <th className="px-4 py-4 w-32 text-center text-[10px] font-bold uppercase tracking-wider">
+                UJ-код
+              </th>
+              <th className="px-4 py-4 w-40 text-center text-[10px] font-bold uppercase tracking-wider">
+                Кадастровый №
+              </th>
+              <th className="px-4 py-4 w-[18%] text-left text-[10px] font-bold uppercase tracking-wider">
+                Заявка / Источник
+              </th>
+              <th className="px-4 py-4 w-[22%] text-left text-[10px] font-bold uppercase tracking-wider">
+                Объект и Адрес
+              </th>
+              <th className="px-4 py-4 w-[20%] text-left text-[10px] font-bold uppercase tracking-wider">
+                Процесс
+              </th>
+              <th className="px-4 py-4 w-[12%] text-center text-[10px] font-bold uppercase tracking-wider">
+                Статус
+              </th>
+              <th className="px-4 py-4 text-right text-[10px] font-bold uppercase tracking-wider">
+                Действия
+              </th>
+            </tr>
+          </thead>
 
-              // ДАННЫЕ ДЛЯ ЭТАПА
-              const currentStepIdx = app.currentStepIndex || 0;
-              const stepTitle = STEPS_CONFIG[currentStepIdx]?.title || 'Завершено';
+          {isLoading ? (
+            <TableSkeleton rows={5} cols={8} />
+          ) : (
+            <tbody className="divide-y divide-slate-100">
+              {data.map((p, idx) => {
+                const app = p.applicationInfo || {};
+                const info = p.complexInfo || {};
+                const substatus = app.workflowSubstatus || WORKFLOW_SUBSTATUS.DRAFT;
+                
+                const statusConfig = APP_STATUS_LABELS[app.status] || {
+                  label: app.status,
+                  color: getStageColor(app.status),
+                };
+                const substatusConfig = SUBSTATUS_LABELS[substatus] || statusConfig;
+                
+                const isDeclined = app.status === APP_STATUS.DECLINED;
+                const isCompleted = app.status === APP_STATUS.COMPLETED;
+                const isPendingDeclineStatus = substatus === WORKFLOW_SUBSTATUS.PENDING_DECLINE;
 
-              const isAssignedToCurrentTechnician =
-                !app.assigneeName || app.assigneeName === user.name;
+                const currentStepIdx = app.currentStepIndex || 0;
+                const stepTitle = STEPS_CONFIG[currentStepIdx]?.title || 'Завершено';
 
-              const canEdit =
-                (user.role === ROLES.TECHNICIAN &&
-                  isAssignedToCurrentTechnician &&
-                  [
-                    WORKFLOW_SUBSTATUS.DRAFT,
-                    WORKFLOW_SUBSTATUS.REVISION,
-                    WORKFLOW_SUBSTATUS.RETURNED_BY_MANAGER,
-                    WORKFLOW_SUBSTATUS.INTEGRATION,
-                  ].includes(substatus)) ||
-                (user.role === ROLES.CONTROLLER && substatus === WORKFLOW_SUBSTATUS.REVIEW);
+                const isAssignedToCurrentTechnician = !app.assigneeName || app.assigneeName === user.name;
+                const canEdit =
+                  (user.role === ROLES.TECHNICIAN &&
+                    isAssignedToCurrentTechnician &&
+                    [
+                      WORKFLOW_SUBSTATUS.DRAFT,
+                      WORKFLOW_SUBSTATUS.REVISION,
+                      WORKFLOW_SUBSTATUS.RETURNED_BY_MANAGER,
+                      WORKFLOW_SUBSTATUS.INTEGRATION,
+                    ].includes(substatus)) ||
+                  (user.role === ROLES.CONTROLLER && substatus === WORKFLOW_SUBSTATUS.REVIEW);
 
-              const showDeclineBtn = canDeclineFromDashboard(user.role, app.status, substatus);
-              const isBranchManager = user.role === ROLES.BRANCH_MANAGER;
+                const showDeclineBtn = canDeclineFromDashboard(user.role, app.status, substatus);
+                const isBranchManager = user.role === ROLES.BRANCH_MANAGER;
 
-              return (
-                <tr
-                  key={p.id}
-                  className={`group transition-colors ${isDeclined ? 'bg-red-50 hover:bg-red-100' : isPendingDeclineStatus ? 'bg-amber-50/50 hover:bg-amber-50' : 'hover:bg-blue-50/30'}`}
-                >
-                  <td className="px-5 py-4 text-center text-slate-400 text-xs">{idx + 1}</td>
-                  <td className="px-5 py-4 font-mono text-xs font-bold text-slate-700">
-                    {app.internalNumber || '—'}
-                  </td>
-                  <td className="px-5 py-4">
-                    {app.externalSource ? (
-                      <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded border border-slate-200">
-                        {app.externalSource}
-                      </span>
-                    ) : (
-                      <span className="text-slate-300 text-xs">—</span>
-                    )}
-                  </td>
-                  <td className="px-5 py-4 font-mono text-xs text-slate-600">
-                    {app.externalId || '—'}
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      {p.ujCode && (
-                        <IdentifierBadge code={p.ujCode} type="project" variant="compact" />
-                      )}
-                      <div className="font-bold text-slate-800 text-sm line-clamp-1" title={p.name}>
-                        {p.name}
+                return (
+                  <tr
+                    key={p.id}
+                    className={`
+                      group transition-all duration-200 border-l-[3px]
+                      ${isDeclined 
+                        ? 'border-l-red-500 bg-red-50/30 hover:bg-red-50' 
+                        : isPendingDeclineStatus 
+                          ? 'border-l-amber-500 bg-amber-50/30 hover:bg-amber-50' 
+                          : isCompleted
+                            ? 'border-l-emerald-500 hover:bg-emerald-50/20'
+                            : 'border-l-transparent hover:border-l-blue-500 hover:bg-blue-50/40 hover:shadow-md hover:translate-x-0.5'
+                      }
+                    `}
+                  >
+                    {/* #1 Индекс */}
+                    <td className="px-4 py-5 text-center text-slate-400 text-xs font-mono font-medium">
+                      {idx + 1}
+                    </td>
+
+                    {/* #2 UJ-код (Центрирован) */}
+                    <td className="px-4 py-5 align-top">
+                      <div className="flex justify-center">
+                        {p.ujCode ? (
+                           <IdentifierBadge code={p.ujCode} type="project" variant="default" />
+                        ) : (
+                           <span className="text-xs text-slate-300 font-mono">—</span>
+                        )}
                       </div>
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-medium">
-                      {p.composition?.length || 0} объектов
-                    </div>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex items-start gap-1.5 text-xs text-slate-600">
-                      <MapPin size={12} className="mt-0.5 shrink-0 text-slate-400" />
-                      <span className="line-clamp-2 leading-tight" title={info.street}>
-                        {info.street || 'Адрес не указан'}
-                      </span>
-                    </div>
-                  </td>
+                    </td>
 
-                  {/* ЯЧЕЙКА ТЕКУЩЕГО ЭТАПА */}
-                  <td className="px-5 py-4">
-                    {isCompleted ? (
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600">
-                        <CheckCircle2 size={14} /> Завершен
+                    {/* #3 Кадастровый номер (Центрирован + Новый стиль) */}
+                    <td className="px-4 py-5 align-top">
+                      <div className="flex justify-center">
+                        {p.cadastre ? (
+                            <div className="flex items-center gap-1.5 bg-violet-50 px-2.5 py-1.5 rounded-lg border border-violet-100 group-hover:border-violet-200 transition-colors shadow-sm">
+                              <Database size={12} className="text-violet-400"/>
+                              <span className="text-xs font-mono font-bold text-violet-700 whitespace-nowrap tracking-tight">
+                                  {p.cadastre}
+                              </span>
+                            </div>
+                        ) : (
+                            <span className="text-xs text-slate-300 font-mono">—</span>
+                        )}
                       </div>
-                    ) : (
-                      <div className="flex flex-col">
-                        <span
-                          className="text-[11px] font-bold text-slate-700 line-clamp-1"
-                          title={stepTitle}
-                        >
-                          {stepTitle}
-                        </span>
-                        <VisualProgress current={currentStepIdx} total={STEPS_CONFIG.length} />
-                      </div>
-                    )}
-                  </td>
+                    </td>
 
-                  <td className="px-5 py-4">
-                    {app.assigneeName ? (
-                      <div className="flex items-center gap-2">
-                        <UserAvatar name={app.assigneeName} role={ROLES.TECHNICIAN} />
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-bold text-slate-700 leading-none">
-                            {app.assigneeName}
+                    {/* #4 Заявка */}
+                    <td className="px-4 py-5 align-top">
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-2">
+                           <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                            {app.internalNumber || '—'}
+                          </span>
+                          {app.externalSource && (
+                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider border border-slate-100 px-1 rounded-md">
+                              {app.externalSource}
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div className="flex flex-col gap-0.5">
+                           <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5">
+                              <span className="w-3 inline-block text-center text-slate-300">Ext</span>
+                              <span className="text-slate-600 font-medium">{app.externalId || '—'}</span>
+                           </div>
+                           <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5">
+                              <Clock size={10} className="text-slate-300"/> 
+                              <span>{formatDate(app.submissionDate)}</span>
+                           </div>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* #5 Объект */}
+                    <td className="px-4 py-5 align-top">
+                      <div className="flex flex-col gap-2">
+                        <div className="font-bold text-slate-800 text-sm leading-snug group-hover:text-blue-700 transition-colors" title={p.name}>
+                          {p.name}
+                        </div>
+                        
+                        <div className="flex items-start gap-1.5 text-xs text-slate-500">
+                          <MapPin size={13} className="mt-0.5 shrink-0 text-slate-400" />
+                          <span className="line-clamp-2 leading-relaxed" title={info.street}>
+                            {info.street || 'Адрес не указан'}
                           </span>
                         </div>
+                        
+                         <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                              {p.composition?.length || 0} зданий и сооружений
+                            </span>
+                         </div>
                       </div>
-                    ) : (
-                      <span className="text-slate-300 text-xs">—</span>
-                    )}
-                  </td>
-                  <td className="px-5 py-4 text-xs text-slate-500 whitespace-nowrap">
-                    {formatDate(app.submissionDate)}
-                  </td>
-                  <td className="px-5 py-4 text-xs text-slate-500 whitespace-nowrap">
-                    {formatDate(p.lastModified)}
-                  </td>
-                  <td className="px-5 py-4 text-center">
-                    <div className="flex flex-col items-center gap-1 relative group/tooltip">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold uppercase border shadow-sm ${statusConfig.color}`}
-                      >
-                        {statusConfig.label}
-                        {isDeclined && <AlertCircle size={12} className="ml-1.5" />}
-                      </span>
-                      {substatus && substatus !== WORKFLOW_SUBSTATUS.DRAFT && substatus !== WORKFLOW_SUBSTATUS.DONE && !isDeclined && (
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold border ${substatusConfig.color}`}
-                        >
-                          {substatusConfig.label}
-                        </span>
-                      )}
-                      {(isDeclined || app.rejectionReason || app.requestedDeclineReason) && (
-                        <div className="absolute bottom-full mb-2 w-56 bg-slate-800 text-white text-xs p-3 rounded-xl shadow-xl opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-all z-50 text-left -translate-x-1/2 left-1/2">
-                          <div className="font-bold text-red-300 mb-1 border-b border-white/10 pb-1">
-                            {isDeclined ? 'Причина отказа:' : isPendingDeclineStatus ? 'Запрос на отказ:' : 'Причина возврата:'}
-                          </div>
-                          {app.requestedDeclineReason || app.rejectionReason || 'Не указана'}
-                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+                    </td>
+
+                    {/* #6 Процесс */}
+                    <td className="px-4 py-5 align-top">
+                      <div className="flex flex-col gap-3">
+                        <div className="bg-white/50 p-2 rounded-lg border border-slate-100 shadow-sm group-hover:border-blue-100 transition-colors">
+                          {isCompleted ? (
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600">
+                              <CheckCircle2 size={14} /> 
+                              <span>Процесс завершен</span>
+                            </div>
+                          ) : (
+                             <>
+                               <div className="flex justify-between items-baseline mb-1.5">
+                                  <span className="text-[11px] font-bold text-slate-700 line-clamp-1 mr-2" title={stepTitle}>
+                                    {stepTitle}
+                                  </span>
+                                  <span className="text-[9px] text-slate-400 font-mono font-bold bg-slate-100 px-1 rounded">
+                                    {currentStepIdx + 1}/{STEPS_CONFIG.length}
+                                  </span>
+                               </div>
+                               <VisualProgress current={currentStepIdx} total={STEPS_CONFIG.length} />
+                             </>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-5 py-4 text-right">
-                    <div className="flex justify-end gap-2">
-                      <Tooltip content="Открыть в режиме просмотра">
-                        <button
-                          onClick={() => onSelect(p.id, 'view')}
-                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100"
-                        >
-                          <Eye size={16} />
-                        </button>
-                      </Tooltip>
-                      {!isCompleted && canEdit && (
-                        <Tooltip content="Взять в работу и редактировать">
-                          <button
-                            onClick={() => {
-                              if (user.role === ROLES.TECHNICIAN && app.assigneeName && app.assigneeName !== user.name) {
-                                alert(`Заявка назначена на ${app.assigneeName}. Взять в работу нельзя.`);
-                                return;
-                              }
-                              onSelect(p.id, 'edit');
-                            }}
-                            className="p-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-lg transition-all shadow-sm hover:shadow active:scale-95"
-                          >
-                            <PlayCircle size={16} />
-                          </button>
-                        </Tooltip>
-                      )}
-                      {isPendingDeclineStatus && onReturnFromDecline && (isBranchManager || user.role === ROLES.ADMIN) && (
-                        <Tooltip content="Вернуть технику на доработку">
-                          <button
-                            onClick={() => onReturnFromDecline(p.id, p.name)}
-                            className="p-2 text-slate-300 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors border border-transparent hover:border-amber-100"
-                          >
-                            <Undo2 size={16} />
-                          </button>
-                        </Tooltip>
-                      )}
-                      {showDeclineBtn && onDecline && (
-                        <Tooltip content="Отказать заявление">
-                          <button
-                            onClick={() => onDecline(p.id, p.name)}
-                            className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
-                          >
-                            <Ban size={16} />
-                          </button>
-                        </Tooltip>
-                      )}
-                      {onReassign && !isCompleted && !isDeclined && (
-                        <Tooltip content="Передать заявку другому технику">
-                          <button
-                            onClick={() => onReassign(p.id, p.name, app.assigneeName)}
-                            className="p-2 text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors border border-transparent hover:border-emerald-100"
-                          >
-                            <UserCheck size={16} />
-                          </button>
-                        </Tooltip>
-                      )}
-                      {onDelete && (
-                        <Tooltip content="Удалить проект" placement="left">
-                          <button
-                            onClick={() => onDelete(p.id)}
-                            className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </Tooltip>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        )}
-      </table>
+
+                        <div className="flex items-center gap-2 pl-1">
+                           {app.assigneeName ? (
+                              <>
+                                <UserAvatar name={app.assigneeName} role={ROLES.TECHNICIAN} />
+                                <div className="flex flex-col">
+                                  <span className="text-[9px] text-slate-400 uppercase tracking-wide leading-none mb-0.5">Исп.</span>
+                                  <span className="text-[10px] font-bold text-slate-700 leading-none">
+                                    {app.assigneeName}
+                                  </span>
+                                </div>
+                              </>
+                            ) : (
+                              <span className="text-slate-300 text-[10px] italic">Не назначен</span>
+                            )}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* #7 Статус (Центрирован) */}
+                    <td className="px-4 py-5 align-top">
+                      <div className="flex flex-col items-center gap-2">
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold uppercase border shadow-sm ${statusConfig.color}`}>
+                          {statusConfig.label}
+                          {isDeclined && <AlertCircle size={12} className="ml-1.5" />}
+                        </span>
+
+                        {substatus && 
+                         substatus !== WORKFLOW_SUBSTATUS.DRAFT && 
+                         substatus !== WORKFLOW_SUBSTATUS.DONE && 
+                         !isDeclined && (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold border bg-white/50 backdrop-blur-sm ${substatusConfig.color}`}>
+                            {substatusConfig.label}
+                          </span>
+                        )}
+
+                        {(isDeclined || app.rejectionReason || app.requestedDeclineReason) && (
+                          <div className="relative group/reason">
+                             <div className="cursor-help bg-red-50 text-red-600 p-1 rounded-full border border-red-100 hover:bg-red-100 transition-colors">
+                                <AlertCircle size={14} />
+                             </div>
+                             {/* Всплывашка причины */}
+                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-slate-800 text-white text-[10px] p-2 rounded-lg shadow-xl opacity-0 group-hover/reason:opacity-100 pointer-events-none transition-all z-50">
+                                <span className="font-bold block mb-1 text-red-300">
+                                   {isDeclined ? 'Причина отказа:' : 'Запрос на отказ:'}
+                                </span>
+                                {app.requestedDeclineReason || app.rejectionReason || '—'}
+                             </div>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* #8 Действия */}
+                    <td className="px-4 py-5 text-right align-top">
+                      <div className="flex flex-col items-end gap-2">
+                         {!isCompleted && canEdit ? (
+                            <Tooltip content="Взять в работу">
+                              <button
+                                onClick={() => {
+                                  if (user.role === ROLES.TECHNICIAN && app.assigneeName && app.assigneeName !== user.name) {
+                                    alert(`Заявка назначена на ${app.assigneeName}`);
+                                    return;
+                                  }
+                                  onSelect(p.id, 'edit');
+                                }}
+                                className="group/btn flex items-center gap-2 pl-3 pr-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-md shadow-blue-200 hover:shadow-lg transition-all active:scale-95"
+                              >
+                                <PlayCircle size={14} className="group-hover/btn:fill-white/20" /> Открыть
+                              </button>
+                            </Tooltip>
+                         ) : (
+                            <Tooltip content="Просмотр">
+                              <button
+                                onClick={() => onSelect(p.id, 'view')}
+                                className="flex items-center gap-2 pl-3 pr-4 py-1.5 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 hover:border-slate-300 text-xs font-bold rounded-lg transition-all shadow-sm"
+                              >
+                                <Eye size={14} /> Детали
+                              </button>
+                            </Tooltip>
+                         )}
+
+                         <div className="flex items-center justify-end gap-1 mt-1 opacity-40 group-hover:opacity-100 transition-opacity duration-300">
+                            {isPendingDeclineStatus && onReturnFromDecline && (isBranchManager || user.role === ROLES.ADMIN) && (
+                              <Tooltip content="Вернуть на доработку">
+                                <button onClick={() => onReturnFromDecline(p.id, p.name)} className="p-1.5 text-amber-600 bg-amber-50 hover:bg-amber-100 rounded-md transition-colors">
+                                  <Undo2 size={14} />
+                                </button>
+                              </Tooltip>
+                            )}
+                            
+                            {showDeclineBtn && onDecline && (
+                              <Tooltip content="Отказать">
+                                <button onClick={() => onDecline(p.id, p.name)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors">
+                                  <Ban size={14} />
+                                </button>
+                              </Tooltip>
+                            )}
+
+                            {onReassign && !isCompleted && !isDeclined && (
+                              <Tooltip content="Сменить исполнителя">
+                                <button onClick={() => onReassign(p.id, p.name, app.assigneeName)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors">
+                                  <UserCheck size={14} />
+                                </button>
+                              </Tooltip>
+                            )}
+
+                            {onDelete && (
+                              <Tooltip content="Удалить">
+                                <button onClick={() => onDelete(p.id)} className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors">
+                                  <Trash2 size={14} />
+                                </button>
+                              </Tooltip>
+                            )}
+                         </div>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          )}
+        </table>
+      </div>
     </div>
   );
 };
-
 // --- ТАБЛИЦА ВХОДЯЩИХ ---
 const InboxTable = ({ data, onTake, canTake }) => {
   if (data.length === 0)
