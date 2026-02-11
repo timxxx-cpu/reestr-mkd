@@ -901,8 +901,9 @@ export const validateStepCompletion = (stepId, contextData) => {
 };
 
 
-const getStepBlocksForStatus = (stepId, building, buildingDetails = {}) => {
+export const getStepBlocksForStatus = (stepId, building, buildingDetails = {}) => {
   const blocks = getBlocksList(building, buildingDetails);
+// ...
 
   if (stepId === 'registry_nonres') return blocks.filter(b => b.type !== 'Ж');
   if (['registry_res', 'entrances', 'apartments', 'mop'].includes(stepId)) {
@@ -932,8 +933,10 @@ const blockHasStepData = (stepId, detailsKey, contextData = {}) => {
   return false;
 };
 
-const buildScopedContextForBlock = (stepId, building, block, contextData = {}) => {
+export const buildScopedContextForBlock = (stepId, building, block, contextData = {}) => {
   const detailsKey = `${building.id}_${block.id}`;
+// ...
+// ...
 
   if (stepId === 'registry_nonres' || stepId === 'registry_res') {
     return {
@@ -968,10 +971,13 @@ export const evaluateBuildingFillStatusForStep = (stepId, building, contextData 
     const scopedContext = buildScopedContextForBlock(stepId, building, block, contextData);
     const errors = validateStepCompletion(stepId, scopedContext) || [];
 
-    let status = BLOCK_FILL_STATUS.FILLED;
-    if (errors.length > 0) {
-      status = hasData ? BLOCK_FILL_STATUS.PARTIAL : BLOCK_FILL_STATUS.EMPTY;
-    }
+    // Используем тернарный оператор вместо переопределения let, чтобы избежать ошибок типов
+    const status =
+      errors.length > 0
+        ? hasData
+          ? BLOCK_FILL_STATUS.PARTIAL
+          : BLOCK_FILL_STATUS.EMPTY
+        : BLOCK_FILL_STATUS.FILLED;
 
     return {
       blockId: block.id,
@@ -983,15 +989,16 @@ export const evaluateBuildingFillStatusForStep = (stepId, building, contextData 
   });
 
   const statuses = evaluatedBlocks.map(item => item.status);
-  let buildingStatus = BLOCK_FILL_STATUS.EMPTY;
+  
+  const isAllFilled = statuses.every(item => item === BLOCK_FILL_STATUS.FILLED);
+  const isAllEmpty = statuses.every(item => item === BLOCK_FILL_STATUS.EMPTY);
 
-  if (statuses.every(item => item === BLOCK_FILL_STATUS.FILLED)) {
-    buildingStatus = BLOCK_FILL_STATUS.FILLED;
-  } else if (statuses.every(item => item === BLOCK_FILL_STATUS.EMPTY)) {
-    buildingStatus = BLOCK_FILL_STATUS.EMPTY;
-  } else {
-    buildingStatus = BLOCK_FILL_STATUS.PARTIAL;
-  }
+  // Вычисляем статус здания без использования let
+  const buildingStatus = isAllFilled
+    ? BLOCK_FILL_STATUS.FILLED
+    : isAllEmpty
+      ? BLOCK_FILL_STATUS.EMPTY
+      : BLOCK_FILL_STATUS.PARTIAL;
 
   return {
     buildingStatus,

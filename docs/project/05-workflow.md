@@ -236,6 +236,28 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
 | `requested_decline_by` | `applicationInfo.requestedDeclineBy` | TEXT | Кто запросил отказ |
 | `requested_decline_at` | `applicationInfo.requestedDeclineAt` | TIMESTAMPTZ | Когда запрошен отказ |
 
+### Таблица `application_steps`
+
+| Поле БД | UI-поле | Тип | Назначение |
+|---------|---------|-----|-----------|
+| `application_id` + `step_index` | (ключ шага) | UUID + INT | Однозначная запись конкретного шага заявки |
+| `is_completed` | `applicationInfo.completedSteps` | BOOLEAN | Факт завершения шага техником |
+| `is_verified` | `applicationInfo.verifiedSteps` | BOOLEAN | Факт проверки шага контролером |
+| `block_statuses` | `applicationInfo.stepBlockStatuses[stepIndex]` | JSONB | Статусы заполнения блоков по текущему шагу (сохраняются кнопкой «Сохранить» в редакторе здания) |
+
+**Шаги, где используется `block_statuses`**:
+- `registry_nonres`
+- `registry_res`
+- `floors`
+- `entrances`
+- `apartments`
+- `mop`
+
+**Статусы заполнения блока**:
+- `Заполнено`
+- `Не заполнено`
+- `Заполнено частично`
+
 ## 5.5 Этапы и шаги workflow
 
 ### Конфигурация этапов

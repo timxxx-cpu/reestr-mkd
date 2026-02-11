@@ -56,6 +56,7 @@
      - composition, registry_res, registry_nonres
      - floors, entrances, apartments
      - mop, parking_config
+   - Шаговый расчет и сохранение `Статуса заполнения блоков` (по кнопке `Сохранить` в редакторе здания)
    - Триггеры валидации
    - Типы сообщений (error, warning, info)
    - Отображение ошибок в UI
@@ -63,6 +64,7 @@
 8. [Маппинг UI ↔ DB, синхронизация и миграционные заметки](./08-integration-sync-and-migration.md)
    - Соответствие UI-структур и таблиц БД
    - Логика синхронизации данных
+   - Шаговый JSONB `application_steps.block_statuses` (статусы блоков по шагам)
    - Интеграция с УЗКАД
    - Миграционные заметки
 

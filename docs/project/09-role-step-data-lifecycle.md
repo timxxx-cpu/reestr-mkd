@@ -255,6 +255,7 @@ application_history: INSERT (action='COMPLETE_STEP')
 - `block_engineering.has_ventilation` -> `engineering.ventilation` -> **Вентиляция**.
 - `block_engineering.has_firefighting` -> `engineering.firefighting` -> **Пожаротушение**.
 - `block_engineering.has_lowcurrent` -> `engineering.lowcurrent` -> **Слаботочные сети**.
+- `application_steps.block_statuses` -> `applicationInfo.stepBlockStatuses[currentStepIndex]` -> **Статус заполнения блоков/здания по текущему шагу (кнопка "Сохранить" в редакторе)**.
 
 ## 9.5 Шаг `floors`
 
@@ -268,6 +269,7 @@ application_history: INSERT (action='COMPLETE_STEP')
 - `floors.is_duplex` -> `floorData.isDuplex` -> **Дуплексный этаж**.
 - `floors.is_technical` -> `floorData.flags.isTechnical` -> **Технический этаж**.
 - `floors.is_commercial` -> `floorData.flags.isCommercial` -> **Коммерческий этаж**.
+- `application_steps.block_statuses` -> `applicationInfo.stepBlockStatuses[currentStepIndex]` -> **Статус заполнения блоков по шагу `floors`**.
 
 ## 9.6 Шаг `entrances`
 
@@ -275,6 +277,7 @@ application_history: INSERT (action='COMPLETE_STEP')
 - `entrance_matrix.flats_count` -> `entrancesData.apts` -> **Количество квартир по ячейке матрицы**.
 - `entrance_matrix.commercial_count` -> `entrancesData.units` -> **Количество нежилых помещений по ячейке**.
 - `entrance_matrix.mop_count` -> `entrancesData.mopQty` -> **Количество МОП по ячейке**.
+- `application_steps.block_statuses` -> `applicationInfo.stepBlockStatuses[currentStepIndex]` -> **Статус заполнения блоков по шагу `entrances`**.
 
 ## 9.7 Шаг `apartments`
 
@@ -290,6 +293,7 @@ application_history: INSERT (action='COMPLETE_STEP')
 - `rooms.name` -> `explication.label` -> **Название комнаты/зоны**.
 - `rooms.area` -> `explication.area` -> **Площадь комнаты/зоны**.
 - `rooms.level` -> `explication.level` -> **Уровень комнаты**.
+- `application_steps.block_statuses` -> `applicationInfo.stepBlockStatuses[currentStepIndex]` -> **Статус заполнения блоков по шагу `apartments`**.
 
 ## 9.8 Шаг `mop`
 
@@ -297,6 +301,19 @@ application_history: INSERT (action='COMPLETE_STEP')
 - `common_areas.area` -> `mopData.area` -> **Площадь МОП**.
 - `common_areas.floor_id` -> `mopData.floorId` -> **Этаж МОП**.
 - `common_areas.entrance_id` -> `mopData.entranceId` -> **Подъезд МОП**.
+- `application_steps.block_statuses` -> `applicationInfo.stepBlockStatuses[currentStepIndex]` -> **Статус заполнения блоков по шагу `mop`**.
+
+### 9.8.1 Шаговый алгоритм сохранения статуса блоков
+
+1. Пользователь работает в редакторе конкретного здания.
+2. Нажимает кнопку `Сохранить` в `ConfigHeader`.
+3. Клиент вызывает step-валидацию в контексте текущего шага и текущего здания.
+4. Для каждого блока формируется один из статусов:
+   - `Заполнено`
+   - `Не заполнено`
+   - `Заполнено частично`
+5. Результат сохраняется в `application_steps.block_statuses` текущего `step_index`.
+6. В таблице зданий (`BuildingSelector`) обновляется колонка `Статус заполнения`.
 
 ## 9.9 Шаг `parking_config`
 

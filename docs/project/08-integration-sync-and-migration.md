@@ -12,14 +12,35 @@
 - `entrancesData` -> `entrance_matrix` -> **Матрица подъезд/этаж**.
 - `flatMatrix` -> `units` + `rooms` -> **Реестр помещений/экспликация**.
 - `mopData` -> `common_areas` -> **МОП**.
+- `applicationInfo.stepBlockStatuses[stepIndex]` -> `application_steps.block_statuses` -> **Статусы заполнения блоков по шагу**.
 
 ## Синхронизация записей
 
 - `saveData` пишет пакетами в бизнес-таблицы.
 - `saveProjectImmediate` сериализует очередь сохранений.
+- `saveStepBlockStatuses` делает upsert в `application_steps` по ключу (`application_id`, `step_index`) и обновляет `block_statuses`.
 - Post-sync:
   - `syncEntrances` обновляет `entrances` и чистит хвост в `entrance_matrix`;
   - sync floors from details пересобирает `floors` по конфигурации блока.
+
+## Step block statuses: UI ↔ DB
+
+### Где в UI
+
+- На шагах с блоками (`registry_nonres`, `registry_res`, `floors`, `entrances`, `apartments`, `mop`) в редакторе здания есть кнопка `Сохранить`.
+- В таблице выбора зданий отображается отдельная колонка `Статус заполнения`.
+
+### Где в БД
+
+- `application_steps.block_statuses` (JSONB):
+  - хранит карту зданий и блоков для конкретного `step_index`;
+  - не смешивает статусы разных шагов между собой.
+
+### Почему хранение в `application_steps`
+
+- Статус заполнения зависит от контекста шага и его валидации;
+- один и тот же блок может иметь разный статус на разных шагах;
+- ключ `(application_id, step_index)` дает естественную и прозрачную нормализацию для таких данных.
 
 ## Интеграция
 

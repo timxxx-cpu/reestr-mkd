@@ -2752,4 +2752,5 @@ export const ApiService = {
   ...createRegistryApi(LegacyApiService),
   ...createVersionsApi(LegacyApiService),
   saveData: LegacyApiService.saveData,
+  saveStepBlockStatuses: LegacyApiService.saveStepBlockStatuses,
 };

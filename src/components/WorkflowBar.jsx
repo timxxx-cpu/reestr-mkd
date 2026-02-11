@@ -26,6 +26,16 @@ import { canRequestDecline, canReviewDeclineRequest } from '@lib/workflow-state-
 import { IdentifierBadge } from '@components/ui/IdentifierBadge';
 import { useKeyboardShortcuts } from '@hooks/useKeyboardShortcuts';
 
+// Шаги, на которых сохранение выполняется через локальные формы (блокируем верхние кнопки)
+const STEPS_WITH_CUSTOM_SAVE = [
+  'registry_nonres', // Нежилые блоки и инфраструктура
+  'registry_res',    // Жилые блоки
+  'floors',          // Внешняя инвентаризация
+  'entrances',       // Инвентаризация подъездов
+  'apartments',      // Нумерация квартир
+  'mop',             // Инвентаризация МОП
+];
+
 // Импорт валидатора
 import { validateStepCompletion } from '@lib/step-validators';
 
@@ -398,6 +408,9 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
 
   const currentStageNum = getStepStage(currentStep);
 
+  const currentStepId = STEPS_CONFIG[currentStep]?.id;
+  const isCustomSaveStep = STEPS_WITH_CUSTOM_SAVE.includes(currentStepId);
+  
   const stageConfig = WORKFLOW_STAGES[currentStageNum];
   const isStageBoundary = stageConfig && stageConfig.lastStepIndex === currentStep;
   const isLastStepGlobal = currentStep === STEPS_CONFIG.length - 1;
@@ -1074,8 +1087,8 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
 
             <Button
               onClick={handleSave}
-              disabled={isActionDisabled}
-              title="Ctrl+S"
+             disabled={isActionDisabled || isCustomSaveStep}
+              title={isCustomSaveStep ? "Сохранение выполняется в форме ниже" : "Ctrl+S"}
               className={`relative h-10 shadow-sm transition-all border ${
                 hasUnsavedChanges
                   ? 'bg-blue-600 text-white border-blue-500 hover:bg-blue-500 ring-2 ring-blue-500/30'
@@ -1094,7 +1107,9 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
             <Button
               variant="secondary"
               onClick={handleSaveAndExit}
-              disabled={isActionDisabled}
+              // БЫЛО: disabled={isActionDisabled}
+              // СТАЛО:
+              disabled={isActionDisabled || isCustomSaveStep}
               title="Ctrl+Shift+S"
               className="bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 hover:text-white h-10 shadow-sm"
             >

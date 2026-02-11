@@ -1,11 +1,21 @@
 import React, { useMemo } from 'react';
-import { ArrowRight, Building2, Search, Loader2 } from 'lucide-react';
-import { useProject } from '@context/ProjectContext'; // Оставляем только для projectId
-import { useDirectBuildings } from '@hooks/api/useDirectBuildings'; // Новый хук
+import { 
+  ArrowRight, 
+  Building2, 
+  Search, 
+  Loader2, 
+  CheckCircle2, 
+  AlertTriangle, 
+  HelpCircle,
+  AlertCircle
+} from 'lucide-react';
+import { useProject } from '@context/ProjectContext';
+import { useDirectBuildings } from '@hooks/api/useDirectBuildings';
 import { STEPS_CONFIG } from '@lib/constants';
 import { getStageColor } from '@lib/utils';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { formatFullIdentifier } from '@lib/uj-identifier';
+import { BLOCK_FILL_STATUS } from '@lib/step-validators'; // Импорт статусов
 
 const PARKING_CONSTRUCTION_NAMES = {
   capital: 'Капитальный',
@@ -28,7 +38,6 @@ const TYPE_NAMES = {
 const BuildingSelector = ({ stepId, onSelect }) => {
   const { projectId, complexInfo, applicationInfo } = useProject();
   const projectUjCode = complexInfo?.ujCode;
-   // [FIX] Читаем напрямую из БД
   const { buildings, isLoading } = useDirectBuildings(projectId);
 
   const filteredItems = useMemo(() => {
@@ -96,14 +105,14 @@ const BuildingSelector = ({ stepId, onSelect }) => {
       </div>
 
      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-h-[300px]">
-        <div className="grid grid-cols-14 bg-slate-50/80 border-b border-slate-200 py-4 px-6 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
+        {/* [GRID FIX] Используем grid-cols-12 для более стандартной сетки, объединяя колонки */}
+        <div className="grid grid-cols-12 bg-slate-50/80 border-b border-slate-200 py-4 px-6 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
           <div className="col-span-1 text-center">#</div>
           <div className="col-span-1 text-center">Дом №</div>
           <div className="col-span-2">Код</div>
-          <div className="col-span-4">Наименование</div>
+          <div className="col-span-3">Наименование</div>
           <div className="col-span-2">Характеристики</div>
-          <div className="col-span-1">Статус</div>
-          <div className="col-span-2">Статус заполнения</div>
+          <div className="col-span-2 text-center">Статус заполнения</div> {/* Расширил */}
           <div className="col-span-1 text-right"></div>
         </div>
 
@@ -130,11 +139,36 @@ const BuildingSelector = ({ stepId, onSelect }) => {
               detailsBadge = `${pType} • ${pConstName}`;
             }
 
+            // Логика статуса валидации
+            const rawStatus = STATUS_STEP_IDS.includes(stepId)
+                ? stepStatuses[item.id]?.status 
+                : null;
+            
+            const validationStatus = rawStatus || BLOCK_FILL_STATUS.EMPTY;
+
+            let statusColors = 'bg-slate-100 text-slate-500 border-slate-200';
+            let StatusIcon = HelpCircle;
+            let statusLabel = 'Не заполнено';
+
+            if (validationStatus === BLOCK_FILL_STATUS.FILLED) {
+              statusColors = 'bg-emerald-100 text-emerald-700 border-emerald-200';
+              StatusIcon = CheckCircle2;
+              statusLabel = 'Заполнено';
+            } else if (validationStatus === BLOCK_FILL_STATUS.PARTIAL) {
+              statusColors = 'bg-amber-100 text-amber-700 border-amber-200';
+              StatusIcon = AlertTriangle;
+              statusLabel = 'Частично';
+            } else {
+               // Для пустого статуса: если данные еще не вводились, показываем нейтральный серый или красный
+               statusColors = 'bg-slate-50 text-slate-400 border-slate-200'; 
+               StatusIcon = AlertCircle;
+            }
+
            return (
               <div
                 key={item.id}
                 onClick={() => onSelect(item.id)}
-                className="grid grid-cols-14 items-center py-4 px-6 hover:bg-blue-50/50 cursor-pointer transition-colors group even:bg-slate-50/50"
+                className="grid grid-cols-12 items-center py-4 px-6 hover:bg-blue-50/50 cursor-pointer transition-colors group even:bg-slate-50/50"
               >
                 <div className="col-span-1 text-xs font-bold text-slate-400 text-center group-hover:text-blue-400">
                   {idx + 1}
@@ -158,8 +192,8 @@ const BuildingSelector = ({ stepId, onSelect }) => {
                    )}
                 </div>
 
-                {/* НАИМЕНОВАНИЕ + ТИП (Стиль как в CompositionEditor) */}
-                <div className="col-span-4 pr-4">
+                {/* НАИМЕНОВАНИЕ + ТИП */}
+                <div className="col-span-3 pr-4">
                   <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors line-clamp-1">
                     {item.label}
                   </div>
@@ -168,9 +202,14 @@ const BuildingSelector = ({ stepId, onSelect }) => {
                   </div>
                 </div>
 
-                {/* ХАРАКТЕРИСТИКИ (Только бейджи) */}
+                {/* ХАРАКТЕРИСТИКИ + СТАДИЯ */}
                 <div className="col-span-2 pr-4 flex flex-col justify-center gap-1.5">
                   <div className="flex flex-wrap gap-1">
+                    <span
+                      className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}
+                    >
+                      {item.stage || 'Проект'}
+                    </span>
                     {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
                       <span className="px-1.5 py-0.5 bg-slate-100 rounded border border-slate-200 text-[9px] font-bold text-slate-600">
                         {item.resBlocks} жил. / {item.nonResBlocks} нежил.
@@ -178,7 +217,7 @@ const BuildingSelector = ({ stepId, onSelect }) => {
                     )}
                     {item.hasNonResPart && (
                       <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[9px] font-bold">
-                        +Нежилые объекты на жилых этажах
+                        +Нежилые
                       </span>
                     )}
                     {item.category === 'infrastructure' && (
@@ -194,20 +233,18 @@ const BuildingSelector = ({ stepId, onSelect }) => {
                   </div>
                 </div>
 
-                <div className="col-span-1 pr-4">
-                  <span
-                    className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}
-                  >
-                    {item.stage || 'Проект'}
-                  </span>
+                {/* ЦВЕТНОЙ СТАТУС ВАЛИДАЦИИ */}
+                <div className="col-span-2 flex justify-center">
+                   {STATUS_STEP_IDS.includes(stepId) ? (
+                      <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${statusColors} shadow-sm transition-all min-w-[120px] justify-center`}>
+                          <StatusIcon size={14} />
+                          <span className="text-xs font-bold">{statusLabel}</span>
+                      </div>
+                   ) : (
+                      <span className="text-slate-300 text-xs">-</span>
+                   )}
                 </div>
-                <div className="col-span-2 pr-4">
-                  <span className="text-[10px] px-2 py-0.5 rounded-md font-semibold border bg-slate-50 text-slate-600 border-slate-200 whitespace-nowrap">
-                    {STATUS_STEP_IDS.includes(stepId)
-                      ? stepStatuses[item.id]?.status || 'Не заполнено'
-                      : '-'}
-                  </span>
-                </div>
+
                 <div className="col-span-1 flex justify-end">
                   <div className="w-8 h-8 rounded-full bg-white border border-slate-100 flex items-center justify-center text-slate-300 shadow-sm group-hover:bg-blue-600 group-hover:border-blue-600 group-hover:text-white transition-all">
                     <ArrowRight size={14} />

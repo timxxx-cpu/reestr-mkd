@@ -159,6 +159,7 @@
 | `step_index` | INT | NOT NULL, UNIQUE(application_id, step_index) | (индекс) | **Номер шага (0-16)** | При создании | Индекс шага из STEPS_CONFIG |
 | `is_completed` | BOOLEAN | NOT NULL, DEFAULT false | `applicationInfo.completedSteps` | **Шаг выполнен** | При COMPLETE_STEP | true при завершении шага техником |
 | `is_verified` | BOOLEAN | NOT NULL, DEFAULT false | `applicationInfo.verifiedSteps` | **Шаг проверен** | При REVIEW_APPROVE | true при принятии контролером |
+| `block_statuses` | JSONB | NOT NULL, DEFAULT '{}'::jsonb | `applicationInfo.stepBlockStatuses[stepIndex]` | **Статусы заполнения блоков по шагу** | При нажатии «Сохранить» в редакторе здания на шагах с блоками | Рассчитывается клиентом по правилам step-валидации (`validateStepCompletion`) и сохраняется в запись текущего `step_index` |
 | `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата создания** | При создании | Автоматически БД |
 | `updated_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата обновления** | При изменении флагов | Автоматически при UPDATE |
 
@@ -166,6 +167,27 @@
 1. При переходе на следующий шаг → `is_completed` для предыдущего шага устанавливается в `true`
 2. При принятии этапа контролером → `is_verified` для всех шагов этапа устанавливается в `true`
 3. При откате шага → `is_completed` и `is_verified` сбрасываются в `false`
+4. На шагах с блоками (`registry_nonres`, `registry_res`, `floors`, `entrances`, `apartments`, `mop`) по кнопке «Сохранить» обновляется `block_statuses` текущего шага.
+
+**Структура `block_statuses` (пример)**:
+```json
+{
+  "<building_id>": {
+    "buildingId": "...",
+    "buildingLabel": "Корпус 1",
+    "status": "Заполнено частично",
+    "updatedAt": "2026-02-11T10:15:00.000Z",
+    "blocks": {
+      "<block_id>": {
+        "status": "Заполнено",
+        "label": "Секция А",
+        "errorsCount": 0,
+        "detailsKey": "<building_id>_<block_id>"
+      }
+    }
+  }
+}
+```
 
 **Связи**:
 - Многие-к-одному с `applications` через `application_id`

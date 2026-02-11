@@ -25,6 +25,11 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   const toast = useToast();
   const dbScope = customScope || user?.uid;
 
+  // [FIX] Определяем режим просмотра глобально
+  const isViewMode = typeof window !== 'undefined' 
+    ? new URLSearchParams(window.location.search).get('mode') === 'view' 
+    : false;
+
   const { projectMeta: serverData, isLoading, refetch } = useProjectData(dbScope, projectId);
 
   const [projectMeta, setProjectMeta] = useState({});
@@ -49,7 +54,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     let heartbeatId = null;
     let acquiredApplicationId = null;
 
-    const isViewMode = new URLSearchParams(window.location.search).get('mode') === 'view';
+    // Используем уже вычисленный isViewMode
     if (!dbScope || !projectId || !userProfile?.name || isViewMode) return undefined;
 
     const shouldLock = userProfile.role === 'technician' || userProfile.role === 'admin';
@@ -102,9 +107,10 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         }).catch(() => {});
       }
     };
-  }, [dbScope, projectId, userProfile, toast]);
+  }, [dbScope, projectId, userProfile, toast, isViewMode]);
 
-  const effectiveReadOnly = isReadOnly || Boolean(lockDeniedMessage);
+  // [FIX] Добавляем isViewMode в условие ReadOnly
+  const effectiveReadOnly = isReadOnly || Boolean(lockDeniedMessage) || isViewMode;
 
   const { saveData, saveProjectImmediate } = useProjectSyncLayer({
     dbScope,
@@ -223,8 +229,13 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
       const evaluated = evaluateBuildingFillStatusForStep(stepId, targetBuilding, mergedState);
       const currentStepIndex = mergedState.applicationInfo?.currentStepIndex ?? 0;
+      
+      // Берем текущие статусы из общего состояния (сервер + локальное)
+      const currentAppInfo = mergedState.applicationInfo || {};
+      const currentStepStatuses = currentAppInfo.stepBlockStatuses?.[currentStepIndex] || {};
+
       const stepStatuses = {
-        ...(mergedState.applicationInfo?.stepBlockStatuses?.[currentStepIndex] || {}),
+        ...currentStepStatuses,
         [buildingId]: {
           buildingId,
           buildingLabel: targetBuilding.label,
@@ -249,16 +260,22 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         statuses: stepStatuses,
       });
 
-      setProjectMeta(prev => ({
-        ...prev,
-        applicationInfo: {
-          ...(prev.applicationInfo || mergedState.applicationInfo),
-          stepBlockStatuses: {
-            ...(prev.applicationInfo?.stepBlockStatuses || mergedState.applicationInfo?.stepBlockStatuses || {}),
-            [currentStepIndex]: stepStatuses,
+      // [FIX] Используем безопасный доступ к prev, чтобы избежать ошибки TS "Property does not exist on type '{}'"
+      setProjectMeta(prev => {
+        const prevAppInfo = prev['applicationInfo'] || {}; 
+        const prevBlockStatuses = prevAppInfo.stepBlockStatuses || {};
+
+        return {
+          ...prev,
+          applicationInfo: {
+            ...prevAppInfo,
+            stepBlockStatuses: {
+              ...prevBlockStatuses,
+              [currentStepIndex]: stepStatuses,
+            },
           },
-        },
-      }));
+        };
+      });
 
       await refetch();
       return evaluated;

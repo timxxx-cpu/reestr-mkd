@@ -55,7 +55,7 @@ applications (1) ──┬── (N) application_history
    - Тип связи: Один-ко-многим
    - FK: `application_steps.application_id` REFERENCES `applications(id)` ON DELETE CASCADE
    - Уникальность: UNIQUE(`application_id`, `step_index`)
-   - **Смысл**: Заявка имеет набор шагов с флагами выполнения/проверки
+   - **Смысл**: Заявка имеет набор шагов с флагами выполнения/проверки и шаговыми JSON-статусами заполнения блоков (`block_statuses`)
 
 ### Иерархия BUILDINGS (Здания и блоки)
 
@@ -347,3 +347,11 @@ UNIQUE INDEX uq_floors_block_idx_parent_basement_expr ON (
 | `units` | (`floor_id`, `entrance_id`) | Выборка помещений по этажу и подъезду |
 | `rooms` | (`unit_id`, `room_type`) | Фильтрация комнат по типу |
 | `common_areas` | (`floor_id`, `entrance_id`) | Выборка МОП по этажу и подъезду |
+### JSONB-поля workflow-контура
+
+| Таблица | Поле | Назначение |
+|---------|------|-----------|
+| `applications` | `integration_data` | Служебные статусы интеграции с внешними системами |
+| `application_steps` | `block_statuses` | Статусы заполнения блоков в рамках конкретного шага (`step_index`) |
+
+`application_steps.block_statuses` обновляется отдельным действием «Сохранить» на шагах с блоками и не нарушает уникальность `(application_id, step_index)` — запись шага обновляется через upsert.

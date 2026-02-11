@@ -52,5 +52,7 @@
 ## Загрузка и сохранение (обобщение)
 
 - Загрузка проекта читает таблицы: `projects`, `applications`, `application_history`, `application_steps`, `project_participants`, `project_documents`, `buildings`, `building_blocks`, `block_construction`, `block_engineering`, `floors`, `entrances`, `entrance_matrix`, `units`, `rooms`, `common_areas`, `basements`, `basement_parking_levels`.
+- В `application_steps` дополнительно читаются `block_statuses` — статус заполнения блоков **в разрезе конкретного шага**.
 - Сохранение делает обратный маппинг UI -> БД по тем же сущностям.
 - При сохранении `applicationInfo` записываются оба поля: `status` и `workflow_substatus`.
+- На шагах с блоками (`registry_nonres`, `registry_res`, `floors`, `entrances`, `apartments`, `mop`) статус заполнения по зданию сохраняется отдельно в `application_steps.block_statuses` по кнопке «Сохранить» в редакторе здания.

@@ -406,6 +406,50 @@ export function SmartButton({
   );
 }
 
+// --- MODAL ---
+export function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-md' }) {
+  const modalRef = useRef(null);
+  useEscapeKey(isOpen ? onClose : null);
+  useFocusTrap(modalRef);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <div
+        ref={modalRef}
+        className={cn(
+          'w-full bg-background rounded-2xl shadow-xl border border-border flex flex-col max-h-[90vh]',
+          maxWidth
+        )}
+      >
+        <div className="px-6 py-4 border-b border-border flex justify-between items-center sticky top-0 bg-background rounded-t-2xl z-10">
+          <h3 className="text-lg font-bold text-foreground">{title}</h3>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground hover:bg-accent rounded-full p-1 transition-colors"
+          >
+            <XCircle size={20} />
+          </button>
+        </div>
+        <div className="p-6 overflow-y-auto">{children}</div>
+      </div>
+    </div>
+  );
+}
+// --- BLOCKING LOADER ---
+export function BlockingLoader({ isOpen, message = 'Сохранение...' }) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200 cursor-wait">
+      <div className="bg-background p-8 rounded-2xl shadow-2xl flex flex-col items-center gap-4 border border-border min-w-[240px]">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        <p className="text-base font-bold text-foreground">{message}</p>
+      </div>
+    </div>
+  );
+}
 // ============================================
 // ХУКИ (HOOKS)
 // ============================================
