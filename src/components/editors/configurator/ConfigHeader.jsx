@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, MapPin, Building2, Hash, Layers, Car, Box } from 'lucide-react';
+import { ArrowLeft, MapPin, Building2, Hash, Layers, Car, Box, Save } from 'lucide-react';
 import { getStageColor } from '@lib/utils';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { formatFullIdentifier } from '@lib/uj-identifier';
@@ -18,6 +18,10 @@ export default function ConfigHeader({
   isUnderground,
   onBack,
   isSticky = true, // [NEW] Возможность отключить sticky-позиционирование
+  showSaveButton = false,
+  onSave = null,
+  saveDisabled = false,
+  saveLabel = 'Сохранить здание',
 }) {
   const { complexInfo } = useProject();
   const projectUjCode = complexInfo?.ujCode;
@@ -129,6 +133,20 @@ export default function ConfigHeader({
             )}
           </div>
         </div>
+
+        {showSaveButton && (
+          <div className="p-4 border-l border-slate-200 flex items-center justify-center">
+            <button
+              onClick={onSave}
+              disabled={saveDisabled}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              title="Сохранить статус заполнения по зданию"
+            >
+              <Save size={14} />
+              {saveLabel}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -54,7 +54,7 @@ const getBlockIcon = type => {
 };
 
 export default function FloorMatrixEditor({ buildingId, onBack }) {
-  const { projectId, buildingDetails } = useProject();
+  const { projectId, buildingDetails, saveStepBuildingStatuses } = useProject();
   const isReadOnly = useReadOnly();
 
   // 1. Получаем список зданий
@@ -88,6 +88,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
   }, [floors, currentBlock?.type]);
 
   const [selectedRows, setSelectedRows] = useState(new Set());
+  const [isSavingStatus, setIsSavingStatus] = useState(false);
   const [bulkValue, setBulkValue] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
   const menuRef = useRef(null);
@@ -259,6 +260,17 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     await Promise.all(promises);
   };
 
+
+  const handleSaveStepStatus = async () => {
+    if (!building || isReadOnly) return;
+    try {
+      setIsSavingStatus(true);
+      await saveStepBuildingStatuses({ stepId: 'floors', buildingId: building.id });
+    } finally {
+      setIsSavingStatus(false);
+    }
+  };
+
   const renderTypeBadge = type => {
     const styles = {
       residential: 'bg-blue-50 text-blue-600 border-blue-100',
@@ -300,6 +312,10 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
           isUnderground={isUnderground}
           onBack={onBack}
           isSticky={false}
+          showSaveButton={true}
+          onSave={handleSaveStepStatus}
+          saveDisabled={isReadOnly || isSavingStatus}
+          saveLabel={isSavingStatus ? 'Сохраняем…' : 'Сохранить'}
         />
 
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-900">
@@ -323,6 +339,10 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
           isUnderground={isUnderground}
           onBack={onBack}
           isSticky={false}
+          showSaveButton={true}
+          onSave={handleSaveStepStatus}
+          saveDisabled={isReadOnly || isSavingStatus}
+          saveLabel={isSavingStatus ? 'Сохраняем…' : 'Сохранить'}
         />
         <div className="flex flex-col items-center justify-center h-[40vh] text-center space-y-4 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200">
           <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">

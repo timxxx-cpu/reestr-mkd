@@ -78,7 +78,7 @@ const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
 );
 
 export default function EntranceMatrixEditor({ buildingId, onBack }) {
-  const { projectId, buildingDetails } = useProject();
+  const { projectId, buildingDetails, saveStepBuildingStatuses } = useProject();
   const toast = useToast();
   const isReadOnly = useReadOnly();
 
@@ -102,6 +102,17 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     setActiveBlockIndex(0);
   }, [activeBlockIndex, residentialBlocks.length]);
 
+
+  const handleSaveStepStatus = async () => {
+    if (!building || isReadOnly) return;
+    try {
+      setIsSavingStatus(true);
+      await saveStepBuildingStatuses({ stepId: 'entrances', buildingId: building.id });
+    } finally {
+      setIsSavingStatus(false);
+    }
+  };
+
   // 2. Тип (шаг только для жилых блоков)
   const typeInfo = useBuildingType(building);
   const { isParking } = typeInfo;
@@ -110,6 +121,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
   // 3. Данные (Этажи + Матрица)
   const { floors: rawFloors, updateFloor } = useDirectFloors(currentBlock?.id);
   const [linkedStylobateFloors, setLinkedStylobateFloors] = useState([]);
+  const [isSavingStatus, setIsSavingStatus] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -383,6 +395,10 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
         isUnderground={isUnderground}
         onBack={onBack}
         isSticky={false}
+        showSaveButton={true}
+        onSave={handleSaveStepStatus}
+        saveDisabled={isReadOnly || isSavingStatus}
+        saveLabel={isSavingStatus ? 'Сохраняем…' : 'Сохранить'}
       />
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

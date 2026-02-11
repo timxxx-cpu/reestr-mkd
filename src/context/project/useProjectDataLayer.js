@@ -32,6 +32,7 @@ export const useProjectDataLayer = ({
       requestedDeclineStep: null,
       requestedDeclineBy: null,
       requestedDeclineAt: null,
+      stepBlockStatuses: {},
       history: [],
       ...meta.applicationInfo,
     };

@@ -84,7 +84,7 @@ const getBlockIcon = type => {
 };
 
 export default function FlatMatrixEditor({ buildingId, onBack }) {
-  const { projectId, buildingDetails } = useProject();
+  const { projectId, buildingDetails, saveStepBuildingStatuses } = useProject();
   const isReadOnly = useReadOnly();
 
   // 1. Context & Building
@@ -103,6 +103,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
   // 3. Hooks Data
   const { floors: rawFloors } = useDirectFloors(currentBlock?.id);
   const [linkedStylobateFloors, setLinkedStylobateFloors] = useState([]);
+  const [isSavingStatus, setIsSavingStatus] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -172,6 +173,17 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
   // Фильтруем этажи, на которых есть квартиры (согласно матрице подъездов)
   // ИЛИ этажи, которые являются дуплексными
+
+  const handleSaveStepStatus = async () => {
+    if (!building || isReadOnly) return;
+    try {
+      setIsSavingStatus(true);
+      await saveStepBuildingStatuses({ stepId: 'apartments', buildingId: building.id });
+    } finally {
+      setIsSavingStatus(false);
+    }
+  };
+
   const floors = useMemo(() => {
     const mergedFloors = [...(rawFloors || []), ...linkedStylobateFloors];
     const uniqueFloors = Array.from(new Map(mergedFloors.map(floor => [floor.id, floor])).values());
@@ -382,6 +394,10 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         isUnderground={isUnderground}
         onBack={onBack}
         isSticky={false}
+        showSaveButton={true}
+        onSave={handleSaveStepStatus}
+        saveDisabled={isReadOnly || isSavingStatus}
+        saveLabel={isSavingStatus ? 'Сохраняем…' : 'Сохранить'}
       />
 
       {/* Toolbar */}

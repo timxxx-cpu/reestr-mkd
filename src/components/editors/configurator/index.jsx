@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useProject } from '@context/ProjectContext';
 import { useBuildingType } from '@hooks/useBuildingType';
 
@@ -9,7 +9,8 @@ import ParkingView from './views/ParkingView';
 import InfrastructureView from './views/InfrastructureView';
 
 export default function BuildingConfiguratorIndex({ buildingId, mode = 'all', onBack }) {
-  const { composition } = useProject();
+  const { composition, saveStepBuildingStatuses, isReadOnly } = useProject();
+  const [isSavingStatus, setIsSavingStatus] = useState(false);
 
   // 1. Находим здание
   const building = useMemo(
@@ -25,6 +26,22 @@ export default function BuildingConfiguratorIndex({ buildingId, mode = 'all', on
 
   const { isParking, isInfrastructure } = typeInfo;
 
+
+  const handleSaveNonresStatus = async () => {
+    if (!building || !['nonres', 'res'].includes(mode)) return;
+    if (isReadOnly) return;
+
+    try {
+      setIsSavingStatus(true);
+      await saveStepBuildingStatuses({
+        stepId: mode === 'nonres' ? 'registry_nonres' : 'registry_res',
+        buildingId: building.id,
+      });
+    } finally {
+      setIsSavingStatus(false);
+    }
+  };
+
   return (
     // [ИЗМЕНЕНО] Убрал max-w-7xl, добавил padding по краям, ограничил только на сверхшироких (1920px)
     <div className="animate-in slide-in-from-bottom duration-500 space-y-6 pb-20 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto">
@@ -35,6 +52,10 @@ export default function BuildingConfiguratorIndex({ buildingId, mode = 'all', on
         isInfrastructure={isInfrastructure}
         isUnderground={typeInfo.isUnderground}
         onBack={onBack}
+        showSaveButton={mode === 'nonres' || mode === 'res'}
+        onSave={handleSaveNonresStatus}
+        saveDisabled={isReadOnly || isSavingStatus}
+        saveLabel={isSavingStatus ? 'Сохраняем…' : 'Сохранить'}
       />
 
       {/* Роутинг по типу здания */}

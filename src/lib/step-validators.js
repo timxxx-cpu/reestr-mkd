@@ -825,6 +825,33 @@ const validateParkingConfig = data => {
   return errors;
 };
 
+
+
+export const BLOCK_FILL_STATUS = Object.freeze({
+  FILLED: 'Заполнено',
+  EMPTY: 'Не заполнено',
+  PARTIAL: 'Заполнено частично',
+});
+
+export const BLOCK_STATUS_STEP_IDS = Object.freeze([
+  'registry_nonres',
+  'registry_res',
+  'floors',
+  'entrances',
+  'apartments',
+  'mop',
+]);
+
+const isObjectEmpty = value => !value || typeof value !== 'object' || Object.keys(value).length === 0;
+
+const filterMapByPrefix = (map, prefix) => {
+  if (!map || typeof map !== 'object') return {};
+  return Object.entries(map).reduce((acc, [key, val]) => {
+    if (key.startsWith(prefix)) acc[key] = val;
+    return acc;
+  }, {});
+};
+
 export const STEP_VALIDATORS = {
   composition: data => {
     const { composition } = data;
@@ -871,4 +898,103 @@ export const validateStepCompletion = (stepId, contextData) => {
   if (!validator) return null;
   const errors = validator(contextData);
   return errors.length > 0 ? errors : null;
+};
+
+
+const getStepBlocksForStatus = (stepId, building, buildingDetails = {}) => {
+  const blocks = getBlocksList(building, buildingDetails);
+
+  if (stepId === 'registry_nonres') return blocks.filter(b => b.type !== 'Ж');
+  if (['registry_res', 'entrances', 'apartments', 'mop'].includes(stepId)) {
+    return blocks.filter(b => b.type === 'Ж');
+  }
+  if (stepId === 'floors') return blocks;
+
+  return [];
+};
+
+const blockHasStepData = (stepId, detailsKey, contextData = {}) => {
+  if (stepId === 'registry_nonres' || stepId === 'registry_res') {
+    return !isObjectEmpty(contextData.buildingDetails?.[detailsKey]);
+  }
+  if (stepId === 'floors') {
+    return Object.keys(contextData.floorData || {}).some(key => key.startsWith(`${detailsKey}_`));
+  }
+  if (stepId === 'entrances') {
+    return Object.keys(contextData.entrancesData || {}).some(key => key.startsWith(`${detailsKey}_`));
+  }
+  if (stepId === 'apartments') {
+    return Object.keys(contextData.flatMatrix || {}).some(key => key.startsWith(`${detailsKey}_`));
+  }
+  if (stepId === 'mop') {
+    return Object.keys(contextData.mopData || {}).some(key => key.startsWith(`${detailsKey}_`));
+  }
+  return false;
+};
+
+const buildScopedContextForBlock = (stepId, building, block, contextData = {}) => {
+  const detailsKey = `${building.id}_${block.id}`;
+
+  if (stepId === 'registry_nonres' || stepId === 'registry_res') {
+    return {
+      ...contextData,
+      composition: [{ ...building, blocks: (building.blocks || []).filter(item => item.id === block.id) }],
+    };
+  }
+
+  return {
+    ...contextData,
+    composition: [{ ...building, blocks: (building.blocks || []).filter(item => item.id === block.id) }],
+    floorData: filterMapByPrefix(contextData.floorData, `${detailsKey}_`),
+    entrancesData: filterMapByPrefix(contextData.entrancesData, `${detailsKey}_`),
+    flatMatrix: filterMapByPrefix(contextData.flatMatrix, `${detailsKey}_`),
+    mopData: filterMapByPrefix(contextData.mopData, `${detailsKey}_`),
+  };
+};
+
+export const evaluateBuildingFillStatusForStep = (stepId, building, contextData = {}) => {
+  if (!BLOCK_STATUS_STEP_IDS.includes(stepId) || !building) {
+    return { buildingStatus: BLOCK_FILL_STATUS.EMPTY, blocks: [] };
+  }
+
+  const blocks = getStepBlocksForStatus(stepId, building, contextData.buildingDetails || {});
+  if (blocks.length === 0) {
+    return { buildingStatus: BLOCK_FILL_STATUS.EMPTY, blocks: [] };
+  }
+
+  const evaluatedBlocks = blocks.map(block => {
+    const detailsKey = `${building.id}_${block.id}`;
+    const hasData = blockHasStepData(stepId, detailsKey, contextData);
+    const scopedContext = buildScopedContextForBlock(stepId, building, block, contextData);
+    const errors = validateStepCompletion(stepId, scopedContext) || [];
+
+    let status = BLOCK_FILL_STATUS.FILLED;
+    if (errors.length > 0) {
+      status = hasData ? BLOCK_FILL_STATUS.PARTIAL : BLOCK_FILL_STATUS.EMPTY;
+    }
+
+    return {
+      blockId: block.id,
+      blockLabel: block.tabLabel,
+      status,
+      errorsCount: errors.length,
+      detailsKey,
+    };
+  });
+
+  const statuses = evaluatedBlocks.map(item => item.status);
+  let buildingStatus = BLOCK_FILL_STATUS.EMPTY;
+
+  if (statuses.every(item => item === BLOCK_FILL_STATUS.FILLED)) {
+    buildingStatus = BLOCK_FILL_STATUS.FILLED;
+  } else if (statuses.every(item => item === BLOCK_FILL_STATUS.EMPTY)) {
+    buildingStatus = BLOCK_FILL_STATUS.EMPTY;
+  } else {
+    buildingStatus = BLOCK_FILL_STATUS.PARTIAL;
+  }
+
+  return {
+    buildingStatus,
+    blocks: evaluatedBlocks,
+  };
 };

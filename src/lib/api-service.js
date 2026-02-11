@@ -582,6 +582,31 @@ const LegacyApiService = {
     });
   },
 
+
+  saveStepBlockStatuses: async ({ scope, projectId, stepIndex, statuses }) => {
+    const { data: app, error: appErr } = await supabase
+      .from('applications')
+      .select('id')
+      .eq('scope_id', scope)
+      .eq('project_id', projectId)
+      .maybeSingle();
+
+    if (appErr) throw appErr;
+    if (!app?.id) throw new Error('Заявка не найдена');
+
+    const payload = {
+      application_id: app.id,
+      step_index: stepIndex,
+      block_statuses: statuses || {},
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await upsertWithConflict('application_steps', payload);
+    if (error) throw error;
+
+    return { applicationId: app.id, stepIndex, blockStatuses: payload.block_statuses };
+  },
+
   // [NEW] Mock внешних заявок
   getExternalApplications: async () => {
     // Имитация задержки
