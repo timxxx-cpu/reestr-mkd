@@ -28,6 +28,11 @@ export const mapProjectAggregate = (
 ) => {
   const completedSteps = steps.filter(s => s.is_completed).map(s => s.step_index);
   const verifiedSteps = steps.filter(s => s.is_verified).map(s => s.step_index);
+  const stepBlockStatuses = steps.reduce((acc, stepRow) => {
+    if (stepRow?.step_index === undefined) return acc;
+    acc[stepRow.step_index] = stepRow.block_statuses || {};
+    return acc;
+  }, {});
 
   return {
     id: project.id,
@@ -55,6 +60,7 @@ export const mapProjectAggregate = (
       requestedDeclineStep: app.requested_decline_step ?? null,
       requestedDeclineBy: app.requested_decline_by || null,
       requestedDeclineAt: app.requested_decline_at || null,
+      stepBlockStatuses,
       history: history
         .map(h => ({
           date: h.created_at,

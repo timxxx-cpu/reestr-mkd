@@ -7,6 +7,7 @@ import { HEAVY_MODEL_KEYS } from '../lib/model-keys';
 import { useProjectDataLayer } from './project/useProjectDataLayer';
 import { useProjectSyncLayer } from './project/useProjectSyncLayer';
 import { useProjectWorkflowLayer } from './project/useProjectWorkflowLayer';
+import { evaluateBuildingFillStatusForStep, BLOCK_FILL_STATUS } from '../lib/step-validators';
 
 const ProjectContext = createContext(null);
 
@@ -207,6 +208,72 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     /* ... */
   }, []);
 
+  const saveStepBuildingStatuses = useCallback(
+    async ({ stepId, buildingId }) => {
+      if (effectiveReadOnly) {
+        toast.error('Редактирование запрещено');
+        return null;
+      }
+
+      const targetBuilding = mergedState.composition.find(b => b.id === buildingId);
+      if (!targetBuilding) {
+        toast.error('Объект не найден');
+        return null;
+      }
+
+      const evaluated = evaluateBuildingFillStatusForStep(stepId, targetBuilding, mergedState);
+      const currentStepIndex = mergedState.applicationInfo?.currentStepIndex ?? 0;
+      const stepStatuses = {
+        ...(mergedState.applicationInfo?.stepBlockStatuses?.[currentStepIndex] || {}),
+        [buildingId]: {
+          buildingId,
+          buildingLabel: targetBuilding.label,
+          status: evaluated.buildingStatus || BLOCK_FILL_STATUS.EMPTY,
+          updatedAt: new Date().toISOString(),
+          blocks: evaluated.blocks.reduce((acc, block) => {
+            acc[block.blockId] = {
+              status: block.status,
+              label: block.blockLabel,
+              errorsCount: block.errorsCount,
+              detailsKey: block.detailsKey,
+            };
+            return acc;
+          }, {}),
+        },
+      };
+
+      await ApiService.saveStepBlockStatuses({
+        scope: dbScope,
+        projectId,
+        stepIndex: currentStepIndex,
+        statuses: stepStatuses,
+      });
+
+      setProjectMeta(prev => ({
+        ...prev,
+        applicationInfo: {
+          ...(prev.applicationInfo || mergedState.applicationInfo),
+          stepBlockStatuses: {
+            ...(prev.applicationInfo?.stepBlockStatuses || mergedState.applicationInfo?.stepBlockStatuses || {}),
+            [currentStepIndex]: stepStatuses,
+          },
+        },
+      }));
+
+      await refetch();
+      return evaluated;
+    },
+    [
+      effectiveReadOnly,
+      toast,
+      mergedState,
+      dbScope,
+      projectId,
+      setProjectMeta,
+      refetch,
+    ]
+  );
+
   const createSetter = key => value => {
     if (effectiveReadOnly) return;
 
@@ -241,6 +308,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     saveData,
     saveBuildingData,
     deleteProjectBuilding,
+    saveStepBuildingStatuses,
 
     setComplexInfo: createSetter('complexInfo'),
     setParticipants: createSetter('participants'),

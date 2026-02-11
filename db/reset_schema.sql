@@ -278,6 +278,7 @@ create table application_steps (
   step_index int not null,
   is_completed boolean not null default false,
   is_verified boolean not null default false,
+  block_statuses jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique(application_id, step_index)
