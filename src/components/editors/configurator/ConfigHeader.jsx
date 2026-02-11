@@ -1,9 +1,10 @@
 import React from 'react';
-import { ArrowLeft, MapPin, Building2, Hash, Layers, Car, Box, Save } from 'lucide-react';
+import { ArrowLeft, MapPin, Building2, Hash, Layers, Car, Box, Save, Loader2 } from 'lucide-react'; // Добавил Loader2 для спиннера
 import { getStageColor } from '@lib/utils';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { formatFullIdentifier } from '@lib/uj-identifier';
 import { useProject } from '@context/ProjectContext';
+import { SaveIndicator } from '@components/ui/UIKit'; // [NEW] Импорт индикатора
 
 const PARKING_TYPE_LABELS = {
   capital: 'Капитальный',
@@ -17,17 +18,19 @@ export default function ConfigHeader({
   isInfrastructure,
   isUnderground,
   onBack,
-  isSticky = true, // [NEW] Возможность отключить sticky-позиционирование
+  isSticky = true,
   showSaveButton = false,
   onSave = null,
   saveDisabled = false,
   saveLabel = 'Сохранить здание',
 }) {
-  const { complexInfo } = useProject();
+  // [UPDATED] Получаем hasUnsavedChanges из контекста
+  const { complexInfo, hasUnsavedChanges } = useProject(); 
   const projectUjCode = complexInfo?.ujCode;
+  
   // Определяем иконку и ЦВЕТ типа
   let TypeIcon = Building2;
-  let accentColor = 'border-blue-500'; // Дефолт (Жилье)
+  let accentColor = 'border-blue-500';
   let iconBg = 'bg-blue-100 text-blue-600';
 
   if (isParking) {
@@ -45,8 +48,14 @@ export default function ConfigHeader({
     .filter(Boolean)
     .join(', ');
 
-  // [NEW] Класс позиционирования
   const positionClass = isSticky ? 'sticky top-2 z-30' : 'relative';
+
+  // [NEW] Логика стилей кнопки сохранения
+  // Если есть изменения: яркая синяя кнопка
+  // Если нет изменений: спокойная белая/серая кнопка (но все еще доступная для нажатия)
+  const saveButtonClass = hasUnsavedChanges
+    ? 'bg-blue-600 text-white hover:bg-blue-500 ring-2 ring-blue-500/30 border-transparent shadow-md'
+    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900 shadow-sm';
 
   return (
     <div
@@ -62,9 +71,8 @@ export default function ConfigHeader({
           <ArrowLeft size={20} />
         </button>
 
-        {/* ЦЕНТРАЛЬНАЯ ЧАСТЬ: Инфо */}
+        {/* ЦЕНТРАЛЬНАЯ ЧАСТЬ: Инфо (без изменений) */}
         <div className="flex-1 p-4 flex flex-col gap-2">
-          {/* Верхняя строка: Название + Статус + ID */}
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 flex-wrap">
               <div className={`p-2 rounded-lg ${iconBg}`}>
@@ -84,16 +92,13 @@ export default function ConfigHeader({
               </span>
             </div>
 
-            {/* ID справа */}
             <div className="flex items-center gap-1.5 text-slate-400 select-all font-mono text-[10px] bg-white px-2 py-1 rounded border border-slate-100">
               <Hash size={10} />
               <span>{building.id.split('-')[0]}...</span>
             </div>
           </div>
 
-          {/* Нижняя строка: Мета-данные */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* 1. Адрес */}
             <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded text-xs text-slate-500 font-medium border border-slate-200 shadow-sm">
               <MapPin size={12} className="text-slate-400" />
               <span className="max-w-[200px] truncate" title={fullAddress}>
@@ -101,7 +106,6 @@ export default function ConfigHeader({
               </span>
             </div>
 
-            {/* 2. Номер дома */}
             {building.houseNumber && (
               <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded text-xs text-slate-700 font-bold border border-slate-200 shadow-sm">
                 <span className="text-[10px] text-slate-400 uppercase font-normal">Дом</span>
@@ -109,13 +113,11 @@ export default function ConfigHeader({
               </div>
             )}
 
-            {/* 3. Тип объекта */}
             <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded text-xs text-slate-600 font-medium border border-slate-200 shadow-sm">
               <Layers size={12} className="opacity-50" />
               <span>{building.type}</span>
             </div>
 
-            {/* 4. Специфика */}
             {isParking && (
               <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 rounded text-xs text-amber-700 font-medium border border-amber-100">
                 <span>{isUnderground ? 'Подземный' : 'Наземный'}</span>
@@ -134,15 +136,24 @@ export default function ConfigHeader({
           </div>
         </div>
 
+        {/* ПРАВАЯ ЧАСТЬ: Кнопка Сохранить */}
         {showSaveButton && (
           <div className="p-4 border-l border-slate-200 flex items-center justify-center">
             <button
               onClick={onSave}
               disabled={saveDisabled}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-              title="Сохранить статус заполнения по зданию"
+              className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all border disabled:opacity-60 disabled:cursor-not-allowed ${saveButtonClass}`}
+              title={hasUnsavedChanges ? "Есть несохраненные изменения" : "Сохранить"}
             >
-              <Save size={14} />
+              {/* Индикатор мигает, если есть изменения */}
+              <SaveIndicator hasChanges={hasUnsavedChanges} />
+              
+              {/* Показываем спиннер, если сохранение идет, иначе иконку дискеты */}
+              {saveDisabled ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Save size={14} />
+              )}
               {saveLabel}
             </button>
           </div>

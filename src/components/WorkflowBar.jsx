@@ -482,8 +482,10 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     }
   };
 
-  const handleExitWithoutSave = () => {
-    if (hasUnsavedChanges) {
+ const handleExitWithoutSave = () => {
+    // [FIX] On steps with custom form saving, we skip the global 'hasUnsavedChanges' check
+    // to prevent getting stuck if the flag is out of sync, and to align with the disabled top buttons.
+    if (hasUnsavedChanges && !isCustomSaveStep) {
       setShowExitConfirm(true);
     } else {
       onExit(true);
@@ -1087,15 +1089,15 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
 
             <Button
               onClick={handleSave}
-             disabled={isActionDisabled || isCustomSaveStep}
+              disabled={isActionDisabled || isCustomSaveStep}
               title={isCustomSaveStep ? "Сохранение выполняется в форме ниже" : "Ctrl+S"}
               className={`relative h-10 shadow-sm transition-all border ${
-                hasUnsavedChanges
+                hasUnsavedChanges && !isCustomSaveStep
                   ? 'bg-blue-600 text-white border-blue-500 hover:bg-blue-500 ring-2 ring-blue-500/30'
                   : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 hover:text-white'
               }`}
             >
-              <SaveIndicator hasChanges={hasUnsavedChanges} />
+              {!isCustomSaveStep && <SaveIndicator hasChanges={hasUnsavedChanges} />}
               {isLoading ? (
                 <Loader2 size={16} className="animate-spin mr-2" />
               ) : (
