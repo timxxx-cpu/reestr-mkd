@@ -165,9 +165,9 @@ const BuildingSelector = ({ stepId, onSelect }) => {
             }
 
            return (
-              <button
+              <div
                 key={item.id}
-                type="button"
+                
                 onClick={() => onSelect(item.id)}
                 className="grid grid-cols-12 items-center py-4 px-6 hover:bg-blue-50/50 cursor-pointer transition-colors group even:bg-slate-50/50"
               >
@@ -251,7 +251,7 @@ const BuildingSelector = ({ stepId, onSelect }) => {
                     <ArrowRight size={14} />
                   </div>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
