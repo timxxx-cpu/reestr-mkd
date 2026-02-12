@@ -20,7 +20,8 @@ export function useDirectUnits(blockId, floorIds = []) {
   // --- UPDATE SINGLE ---
   const upsertUnitMutation = useMutation({
     /**
-     * @param {{ id?: string, floorId: string, entranceId: string, num: string, type: string, area?: number }} data
+     * [FIXED] Типизация ослаблена для поддержки Partial Update (PATCH)
+     * @param {{ id?: string } & Partial<{ floorId: string, entranceId: string, num: string, type: string, area: number }>} data
      */
     mutationFn: data => ApiService.upsertUnit(data),
     onMutate: async newData => {
