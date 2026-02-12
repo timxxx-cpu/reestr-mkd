@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowUp,
   ChevronsDown,
@@ -12,6 +13,7 @@ import {
   Wand2,
   Loader2,
   AlertCircle,
+  AlertTriangle,
   X,
   Building2,
   Car,
@@ -23,10 +25,21 @@ import { useProject } from '@context/ProjectContext';
 import { useDirectBuildings } from '@hooks/api/useDirectBuildings';
 import { useDirectFloors } from '@hooks/api/useDirectFloors';
 import { useBuildingType } from '@hooks/useBuildingType';
-import { Card, DebouncedInput, useReadOnly } from '@components/ui/UIKit';
+import { Card, DebouncedInput, useReadOnly, Button, Modal, BlockingLoader } from '@components/ui/UIKit';
 import { Validators } from '@lib/validators';
+import { ApiService } from '@lib/api-service'; // Для сохранения
 import ConfigHeader from './configurator/ConfigHeader';
 import { formatBlockSwitcherLabel } from '@lib/building-details';
+import { useToast } from '@context/ToastContext'; // Добавлен тост
+
+// Импорты для логики сохранения и валидации
+import { STEPS_CONFIG } from '@lib/constants';
+import {
+  BLOCK_FILL_STATUS,
+  validateStepCompletion,
+  getStepBlocksForStatus,
+  buildScopedContextForBlock,
+} from '@lib/step-validators';
 
 const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
   <button
@@ -54,8 +67,24 @@ const getBlockIcon = type => {
 };
 
 export default function FloorMatrixEditor({ buildingId, onBack }) {
-  const { projectId, buildingDetails, saveStepBuildingStatuses } = useProject();
+  const { 
+    projectId, 
+    buildingDetails, 
+    saveStepBuildingStatuses,
+    saveProjectImmediate, // [NEW]
+    setHasUnsavedChanges, // [NEW]
+    applicationInfo, // [NEW]
+    // Данные для валидатора:
+    composition,
+    floorData,
+    entrancesData,
+    flatMatrix,
+    mopData
+  } = useProject();
+  
   const isReadOnly = useReadOnly();
+  const queryClient = useQueryClient(); // [NEW]
+  const toast = useToast(); // [NEW]
 
   // 1. Получаем список зданий
   const { buildings } = useDirectBuildings(projectId);
@@ -88,9 +117,14 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
   }, [floors, currentBlock?.type]);
 
   const [selectedRows, setSelectedRows] = useState(new Set());
-  const [isSavingStatus, setIsSavingStatus] = useState(false);
   const [bulkValue, setBulkValue] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
+  
+  // [NEW] Состояния для сохранения
+  const [isSavingStatus, setIsSavingStatus] = useState(false);
+  const [validationWarnings, setValidationWarnings] = useState([]);
+  const [showWarningModal, setShowWarningModal] = useState(false);
+
   const menuRef = useRef(null);
   const inputsRef = useRef({});
 
@@ -113,6 +147,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
   const handleGenerateMissing = async () => {
     if (!currentBlock) return;
     if (confirm('Сгенерировать сетку этажей на основе настроек блока?')) {
+      setHasUnsavedChanges(true); // [NEW]
       await generateFloors({
         floorsFrom: 1,
         floorsTo: 9,
@@ -123,11 +158,13 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
   const handleInput = (id, field, value) => {
     if (isReadOnly) return;
+    setHasUnsavedChanges(true); // [NEW]
     updateFloor({ id, updates: { [field]: value } });
   };
 
   const copyRowFromPrev = async idx => {
     if (isReadOnly || idx <= 0) return;
+    setHasUnsavedChanges(true); // [NEW]
     const prevFloor = visibleFloors[idx - 1];
     const currFloor = visibleFloors[idx];
 
@@ -144,6 +181,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
   const fillRowsBelow = async idx => {
     if (isReadOnly) return;
+    setHasUnsavedChanges(true); // [NEW]
     const sourceFloor = visibleFloors[idx];
     const updates = {
       height: sourceFloor.height,
@@ -161,12 +199,14 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
   const copyFieldFromPrev = (idx, field) => {
     if (isReadOnly || idx <= 0) return;
+    // handleInput уже ставит unsavedChanges
     const val = visibleFloors[idx - 1][field];
     if (val !== undefined) handleInput(visibleFloors[idx].id, field, val);
   };
 
   const fillFieldBelow = async (idx, field) => {
     if (isReadOnly) return;
+    setHasUnsavedChanges(true); // [NEW]
     const val = visibleFloors[idx][field];
     const promises = [];
     for (let i = idx + 1; i < visibleFloors.length; i++) {
@@ -211,6 +251,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
   const applyBulk = async field => {
     if (isReadOnly || !bulkValue) return;
+    setHasUnsavedChanges(true); // [NEW]
     const promises = [];
     selectedRows.forEach(id => {
       promises.push(updateFloor({ id, updates: { [field]: bulkValue } }));
@@ -221,6 +262,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
   const autoFill = async () => {
     if (isReadOnly) return;
     if (!confirm('Заполнить пустые значения типовыми данными?')) return;
+    setHasUnsavedChanges(true); // [NEW]
 
     const promises = [];
     visibleFloors.forEach(f => {
@@ -260,16 +302,87 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     await Promise.all(promises);
   };
 
+  // --- [NEW] SAVE LOGIC START ---
 
-  const handleSaveStepStatus = async () => {
-    if (!building || isReadOnly) return;
+  const waitForPendingMutations = async () => {
+    const startedAt = Date.now();
+    const timeoutMs = 8000;
+    while (queryClient.isMutating() > 0) {
+      if (Date.now() - startedAt > timeoutMs) break;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  };
+
+  const collectValidationErrors = (stepId, building) => {
+    const contextData = {
+      composition,
+      buildingDetails,
+      floorData,
+      entrancesData,
+      flatMatrix,
+      mopData,
+    };
+    const blocks = getStepBlocksForStatus(stepId, building, buildingDetails);
+    let allErrors = [];
+
+    blocks.forEach(block => {
+      const scopedContext = buildScopedContextForBlock(stepId, building, block, contextData);
+      const errors = validateStepCompletion(stepId, scopedContext) || [];
+      if (errors.length > 0) {
+        allErrors = [...allErrors, ...errors];
+      }
+    });
+
+    return allErrors;
+  };
+
+  const handleSave = async () => {
+    const stepId = 'floors'; // ID шага "Внешняя инвентаризация"
+    
+    if (!building) return;
+    if (isReadOnly) return;
+
     try {
       setIsSavingStatus(true);
-      await saveStepBuildingStatuses({ stepId: 'floors', buildingId: building.id });
+      setValidationWarnings([]);
+
+      if (document.activeElement && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 350));
+      await saveProjectImmediate({ shouldRefetch: false });
+      await waitForPendingMutations();
+
+      const result = await saveStepBuildingStatuses({
+        stepId,
+        buildingId: building.id,
+      });
+
+      // Сброс флага "Есть изменения" после успешного сохранения
+      setHasUnsavedChanges(false);
+
+      if (result && result.buildingStatus === BLOCK_FILL_STATUS.PARTIAL) {
+        const errors = collectValidationErrors(stepId, building);
+        if (errors.length > 0) {
+          setValidationWarnings(errors);
+          setShowWarningModal(true);
+        }
+      }
+    } catch (e) {
+      console.error('Save error:', e);
+      toast.error('Ошибка при сохранении');
     } finally {
       setIsSavingStatus(false);
     }
   };
+
+  const currentWorkflowStepIndex = applicationInfo?.currentStepIndex ?? 0;
+  const currentWorkflowStepId = STEPS_CONFIG[currentWorkflowStepIndex]?.id;
+  const isCurrentStepActive = 'floors' === currentWorkflowStepId;
+  const showSave = !isReadOnly && isCurrentStepActive;
+
+  // --- [NEW] SAVE LOGIC END ---
 
   const renderTypeBadge = type => {
     const styles = {
@@ -312,9 +425,9 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
           isUnderground={isUnderground}
           onBack={onBack}
           isSticky={false}
-          showSaveButton={true}
-          onSave={handleSaveStepStatus}
-          saveDisabled={isReadOnly || isSavingStatus}
+          showSaveButton={showSave}
+          onSave={handleSave}
+          saveDisabled={isSavingStatus}
           saveLabel={isSavingStatus ? 'Сохраняем…' : 'Сохранить'}
         />
 
@@ -339,9 +452,9 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
           isUnderground={isUnderground}
           onBack={onBack}
           isSticky={false}
-          showSaveButton={true}
-          onSave={handleSaveStepStatus}
-          saveDisabled={isReadOnly || isSavingStatus}
+          showSaveButton={showSave}
+          onSave={handleSave}
+          saveDisabled={isSavingStatus}
           saveLabel={isSavingStatus ? 'Сохраняем…' : 'Сохранить'}
         />
         <div className="flex flex-col items-center justify-center h-[40vh] text-center space-y-4 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200">
@@ -366,6 +479,9 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
   return (
     <div className="space-y-6 pb-24 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in duration-500 relative">
+      
+      <BlockingLoader isOpen={isSavingStatus} message="Сохраняем данные..." />
+
       <ConfigHeader
         building={building}
         isParking={isParking}
@@ -373,6 +489,10 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         isUnderground={isUnderground}
         onBack={onBack}
         isSticky={false}
+        showSaveButton={showSave}
+        onSave={handleSave}
+        saveDisabled={isSavingStatus}
+        saveLabel={isSavingStatus ? 'Сохраняем…' : 'Сохранить'}
       />
 
       {/* TABS & TOOLS */}
@@ -708,6 +828,38 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
           </table>
         </div>
       </Card>
+
+      <Modal
+        isOpen={showWarningModal}
+        onClose={() => setShowWarningModal(false)}
+        title="Сохранено с предупреждениями"
+        maxWidth="max-w-2xl"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-4 p-4 bg-yellow-50 text-yellow-900 rounded-xl border border-yellow-200">
+            <AlertTriangle className="shrink-0 text-yellow-600" />
+            <div>
+              <p className="font-bold">Данные сохранены частично</p>
+              <p className="text-sm mt-1">
+                Некоторые блоки не прошли проверку заполнения. Статус "Заполнено" будет присвоен только после исправления всех ошибок.
+              </p>
+            </div>
+          </div>
+
+          <div className="max-h-[40vh] overflow-y-auto border rounded-xl divide-y">
+            {validationWarnings.map((err, idx) => (
+              <div key={idx} className="p-3 text-sm hover:bg-slate-50">
+                <div className="font-bold text-slate-700">{err.title}</div>
+                <div className="text-slate-500 mt-0.5">{err.description}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <Button onClick={() => setShowWarningModal(false)}>Понятно</Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
