@@ -25,6 +25,9 @@ import {
   UserCheck,
   Clock,
   Undo2,
+  AlertTriangle,
+  X,
+  MessageSquare
 } from 'lucide-react';
 import {
   ROLES,
@@ -47,11 +50,13 @@ import {
   SectionTitle,
   TableSkeleton,
   Tooltip,
+  useEscapeKey, // Добавлен импорт хука
+  Select // Добавлен импорт Select
 } from '@components/ui/UIKit';
 import { IdentifierBadge } from '@components/ui/IdentifierBadge';
 import { useToast } from '@context/ToastContext';
 import { getStageColor } from '@lib/utils';
-import { ApiService } from '@lib/api-service'; // CHANGED
+import { ApiService } from '@lib/api-service';
 import { createVirtualComplexCadastre } from '@lib/cadastre';
 
 // --- ХЕЛПЕР: ФОРМАТИРОВАНИЕ ДАТЫ ---
@@ -78,6 +83,158 @@ const VisualProgress = ({ current, total }) => {
         if (i === current) color = 'bg-blue-600 animate-pulse';
         return <div key={i} className={`flex-1 rounded-full ${color}`} />;
       })}
+    </div>
+  );
+};
+
+// --- МОДАЛКА ДЕЙСТВИЙ (ВЗАМЕН PROMPT/CONFIRM) ---
+const DashboardActionModal = ({ config, onCancel, onConfirm, technicians = [] }) => {
+  const [inputValue, setInputValue] = useState('');
+  const [error, setError] = useState('');
+  
+  useEscapeKey(onCancel);
+
+  // Инициализация значения для селекта (первый техник)
+  useEffect(() => {
+    if (config.type === 'select' && technicians.length > 0 && !inputValue) {
+      setInputValue(technicians[0].name);
+    }
+  }, [config.type, technicians, inputValue]);
+
+  const handleSubmit = () => {
+    const trimmed = typeof inputValue === 'string' ? inputValue.trim() : inputValue;
+
+    // Валидация для текстового ввода
+    if (config.type === 'input') {
+      if (config.required && !trimmed) {
+        setError('Это поле обязательно для заполнения');
+        return;
+      }
+      if (config.minLength && trimmed.length < config.minLength) {
+        setError(`Минимальная длина комментария: ${config.minLength} символов`);
+        return;
+      }
+    }
+
+    onConfirm(trimmed);
+  };
+
+  // Определение стилей в зависимости от типа
+  let HeaderIcon = MessageSquare;
+  let headerBg = 'bg-slate-50 border-slate-100';
+  let iconColor = 'text-slate-600 bg-white';
+  let btnClass = 'bg-slate-900 hover:bg-slate-800';
+
+  if (config.intent === 'destructive') {
+    HeaderIcon = config.type === 'confirm' ? Trash2 : Ban;
+    headerBg = 'bg-red-50 border-red-100';
+    iconColor = 'text-red-600 bg-white border-red-100';
+    btnClass = 'bg-red-600 hover:bg-red-700';
+  } else if (config.intent === 'warning') {
+    HeaderIcon = AlertTriangle;
+    headerBg = 'bg-amber-50 border-amber-100';
+    iconColor = 'text-amber-600 bg-white border-amber-100';
+    btnClass = 'bg-amber-600 hover:bg-amber-700';
+  } else if (config.intent === 'info') {
+    HeaderIcon = UserCheck;
+    headerBg = 'bg-blue-50 border-blue-100';
+    iconColor = 'text-blue-600 bg-white border-blue-100';
+    btnClass = 'bg-blue-600 hover:bg-blue-700';
+  }
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5 scale-100 animate-in zoom-in-95 duration-200 flex flex-col">
+        {/* Header */}
+        <div className={`px-6 py-4 border-b flex items-center gap-3 ${headerBg}`}>
+          <div className={`p-2 rounded-full shadow-sm border ${iconColor}`}>
+            <HeaderIcon size={20} />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-slate-800 leading-tight">{config.title}</h3>
+            {config.subtitle && (
+              <p className="text-xs text-slate-500 font-medium">{config.subtitle}</p>
+            )}
+          </div>
+          <button onClick={onCancel} className="ml-auto text-slate-400 hover:text-slate-600">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-6 space-y-4">
+          {config.description && (
+             <p className="text-sm text-slate-600 leading-relaxed">{config.description}</p>
+          )}
+
+          {config.type === 'input' && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                {config.label || 'Комментарий'} {config.required && <span className="text-red-500">*</span>}
+              </label>
+              <textarea
+                autoFocus
+                className={`w-full min-h-[100px] p-3 rounded-xl border text-sm font-medium bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 transition-all resize-none ${
+                  error 
+                    ? 'border-red-300 ring-red-100 focus:border-red-500 focus:ring-red-200' 
+                    : 'border-slate-200 focus:border-blue-500 focus:ring-blue-100'
+                }`}
+                placeholder={config.placeholder}
+                value={inputValue}
+                onChange={(e) => {
+                  setInputValue(e.target.value);
+                  if (error) setError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.ctrlKey) handleSubmit();
+                }}
+              />
+              {error && (
+                <div className="text-xs text-red-600 flex items-center gap-1 animate-in slide-in-from-top-1">
+                  <AlertTriangle size={12} /> {error}
+                </div>
+              )}
+              {config.minLength > 0 && (
+                <div className="text-[10px] text-right text-slate-400">
+                  {inputValue.length} / {config.minLength} символов
+                </div>
+              )}
+            </div>
+          )}
+
+          {config.type === 'select' && (
+             <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                  {config.label || 'Выберите вариант'}
+                </label>
+                <select
+                  className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                >
+                  {technicians.map((tech) => (
+                    <option key={tech.id || tech.name} value={tech.name}>
+                      {tech.name}
+                    </option>
+                  ))}
+                </select>
+             </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel} className="h-10">
+            Отмена
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            className={`h-10 text-white shadow-lg border-0 ${btnClass}`}
+          >
+            {config.confirmText || 'Подтвердить'}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 };
@@ -151,6 +308,9 @@ const ApplicationsDashboard = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [technicians, setTechnicians] = useState([]);
 
+  // Состояние для модалки действий
+  const [actionModal, setActionModal] = useState(null); // { type, config, payload }
+
   const toast = useToast();
   const { options: externalSystemOptions } = useCatalog('dict_external_systems');
 
@@ -188,7 +348,7 @@ const ApplicationsDashboard = ({
   const loadInbox = useCallback(async () => {
     setIsLoadingApps(true);
     try {
-      const data = await ApiService.getExternalApplications(); // CHANGED
+      const data = await ApiService.getExternalApplications();
       setIncomingApps(data);
     } catch (e) {
       console.error(e);
@@ -233,8 +393,6 @@ const ApplicationsDashboard = ({
     }, 400);
   };
 
-
-
   const handleEmulateResubmission = () => {
     const candidates = (projects || []).filter(p => p?.cadastre?.number || p?.complexInfo?.cadastreNumber);
     if (candidates.length === 0) {
@@ -271,17 +429,12 @@ const ApplicationsDashboard = ({
   const handleTakeToWork = async app => {
     const toastId = toast.loading('Создание проекта...');
     try {
-      // CHANGED: Передаем app, user
       await ApiService.createProjectFromApplication(dbScope, app, user);
       setIncomingApps(prev => prev.filter(a => a.id !== app.id));
       toast.dismiss(toastId);
       toast.success('Проект создан');
       setActiveTab('my_tasks');
       setTaskFilter('work');
-      // Нужно обновить список проектов
-      // В идеале: вызвать refetch из useProjects, но он наверху.
-      // Простой способ: window.location.reload() или пробросить refetch
-      // Но react-query сам обновит при фокусе или следующем маунте, если инвалидация настроена в хуке useProjects
     } catch (e) {
       console.error(e);
       toast.dismiss(toastId);
@@ -305,130 +458,178 @@ const ApplicationsDashboard = ({
     }
   };
 
-  const handleReassignProject = async (projectId, projectName, currentAssignee) => {
+  // --- ЕДИНЫЙ ОБРАБОТЧИК ПОДТВЕРЖДЕНИЯ МОДАЛКИ ---
+  const handleModalConfirm = async (result) => {
+    if (!actionModal) return;
+    const { type, payload } = actionModal;
+    setActionModal(null); // Закрываем модалку
+
+    try {
+      // 1. СМЕНА ИСПОЛНИТЕЛЯ
+      if (type === 'REASSIGN') {
+        const { projectId, projectAppId } = payload;
+        const newAssigneeName = result; // result - это выбранное имя из селекта
+
+        if (!newAssigneeName) {
+           toast.error('Исполнитель не выбран');
+           return;
+        }
+
+        await ApiService.assignTechnician({
+          applicationId: projectAppId,
+          assigneeName: newAssigneeName,
+        });
+        toast.success(`Исполнитель изменен: ${newAssigneeName}`);
+      } 
+      
+      // 2. УДАЛЕНИЕ ПРОЕКТА
+      else if (type === 'DELETE') {
+         await ApiService.deleteProject(dbScope, payload.projectId);
+         toast.success('Проект удален');
+      }
+
+      // 3. ОТКАЗ ОТ ЗАЯВКИ (АДМИН/МЕНЕДЖЕР)
+      else if (type === 'DECLINE') {
+        const { projectId, projectAppId, projectName } = payload;
+        const reason = result; // result - текст причины
+        
+        const { supabase } = await import('@lib/supabase');
+        await supabase
+          .from('applications')
+          .update({
+            status: APP_STATUS.DECLINED,
+            workflow_substatus:
+              user.role === ROLES.BRANCH_MANAGER
+                ? WORKFLOW_SUBSTATUS.DECLINED_BY_MANAGER
+                : user.role === ROLES.CONTROLLER
+                  ? WORKFLOW_SUBSTATUS.DECLINED_BY_CONTROLLER
+                  : WORKFLOW_SUBSTATUS.DECLINED_BY_ADMIN,
+            updated_at: new Date(),
+          })
+          .eq('id', projectAppId);
+          
+        await supabase.from('application_history').insert({
+          application_id: projectAppId,
+          action: 'DECLINE',
+          prev_status: payload.currentStatus, // Добавим в payload при вызове
+          next_status: APP_STATUS.DECLINED,
+          user_name: user.name,
+          comment: reason,
+        });
+        toast.success('Заявление отклонено');
+      }
+
+      // 4. ВОЗВРАТ НА ДОРАБОТКУ
+      else if (type === 'RETURN') {
+        const { projectAppId } = payload;
+        const comment = result; 
+
+        await ApiService.returnFromDecline({
+          applicationId: projectAppId,
+          userName: user.name,
+          comment,
+        });
+        toast.success('Заявление возвращено технику на доработку');
+      }
+
+    } catch (e) {
+      console.error(e);
+      toast.error('Ошибка при выполнении операции');
+    }
+  };
+
+
+  // --- HANDLERS (Открытие модалок) ---
+  const handleReassignProject = (projectId, projectName, currentAssignee) => {
     if (!(isAdmin || isBranchManager)) return;
-
-    const list = technicians
-      .map((t, idx) => `${idx + 1}. ${t.name}`)
-      .join('\n');
-
-    const raw = prompt(
-      `Передача заявки по ЖК "${projectName}"
-Текущий исполнитель: ${currentAssignee || 'не назначен'}
-
-Выберите номер нового исполнителя:
-${list}`
-    );
-    if (!raw) return;
-
-    const selectedIndex = Number(raw.trim()) - 1;
-    const selected = technicians[selectedIndex];
-    if (!selected) {
-      toast.error('Некорректный выбор исполнителя');
-      return;
+    
+    // Ищем ID заявки
+    const project = projects.find(p => p.id === projectId);
+    if (!project?.applicationId) {
+       toast.error('Заявка не найдена');
+       return;
     }
 
-    try {
-      const project = projects.find(p => p.id === projectId);
-      if (!project?.applicationId) {
-        toast.error('Заявка не найдена');
-        return;
-      }
-
-      await ApiService.assignTechnician({
-        applicationId: project.applicationId,
-        assigneeName: selected.name,
-      });
-
-      toast.success(`Исполнитель изменен: ${selected.name}`);
-    } catch (e) {
-      console.error(e);
-      toast.error('Не удалось передать заявку другому исполнителю');
-    }
+    setActionModal({
+      type: 'REASSIGN',
+      config: {
+        type: 'select',
+        intent: 'info',
+        title: 'Передача заявки',
+        subtitle: `ЖК "${projectName}"`,
+        description: `Текущий исполнитель: ${currentAssignee || 'не назначен'}. Выберите нового ответственного:`,
+        label: 'Новый исполнитель',
+        confirmText: 'Назначить',
+      },
+      payload: { projectId, projectAppId: project.applicationId }
+    });
   };
 
-  const handleDeleteProject = async projectId => {
-    if (!window.confirm('Удалить проект и все данные?')) return;
-    try {
-      await ApiService.deleteProject(dbScope, projectId);
-      toast.success('Удалено');
-    } catch (e) {
-      toast.error('Ошибка удаления');
-    }
+  const handleDeleteProject = (projectId) => {
+    setActionModal({
+      type: 'DELETE',
+      config: {
+        type: 'confirm',
+        intent: 'destructive',
+        title: 'Удаление проекта',
+        description: 'Вы уверены, что хотите удалить проект и все связанные данные? Это действие необратимо.',
+        confirmText: 'Да, удалить',
+      },
+      payload: { projectId }
+    });
   };
 
-  const handleDeclineProject = async (projectId, projectName) => {
-    const reason = prompt(`Укажите причину отказа для "${projectName}" (обязательно, мин. 10 символов):`);
-    if (!reason || reason.trim().length < 10) {
-      if (reason !== null) toast.error('Причина должна быть не менее 10 символов');
-      return;
-    }
-    try {
-      const project = projects.find(p => p.id === projectId);
-      if (!project?.applicationId) {
-        toast.error('Заявка не найдена');
-        return;
+  const handleDeclineProject = (projectId, projectName) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project?.applicationId) return;
+
+    setActionModal({
+      type: 'DECLINE',
+      config: {
+        type: 'input',
+        intent: 'destructive',
+        title: 'Отклонить заявление',
+        subtitle: projectName,
+        label: 'Причина отказа',
+        placeholder: 'Опишите причину отказа подробно...',
+        confirmText: 'Отклонить',
+        required: true,
+        minLength: 10
+      },
+      payload: { 
+        projectId, 
+        projectAppId: project.applicationId, 
+        projectName,
+        currentStatus: project.applicationInfo?.status
       }
-      const { supabase } = await import('@lib/supabase');
-      await supabase
-        .from('applications')
-        .update({
-          status: APP_STATUS.DECLINED,
-          workflow_substatus:
-            user.role === ROLES.BRANCH_MANAGER
-              ? WORKFLOW_SUBSTATUS.DECLINED_BY_MANAGER
-              : user.role === ROLES.CONTROLLER
-                ? WORKFLOW_SUBSTATUS.DECLINED_BY_CONTROLLER
-                : WORKFLOW_SUBSTATUS.DECLINED_BY_ADMIN,
-          updated_at: new Date(),
-        })
-        .eq('id', project.applicationId);
-      await supabase.from('application_history').insert({
-        application_id: project.applicationId,
-        action: 'DECLINE',
-        prev_status: project.applicationInfo?.status,
-        next_status: APP_STATUS.DECLINED,
-        user_name: user.name,
-        comment: reason,
-      });
-      toast.success('Заявление отклонено');
-    } catch (e) {
-      console.error(e);
-      toast.error('Ошибка при отказе');
-    }
+    });
   };
 
-  const handleReturnFromDecline = async (projectId, projectName) => {
-    const comment =
-      prompt(
-        `Укажите комментарий для возврата "${projectName}" технику на доработку (необязательно):`
-      ) || '';
+  const handleReturnFromDecline = (projectId, projectName) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project?.applicationId) return;
 
-    try {
-      const project = projects.find(p => p.id === projectId);
-      if (!project?.applicationId) {
-        toast.error('Заявка не найдена');
-        return;
-      }
-
-      await ApiService.returnFromDecline({
-        applicationId: project.applicationId,
-        userName: user.name,
-        comment,
-      });
-
-      toast.success('Заявление возвращено технику на доработку');
-    } catch (e) {
-      console.error(e);
-      toast.error('Ошибка при возврате на доработку');
-    }
+    setActionModal({
+      type: 'RETURN',
+      config: {
+        type: 'input',
+        intent: 'warning',
+        title: 'Вернуть на доработку',
+        subtitle: projectName,
+        label: 'Комментарий (необязательно)',
+        placeholder: 'Укажите инструкции для техника...',
+        confirmText: 'Вернуть',
+        required: false
+      },
+      payload: { projectId, projectAppId: project.applicationId }
+    });
   };
 
   // --- ЛОГИКА ФИЛЬТРАЦИИ ---
   const getFilteredProjects = scope => {
     let filtered = projects;
 
-    // 1. Фильтр по Табу/Роли (используем внешний статус + подстатус)
+    // 1. Фильтр по Табу/Роли
     if (scope === 'my_tasks') {
       if (taskFilter === 'work') {
         filtered = filtered.filter(p => {
@@ -512,6 +713,16 @@ ${list}`
 
   return (
     <div className="w-full bg-white h-screen flex flex-col overflow-hidden">
+      {/* --- МОДАЛКА ДЕЙСТВИЙ --- */}
+      {actionModal && (
+        <DashboardActionModal
+          config={actionModal.config}
+          onCancel={() => setActionModal(null)}
+          onConfirm={handleModalConfirm}
+          technicians={technicians}
+        />
+      )}
+
       {/* --- ТЕМНАЯ ШАПКА --- */}
       <div className="bg-slate-900 px-8 pt-8 pb-16 shadow-2xl relative overflow-hidden border-b border-slate-800 shrink-0">
         {/* Декоративный фон */}

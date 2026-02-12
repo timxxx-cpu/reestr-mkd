@@ -16,6 +16,7 @@ import {
   X,
   Ban,
   Clock,
+  MessageSquare
 } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { Button, SaveIndicator, useEscapeKey } from '@components/ui/UIKit';
@@ -39,7 +40,122 @@ const STEPS_WITH_CUSTOM_SAVE = [
 // Импорт валидатора
 import { validateStepCompletion } from '@lib/step-validators';
 
-// --- МОДАЛКА ОШИБОК ВАЛИДАЦИИ (НОВАЯ) ---
+// --- МОДАЛКА ДЛЯ ВВОДА КОММЕНТАРИЯ/ПРИЧИНЫ (ВЗАМЕН PROMPT) ---
+const ActionCommentModal = ({ config, onCancel, onConfirm, isLoading }) => {
+  const [comment, setComment] = useState('');
+  const [error, setError] = useState('');
+  
+  useEscapeKey(onCancel);
+
+  const handleSubmit = () => {
+    const trimmed = comment.trim();
+    
+    if (config.required && !trimmed) {
+      setError('Это поле обязательно для заполнения');
+      return;
+    }
+    
+    if (config.minLength && trimmed.length < config.minLength) {
+      setError(`Минимальная длина комментария: ${config.minLength} символов`);
+      return;
+    }
+
+    onConfirm(trimmed);
+  };
+
+  const isDestructive = config.intent === 'destructive';
+  const isWarning = config.intent === 'warning';
+  
+  // Определение цветов и иконок в зависимости от intent
+  let HeaderIcon = MessageSquare;
+  let headerBg = 'bg-slate-50 border-slate-100';
+  let iconColor = 'text-slate-600 bg-white';
+  let btnClass = 'bg-slate-900 hover:bg-slate-800';
+
+  if (isDestructive) {
+    HeaderIcon = Ban;
+    headerBg = 'bg-red-50 border-red-100';
+    iconColor = 'text-red-600 bg-white border-red-100';
+    btnClass = 'bg-red-600 hover:bg-red-700';
+  } else if (isWarning) {
+    HeaderIcon = AlertTriangle;
+    headerBg = 'bg-amber-50 border-amber-100';
+    iconColor = 'text-amber-600 bg-white border-amber-100';
+    btnClass = 'bg-amber-600 hover:bg-amber-700';
+  }
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5 scale-100 animate-in zoom-in-95 duration-200 flex flex-col">
+        {/* Header */}
+        <div className={`px-6 py-4 border-b flex items-center gap-3 ${headerBg}`}>
+          <div className={`p-2 rounded-full shadow-sm border ${iconColor}`}>
+            <HeaderIcon size={20} />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-slate-800 leading-tight">{config.title}</h3>
+            {config.subtitle && (
+              <p className="text-xs text-slate-500 font-medium">{config.subtitle}</p>
+            )}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="p-6 space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+              {config.label || 'Комментарий'} {config.required && <span className="text-red-500">*</span>}
+            </label>
+            <textarea
+              autoFocus
+              className={`w-full min-h-[100px] p-3 rounded-xl border text-sm font-medium bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 transition-all resize-none ${
+                error 
+                  ? 'border-red-300 ring-red-100 focus:border-red-500 focus:ring-red-200' 
+                  : 'border-slate-200 focus:border-blue-500 focus:ring-blue-100'
+              }`}
+              placeholder={config.placeholder}
+              value={comment}
+              onChange={(e) => {
+                setComment(e.target.value);
+                if (error) setError('');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && e.ctrlKey) handleSubmit();
+              }}
+            />
+            {error && (
+              <div className="text-xs text-red-600 flex items-center gap-1 animate-in slide-in-from-top-1">
+                <AlertTriangle size={12} /> {error}
+              </div>
+            )}
+            {config.minLength > 0 && (
+              <div className="text-[10px] text-right text-slate-400">
+                {comment.length} / {config.minLength} символов
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel} disabled={isLoading} className="h-10">
+            Отмена
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={isLoading}
+            className={`h-10 text-white shadow-lg border-0 ${btnClass}`}
+          >
+            {isLoading ? <Loader2 size={16} className="animate-spin mr-2" /> : null}
+            {config.confirmText || 'Подтвердить'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- МОДАЛКА ОШИБОК ВАЛИДАЦИИ ---
 const ValidationErrorsModal = ({ errors, onClose }) => {
   useEscapeKey(onClose);
 
@@ -368,6 +484,10 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
   const [showRollbackConfirm, setShowRollbackConfirm] = useState(false);
   const [showApproveConfirm, setShowApproveConfirm] = useState(false);
+  
+  // Состояние для модалки комментариев (для замены prompt)
+  const [actionModal, setActionModal] = useState(null); // { type, config }
+
   const [saveNotice, setSaveNotice] = useState({
     open: false,
     status: 'saving',
@@ -385,8 +505,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     if (currentStep !== pendingStepTarget) return;
 
     // Снимаем блокировку только когда и локальный шаг, и workflow в контексте
-    // синхронизировались на целевом индексе. Это предотвращает окно, в котором
-    // пользователь может кликать по UI во время догрузки следующего экрана.
+    // синхронизировались на целевом индексе.
     const contextStepIndex = applicationInfo?.currentStepIndex ?? 0;
     if (contextStepIndex !== pendingStepTarget) return;
 
@@ -488,8 +607,6 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   };
 
  const handleExitWithoutSave = () => {
-    // [FIX] On steps with custom form saving, we skip the global 'hasUnsavedChanges' check
-    // to prevent getting stuck if the flag is out of sync, and to align with the disabled top buttons.
     if (hasUnsavedChanges && !isCustomSaveStep) {
       setShowExitConfirm(true);
     } else {
@@ -526,22 +643,14 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     });
 
     try {
-      // Принудительно снимаем фокус с активного поля и даем DebouncedInput
-      // время отправить последнее значение в mutation queue.
       if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
       await new Promise(resolve => setTimeout(resolve, 380));
 
-      // Сначала сохраняем локальные pending-изменения в БД без промежуточного refetch.
       await saveProjectImmediate({ shouldRefetch: false });
-
-      // Дожидаемся завершения фоновых мутаций (юниты/матрица/этажи),
-      // иначе валидатор может получить устаревший срез БД и показать ложные ошибки.
       await waitForPendingMutations();
 
-      // Затем принудительно берем свежий снимок из БД и валидируем именно его,
-      // чтобы не требовался ручной refresh страницы.
       const refetchResult = await refetch();
       const dbSnapshot = refetchResult?.data;
 
@@ -675,6 +784,126 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   const handleApproveStage = async () => {
     setShowApproveConfirm(true);
   };
+  
+  // --- ОБРАБОТЧИК ПОДТВЕРЖДЕНИЯ ДЕЙСТВИЙ С КОММЕНТАРИЯМИ ---
+  const handleActionConfirm = async (comment) => {
+    if (!actionModal) return;
+    
+    // Закрываем модалку перед началом операции
+    const type = actionModal.type;
+    setActionModal(null);
+
+    setIsLoading(true);
+    
+    try {
+      if (type === 'REQUEST_DECLINE') {
+        setSaveNotice({ open: true, status: 'saving', message: 'Отправка запроса на отказ...', onOk: null });
+        await requestDecline(comment);
+        setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+        toast.info('Запрос на отказ отправлен начальнику филиала');
+        onExit(true);
+      } 
+      else if (type === 'CONFIRM_DECLINE') {
+        setSaveNotice({ open: true, status: 'saving', message: 'Отказ заявления...', onOk: null });
+        await confirmDecline(comment);
+        setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+        toast.error('Заявление отклонено');
+        onExit(true);
+      }
+      else if (type === 'RETURN_DECLINE') {
+        setSaveNotice({ open: true, status: 'saving', message: 'Возврат на доработку...', onOk: null });
+        await returnFromDecline(comment);
+        setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+        toast.success('Заявление возвращено технику на доработку');
+        onExit(true);
+      }
+      else if (type === 'REJECT_STAGE') {
+        setSaveNotice({ open: true, status: 'saving', message: 'Возврат на доработку...', onOk: null });
+        await reviewStage('REJECT', comment);
+        setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+        toast.error('Возвращено на доработку');
+        onExit(true);
+      }
+    } catch (e) {
+      console.error(e);
+      setSaveNotice({
+        open: true,
+        status: 'error',
+        message: 'Произошла ошибка при выполнении операции',
+        onOk: () => setSaveNotice({ open: false, status: 'saving', message: '', onOk: null }),
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- REQUEST DECLINE (Техник) ---
+  const handleRequestDecline = () => {
+    setActionModal({
+      type: 'REQUEST_DECLINE',
+      config: {
+        title: 'Запрос на отказ от заявки',
+        subtitle: 'Укажите причину, по которой вы не можете выполнить эту заявку.',
+        label: 'Причина отказа',
+        placeholder: 'Опишите подробно причину...',
+        confirmText: 'Отправить запрос',
+        intent: 'warning',
+        required: true,
+        minLength: 10
+      }
+    });
+  };
+
+  // --- CONFIRM DECLINE (Начальник филиала) ---
+  const handleConfirmDecline = () => {
+    setActionModal({
+      type: 'CONFIRM_DECLINE',
+      config: {
+        title: 'Подтверждение отказа',
+        subtitle: 'Вы собираетесь окончательно отклонить заявление.',
+        label: 'Комментарий к отказу (необязательно)',
+        placeholder: 'Укажите комментарий...',
+        confirmText: 'Отклонить заявление',
+        intent: 'destructive',
+        required: false,
+        minLength: 0
+      }
+    });
+  };
+
+  // --- RETURN FROM DECLINE (Начальник филиала) ---
+  const handleReturnFromDecline = () => {
+    setActionModal({
+      type: 'RETURN_DECLINE',
+      config: {
+        title: 'Возврат на доработку',
+        subtitle: 'Вернуть заявку технику для исправления или продолжения работ.',
+        label: 'Причина возврата (необязательно)',
+        placeholder: 'Укажите инструкции для техника...',
+        confirmText: 'Вернуть в работу',
+        intent: 'neutral',
+        required: false, // Можно сделать true если политика требует
+        minLength: 0
+      }
+    });
+  };
+  
+  // --- REJECT STAGE (Контролер) ---
+  const handleRejectStage = () => {
+    setActionModal({
+      type: 'REJECT_STAGE',
+      config: {
+        title: 'Вернуть этап на доработку',
+        subtitle: 'Укажите замечания, которые необходимо исправить исполнителю.',
+        label: 'Причина возврата',
+        placeholder: 'Опишите список замечаний...',
+        confirmText: 'Вернуть на доработку',
+        intent: 'destructive',
+        required: true,
+        minLength: 5
+      }
+    });
+  };
 
   const shortcutsEnabled =
     (isTechnician || user.role === ROLES.ADMIN) &&
@@ -684,7 +913,8 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     !showExitConfirm &&
     !showCompleteConfirm &&
     !showRollbackConfirm &&
-    !saveNotice.open;
+    !saveNotice.open &&
+    !actionModal;
 
   useKeyboardShortcuts(
     [
@@ -695,111 +925,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     shortcutsEnabled && !isLoading
   );
 
-  // --- REQUEST DECLINE (Техник) ---
-  const handleRequestDecline = async () => {
-    const reason = prompt('Укажите причину запроса на отказ (обязательно, мин. 10 символов):');
-    if (!reason || reason.trim().length < 10) {
-      if (reason !== null) toast.error('Причина должна быть не менее 10 символов');
-      return;
-    }
-
-    setIsLoading(true);
-    setSaveNotice({ open: true, status: 'saving', message: 'Отправка запроса на отказ...', onOk: null });
-
-    try {
-      await requestDecline(reason);
-      setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
-      toast.info('Запрос на отказ отправлен начальнику филиала');
-      onExit(true);
-    } catch (e) {
-      console.error(e);
-      setSaveNotice({
-        open: true,
-        status: 'error',
-        message: 'Ошибка при отправке запроса',
-        onOk: () => setSaveNotice({ open: false, status: 'saving', message: '', onOk: null }),
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // --- CONFIRM DECLINE (Начальник филиала) ---
-  const handleConfirmDecline = async () => {
-    const comment = prompt('Подтвердите отказ заявления. Укажите комментарий (необязательно):') || '';
-
-    setIsLoading(true);
-    setSaveNotice({ open: true, status: 'saving', message: 'Отказ заявления...', onOk: null });
-
-    try {
-      await confirmDecline(comment);
-      setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
-      toast.error('Заявление отклонено');
-      onExit(true);
-    } catch (e) {
-      console.error(e);
-      setSaveNotice({
-        open: true,
-        status: 'error',
-        message: 'Ошибка при отказе',
-        onOk: () => setSaveNotice({ open: false, status: 'saving', message: '', onOk: null }),
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // --- RETURN FROM DECLINE (Начальник филиала) ---
-  const handleReturnFromDecline = async () => {
-    const comment = prompt('Укажите причину возврата на доработку:') || '';
-
-    setIsLoading(true);
-    setSaveNotice({ open: true, status: 'saving', message: 'Возврат на доработку...', onOk: null });
-
-    try {
-      await returnFromDecline(comment);
-      setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
-      toast.success('Заявление возвращено технику на доработку');
-      onExit(true);
-    } catch (e) {
-      console.error(e);
-      setSaveNotice({
-        open: true,
-        status: 'error',
-        message: 'Ошибка при возврате',
-        onOk: () => setSaveNotice({ open: false, status: 'saving', message: '', onOk: null }),
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   if (!applicationInfo) return null;
-
-  const handleRejectStage = async () => {
-    const reason = prompt('Укажите причину возврата (обязательно):');
-    if (!reason || !reason.trim()) return;
-
-    setIsLoading(true);
-    setSaveNotice({ open: true, status: 'saving', message: 'Возврат на доработку...', onOk: null });
-
-    try {
-      await reviewStage('REJECT', reason);
-      setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
-      toast.error('Возвращено на доработку');
-      onExit(true); // Авто-выход
-    } catch (e) {
-      console.error(e);
-      setSaveNotice({
-        open: true,
-        status: 'error',
-        message: 'Ошибка при возврате',
-        onOk: () => setSaveNotice({ ...saveNotice, open: false }),
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   if (isReviewMode && isController) {
     return (
@@ -819,6 +945,15 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
             isLoading={isLoading}
           />
         )}
+        {actionModal && (
+          <ActionCommentModal
+            config={actionModal.config}
+            onCancel={() => setActionModal(null)}
+            onConfirm={handleActionConfirm}
+            isLoading={isLoading}
+          />
+        )}
+        
         <div className="bg-indigo-900 border-b border-indigo-800 px-8 py-4 flex items-center justify-between sticky top-0 z-30 shadow-xl animate-in slide-in-from-top-2 text-white">
           <div className="flex items-center gap-4">
             <div className="flex flex-col">
@@ -870,6 +1005,15 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
             onOk={handleSaveNoticeOk}
           />
         )}
+        {actionModal && (
+          <ActionCommentModal
+            config={actionModal.config}
+            onCancel={() => setActionModal(null)}
+            onConfirm={handleActionConfirm}
+            isLoading={isLoading}
+          />
+        )}
+        
         <div className="bg-amber-900 border-b border-amber-800 px-8 py-4 flex items-center justify-between sticky top-0 z-30 shadow-xl animate-in slide-in-from-top-2 text-white">
           <div className="flex items-center gap-4">
             <div className="p-2 bg-amber-800 rounded-xl border border-amber-700">
@@ -965,7 +1109,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     isCurrentTask &&
     !isReadOnly
   ) {
-    const isActionDisabled = isLoading || !isTechnician || saveNotice.open;
+    const isActionDisabled = isLoading || !isTechnician || saveNotice.open || actionModal;
 
     return (
       <>
@@ -997,6 +1141,15 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
             prevStepTitle={STEPS_CONFIG[Math.max(0, currentStep - 1)]?.title || 'Предыдущий шаг'}
             onCancel={() => setShowRollbackConfirm(false)}
             onConfirm={performRollback}
+            isLoading={isLoading}
+          />
+        )}
+        
+        {actionModal && (
+          <ActionCommentModal
+            config={actionModal.config}
+            onCancel={() => setActionModal(null)}
+            onConfirm={handleActionConfirm}
             isLoading={isLoading}
           />
         )}
@@ -1113,8 +1266,6 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
             <Button
               variant="secondary"
               onClick={handleSaveAndExit}
-              // БЫЛО: disabled={isActionDisabled}
-              // СТАЛО:
               disabled={isActionDisabled || isCustomSaveStep}
               title="Ctrl+Shift+S"
               className="bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 hover:text-white h-10 shadow-sm"
