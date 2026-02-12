@@ -10,12 +10,15 @@ import {
 import { STEPS_CONFIG, ROLES } from '@lib/constants';
 import { useProject } from '@context/ProjectContext';
 import { getStepStage } from '@lib/workflow-utils';
-import { Button, Tooltip } from '@components/ui/UIKit';
+import { Button, Tooltip, useEscapeKey } from '@components/ui/UIKit';
 import { IdentifierBadge } from '@components/ui/IdentifierBadge';
 
 // --- МОДАЛКА ВЫХОДА (ТОЛЬКО ДЛЯ КНОПКИ "НА РАБОЧИЙ СТОЛ") ---
-const ExitConfirmationModal = ({ onCancel, onConfirm }) => (
-  <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+const ExitConfirmationModal = ({ onCancel, onConfirm }) => {
+  useEscapeKey(onCancel);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
     <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5 scale-100 animate-in zoom-in-95 duration-200">
       <div className="p-6 text-center">
         <div className="w-14 h-14 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 ring-8 ring-red-50/50">
@@ -46,7 +49,8 @@ const ExitConfirmationModal = ({ onCancel, onConfirm }) => (
       </div>
     </div>
   </div>
-);
+  );
+};
 
 export default function Sidebar({
   currentStep,

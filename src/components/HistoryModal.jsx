@@ -23,6 +23,11 @@ export default function HistoryModal({ history, onClose }) {
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={onClose}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ' ) onClose();
+      }}
+      role="button"
+      tabIndex={0}
     >
       <div
         ref={modalRef}
@@ -31,6 +36,7 @@ export default function HistoryModal({ history, onClose }) {
         aria-modal="true"
         aria-labelledby="history-modal-title"
         onClick={e => e.stopPropagation()}
+        onKeyDown={e => e.stopPropagation()}
         className="bg-white w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] focus:outline-none"
       >
         {/* Header */}
@@ -48,6 +54,11 @@ export default function HistoryModal({ history, onClose }) {
           </div>
           <button
             onClick={onClose}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ' ) onClose();
+      }}
+      role="button"
+      tabIndex={0}
             aria-label="Закрыть модальное окно истории"
             className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-200"
           >

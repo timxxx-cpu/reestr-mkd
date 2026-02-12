@@ -599,11 +599,13 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                               else borderColorClass = TYPE_COLORS[a.type] || TYPE_COLORS.flat;
 
                               return (
-                                <div
+                                <button
                                   key={cellKey}
+                                  type="button"
                                   onClick={() =>
                                     isSelectionMode && !isReadOnly && toggleSelection(a)
                                   }
+                                  disabled={!isSelectionMode || isReadOnly}
                                   className={`
                                                                         flex flex-col gap-1 p-1.5 border-2 rounded-lg w-[68px] text-center transition-all shadow-sm relative group
                                                                         ${borderColorClass}
@@ -657,7 +659,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                                       <option value="duplex_down">Низ</option>
                                     </select>
                                   )}
-                                </div>
+                                </button>
                               );
                             })}
                           </div>

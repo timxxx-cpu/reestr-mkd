@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Home, Layers, CheckCircle2, Loader2, Search } from 'lucide-react';
 import { Card, DebouncedInput, Select } from '@components/ui/UIKit';
 import EmptyState from '@components/ui/EmptyState';
@@ -7,7 +7,6 @@ import { formatFullIdentifier } from '@lib/uj-identifier';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
 import { useProject } from '@context/ProjectContext';
 import { useQueryClient } from '@tanstack/react-query';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import ApartmentInventoryModal from '../modals/ApartmentInventoryModal';
 
 const getTypeConfig = type => {
@@ -35,7 +34,6 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
   const queryClient = useQueryClient();
   const { complexInfo } = useProject();
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
-  const tableContainerRef = useRef(null);
   
   const projectUjCode = complexInfo?.ujCode;
 
@@ -151,14 +149,6 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
     };
   }, [fullRegistry, searchTerm, filters]);
 
-  // Virtualization для больших списков
-  const rowVirtualizer = useVirtualizer({
-    count: data.length,
-    getScrollElement: () => tableContainerRef.current,
-    estimateSize: () => 60, // средняя высота строки в пикселях
-    overscan: 10, // рендерить дополнительно 10 строк сверху и снизу
-  });
-
   const handleSave = async changes => {
     const success = await onSaveUnit(editingUnit, changes);
     if (success) {
@@ -246,7 +236,7 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
       </div>
 
       <Card className="overflow-hidden border-0 shadow-lg ring-1 ring-slate-200 rounded-xl mx-4 md:mx-0">
-        <div ref={tableContainerRef} className="overflow-auto max-h-[60vh]">
+        <div className="overflow-auto max-h-[60vh]">
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-800 text-slate-200 border-b border-slate-700 text-[10px] uppercase font-bold sticky top-0 z-20 shadow-md">
               <tr>
@@ -264,13 +254,9 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
                 <th className="p-4 text-center border-l border-slate-700">Статус</th>
               </tr>
             </thead>
-            <tbody
-              className="bg-white text-sm"
-              style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}
-            >
+            <tbody className="bg-white text-sm">
               {data.length > 0 ? (
-                rowVirtualizer.getVirtualItems().map(virtualRow => {
-                  const item = data[virtualRow.index];
+                data.map((item, index) => {
                   const typeConf = getTypeConfig(item.type);
                   const TypeIcon = typeConf.icon;
                   const isFilled = parseFloat(item.area) > 0;
@@ -280,17 +266,9 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
                       key={item.id}
                       onClick={() => setEditingUnit(item)}
                       className="group cursor-pointer hover:bg-blue-50 transition-colors border-b border-slate-100 even:bg-slate-50/50"
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: `${virtualRow.size}px`,
-                        transform: `translateY(${virtualRow.start}px)`,
-                      }}
                     >
                       <td className="p-4 text-xs text-slate-400 text-center font-mono">
-                        {virtualRow.index + 1}
+                        {index + 1}
                       </td>
                       <td className="p-4 text-center">
                         <div className="inline-flex items-center justify-center w-8 h-8 rounded bg-white border border-slate-200 font-bold text-slate-700 text-xs shadow-sm">

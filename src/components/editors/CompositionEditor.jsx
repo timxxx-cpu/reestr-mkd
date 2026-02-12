@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { useDirectBuildings } from '@hooks/api/useDirectBuildings';
-import { Button, Input, Select, Label, SectionTitle, useReadOnly } from '@components/ui/UIKit';
+import { Button, Input, Select, Label, SectionTitle, useReadOnly, useEscapeKey } from '@components/ui/UIKit';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { formatFullIdentifier } from '@lib/uj-identifier';
 import { getStageColor } from '@lib/utils';
@@ -100,6 +100,7 @@ const BuildingModal = ({
   projectStageOptions,
 }) => {
   const isReadOnly = useReadOnly();
+  useEscapeKey(() => setModal(m => ({ ...m, isOpen: false })));
 
   const { errors, isValid } = useValidation(BuildingModalSchema, {
     baseName: modal.baseName,
@@ -362,10 +363,12 @@ const BuildingModal = ({
             </div>
             {modal.category?.includes('residential') && (
               <div className="pt-2 border-t border-slate-100 mt-2">
-                <label
+                <div
                   className={`flex items-start gap-3 group ${isReadOnly || isSaving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                 >
                   <input
+                    id="has-nonres-part-checkbox"
+                    aria-label="Есть нежилые объекты на жилых этажах"
                     type="checkbox"
                     checked={modal.hasNonResPart}
                     onChange={e => setModal(m => ({ ...m, hasNonResPart: e.target.checked }))}
@@ -378,7 +381,7 @@ const BuildingModal = ({
                     </span>
                     <p className="text-[10px] text-slate-400">Есть квартиры используемые как нежилые объекты</p>
                   </div>
-                </label>
+                </div>
               </div>
             )}
           </div>

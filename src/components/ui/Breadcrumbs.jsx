@@ -20,14 +20,16 @@ export default function Breadcrumbs({ projectName, stepTitle, buildingName, onBa
       <ChevronRight size={14} className="text-slate-300" />
 
       {/* 2. Название шага (Раздела) */}
-      <div
+      <button
+        type="button"
         className={`flex items-center gap-1 font-bold ${!buildingName ? 'text-slate-800' : 'text-slate-400 hover:text-blue-600 transition-colors cursor-pointer'}`}
         onClick={buildingName ? onBackToStep : undefined}
         title={buildingName ? 'Вернуться к выбору дома' : ''}
+        disabled={!buildingName}
       >
         <LayoutGrid size={14} />
         <span>{stepTitle}</span>
-      </div>
+      </button>
 
       {/* 3. Название здания (если мы внутри редактора) */}
       {buildingName && (

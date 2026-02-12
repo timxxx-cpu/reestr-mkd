@@ -51,7 +51,8 @@ export const IdentifierBadge = ({
   };
 
   return (
-    <span 
+    <button 
+      type="button"
       onClick={showCopy ? handleCopy : undefined}
       className={`
         inline-flex items-center gap-1 rounded-md border font-mono font-bold tracking-wide
@@ -68,7 +69,7 @@ export const IdentifierBadge = ({
           {copied ? <Check size={10} /> : <Copy size={10} />}
         </span>
       )}
-    </span>
+    </button>
   );
 };
 
@@ -135,7 +136,8 @@ export const FullIdentifierCompact = ({ fullCode, variant = 'default', className
   };
 
   return (
-    <span 
+    <button 
+      type="button"
       onClick={handleCopy}
       className={`
         inline-flex items-center gap-1 rounded-md border font-mono font-bold tracking-wide
@@ -152,7 +154,7 @@ export const FullIdentifierCompact = ({ fullCode, variant = 'default', className
           {copied ? <Check size={10} /> : <Copy size={10} />}
         </span>
       )}
-    </span>
+    </button>
   );
 };
 

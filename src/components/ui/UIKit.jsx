@@ -271,6 +271,7 @@ export function Tooltip({ children, content, placement = 'top' }) {
   };
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       className="relative inline-block"
       onMouseEnter={() => setIsOpen(true)}

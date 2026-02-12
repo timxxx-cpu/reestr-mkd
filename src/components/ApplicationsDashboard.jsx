@@ -37,7 +37,6 @@ import {
 import {
   canTakeInboxApplication,
   canDeclineFromDashboard,
-  canAssignTechnician,
 } from '@lib/workflow-state-machine';
 import { useCatalog } from '@hooks/useCatalogs';
 import {
@@ -90,7 +89,8 @@ function MetricCard({ label, value, icon: _Icon, color, isActive, onClick }) {
     : 'border-slate-200 hover:border-blue-300 bg-slate-50/50 hover:bg-white';
 
   return (
-    <div
+    <button
+      type="button"
       onClick={onClick}
       className={`
                 group p-5 rounded-xl border-2 transition-all duration-200 cursor-pointer
@@ -113,7 +113,7 @@ function MetricCard({ label, value, icon: _Icon, color, isActive, onClick }) {
           {label}
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
