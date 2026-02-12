@@ -181,8 +181,9 @@ function LoginScreen({ onLogin, isLoading, users = [], usersLoading }) {
         </div>
 
         <div className="space-y-4 text-left">
-          <label className="text-xs font-bold uppercase text-slate-500">Пользователь</label>
+          <label htmlFor="login-user-select" className="text-xs font-bold uppercase text-slate-500">Пользователь</label>
           <select
+            id="login-user-select"
             value={selectedUserId}
             onChange={e => setSelectedUserId(e.target.value)}
             disabled={usersLoading || isLoading || users.length === 0}
@@ -257,17 +258,20 @@ function ProjectEditorRoute({ user }) {
   const initialRedirectDone = useRef(false);
 
   useEffect(() => {
-    if (
-      !isViewMode &&
-      applicationInfo?.currentStepIndex !== undefined &&
-      !initialRedirectDone.current
-    ) {
-      const targetStep = applicationInfo.currentStepIndex;
-      const safeStep = Math.min(targetStep, STEPS_CONFIG.length - 1);
-      setCurrentStep(safeStep);
-      initialRedirectDone.current = true;
-    }
-  }, [applicationInfo, isViewMode]);
+    if (isViewMode) return;
+    if (initialRedirectDone.current) return;
+
+    // В mergedState есть дефолтный currentStepIndex=0 до загрузки данных.
+    // Ждем появления реальной applicationInfo (id), чтобы фокус экрана
+    // сразу открывался на фактической текущей задаче из БД.
+    if (!applicationInfo?.id) return;
+    if (applicationInfo.currentStepIndex === undefined || applicationInfo.currentStepIndex === null) return;
+
+    const targetStep = applicationInfo.currentStepIndex;
+    const safeStep = Math.min(targetStep, STEPS_CONFIG.length - 1);
+    setCurrentStep(safeStep);
+    initialRedirectDone.current = true;
+  }, [applicationInfo?.id, applicationInfo?.currentStepIndex, isViewMode]);
 
   const isTechnician = user.role === ROLES.TECHNICIAN;
   const taskIndex = applicationInfo?.currentStepIndex || 0;

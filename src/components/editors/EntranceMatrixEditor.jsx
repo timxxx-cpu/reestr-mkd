@@ -448,11 +448,13 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                         </span>
                         <div className="grid grid-cols-3 gap-0.5 w-full text-center">
                           {['apts', 'units', 'mopQty'].map(col => (
-                            <div
+                            <button
                               key={col}
+                              type="button"
                               className={`group/col-header flex flex-col items-center gap-0.5 p-1 rounded-lg transition-colors relative ${isReadOnly ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-slate-200'}`}
                               onClick={() => !isReadOnly && fillColumnBelow(e.number, col)}
                               title={isReadOnly ? '' : 'Заполнить колонку вниз'}
+                              disabled={isReadOnly}
                             >
                               <span className="text-[9px] font-bold text-slate-500 group-hover/col-header:text-blue-700 uppercase">
                                 {col === 'apts' ? 'Кв' : col === 'units' ? 'Оф' : 'МОП'}
@@ -463,7 +465,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                   className="absolute -bottom-1.5 text-blue-600 opacity-0 group-hover/col-header:opacity-100 transition-opacity bg-white rounded-full shadow-sm border border-slate-200"
                                 />
                               )}
-                            </div>
+                            </button>
                           ))}
                         </div>
                       </div>

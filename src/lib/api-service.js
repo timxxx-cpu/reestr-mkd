@@ -314,6 +314,8 @@ const VERSION_STATUS_FLOW = {
   PREVIOUS: 'PREVIOUS',
 };
 
+const VERSIONING_ENABLED = false;
+
 const resolveTargetVersionStatus = appStatus => {
   if (appStatus === 'COMPLETED') return VERSION_STATUS_FLOW.CURRENT;
   if (appStatus === 'DECLINED') return VERSION_STATUS_FLOW.REJECTED;
@@ -407,6 +409,8 @@ const collectProjectVersionEntities = async projectId => {
 };
 
 const createPendingVersionsForApplication = async ({ projectId, applicationId, createdBy = null }) => {
+  if (!VERSIONING_ENABLED) return;
+
   const entities = await collectProjectVersionEntities(projectId);
 
   for (const entity of entities) {
@@ -439,6 +443,8 @@ const createPendingVersionsForApplication = async ({ projectId, applicationId, c
 };
 
 const syncVersionStatusesByApplicationStatus = async ({ projectId, applicationId, appStatus }) => {
+  if (!VERSIONING_ENABLED) return;
+
   const targetStatus = resolveTargetVersionStatus(appStatus);
 
   if (targetStatus === VERSION_STATUS_FLOW.PENDING) {
@@ -2024,6 +2030,8 @@ const LegacyApiService = {
   },
 
   getVersions: async (entityType, entityId) => {
+    if (!VERSIONING_ENABLED) return [];
+
     const { data, error } = await supabase
       .from('object_versions')
       .select('*')
@@ -2035,6 +2043,8 @@ const LegacyApiService = {
   },
 
   createVersion: async ({ entityType, entityId, snapshotData, createdBy, applicationId }) => {
+    if (!VERSIONING_ENABLED) return null;
+
     const { data: latest, error: latestErr } = await supabase
       .from('object_versions')
       .select('version_number')
@@ -2071,6 +2081,8 @@ const LegacyApiService = {
   },
 
   approveVersion: async ({ versionId, approvedBy }) => {
+    if (!VERSIONING_ENABLED) return null;
+
     const { data: current, error: currentErr } = await supabase
       .from('object_versions')
       .select('id, entity_type, entity_id')
@@ -2104,6 +2116,8 @@ const LegacyApiService = {
   },
 
   declineVersion: async ({ versionId, reason, declinedBy }) => {
+    if (!VERSIONING_ENABLED) return null;
+
     const { data, error } = await supabase
       .from('object_versions')
       .update({
@@ -2120,6 +2134,8 @@ const LegacyApiService = {
   },
 
   getVersionSnapshot: async versionId => {
+    if (!VERSIONING_ENABLED) return {};
+
     const { data, error } = await supabase
       .from('object_versions')
       .select('snapshot_data')
@@ -2130,6 +2146,8 @@ const LegacyApiService = {
   },
 
   restoreVersion: async ({ versionId }) => {
+    if (!VERSIONING_ENABLED) return null;
+
     const { data: current, error: currentErr } = await supabase
       .from('object_versions')
       .select('id, entity_type, entity_id')

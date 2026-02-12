@@ -302,6 +302,8 @@ const SaveProgressModal = ({ status, message, onOk }) => {
   const isSaving = status === 'saving';
   const isError = status === 'error';
 
+  useEscapeKey(!isSaving ? onOk : null);
+
   return (
     <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
       <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5">
@@ -382,27 +384,30 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     if (pendingStepTarget === null) return;
     if (currentStep !== pendingStepTarget) return;
 
-    // Даем React дорендерить следующий экран шага, затем снимаем блокировку кликов.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        setIsTaskSwitchBlocking(false);
-        setPendingStepTarget(null);
-      });
-    });
-  }, [isTaskSwitchBlocking, pendingStepTarget, currentStep]);
+    // Снимаем блокировку только когда и локальный шаг, и workflow в контексте
+    // синхронизировались на целевом индексе. Это предотвращает окно, в котором
+    // пользователь может кликать по UI во время догрузки следующего экрана.
+    const contextStepIndex = applicationInfo?.currentStepIndex ?? 0;
+    if (contextStepIndex !== pendingStepTarget) return;
+
+    const unlockTimer = setTimeout(() => {
+      setIsTaskSwitchBlocking(false);
+      setPendingStepTarget(null);
+    }, 320);
+
+    return () => clearTimeout(unlockTimer);
+  }, [isTaskSwitchBlocking, pendingStepTarget, currentStep, applicationInfo?.currentStepIndex]);
 
   const taskIndex = applicationInfo?.currentStepIndex || 0;
   const isCurrentTask = currentStep === taskIndex;
   const canGoBack = currentStep > 0;
 
-  const appStatus = applicationInfo?.status;
   const appSubstatus = applicationInfo?.workflowSubstatus || WORKFLOW_SUBSTATUS.DRAFT;
   const isReviewMode = appSubstatus === WORKFLOW_SUBSTATUS.REVIEW;
   const isPendingDeclineMode = isPendingDecline(appSubstatus);
 
   const isController = user.role === ROLES.CONTROLLER || user.role === ROLES.ADMIN;
   const isTechnician = user.role === ROLES.TECHNICIAN;
-  const isBranchManager = user.role === ROLES.BRANCH_MANAGER;
   const canTechRequestDecline = canRequestDecline(user.role, appSubstatus);
   const canManagerReviewDecline = canReviewDeclineRequest(user.role, appSubstatus);
 
@@ -506,7 +511,6 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
         console.warn('Timed out waiting for pending mutations before validation');
         break;
       }
-      // eslint-disable-next-line no-await-in-loop
       await new Promise(resolve => setTimeout(resolve, 120));
     }
   };

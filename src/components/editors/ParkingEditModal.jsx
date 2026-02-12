@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { X, Check, Car, Ruler, Hash } from 'lucide-react';
-import { Button, Input, Label, useReadOnly } from '@components/ui/UIKit';
+import { Button, Input, Label, useReadOnly, useEscapeKey } from '@components/ui/UIKit';
 
 export default function ParkingEditModal({ unit, buildingLabel, onClose, onSave }) {
   const isReadOnly = useReadOnly();
+  useEscapeKey(onClose);
   const [number, setNumber] = useState(unit.number || '');
   const [area, setArea] = useState(unit.area || '');
 

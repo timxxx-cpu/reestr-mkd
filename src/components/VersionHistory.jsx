@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { X, RotateCcw, CheckCircle2, Ban } from 'lucide-react';
 import { VersionBadge } from './ui/VersionBadge';
+import { useEscapeKey } from './ui/UIKit';
 
 const JsonPreview = ({ data }) => (
   <pre className="text-[11px] leading-relaxed bg-slate-950 text-slate-100 rounded-xl p-3 overflow-auto max-h-56">
@@ -23,6 +24,8 @@ export const VersionHistory = ({
     if (!selectedId) return versions[0] || null;
     return versions.find(v => v.id === selectedId) || versions[0] || null;
   }, [versions, selectedId]);
+
+  useEscapeKey(open ? onClose : null);
 
   if (!open) return null;
 

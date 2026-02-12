@@ -45,6 +45,7 @@ export default defineConfig([
       'react-hooks/set-state-in-effect': 'off',
       'react-hooks/static-components': 'off',
       'react-hooks/preserve-manual-memoization': 'off',
+      'react-hooks/incompatible-library': 'off',
       
       // Accessibility rules (warnings для постепенного улучшения)
       'jsx-a11y/alt-text': 'warn',
