@@ -222,17 +222,19 @@ const BuildingModal = ({
               <div
                 className={`flex flex-col gap-3 p-3 rounded-xl border transition-colors animate-in fade-in ${isMultiblockError ? 'bg-red-50 border-red-200' : 'bg-indigo-50 border-indigo-100'}`}
               >
-                <div className="grid grid-cols-2 gap-3">
+               <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label>Жилых блоков</Label>
                     <Input
                       type="number"
                       min="0"
+                      max="10"
                       value={modal.resBlocks}
                       onChange={e =>
                         setModal(m => ({
                           ...m,
-                          resBlocks: Math.max(0, parseInt(e.target.value) || 0),
+                          // Ограничение: 0..10
+                          resBlocks: Math.min(10, Math.max(0, parseInt(e.target.value) || 0)),
                         }))
                       }
                       disabled={modal.editingId || isSaving}
@@ -243,11 +245,13 @@ const BuildingModal = ({
                     <Input
                       type="number"
                       min="0"
+                      max="10"
                       value={modal.nonResBlocks}
                       onChange={e =>
                         setModal(m => ({
                           ...m,
-                          nonResBlocks: Math.max(0, parseInt(e.target.value) || 0),
+                          // Ограничение: 0..10
+                          nonResBlocks: Math.min(10, Math.max(0, parseInt(e.target.value) || 0)),
                         }))
                       }
                       disabled={modal.editingId || isSaving}
