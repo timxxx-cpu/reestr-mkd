@@ -47,7 +47,10 @@ import EntranceMatrixEditor from '@components/editors/EntranceMatrixEditor';
 import MopEditor from '@components/editors/MopEditor';
 import FlatMatrixEditor from '@components/editors/FlatMatrixEditor';
 
-import UnitRegistry from '@components/editors/registry/UnitRegistry';
+// [NEW] Прямые импорты реестров
+import ApartmentsRegistry from '@components/editors/registry/views/ApartmentsRegistry';
+import CommercialRegistry from '@components/editors/registry/views/CommercialRegistry';
+import ParkingRegistry from '@components/editors/registry/views/ParkingRegistry';
 
 import SummaryDashboard from '@components/editors/SummaryDashboard';
 import RegistryView from '@components/editors/RegistryView';
@@ -241,6 +244,7 @@ function ProjectEditorRoute({ user }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [editingBuildingId, setEditingBuildingId] = useState(null);
   const {
+    projectId, // [NEW] Деструктурируем projectId
     complexInfo,
     composition,
     isReadOnly,
@@ -261,9 +265,6 @@ function ProjectEditorRoute({ user }) {
     if (isViewMode) return;
     if (initialRedirectDone.current) return;
 
-    // В mergedState есть дефолтный currentStepIndex=0 до загрузки данных.
-    // Ждем появления реальной applicationInfo (id), чтобы фокус экрана
-    // сразу открывался на фактической текущей задаче из БД.
     if (!applicationInfo?.id) return;
     if (applicationInfo.currentStepIndex === undefined || applicationInfo.currentStepIndex === null) return;
 
@@ -353,7 +354,33 @@ function ProjectEditorRoute({ user }) {
             onBack={() => setEditingBuildingId(null)}
           />
         );
+      // [NEW] Прямые вызовы реестров (вместо UnitRegistry)
+      if (stepId === 'registry_apartments')
+        return (
+          <ApartmentsRegistry
+            projectId={projectId} // Передаем projectId из контекста
+            buildingId={editingBuildingId}
+            onBack={() => setEditingBuildingId(null)}
+          />
+        );
+      if (stepId === 'registry_commercial')
+        return (
+          <CommercialRegistry
+            projectId={projectId}
+            buildingId={editingBuildingId}
+            onBack={() => setEditingBuildingId(null)}
+          />
+        );
+      if (stepId === 'registry_parking')
+        return (
+          <ParkingRegistry
+            projectId={projectId}
+            buildingId={editingBuildingId}
+            onBack={() => setEditingBuildingId(null)}
+          />
+        );
     }
+
     switch (stepId) {
       case 'passport':
         return <PassportEditor />;
@@ -362,19 +389,17 @@ function ProjectEditorRoute({ user }) {
       case 'parking_config':
         return <ParkingConfigurator buildingId={null} />;
 
-      case 'registry_apartments':
-        return <UnitRegistry mode="apartments" />;
-      case 'registry_commercial':
-        return <UnitRegistry mode="commercial" />;
-      case 'registry_parking':
-        return <UnitRegistry mode="parking" />;
-
       case 'summary':
         return <SummaryDashboard />;
       case 'registry_res_view':
         return <RegistryView mode="res" />;
       case 'registry_nonres_view':
         return <RegistryView mode="nonres" />;
+        
+      // [CHANGE] Реестры теперь тоже используют BuildingSelector напрямую
+      case 'registry_apartments':
+      case 'registry_commercial':
+      case 'registry_parking':
       case 'registry_res':
       case 'registry_nonres':
       case 'floors':

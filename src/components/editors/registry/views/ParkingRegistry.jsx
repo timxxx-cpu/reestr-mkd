@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Car, CheckCircle2, Loader2, Search } from 'lucide-react';
+import { Car, CheckCircle2, Loader2, Search, ArrowLeft } from 'lucide-react';
 import { Card, DebouncedInput } from '@components/ui/UIKit';
 import EmptyState from '@components/ui/EmptyState';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
@@ -7,10 +7,13 @@ import { formatFullIdentifier } from '@lib/uj-identifier';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
 import { useProject } from '@context/ProjectContext';
 import { useQueryClient } from '@tanstack/react-query';
+import { ApiService } from '@lib/api-service';
 import ParkingEditModal from '../../ParkingEditModal';
+import { useToast } from '@context/ToastContext';
 
-const ParkingRegistry = ({ onSaveUnit, projectId }) => {
+const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const { complexInfo } = useProject();
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
 
@@ -31,10 +34,10 @@ const ParkingRegistry = ({ onSaveUnit, projectId }) => {
     floors.forEach(f => (fMap[f.id] = f));
 
     // 1. Фильтруем только паркинг
-    const parking = units.filter(u => u.type === 'parking_place');
+    let parking = units.filter(u => u.type === 'parking_place');
 
     // 2. Обогащаем
-    const enriched = parking.map(u => {
+    let enriched = parking.map(u => {
       const floor = fMap[u.floorId];
       const block = floor ? blMap[floor.blockId] : null;
       const building = block ? bMap[block.buildingId] : null;
@@ -44,10 +47,16 @@ const ParkingRegistry = ({ onSaveUnit, projectId }) => {
         floorLabel: floor?.label || '-',
         blockLabel: block?.tabLabel || block?.label || '-',
         buildingLabel: building?.label || '-',
+        buildingId: building?.id,
         buildingCode: building?.building_code || building?.buildingCode || null,
         houseNumber: building?.houseNumber || '-',
       };
     });
+
+    // [NEW] Фильтруем по зданию
+    if (buildingId) {
+        enriched = enriched.filter(item => item.buildingId === buildingId);
+    }
 
     // 3. Поиск
     const filtered = enriched.filter(item => {
@@ -71,13 +80,41 @@ const ParkingRegistry = ({ onSaveUnit, projectId }) => {
         sold: totalSold,
       },
     };
-  }, [fullRegistry, searchTerm]);
+  }, [fullRegistry, searchTerm, buildingId]);
+
+  // [NEW] Логика сохранения
+  const handleSaveUnit = async (originalUnit, changes) => {
+    try {
+      const mergedData = { ...originalUnit, ...changes };
+      const payload = {
+        id: mergedData.id,
+        floorId: mergedData.floorId,
+        entranceId: mergedData.entranceId,
+        num: mergedData.number || mergedData.num,
+        type: mergedData.type,
+        area: mergedData.area,
+        livingArea: mergedData.livingArea,
+        usefulArea: mergedData.usefulArea,
+        rooms: mergedData.rooms,
+        isSold: mergedData.isSold,
+        explication: mergedData.explication || mergedData.roomsList,
+      };
+
+      await ApiService.upsertUnit(payload);
+      await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
+      return true;
+    } catch (error) {
+      console.error('Save error:', error);
+      toast.error('Ошибка сохранения: ' + error.message);
+      return false;
+    }
+  };
 
   const handleSave = async changes => {
-    const success = await onSaveUnit(editingUnit, changes);
+    const success = await handleSaveUnit(editingUnit, changes);
     if (success) {
       setEditingUnit(null);
-      queryClient.invalidateQueries({ queryKey: ['project-registry'] });
+      toast.success('Сохранено');
     }
   };
 
@@ -89,7 +126,20 @@ const ParkingRegistry = ({ onSaveUnit, projectId }) => {
     );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 md:px-6 2xl:px-8 pb-10">
+      {/* [NEW] Header с кнопкой назад */}
+      {buildingId && onBack && (
+        <div className="flex items-center gap-4 mb-4 pt-4 border-b border-slate-200 pb-4">
+          <button 
+            onClick={onBack}
+            className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 transition-colors"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h2 className="text-lg font-bold text-slate-800">Реестр машиномест</h2>
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="text-xs text-slate-500 font-bold uppercase">Всего мест</div>
@@ -198,7 +248,7 @@ const ParkingRegistry = ({ onSaveUnit, projectId }) => {
                     <EmptyState
                       icon={Car}
                       title="Нет машиномест"
-                      description="Добавьте парковочные места в инвентаризацию, чтобы отобразить их в реестре."
+                      description="В выбранном здании нет машиномест."
                       compact
                     />
                   </td>

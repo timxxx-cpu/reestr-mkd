@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Loader2,
   Search,
+  ArrowLeft
 } from 'lucide-react';
 import { Card, DebouncedInput } from '@components/ui/UIKit';
 import EmptyState from '@components/ui/EmptyState';
@@ -15,40 +16,22 @@ import { formatFullIdentifier } from '@lib/uj-identifier';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
 import { useProject } from '@context/ProjectContext';
 import { useQueryClient } from '@tanstack/react-query';
+import { ApiService } from '@lib/api-service';
 import CommercialInventoryModal from '../modals/CommercialInventoryModal';
+import { useToast } from '@context/ToastContext';
 
 const getTypeConfig = type => {
   switch (type) {
     case 'office':
-      return {
-        label: 'Офис',
-        color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-        icon: Briefcase,
-      };
+      return { label: 'Офис', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: Briefcase };
     case 'office_inventory':
-      return {
-        label: 'Нежилое (Инв.)',
-        color: 'bg-teal-50 text-teal-700 border-teal-200',
-        icon: FileText,
-      };
+      return { label: 'Нежилое (Инв.)', color: 'bg-teal-50 text-teal-700 border-teal-200', icon: FileText };
     case 'non_res_block':
-      return {
-        label: 'Нежилой блок',
-        color: 'bg-amber-50 text-amber-700 border-amber-200',
-        icon: Building2,
-      };
+      return { label: 'Нежилой блок', color: 'bg-amber-50 text-amber-700 border-amber-200', icon: Building2 };
     case 'infrastructure':
-      return {
-        label: 'Инфраструктура',
-        color: 'bg-orange-50 text-orange-700 border-orange-200',
-        icon: School,
-      };
+      return { label: 'Инфраструктура', color: 'bg-orange-50 text-orange-700 border-orange-200', icon: School };
     case 'pantry':
-      return {
-        label: 'Кладовая',
-        color: 'bg-slate-100 text-slate-700 border-slate-200',
-        icon: FileText,
-      };
+      return { label: 'Кладовая', color: 'bg-slate-100 text-slate-700 border-slate-200', icon: FileText };
     default:
       return { label: type, color: 'bg-slate-100 text-slate-600', icon: FileText };
   }
@@ -62,10 +45,10 @@ const COMMERCIAL_TYPES = new Set([
   'pantry',
 ]);
 
-const CommercialRegistry = ({ onSaveUnit, projectId }) => {
+const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const { complexInfo } = useProject();
-  // Читаем данные из БД
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -85,9 +68,8 @@ const CommercialRegistry = ({ onSaveUnit, projectId }) => {
     const fMap = {};
     floors.forEach(f => (fMap[f.id] = f));
 
-    // 1. Обогащаем и определяем коммерческие объекты через контекст,
-    // даже если unit_type заполнен неконсистентно.
-    const enriched = units.map(u => {
+    // Обогащаем данными
+    let enriched = units.map(u => {
       const floor = fMap[u.floorId];
       const block = floor ? blMap[floor.blockId] : null;
       const building = block ? bMap[block.buildingId] : null;
@@ -107,17 +89,23 @@ const CommercialRegistry = ({ onSaveUnit, projectId }) => {
         floorLabel: floor?.label || '-',
         blockLabel: block?.tabLabel || block?.label || '-',
         buildingLabel: building?.label || '-',
+        buildingId: building?.id,
         buildingCode: building?.building_code || building?.buildingCode || null,
         houseNumber: building?.houseNumber || '-',
         entrance: u.entranceId ? '?' : '-',
       };
     });
 
-    // 2. Фильтруем только нежилые
-    const commercial = enriched.filter(item => item.isCommercialByContext);
+    // Фильтруем только нежилые
+    enriched = enriched.filter(item => item.isCommercialByContext);
 
-    // 3. Поиск
-    const filtered = commercial.filter(item => {
+    // [NEW] Фильтруем по зданию, если передан buildingId
+    if (buildingId) {
+      enriched = enriched.filter(item => item.buildingId === buildingId);
+    }
+
+    // Поиск
+    const filtered = enriched.filter(item => {
       if (!searchTerm) return true;
       const low = searchTerm.toLowerCase();
       return String(item.number || item.num || '')
@@ -125,7 +113,6 @@ const CommercialRegistry = ({ onSaveUnit, projectId }) => {
         .includes(low);
     });
 
-    // 4. Статистика
     const totalArea = filtered.reduce((sum, item) => sum + (parseFloat(item.area) || 0), 0);
 
     return {
@@ -135,13 +122,41 @@ const CommercialRegistry = ({ onSaveUnit, projectId }) => {
         area: totalArea,
       },
     };
-  }, [fullRegistry, searchTerm]);
+  }, [fullRegistry, searchTerm, buildingId]);
+
+  // [NEW] Логика сохранения
+  const handleSaveUnit = async (originalUnit, changes) => {
+    try {
+      const mergedData = { ...originalUnit, ...changes };
+      const payload = {
+        id: mergedData.id,
+        floorId: mergedData.floorId,
+        entranceId: mergedData.entranceId,
+        num: mergedData.number || mergedData.num,
+        type: mergedData.type,
+        area: mergedData.area,
+        livingArea: mergedData.livingArea,
+        usefulArea: mergedData.usefulArea,
+        rooms: mergedData.rooms,
+        isSold: mergedData.isSold,
+        explication: mergedData.explication || mergedData.roomsList,
+      };
+
+      await ApiService.upsertUnit(payload);
+      await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
+      return true;
+    } catch (error) {
+      console.error('Save error:', error);
+      toast.error('Ошибка сохранения: ' + error.message);
+      return false;
+    }
+  };
 
   const handleSave = async changes => {
-    const success = await onSaveUnit(editingUnit, changes);
+    const success = await handleSaveUnit(editingUnit, changes);
     if (success) {
       setEditingUnit(null);
-      queryClient.invalidateQueries({ queryKey: ['project-registry'] });
+      toast.success('Сохранено');
     }
   };
 
@@ -153,7 +168,20 @@ const CommercialRegistry = ({ onSaveUnit, projectId }) => {
     );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 md:px-6 2xl:px-8 pb-10">
+      {/* [NEW] Header с кнопкой назад, если мы в режиме конкретного здания */}
+      {buildingId && onBack && (
+        <div className="flex items-center gap-4 mb-4 pt-4 border-b border-slate-200 pb-4">
+          <button 
+            onClick={onBack}
+            className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 transition-colors"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h2 className="text-lg font-bold text-slate-800">Реестр коммерческих помещений</h2>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="text-xs text-slate-500 font-bold uppercase">Всего помещений</div>
@@ -274,7 +302,7 @@ const CommercialRegistry = ({ onSaveUnit, projectId }) => {
                     <EmptyState
                       icon={Briefcase}
                       title="Нет объектов"
-                      description="Добавьте коммерческие помещения, чтобы заполнить реестр нежилых объектов."
+                      description="В выбранном здании нет коммерческих помещений."
                       compact
                     />
                   </td>
@@ -288,7 +316,6 @@ const CommercialRegistry = ({ onSaveUnit, projectId }) => {
       {editingUnit && (
         <CommercialInventoryModal
           unit={editingUnit}
-          // Передаем полный список для копирования
           unitsList={fullRegistry?.units || []}
           buildingLabel={`Дом ${editingUnit.houseNumber}, ${editingUnit.buildingLabel}`}
           onClose={() => setEditingUnit(null)}

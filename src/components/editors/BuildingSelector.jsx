@@ -65,7 +65,8 @@ const BuildingSelector = ({ stepId, onSelect }) => {
         return true;
       }
 
-      if (['entrances', 'mop', 'apartments'].includes(stepId)) {
+      // [MODIFIED] Добавлен registry_apartments в фильтр жилых
+      if (['entrances', 'mop', 'apartments', 'registry_apartments'].includes(stepId)) {
         return item.category.includes('residential');
       }
 
