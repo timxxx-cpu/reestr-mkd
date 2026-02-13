@@ -1775,16 +1775,102 @@ const LegacyApiService = {
   },
 
   batchUpsertUnits: async unitsList => {
-    const payload = unitsList.map(u => ({
-      id: u.id || crypto.randomUUID(),
-      floor_id: u.floorId,
-      entrance_id: u.entranceId,
-      number: u.num || u.number,
-      unit_type: u.type,
-      total_area: u.area || 0,
-      status: 'free',
-      updated_at: new Date(),
-    }));
+    if (!unitsList || unitsList.length === 0) return;
+
+    // 1. Подготовка: Находим ID и код здания (берем floorId из первого элемента)
+    // Нам нужно знать здание, чтобы сформировать префикс (ZD...) и проверить существующие номера
+    const sampleUnit = unitsList[0];
+    let buildingCode = null;
+    let existingCodes = [];
+
+    if (sampleUnit.floorId) {
+      // Цепочка: Floor -> Block -> Building
+      const { data: floor } = await supabase
+        .from('floors')
+        .select(`
+          block_id,
+          building_blocks (
+            building_id,
+            buildings (building_code)
+          )
+        `)
+        .eq('id', sampleUnit.floorId)
+        .single();
+
+      if (floor?.building_blocks) {
+        // [FIX] Безопасное извлечение блока и здания (Supabase может вернуть массив или объект)
+        const block = Array.isArray(floor.building_blocks) 
+            ? floor.building_blocks[0] 
+            : floor.building_blocks;
+
+        if (block) {
+            // building_id находится в таблице building_blocks
+            const buildingId = block.building_id;
+
+            // buildings (связанная таблица) тоже может прийти как массив
+            const buildingData = Array.isArray(block.buildings) 
+                ? block.buildings[0] 
+                : block.buildings;
+
+            if (buildingData) {
+                buildingCode = buildingData.building_code;
+
+                // 2. Получаем существующие коды
+                if (buildingCode) {
+                    const { data: codes } = await supabase
+                        .from('units')
+                        .select('unit_code')
+                        .ilike('unit_code', `${buildingCode}-%`);
+                    
+                    existingCodes = (codes || [])
+                        .map(r => extractUnitSegment(r.unit_code))
+                        .filter(Boolean);
+                }
+            }
+        }
+    }
+    }
+
+    // 3. Инициализация локальных счетчиков для разных типов помещений в пачке
+    // Мы не можем использовать generateNextUnitCode в цикле, так как он делает запрос в БД.
+    // Считаем в памяти.
+    const counters = {
+      EF: getNextSequenceNumber(existingCodes, 'EF'),
+      EO: getNextSequenceNumber(existingCodes, 'EO'),
+      EP: getNextSequenceNumber(existingCodes, 'EP'),
+    };
+
+    // 4. Формирование Payload с кодами
+    const payload = unitsList.map(u => {
+      let finalUnitCode = u.unitCode || null;
+
+      // Если кода нет, и мы знаем код здания — генерируем
+      if (!finalUnitCode && buildingCode && u.type) {
+        const prefix = getUnitPrefix(u.type); // Например 'EF' или 'EO'
+        const currentSeq = counters[prefix] || 1;
+        
+        // Генерируем сегмент (например EF015)
+        const segment = generateUnitCode(prefix, currentSeq);
+        finalUnitCode = `${buildingCode}-${segment}`;
+
+        // Инкрементируем счетчик для этого типа
+        counters[prefix]++;
+      }
+
+      return {
+        id: u.id || crypto.randomUUID(),
+        floor_id: u.floorId,
+        entrance_id: u.entranceId,
+        number: u.num || u.number,
+        unit_type: u.type,
+        unit_code: finalUnitCode, // <-- ДОБАВЛЕНО ПОЛЕ
+        total_area: u.area || 0,
+        status: 'free',
+        updated_at: new Date(),
+      };
+    });
+
+    // 5. Сохранение
     const { error } = await upsertWithConflict('units', payload);
     if (error) throw error;
   },
@@ -1803,6 +1889,16 @@ const LegacyApiService = {
     return data.map(m => mapMopFromDB(m, {}, null, blockId));
   },
 
+  /**
+   * @param {{
+   * id?: string,
+   * floorId: string,
+   * entranceId?: string,
+   * type: string,
+   * area: number,
+   * height?: number | string
+   * }} data
+   */
   upsertCommonArea: async data => {
     const payload = {
       id: data.id || crypto.randomUUID(),

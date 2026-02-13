@@ -18,7 +18,8 @@ import {
   Trash2,
   RotateCcw,
   X,
-  AlertTriangle
+  AlertTriangle,
+  Wand2 // [NEW] Иконка для кнопки
 } from 'lucide-react';
 import { Card, DebouncedInput, useReadOnly, Button, Select, Label, Input, Modal, BlockingLoader } from '@components/ui/UIKit';
 import EmptyState from '@components/ui/EmptyState';
@@ -26,7 +27,7 @@ import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { formatFullIdentifier } from '@lib/uj-identifier';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
 import { useDirectBuildings } from '@hooks/api/useDirectBuildings';
-import { useDirectMatrix } from '@hooks/api/useDirectMatrix'; // [ВАЖНО] Для чтения плана
+import { useDirectMatrix } from '@hooks/api/useDirectMatrix';
 import { useBuildingType } from '@hooks/useBuildingType';
 import { useProject } from '@context/ProjectContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -73,16 +74,13 @@ const getTypeConfig = type => {
 };
 
 const RESIDENTIAL_UNIT_TYPES = new Set(['flat', 'duplex_up', 'duplex_down']);
-const NON_RESIDENTIAL_FLOOR_TYPES = new Set(['mixed', 'office', 'basement', 'technical', 'stylobate', 'parking_floor']);
-const FORCED_COMMERCIAL_FLOORS = new Set(['basement', 'ground', 'first', 'technical', 'stylobate']);
 
-// --- EXPLICATION PANEL ---
+// --- EXPLICATION PANEL (SINGLE MODE) ---
 
 const ExplicationPanel = ({
-  selectedUnits,
+  activeUnit,
   roomTypes,
   onApplySingle,
-  onApplyBulk,
   onResetExplication,
   onClearSelection,
   isSaving
@@ -91,32 +89,31 @@ const ExplicationPanel = ({
   const toast = useToast();
   
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, type: null, title: '', description: '' });
-  
-  const count = selectedUnits.length;
-  const isMulti = count > 1;
-  const activeUnit = count === 1 ? selectedUnits[0] : null;
-  const isDuplex = activeUnit && ['duplex_up', 'duplex_down'].includes(activeUnit.type);
-  
   const [rooms, setRooms] = useState([]);
 
-  const { data: freshUnit } = useQuery({
+  // Всегда запрашиваем свежие данные из БД (staleTime: 0)
+  const { data: freshUnit, isLoading: isUnitLoading } = useQuery({
     queryKey: ['registry-unit-explication', activeUnit?.id],
     queryFn: () => ApiService.getUnitExplicationById(activeUnit.id),
-    enabled: !!activeUnit?.id && !isMulti,
+    enabled: !!activeUnit?.id,
+    staleTime: 0, 
   });
 
   useEffect(() => {
-    if (isMulti || count === 0) {
-      setRooms([]);
+    if (!activeUnit?.id || isUnitLoading) {
+      setRooms([]); 
       return;
     }
-    const source = freshUnit?.explication || activeUnit?.explication || [];
-    setRooms(source.map(r => ({ 
-        ...r, 
-        id: r.id || crypto.randomUUID(),
-        level: isDuplex ? String(r.level || 1) : '1' 
-    })));
-  }, [isMulti, freshUnit, activeUnit, isDuplex, count]);
+
+    if (freshUnit) {
+      const source = freshUnit.explication || [];
+      setRooms(source.map(r => ({ 
+          ...r, 
+          id: r.id || crypto.randomUUID(),
+          level: '1' 
+      })));
+    }
+  }, [freshUnit, activeUnit?.id, isUnitLoading]);
 
   const stats = useMemo(() => {
     let total = 0;
@@ -177,7 +174,7 @@ const ExplicationPanel = ({
       type: r.type,
       area: parseFloat(r.area),
       height: parseFloat(r.height) || null,
-      level: ['duplex_up', 'duplex_down'].includes(unit.type) ? Number(r.level || 1) : 1,
+      level: 1,
     })),
     area: stats.total,
     livingArea: stats.main,
@@ -186,51 +183,38 @@ const ExplicationPanel = ({
   });
 
   const handleSaveClick = async () => {
-    if (isReadOnly || isSaving) return;
+    if (isReadOnly || isSaving || isUnitLoading) return;
     if (!validateRooms()) return;
-
-    if (isMulti) {
-      setConfirmModal({
-        isOpen: true,
-        type: 'save',
-        title: 'Массовое заполнение',
-        description: `Вы уверены, что хотите применить эту экспликацию ко всем выбранным помещениям (${count} шт)?`
-      });
-      return;
-    }
     if (activeUnit) await onApplySingle(buildPayload(activeUnit));
   };
 
   const handleResetClick = async () => {
-    if (isReadOnly || isSaving) return;
+    if (isReadOnly || isSaving || isUnitLoading) return;
     setConfirmModal({
         isOpen: true,
         type: 'reset',
         title: 'Очистка данных',
-        description: `Стереть экспликацию у выбранных помещений (${count} шт)?`
+        description: `Стереть экспликацию у помещения ${activeUnit.number}?`
     });
   };
 
   const performConfirmedAction = async () => {
     setConfirmModal(prev => ({ ...prev, isOpen: false }));
-    if (confirmModal.type === 'save') await onApplyBulk(selectedUnits.map(buildPayload));
-    else if (confirmModal.type === 'reset') {
-        await onResetExplication(selectedUnits);
-        if (!isMulti) setRooms([]);
+    if (confirmModal.type === 'reset') {
+        await onResetExplication([activeUnit]);
+        setRooms([]);
     }
   };
 
-  if (count === 0) {
+  if (!activeUnit) {
     return (
       <div className="bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 p-8 flex flex-col items-center justify-center text-center h-full text-slate-400 w-full lg:w-80 shrink-0">
         <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4">
           <MousePointer2 size={32} className="text-slate-300" />
         </div>
-        <h3 className="font-bold text-slate-600 mb-2">Выберите объекты</h3>
+        <h3 className="font-bold text-slate-600 mb-2">Выберите объект</h3>
         <p className="text-xs text-slate-400 max-w-[200px] leading-relaxed">
-            Кликните по ячейкам<br/>
-            или <span className="font-bold text-slate-500 whitespace-nowrap bg-slate-200 px-1 rounded">Alt + Клик</span><br/>
-            по нижнему этажу для выбора стояка.
+            Кликните по ячейке в таблице или списке для редактирования.
         </p>
       </div>
     );
@@ -242,11 +226,18 @@ const ExplicationPanel = ({
         <div className="bg-blue-600 px-6 py-4 flex justify-between items-center text-white shrink-0">
            <div>
               <h3 className="font-bold text-lg flex items-center gap-2">
-                  <CheckCircle2 size={18} />
-                  {count} {count === 1 ? 'объект' : 'объектов'}
+                  <Briefcase size={18} />
+                  Пом. {activeUnit.number}
               </h3>
-              <p className="text-blue-100 text-xs">
-                  {isMulti ? 'Массовое редактирование' : `Пом. №${activeUnit?.number || activeUnit?.num || '?'}`}
+
+              {activeUnit.unitCode && (
+                <div className="text-[10px] font-mono text-white mt-1 bg-white/20 px-1.5 py-0.5 rounded w-fit select-all shadow-sm">
+                   {activeUnit.unitCode}
+                </div>
+              )}
+
+              <p className="text-blue-100 text-xs mt-1">
+                  {isUnitLoading ? 'Загрузка из БД...' : 'Редактирование экспликации'}
               </p>
            </div>
            <button onClick={onClearSelection} className="p-2 hover:bg-white/10 rounded-full transition-colors">
@@ -254,81 +245,86 @@ const ExplicationPanel = ({
            </button>
         </div>
   
-        {!isMulti && (
-            <div className="grid grid-cols-2 gap-px bg-slate-200 border-b border-slate-200">
-              <div className="bg-slate-50 p-2 text-center">
-                  <span className="block text-[10px] text-slate-400 uppercase font-bold">Общая S</span>
-                  <span className="text-sm font-black text-slate-700">{stats.total} м²</span>
-              </div>
-              <div className="bg-slate-50 p-2 text-center">
-                  <span className="block text-[10px] text-slate-400 uppercase font-bold">Основная S</span>
-                  <span className="text-sm font-black text-emerald-600">{stats.main} м²</span>
-              </div>
+        <div className="grid grid-cols-2 gap-px bg-slate-200 border-b border-slate-200">
+          <div className="bg-slate-50 p-2 text-center">
+              <span className="block text-[10px] text-slate-400 uppercase font-bold">Общая S</span>
+              <span className="text-sm font-black text-slate-700">{stats.total} м²</span>
+          </div>
+          <div className="bg-slate-50 p-2 text-center">
+              <span className="block text-[10px] text-slate-400 uppercase font-bold">Основная S</span>
+              <span className="text-sm font-black text-emerald-600">{stats.main} м²</span>
+          </div>
+        </div>
+  
+        {isUnitLoading ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-3">
+                <Loader2 className="animate-spin text-blue-500" size={32} />
+                <p className="text-xs font-medium">Получение данных...</p>
+            </div>
+        ) : (
+            <div className="flex-1 overflow-auto p-4 space-y-3 bg-slate-50/50">
+            {rooms.map((room, idx) => (
+                <div key={room.id} className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm space-y-2 relative group">
+                <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 px-1">
+                    <span>#{idx + 1}</span>
+                    {!isReadOnly && (
+                        <button onClick={() => removeRoom(room.id)} className="text-red-300 hover:text-red-500 transition-colors">
+                            <Trash2 size={12} />
+                        </button>
+                    )}
+                </div>
+                
+                <Select 
+                    value={room.type} 
+                    onChange={e => updateRoom(room.id, 'type', e.target.value)} 
+                    disabled={isReadOnly}
+                    className="w-full text-sm font-bold"
+                >
+                    {roomTypes.map(t => (
+                        <option key={t.id} value={t.id}>{t.label}</option>
+                    ))}
+                </Select>
+    
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-0.5">
+                        <Label className="text-[9px]">Площадь</Label>
+                        <DebouncedInput 
+                            type="number" step="0.01" min="0" 
+                            value={room.area || ''} 
+                            onChange={v => updateRoom(room.id, 'area', v)} 
+                            placeholder="0.00" 
+                            disabled={isReadOnly}
+                            className="h-8 text-sm"
+                        />
+                    </div>
+                    <div className="space-y-0.5">
+                        <Label className="text-[9px]">Высота</Label>
+                        <DebouncedInput 
+                            type="number" step="0.01" min="0" 
+                            value={room.height || ''} 
+                            onChange={v => updateRoom(room.id, 'height', v)} 
+                            placeholder="0.00" 
+                            disabled={isReadOnly}
+                            className="h-8 text-sm"
+                        />
+                    </div>
+                </div>
+                </div>
+            ))}
+    
+            {!isReadOnly && (
+                <Button variant="secondary" onClick={addRoom} className="w-full border-dashed border-slate-300 text-slate-500">
+                <Plus size={14} className="mr-1" /> Добавить
+                </Button>
+            )}
             </div>
         )}
   
-        <div className="flex-1 overflow-auto p-4 space-y-3 bg-slate-50/50">
-          {rooms.map((room, idx) => (
-            <div key={room.id} className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm space-y-2 relative group">
-              <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 px-1">
-                  <span>#{idx + 1}</span>
-                  {!isReadOnly && (
-                      <button onClick={() => removeRoom(room.id)} className="text-red-300 hover:text-red-500 transition-colors">
-                          <Trash2 size={12} />
-                      </button>
-                  )}
-              </div>
-              
-              <Select 
-                  value={room.type} 
-                  onChange={e => updateRoom(room.id, 'type', e.target.value)} 
-                  disabled={isReadOnly}
-                  className="w-full text-sm font-bold"
-              >
-                  {roomTypes.map(t => (
-                    <option key={t.id} value={t.id}>{t.label}</option>
-                  ))}
-              </Select>
-  
-              <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-0.5">
-                      <Label className="text-[9px]">Площадь</Label>
-                      <DebouncedInput 
-                          type="number" step="0.01" min="0" 
-                          value={room.area || ''} 
-                          onChange={v => updateRoom(room.id, 'area', v)} 
-                          placeholder="0.00" 
-                          disabled={isReadOnly}
-                          className="h-8 text-sm"
-                      />
-                  </div>
-                  <div className="space-y-0.5">
-                      <Label className="text-[9px]">Высота</Label>
-                      <DebouncedInput 
-                          type="number" step="0.01" min="0" 
-                          value={room.height || ''} 
-                          onChange={v => updateRoom(room.id, 'height', v)} 
-                          placeholder="0.00" 
-                          disabled={isReadOnly}
-                          className="h-8 text-sm"
-                      />
-                  </div>
-              </div>
-            </div>
-          ))}
-  
-          {!isReadOnly && (
-            <Button variant="secondary" onClick={addRoom} className="w-full border-dashed border-slate-300 text-slate-500">
-              <Plus size={14} className="mr-1" /> Добавить
-            </Button>
-          )}
-        </div>
-  
         <div className="bg-white p-4 border-t border-slate-100 shadow-lg z-10 space-y-2">
-          <Button onClick={handleSaveClick} disabled={isReadOnly || isSaving} className="w-full">
-            {isSaving ? <><Loader2 className="animate-spin mr-2" size={16} /> Сохранение...</> : (isMulti ? 'Применить ко всем' : 'Сохранить')}
+          <Button onClick={handleSaveClick} disabled={isReadOnly || isSaving || isUnitLoading} className="w-full">
+            {isSaving ? <><Loader2 className="animate-spin mr-2" size={16} /> Сохранение...</> : 'Сохранить'}
           </Button>
-          <Button variant="ghost" onClick={handleResetClick} disabled={isReadOnly || isSaving} className="w-full text-red-400 hover:text-red-600 hover:bg-red-50">
+          <Button variant="ghost" onClick={handleResetClick} disabled={isReadOnly || isSaving || isUnitLoading} className="w-full text-red-400 hover:text-red-600 hover:bg-red-50">
             <RotateCcw size={14} className="mr-2" /> Очистить
           </Button>
         </div>
@@ -346,8 +342,8 @@ const ExplicationPanel = ({
               </div>
               <div className="flex justify-end gap-3 pt-2">
                   <Button variant="ghost" onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}>Отмена</Button>
-                  <Button onClick={performConfirmedAction} className={confirmModal.type === 'reset' ? 'bg-red-600' : 'bg-blue-600'}>
-                      {confirmModal.type === 'reset' ? 'Очистить' : 'Применить'}
+                  <Button onClick={performConfirmedAction} className="bg-red-600">
+                      Очистить
                   </Button>
               </div>
           </div>
@@ -368,30 +364,32 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
   const [activeBlockId, setActiveBlockId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Selection & Saving State
-  const [selectedUnitIds, setSelectedUnitIds] = useState(new Set());
+  // Selection State (Single ID)
+  const [selectedUnitId, setSelectedUnitId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
 
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
   const { buildings } = useDirectBuildings(projectId);
+  const isReadOnly = useReadOnly();
   
   const building = useMemo(() => buildings.find(b => b.id === selectedBuildingId), [buildings, selectedBuildingId]);
   const typeInfo = useBuildingType(building);
-  const projectUjCode = complexInfo?.ujCode;
 
-  // Catalogs
+  // Catalogs - FILTERED FOR COMMERCIAL
   const { data: roomTypesRows = [] } = useQuery({
     queryKey: ['catalog', 'dict_room_types', 'commercial'],
     queryFn: () => CatalogService.getCatalog('dict_room_types'),
   });
 
   const roomTypes = useMemo(() => {
-    return roomTypesRows.map(r => ({
-      id: r.code || r.id,
-      label: r.label,
-      k: Number(r.coefficient ?? r.k ?? 1),
-      category: r.area_bucket || r.category || 'auxiliary', // Default to aux
-    }));
+    return roomTypesRows
+      .filter(r => r.room_scope === 'commercial')
+      .map(r => ({
+        id: r.code || r.id,
+        label: r.label,
+        k: Number(r.coefficient ?? r.k ?? 1),
+        category: r.area_bucket || r.category || 'auxiliary',
+      }));
   }, [roomTypesRows]);
 
   useEffect(() => {
@@ -408,10 +406,6 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
       return building.blocks.find(b => b.id === activeBlockId) || building.blocks[0];
   }, [building, activeBlockId]);
 
-  // [CHECK] Матрица нужна, если блок жилой (или имеет подъезды)
-  const isResidentialBlock = activeBlock?.type === 'residential' || activeBlock?.type === 'Ж';
-
-  // [NEW] Подключаем ПЛАН (Матрицу), чтобы видеть пустые ячейки
   const { matrixMap } = useDirectMatrix(activeBlock?.id);
 
   // --- DATA PREPARATION ---
@@ -424,12 +418,10 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
     const fMap = Object.fromEntries(floors.map(f => [f.id, f]));
     const eMap = Object.fromEntries(entrances.map(e => [e.id, e]));
 
-    // Исключаем только чисто жилые юниты, всё остальное показываем
     let allCommercial = units.map(u => {
       const floor = fMap[u.floorId];
       const block = floor ? blMap[floor.blockId] : null;
       const building = block ? bMap[block.buildingId] : null;
-      
       const isResidentialUnit = RESIDENTIAL_UNIT_TYPES.has(u.type);
       const isCommercial = !isResidentialUnit;
 
@@ -447,10 +439,10 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
         entranceNumber: eMap[u.entranceId]?.number,
         isExplicationFilled: Array.isArray(u.explication) && u.explication.length > 0,
         livingArea: u.livingArea || 0,
+        unitCode: u.unitCode, 
       };
     }).filter(u => u.isCommercial && (!selectedBuildingId || u.buildingId === selectedBuildingId) && (!activeBlockId || u.blockId === activeBlockId));
 
-    // List Data
     const filteredList = allCommercial.filter(item => {
         if (!searchTerm) return true;
         return String(item.number || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -465,7 +457,6 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
         const blockFloors = floors.filter(f => f.blockId === activeBlockId).sort((a, b) => (Number(b.index)||0) - (Number(a.index)||0));
         const blockEntrances = entrances.filter(e => e.blockId === activeBlockId).sort((a, b) => Number(a.number) - Number(b.number));
         
-        // Главное условие: Есть структура (этажи и подъезды)
         const hasMatrixStructure = blockFloors.length > 0 && blockEntrances.length > 0;
 
         if (hasMatrixStructure) {
@@ -480,12 +471,8 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
                 floorsWithComm.add(u.floorId);
             });
 
-            // [CRITICAL FIX] Логика фильтрации этажей: 
             const relevantFloors = blockFloors.filter(f => {
-                // 1. Уже есть юниты в базе?
                 if (floorsWithComm.has(f.id)) return true;
-                
-                // 2. [PLAN CHECK] Есть ли план в матрице? (offices > 0 или retail > 0)
                 const hasPlan = blockEntrances.some(e => {
                     const key = `${f.id}_${e.number}`; 
                     const cell = matrixMap[key];
@@ -493,20 +480,10 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
                     return planned > 0;
                 });
                 if (hasPlan) return true;
-
-                // 3. Fallback: если этаж явно помечен как нежилой
-                if (f.floor_type && NON_RESIDENTIAL_FLOOR_TYPES.has(f.floor_type)) return true;
                 return false;
             });
 
-            // [FALLBACK] Если совсем ничего не нашли, но блок жилой -> показываем нижние этажи, чтобы можно было создать
             let floorsToShow = relevantFloors;
-            if (floorsToShow.length === 0) {
-                 floorsToShow = blockFloors.filter(f => FORCED_COMMERCIAL_FLOORS.has(f.floor_type) || f.index === '1' || f.index === 1);
-                 // Если и так пусто (странная конфигурация), показываем всё
-                 if (floorsToShow.length === 0) floorsToShow = blockFloors; 
-            }
-
             const entranceStats = {};
             blockEntrances.forEach(e => {
                 let total = 0, filled = 0;
@@ -535,54 +512,14 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
 
   // --- HANDLERS ---
 
-  const clearSelection = () => setSelectedUnitIds(new Set());
+  const clearSelection = () => setSelectedUnitId(null);
 
   const toggleUnit = (unitId) => {
-      setSelectedUnitIds(prev => {
-          const next = new Set(prev);
-          if (next.has(unitId)) next.delete(unitId); else next.add(unitId);
-          return next;
-      });
+    setSelectedUnitId(prev => prev === unitId ? null : unitId);
   };
 
   const handleUnitClick = (unit, floorId, entranceId, indexInCell, event) => {
-      if (matrixData && event) {
-          event.stopPropagation();
-          if (floorId === matrixData.bottomFloorId && event.altKey) {
-              const riserIds = [];
-              matrixData.floors.forEach(f => {
-                  const cell = matrixData.unitsByCell[`${activeBlockId}_${f.id}_${entranceId}`] || [];
-                  if (cell[indexInCell]) riserIds.push(cell[indexInCell].id);
-              });
-              if (riserIds.length) {
-                  setSelectedUnitIds(prev => {
-                      const next = new Set(prev);
-                      const all = riserIds.every(id => prev.has(id));
-                      riserIds.forEach(id => all ? next.delete(id) : next.add(id));
-                      return next;
-                  });
-                  toast.success(`Выбран стояк: ${riserIds.length} кв.`);
-                  return;
-              }
-          }
-          if (entranceId === matrixData.firstEntranceId && event.shiftKey) {
-              const rowIds = [];
-              matrixData.entrances.forEach(e => {
-                  const cell = matrixData.unitsByCell[`${activeBlockId}_${floorId}_${e.id}`] || [];
-                  if (cell[indexInCell]) rowIds.push(cell[indexInCell].id);
-              });
-              if (rowIds.length) {
-                  setSelectedUnitIds(prev => {
-                      const next = new Set(prev);
-                      const all = rowIds.every(id => prev.has(id));
-                      rowIds.forEach(id => all ? next.delete(id) : next.add(id));
-                      return next;
-                  });
-                  toast.success(`Выбран ряд: ${rowIds.length} кв.`);
-                  return;
-              }
-          }
-      }
+      if (event) event.stopPropagation();
       toggleUnit(unit.id);
   };
 
@@ -608,17 +545,7 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
     setIsSaving(true);
     const success = await handleSaveUnit(payload, payload, true);
     setIsSaving(false);
-    if (success) { toast.success('Сохранено'); clearSelection(); }
-  };
-
-  const applyBulk = async payloadList => {
-    setIsSaving(true);
-    try {
-        await Promise.all(payloadList.map(p => handleSaveUnit(p, p, false)));
-        await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
-        toast.success(`Обновлено ${payloadList.length} объектов`);
-        clearSelection();
-    } finally { setIsSaving(false); }
+    if (success) { toast.success('Сохранено'); }
   };
 
   const resetExplication = async units => {
@@ -627,11 +554,83 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
         await Promise.all(units.map(u => handleSaveUnit(u, { ...u, explication: [], area: 0, livingArea: 0, usefulArea: 0, rooms: 0 }, false)));
         await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
         toast.success('Сброшено');
-        clearSelection();
     } finally { setIsSaving(false); }
   };
 
-  const selectedUnits = useMemo(() => commercialUnits.filter(u => selectedUnitIds.has(u.id)), [commercialUnits, selectedUnitIds]);
+  // [NEW] AUTO FILL LOGIC FOR TESTING
+  const handleAutoFillAll = async () => {
+    if (isReadOnly || isSaving) return;
+    if (commercialUnits.length === 0) {
+        toast.info("Нет офисов для заполнения");
+        return;
+    }
+    if (roomTypes.length === 0) {
+        toast.error("Справочник типов помещений пуст");
+        return;
+    }
+
+    if (!window.confirm(`Вы точно хотите автоматически заполнить ${commercialUnits.length} офисов случайными данными? Текущие данные будут перезаписаны.`)) {
+        return;
+    }
+
+    setIsSaving(true);
+    try {
+        const payloadList = commercialUnits.map(unit => {
+            // Генерация случайных комнат
+            const roomsCount = Math.floor(Math.random() * 5) + 1; // 1 to 5 rooms
+            const newRooms = [];
+            let totalArea = 0;
+            let mainArea = 0;
+            let auxArea = 0;
+
+            for (let i = 0; i < roomsCount; i++) {
+                const randomType = roomTypes[Math.floor(Math.random() * roomTypes.length)];
+                const area = parseFloat((Math.random() * 15 + 5).toFixed(2)); // 5 to 20
+                const height = parseFloat((Math.random() * 1 + 3).toFixed(2)); // 3 to 4
+                
+                newRooms.push({
+                    id: crypto.randomUUID(),
+                    type: randomType.id,
+                    area,
+                    height,
+                    level: 1,
+                    label: randomType.label
+                });
+
+                totalArea += area * (randomType.k || 1);
+                if (randomType.category === 'main' || randomType.category === 'living') {
+                    mainArea += area;
+                } else {
+                    auxArea += area;
+                }
+            }
+
+            return {
+                ...unit,
+                explication: newRooms,
+                area: totalArea.toFixed(2),
+                livingArea: mainArea.toFixed(2),
+                usefulArea: (mainArea + auxArea).toFixed(2),
+                rooms: roomsCount
+            };
+        });
+
+        // Сохраняем параллельно (для dev-режима это ок)
+        await Promise.all(payloadList.map(p => handleSaveUnit(p, p, false)));
+        await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
+        
+        toast.success(`Успешно заполнено ${commercialUnits.length} офисов`);
+        clearSelection();
+
+    } catch (e) {
+        console.error(e);
+        toast.error("Ошибка автозаполнения");
+    } finally {
+        setIsSaving(false);
+    }
+  };
+
+  const activeUnit = useMemo(() => commercialUnits.find(u => u.id === selectedUnitId) || null, [commercialUnits, selectedUnitId]);
 
   if (loadingRegistry) return <div className="p-12 text-center text-slate-500">Загрузка...</div>;
   if (!selectedBuildingId) return <BuildingSelector stepId="registry_commercial" onSelect={setInternalSelectedId} />;
@@ -662,12 +661,29 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
 
       <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
         <div className="flex-1 flex flex-col h-full overflow-hidden">
-            {/* STATS & SEARCH (Только для списка) */}
+            {/* STATS & SEARCH */}
             {!matrixData && (
                 <div className="flex-none flex gap-4 mb-4">
                     <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm"><div className="text-[10px] text-slate-500 font-bold uppercase">Всего</div><div className="text-xl font-black text-slate-800">{stats?.count}</div></div>
                     <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm"><div className="text-[10px] text-slate-500 font-bold uppercase">Площадь</div><div className="text-xl font-black text-emerald-600">{stats?.area?.toFixed(1)}</div></div>
-                    <div className="relative w-full md:w-64"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} /><DebouncedInput value={searchTerm} onChange={setSearchTerm} placeholder="Поиск..." className="w-full pl-9 bg-white border border-slate-200 rounded-xl h-full" /></div>
+                    
+                    <div className="flex flex-1 gap-2">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                            <DebouncedInput value={searchTerm} onChange={setSearchTerm} placeholder="Поиск..." className="w-full pl-9 bg-white border border-slate-200 rounded-xl h-full" />
+                        </div>
+                        
+                        {/* [NEW] Auto Fill Button */}
+                        {!isReadOnly && (
+                            <Button 
+                                onClick={handleAutoFillAll} 
+                                className="bg-purple-600 hover:bg-purple-700 text-white shadow-purple-200 shadow-lg"
+                                title="Автозаполнение (DEV)"
+                            >
+                                <Wand2 size={18} />
+                            </Button>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -677,17 +693,47 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
                         <table className="border-collapse w-max min-w-full">
                             <thead className="sticky top-0 z-30 bg-slate-100 backdrop-blur-sm shadow-sm border-b-2 border-slate-300">
                                 <tr>
-                                    <th className="p-2 sticky left-0 z-40 bg-slate-100 border-r-2 border-slate-300 w-20 text-center text-[10px] font-black text-slate-500 uppercase"><div className="flex flex-col items-center gap-1"><LayoutTemplate size={16} className="opacity-50"/>Этаж</div></th>
+                                    <th className="p-2 sticky left-0 z-40 bg-slate-100 border-r-2 border-slate-300 w-20 text-center text-[10px] font-black text-slate-500 uppercase">
+                                        <div className="flex flex-col items-center gap-1"><LayoutTemplate size={16} className="opacity-50"/>Этаж</div>
+                                    </th>
                                     {matrixData.entrances.map(e => {
                                         const stat = matrixData.entranceStats[e.id];
                                         const progress = stat.total > 0 ? (stat.filled / stat.total) * 100 : 0;
                                         const isComplete = stat.total > 0 && stat.filled === stat.total;
                                         return (
                                             <th key={e.id} className="p-2 border-r-2 border-slate-300 min-w-[200px] align-bottom">
-                                                <div className="flex flex-col gap-2 pb-1 h-full justify-end"><div className="relative flex items-center justify-center px-2 py-1"><span className="font-black text-slate-700 text-sm uppercase text-center tracking-wide">Подъезд {e.number}</span>{isComplete && <div className="absolute right-2 top-1/2 -translate-y-1/2"><CheckCircle2 size={18} className="text-emerald-600"/></div>}</div><div className="flex items-center gap-2 px-1"><div className="flex-1 bg-slate-200/80 h-1.5 rounded-full overflow-hidden border border-slate-200"><div className={`h-full transition-all duration-500 ${isComplete?'bg-emerald-500':'bg-blue-500'}`} style={{width:`${progress}%`}}/></div><div className="text-[10px] font-bold text-slate-500 whitespace-nowrap tabular-nums"><span className={isComplete?'text-emerald-600':'text-slate-700'}>{stat.filled}</span><span className="opacity-40">/</span><span>{stat.total}</span></div></div></div>
+                                                <div className="flex flex-col gap-2 pb-1 h-full justify-end">
+                                                    <div className="relative flex items-center justify-center px-2 py-1">
+                                                        <span className="font-black text-slate-700 text-sm uppercase text-center tracking-wide">Подъезд {e.number}</span>
+                                                        {isComplete && <div className="absolute right-2 top-1/2 -translate-y-1/2"><CheckCircle2 size={18} className="text-emerald-600"/></div>}
+                                                    </div>
+                                                    <div className="flex items-center gap-2 px-1">
+                                                        <div className="flex-1 bg-slate-200/80 h-1.5 rounded-full overflow-hidden border border-slate-200">
+                                                            <div className={`h-full transition-all duration-500 ${isComplete?'bg-emerald-500':'bg-blue-500'}`} style={{width:`${progress}%`}}/>
+                                                        </div>
+                                                        <div className="text-[10px] font-bold text-slate-500 whitespace-nowrap tabular-nums">
+                                                            <span className={isComplete?'text-emerald-600':'text-slate-700'}>{stat.filled}</span>
+                                                            <span className="opacity-40">/</span>
+                                                            <span>{stat.total}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </th>
                                         )
                                     })}
+                                    
+                                    {/* [NEW] AUTO FILL BUTTON IN MATRIX HEADER */}
+                                    {!isReadOnly && (
+                                        <th className="p-2 w-10 align-bottom pb-3 pl-0">
+                                            <button 
+                                                onClick={handleAutoFillAll} 
+                                                className="p-2 rounded-lg bg-purple-50 text-purple-600 hover:bg-purple-100 hover:scale-110 transition-all border border-purple-200 shadow-sm"
+                                                title="Автозаполнение всех офисов (DEV)"
+                                            >
+                                                <Wand2 size={16} />
+                                            </button>
+                                        </th>
+                                    )}
                                 </tr>
                             </thead>
                             <tbody>
@@ -696,18 +742,17 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
                                         <td className="sticky left-0 z-10 bg-slate-50 border-r-2 border-slate-300 px-3 py-2 text-right font-bold text-slate-600 shadow-sm">{f.label || f.index}</td>
                                         {matrixData.entrances.map(e => {
                                             const cellUnits = matrixData.unitsByCell[`${activeBlockId}_${f.id}_${e.id}`] || [];
-                                            const isBottom = f.id === matrixData.bottomFloorId;
-                                            const isFirst = e.id === matrixData.firstEntranceId;
                                             return (
                                                 <td key={e.id} className="p-2 border-r-2 border-slate-300 align-top">
                                                     <div className="flex flex-nowrap gap-1.5 justify-start">
                                                         {cellUnits.length === 0 ? <span className="text-xs text-slate-300 w-full text-center block opacity-30">—</span> : cellUnits.map((u, i) => (
-                                                            <button key={u.id} onClick={(ev) => handleUnitClick(u, f.id, e.id, i, ev)} className={`h-7 px-2 rounded-md text-xs font-bold border transition-all min-w-[38px] flex-shrink-0 truncate ${selectedUnitIds.has(u.id) ? 'bg-blue-600 text-white shadow-md z-20' : u.isExplicationFilled ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`} title={isBottom ? 'Alt+Click: стояк' : isFirst ? 'Shift+Click: ряд' : ''}>{u.number}</button>
+                                                            <button key={u.id} onClick={(ev) => handleUnitClick(u, f.id, e.id, i, ev)} className={`h-7 px-2 rounded-md text-xs font-bold border transition-all min-w-[38px] flex-shrink-0 truncate ${selectedUnitId === u.id ? 'bg-blue-600 text-white shadow-md z-20' : u.isExplicationFilled ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}>{u.number}</button>
                                                         ))}
                                                     </div>
                                                 </td>
                                             )
                                         })}
+                                        {!isReadOnly && <td className="p-0"></td>}
                                     </tr>
                                 ))}
                             </tbody>
@@ -726,7 +771,7 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
                             <tbody className="divide-y divide-slate-100">
                                 {listData.length ? listData.map((item, i) => {
                                     const typeConf = getTypeConfig(item.type);
-                                    const isSel = selectedUnitIds.has(item.id);
+                                    const isSel = selectedUnitId === item.id;
                                     return (
                                         <tr key={item.id} onClick={() => toggleUnit(item.id)} className={`cursor-pointer transition-colors ${isSel ? 'bg-blue-50 border-l-4 border-blue-500' : 'hover:bg-slate-50'}`}>
                                             <td className="p-3 text-center text-xs text-slate-400">{i+1}</td>
@@ -745,10 +790,9 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
         </div>
 
         <ExplicationPanel
-          selectedUnits={selectedUnits}
+          activeUnit={activeUnit}
           roomTypes={roomTypes}
           onApplySingle={applySingle}
-          onApplyBulk={applyBulk}
           onResetExplication={resetExplication}
           onClearSelection={clearSelection}
           isSaving={isSaving}
