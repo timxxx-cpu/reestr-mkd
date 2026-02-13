@@ -5,6 +5,7 @@ import { Tent, Warehouse, Store, Car } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { Card, SectionTitle, Label, useReadOnly } from '@components/ui/UIKit';
 import { BuildingConfigSchema } from '@lib/schemas';
+import { createClientId } from '@lib/utils';
 import { useValidation } from '@hooks/useValidation';
 
 // Карточки
@@ -69,7 +70,7 @@ export default function ParkingView({ building, typeInfo }) {
   const createBlockBasement = () => {
     if (isReadOnly || !canAddBasement) return;
     const newB = {
-      id: crypto.randomUUID(),
+      id: createClientId(),
       depth: 1,
       blocks: [blockId],
       buildingId: building.id,

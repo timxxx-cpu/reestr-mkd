@@ -5,6 +5,7 @@ import { Box, ArrowUp, Footprints } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { Card, SectionTitle, Label, Input, useReadOnly } from '@components/ui/UIKit';
 import { BuildingConfigSchema } from '@lib/schemas';
+import { createClientId } from '@lib/utils';
 import { useValidation } from '@hooks/useValidation';
 
 // Наши карточки
@@ -77,7 +78,7 @@ export default function InfrastructureView({ building }) {
   const createBlockBasement = () => {
     if (isReadOnly || !canAddBasement) return;
     const newB = {
-      id: crypto.randomUUID(),
+      id: createClientId(),
       depth: 1,
       blocks: [blockId],
       buildingId: building.id,

@@ -102,3 +102,13 @@ export const getStageColor = stage => {
       return 'bg-slate-50 text-slate-600 border-slate-200';
   }
 };
+
+
+/**
+ * Генерация клиентского ID с fallback, если crypto.randomUUID недоступен.
+ */
+export const createClientId = () => {
+  const randomUuid = globalThis?.crypto?.randomUUID?.();
+  if (randomUuid) return randomUuid;
+  return `tmp-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+};

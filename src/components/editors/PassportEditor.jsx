@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   LayoutDashboard,
   MapPin,
@@ -10,6 +10,7 @@ import {
   Building,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Users,
   Plus,
   Trash2,
@@ -78,6 +79,9 @@ const PassportEditor = () => {
   const [participantDrafts, setParticipantDrafts] = useState({});
   const [newDoc, setNewDoc] = useState({ name: '', type: '', number: '', date: '', url: '' });
   const [isInitialDataLoaded, setIsInitialDataLoaded] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [saveError, setSaveError] = useState('');
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
 
   useEffect(() => {
     const safeComplexInfo = /** @type {any} */ (complexInfo || {});
@@ -118,11 +122,24 @@ const PassportEditor = () => {
   useEffect(() => {
     if (!isInitialDataLoaded || isReadOnly) return;
 
-    const timer = setTimeout(() => {
-      updateProjectInfo({ info: localInfo, cadastreData: localCadastre });
+    let isActive = true;
+    const timer = setTimeout(async () => {
+      try {
+        setIsAutoSaving(true);
+        setSaveError('');
+        await updateProjectInfo({ info: localInfo, cadastreData: localCadastre });
+        if (isActive) setLastSavedAt(new Date());
+      } catch (err) {
+        if (isActive) setSaveError(err?.message || 'Не удалось выполнить автосохранение');
+      } finally {
+        if (isActive) setIsAutoSaving(false);
+      }
     }, 1500);
 
-    return () => clearTimeout(timer);
+    return () => {
+      isActive = false;
+      clearTimeout(timer);
+    };
   }, [localInfo, localCadastre, updateProjectInfo, isReadOnly, isInitialDataLoaded]);
 
   const handleInfoChange = (field, value) => setLocalInfo(prev => ({ ...prev, [field]: value }));
@@ -133,7 +150,13 @@ const PassportEditor = () => {
     }));
 
   const handleManualSave = async () => {
-    await updateProjectInfo({ info: localInfo, cadastreData: localCadastre });
+    try {
+      setSaveError('');
+      await updateProjectInfo({ info: localInfo, cadastreData: localCadastre });
+      setLastSavedAt(new Date());
+    } catch (err) {
+      setSaveError(err?.message || 'Не удалось сохранить изменения');
+    }
   };
 
   const handleParticipantChange = (role, field, value) => {
@@ -174,6 +197,24 @@ const PassportEditor = () => {
   const statusConfig = STATUS_CONFIG[localInfo.status] || STATUS_CONFIG['Проектный'];
   const StatusIcon = statusConfig?.icon || LayoutDashboard;
   const progress = calculateProgress(localInfo.dateStartProject, localInfo.dateEndProject);
+  const saveStatusLabel = useMemo(() => {
+    if (isReadOnly) return 'Режим просмотра';
+    if (isSaving || isAutoSaving) return 'Сохранение...';
+    if (saveError) return 'Ошибка сохранения';
+    if (lastSavedAt) return `Сохранено: ${lastSavedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+    return 'Автосохранение включено';
+  }, [isReadOnly, isSaving, isAutoSaving, saveError, lastSavedAt]);
+
+  const dateWarnings = useMemo(() => {
+    const warnings = [];
+    if (localInfo.dateStartProject && localInfo.dateEndProject && localInfo.dateStartProject > localInfo.dateEndProject) {
+      warnings.push('Плановые даты заполнены некорректно: дата начала позже даты окончания.');
+    }
+    if (localInfo.dateStartFact && localInfo.dateEndFact && localInfo.dateStartFact > localInfo.dateEndFact) {
+      warnings.push('Фактические даты заполнены некорректно: дата начала позже даты окончания.');
+    }
+    return warnings;
+  }, [localInfo.dateStartProject, localInfo.dateEndProject, localInfo.dateStartFact, localInfo.dateEndFact]);
 
   if (isLoading && !isInitialDataLoaded) {
     return (
@@ -212,28 +253,31 @@ const PassportEditor = () => {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 self-start">
-              <Button
-                onClick={autoFill}
-                disabled={isReadOnly}
-                variant="secondary"
-                className="bg-white/10 border-white/20 text-white hover:bg-white/20"
-              >
-                <Wand2 size={15} className="mr-1" />
-                Автозаполнение
-              </Button>
-              <Button
-                onClick={handleManualSave}
-                disabled={isReadOnly || isSaving}
-                className="bg-blue-500 hover:bg-blue-400 text-white"
-              >
-                {isSaving ? (
-                  <Loader2 size={14} className="animate-spin mr-1" />
-                ) : (
-                  <Save size={14} className="mr-1" />
-                )}
-                Сохранить
-              </Button>
+            <div className="self-start">
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={autoFill}
+                  disabled={isReadOnly}
+                  variant="secondary"
+                  className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                >
+                  <Wand2 size={15} className="mr-1" />
+                  Автозаполнение
+                </Button>
+                <Button
+                  onClick={handleManualSave}
+                  disabled={isReadOnly || isSaving || isAutoSaving}
+                  className="bg-blue-500 hover:bg-blue-400 text-white"
+                >
+                  {isSaving || isAutoSaving ? (
+                    <Loader2 size={14} className="animate-spin mr-1" />
+                  ) : (
+                    <Save size={14} className="mr-1" />
+                  )}
+                  Сохранить
+                </Button>
+              </div>
+              <div className={`mt-2 text-xs ${saveError ? 'text-red-300' : 'text-blue-200/80'}`}>{saveStatusLabel}</div>
             </div>
           </div>
 
@@ -286,20 +330,22 @@ const PassportEditor = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
               <div className="space-y-4">
                 <div>
-                  <Label>Наименование</Label>
+                  <Label>Наименование <span className="text-red-500">*</span></Label>
                   <Input
                     value={localInfo.name}
                     onChange={e => handleInfoChange('name', e.target.value)}
                     placeholder="Название ЖК"
+                    title="Обязательное поле"
                     disabled={isReadOnly}
                   />
                 </div>
                 <div>
-                  <Label>Кадастровый номер</Label>
+                  <Label>Кадастровый номер <span className="text-red-500">*</span></Label>
                   <Input
                     value={localCadastre.number}
                     onChange={e => handleCadastreChange('number', e.target.value)}
                     placeholder="10:09:03:02:01:0021"
+                    title="Формат: XX:XX:XX:XX:XX:XXXX"
                     disabled={isReadOnly}
                   />
                 </div>
@@ -342,6 +388,23 @@ const PassportEditor = () => {
               </div>
             </div>
           </Card>
+
+          {saveError && (
+            <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {saveError}
+            </div>
+          )}
+
+          {dateWarnings.length > 0 && (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 space-y-1">
+              {dateWarnings.map(w => (
+                <div key={w} className="flex items-start gap-1.5">
+                  <AlertTriangle size={12} className="mt-0.5" />
+                  <span>{w}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div>
@@ -414,7 +477,7 @@ const PassportEditor = () => {
                   {label}
                 </div>
                 <div>
-                  <Label>Наименование</Label>
+                  <Label>Наименование <span className="text-red-500">*</span></Label>
                   <Input
                     value={row.name || ''}
                     onChange={e => handleParticipantChange(key, 'name', e.target.value)}
@@ -423,6 +486,7 @@ const PassportEditor = () => {
                 </div>
                 <div>
                   <Label>ИНН</Label>
+                  <div className="text-[10px] text-slate-400 mt-0.5">9 цифр</div>
                   <Input
                     value={row.inn || ''}
                     onChange={e => handleParticipantChange(key, 'inn', e.target.value)}
@@ -468,7 +532,15 @@ const PassportEditor = () => {
                   <td className="p-3">{doc.type || '-'}</td>
                   <td className="p-3">{doc.number || '-'}</td>
                   <td className="p-3">{doc.date || '-'}</td>
-                  <td className="p-3 truncate max-w-[260px]">{doc.url || '-'}</td>
+                  <td className="p-3 truncate max-w-[260px]">
+                    {doc.url ? (
+                      <a href={doc.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-700 underline">
+                        {doc.url}
+                      </a>
+                    ) : (
+                      '-'
+                    )}
+                  </td>
                   <td className="p-3">
                     <button
                       onClick={() => deleteDocument(doc.id)}
@@ -519,6 +591,7 @@ const PassportEditor = () => {
                     value={newDoc.url}
                     onChange={e => setNewDoc(d => ({ ...d, url: e.target.value }))}
                     placeholder="https://..."
+                    title="Ссылка на документ"
                     disabled={isReadOnly}
                   />
                 </td>
