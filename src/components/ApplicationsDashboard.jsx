@@ -302,6 +302,7 @@ const ApplicationsDashboard = ({
 }) => {
   const [activeTab, setActiveTab] = useState('my_tasks');
   const [taskFilter, setTaskFilter] = useState('work');
+  const [assigneeFilter, setAssigneeFilter] = useState('all'); // all | mine
 
   const [incomingApps, setIncomingApps] = useState([]);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
@@ -660,7 +661,12 @@ const ApplicationsDashboard = ({
       }
     }
 
-    // 2. Глобальный поиск
+    // 2. Фильтр по исполнителю (только в разделе задач)
+    if (scope === 'my_tasks' && assigneeFilter === 'mine') {
+      filtered = filtered.filter(p => p.applicationInfo?.assigneeName === user.name);
+    }
+
+    // 3. Глобальный поиск
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
       filtered = filtered.filter(
@@ -904,6 +910,22 @@ const ApplicationsDashboard = ({
         <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-5 shrink-0">
           <div className="flex items-center gap-2">
             {activeTab === 'my_tasks' && (
+              <div className="flex flex-col gap-2">
+                <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm w-fit">
+                  <button
+                    onClick={() => setAssigneeFilter('mine')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${assigneeFilter === 'mine' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
+                  >
+                    Мои задачи
+                  </button>
+                  <button
+                    onClick={() => setAssigneeFilter('all')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${assigneeFilter === 'all' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
+                  >
+                    Все задачи
+                  </button>
+                </div>
+
               <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
                 <button
                   onClick={() => setTaskFilter('work')}
@@ -936,6 +958,7 @@ const ApplicationsDashboard = ({
                     )}
                   </button>
                 )}
+              </div>
               </div>
             )}
             {activeTab === 'inbox' && (

@@ -90,6 +90,8 @@ const ExplicationPanel = ({
   
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, type: null, title: '', description: '' });
   const [rooms, setRooms] = useState([]);
+  const [hasMezzanine, setHasMezzanine] = useState(false);
+  const [mezzanineType, setMezzanineType] = useState('internal');
 
   // Всегда запрашиваем свежие данные из БД (staleTime: 0)
   const { data: freshUnit, isLoading: isUnitLoading } = useQuery({
@@ -101,16 +103,21 @@ const ExplicationPanel = ({
 
   useEffect(() => {
     if (!activeUnit?.id || isUnitLoading) {
-      setRooms([]); 
+      setRooms([]);
+      setHasMezzanine(false);
+      setMezzanineType('internal');
       return;
     }
 
     if (freshUnit) {
       const source = freshUnit.explication || [];
+      setHasMezzanine(!!freshUnit.hasMezzanine);
+      setMezzanineType(freshUnit.mezzanineType || 'internal');
       setRooms(source.map(r => ({ 
           ...r, 
           id: r.id || crypto.randomUUID(),
-          level: '1' 
+          level: '1',
+          isMezzanine: !!r.isMezzanine,
       })));
     }
   }, [freshUnit, activeUnit?.id, isUnitLoading]);
@@ -142,7 +149,7 @@ const ExplicationPanel = ({
 
   const addRoom = () => {
     if (isReadOnly || roomTypes.length === 0) return;
-    setRooms(prev => [...prev, { id: crypto.randomUUID(), type: roomTypes[0].id, area: '', height: '', level: '1' }]);
+    setRooms(prev => [...prev, { id: crypto.randomUUID(), type: roomTypes[0].id, area: '', height: '', level: '1', isMezzanine: false }]);
   };
 
   const removeRoom = id => {
@@ -165,16 +172,23 @@ const ExplicationPanel = ({
       toast.error('Заполните тип и площадь для всех помещений');
       return false;
     }
+    if (hasMezzanine && !rooms.some(r => r.isMezzanine)) {
+      toast.error('Добавьте хотя бы одно помещение, расположенное в мезонине');
+      return false;
+    }
     return true;
   };
 
   const buildPayload = unit => ({
     ...unit,
+    hasMezzanine,
+    mezzanineType: hasMezzanine ? mezzanineType : null,
     explication: rooms.map(r => ({
       type: r.type,
       area: parseFloat(r.area),
       height: parseFloat(r.height) || null,
       level: 1,
+      isMezzanine: !!r.isMezzanine,
     })),
     area: stats.total,
     livingArea: stats.main,
@@ -255,6 +269,32 @@ const ExplicationPanel = ({
               <span className="text-sm font-black text-emerald-600">{stats.main} м²</span>
           </div>
         </div>
+
+        <div className="p-3 border-b border-slate-200 bg-slate-50">
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+            <input
+              type="checkbox"
+              checked={hasMezzanine}
+              onChange={e => setHasMezzanine(e.target.checked)}
+              disabled={isReadOnly || isUnitLoading}
+            />
+            В юните есть мезонин
+          </label>
+          {hasMezzanine && (
+            <div className="mt-2">
+              <Label className="text-[10px]">Тип мезонина</Label>
+              <Select
+                value={mezzanineType}
+                onChange={e => setMezzanineType(e.target.value)}
+                disabled={isReadOnly || isUnitLoading}
+                className="h-8 text-xs"
+              >
+                <option value="internal">Внутренний</option>
+                <option value="external">Внешний</option>
+              </Select>
+            </div>
+          )}
+        </div>
   
         {isUnitLoading ? (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-3">
@@ -309,6 +349,16 @@ const ExplicationPanel = ({
                         />
                     </div>
                 </div>
+
+                <label className="flex items-center gap-2 text-[10px] font-semibold text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={!!room.isMezzanine}
+                    onChange={e => updateRoom(room.id, 'isMezzanine', e.target.checked)}
+                    disabled={isReadOnly || isUnitLoading || !hasMezzanine}
+                  />
+                  Помещение в мезонине
+                </label>
                 </div>
             ))}
     
@@ -594,7 +644,8 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
                     area,
                     height,
                     level: 1,
-                    label: randomType.label
+                    label: randomType.label,
+                    isMezzanine: false,
                 });
 
                 totalArea += area * (randomType.k || 1);
@@ -611,7 +662,9 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
                 area: totalArea.toFixed(2),
                 livingArea: mainArea.toFixed(2),
                 usefulArea: (mainArea + auxArea).toFixed(2),
-                rooms: roomsCount
+                rooms: roomsCount,
+                hasMezzanine: false,
+                mezzanineType: null,
             };
         });
 

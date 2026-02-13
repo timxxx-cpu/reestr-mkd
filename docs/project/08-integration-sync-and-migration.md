@@ -11,6 +11,9 @@
 - `floorData` -> `floors` -> **Параметры этажей**.
 - `entrancesData` -> `entrance_matrix` -> **Матрица подъезд/этаж**.
 - `flatMatrix` -> `units` + `rooms` -> **Реестр помещений/экспликация**.
+  - `flatMatrix[*].hasMezzanine` -> `units.has_mezzanine`
+  - `flatMatrix[*].mezzanineType` -> `units.mezzanine_type`
+  - `flatMatrix[*].explication[].isMezzanine` -> `rooms.is_mezzanine`
 - `mopData` -> `common_areas` -> **МОП**.
 - `applicationInfo.stepBlockStatuses[stepIndex]` -> `application_steps.block_statuses` -> **Статусы заполнения блоков по шагу**.
 
@@ -47,6 +50,8 @@
 - `applications.integration_data` -> **Служебные статусы интеграционных операций**.
 - `buildings.cadastre_number` -> **Кадастровый номер здания**.
 - `units.cadastre_number` -> **Кадастровый номер помещения**.
+- `units.has_mezzanine` / `units.mezzanine_type` -> **Признак и тип мезонина юнита**.
+- `rooms.is_mezzanine` -> **Признак расположения помещения в мезонине**.
 
 ## Миграционные акценты
 

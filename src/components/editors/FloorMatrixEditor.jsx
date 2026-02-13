@@ -478,7 +478,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
   }
 
   return (
-    <div className="space-y-6 pb-24 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in duration-500 relative">
+    <div className="flex flex-col h-[calc(100vh-200px)] min-h-[500px] w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in duration-500 overflow-hidden pb-4">
       
       <BlockingLoader isOpen={isSavingStatus} message="Сохраняем данные..." />
 
@@ -496,7 +496,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
       />
 
       {/* TABS & TOOLS */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full shadow-inner border border-slate-700 custom-scrollbar">
           {building.blocks.map((b, i) => (
             <DarkTabButton
@@ -572,8 +572,8 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
       )}
 
       {/* TABLE */}
-      <Card className="overflow-hidden shadow-lg border border-slate-300 rounded-2xl bg-white">
-        <div className="overflow-x-auto max-h-[70vh] scrollbar-thin">
+      <Card className="overflow-hidden shadow-lg border border-slate-300 rounded-2xl bg-white flex-1 min-h-0">
+        <div className="h-full overflow-auto scrollbar-thin">
           <table className="w-full relative border-collapse text-sm table-fixed">
             <thead className="sticky top-0 z-30 shadow-md">
               <tr className="bg-slate-100 border-b-2 border-slate-300">

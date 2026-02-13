@@ -240,6 +240,8 @@ export const mapUnitFromDB = (u, rooms = [], entranceMap = {}, buildingId, block
   num: u.number,
   number: u.number,
   type: u.unit_type || 'flat',
+  hasMezzanine: !!u.has_mezzanine,
+  mezzanineType: u.mezzanine_type || null,
   area: u.total_area,
   livingArea: u.living_area,
   usefulArea: u.useful_area,
@@ -256,6 +258,7 @@ export const mapUnitFromDB = (u, rooms = [], entranceMap = {}, buildingId, block
     area: r.area,
     height: r.room_height,
     level: r.level,
+    isMezzanine: !!r.is_mezzanine,
   })),
 });
 
