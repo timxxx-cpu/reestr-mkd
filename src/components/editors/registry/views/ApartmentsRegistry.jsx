@@ -80,6 +80,8 @@ const ExplicationPanel = ({
   
   const isDuplex = activeUnit && ['duplex_up', 'duplex_down'].includes(activeUnit.type);
   const [rooms, setRooms] = useState([]);
+  const [hasMezzanine, setHasMezzanine] = useState(false);
+  const [mezzanineType, setMezzanineType] = useState('internal');
 
   const { data: freshUnit } = useQuery({
     queryKey: ['registry-unit-explication', activeUnit?.id],
@@ -90,14 +92,21 @@ const ExplicationPanel = ({
   useEffect(() => {
     if (isMulti || count === 0) {
       setRooms([]);
+      setHasMezzanine(false);
+      setMezzanineType('internal');
       return;
     }
 
-    const source = freshUnit?.explication || activeUnit?.explication || [];
+    const sourceUnit = freshUnit || activeUnit || {};
+    const source = sourceUnit.explication || [];
+    setHasMezzanine(!!sourceUnit.hasMezzanine);
+    setMezzanineType(sourceUnit.mezzanineType || 'internal');
+
     setRooms(source.map(r => ({ 
         ...r, 
         id: r.id || crypto.randomUUID(),
-        level: isDuplex ? String(r.level || 1) : '1' 
+        level: isDuplex ? String(r.level || 1) : '1',
+        isMezzanine: !!r.isMezzanine,
     })));
   }, [isMulti, freshUnit, activeUnit, isDuplex, count]);
 
@@ -137,6 +146,7 @@ const ExplicationPanel = ({
         area: '',
         height: '',
         level: '1',
+        isMezzanine: false,
       },
     ]);
   };
@@ -163,16 +173,25 @@ const ExplicationPanel = ({
       toast.error('Заполните тип, площадь и высоту для всех помещений');
       return false;
     }
+    if (!isMulti && hasMezzanine && !rooms.some(r => r.isMezzanine)) {
+      toast.error('Добавьте хотя бы одно помещение, расположенное в мезонине');
+      return false;
+    }
     return true;
   };
 
   const buildPayload = unit => ({
     ...unit,
+    hasMezzanine: !isMulti ? hasMezzanine : !!unit.hasMezzanine,
+    mezzanineType: (!isMulti ? hasMezzanine : !!unit.hasMezzanine)
+      ? (!isMulti ? mezzanineType : unit.mezzanineType || 'internal')
+      : null,
     explication: rooms.map(r => ({
       type: r.type,
       area: parseFloat(r.area),
       height: parseFloat(r.height),
       level: ['duplex_up', 'duplex_down'].includes(unit.type) ? Number(r.level || 1) : 1,
+      isMezzanine: !!r.isMezzanine,
     })),
     area: stats.total,
     livingArea: stats.living,
@@ -273,6 +292,34 @@ const ExplicationPanel = ({
               </div>
             </div>
         )}
+
+        {!isMulti && (
+          <div className="p-3 border-b border-slate-200 bg-slate-50">
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={hasMezzanine}
+                onChange={e => setHasMezzanine(e.target.checked)}
+                disabled={isReadOnly}
+              />
+              В юните есть мезонин
+            </label>
+            {hasMezzanine && (
+              <div className="mt-2">
+                <Label className="text-[10px]">Тип мезонина</Label>
+                <Select
+                  value={mezzanineType}
+                  onChange={e => setMezzanineType(e.target.value)}
+                  disabled={isReadOnly}
+                  className="h-8 text-xs"
+                >
+                  <option value="internal">Внутренний</option>
+                  <option value="external">Внешний</option>
+                </Select>
+              </div>
+            )}
+          </div>
+        )}
   
         {/* Rooms List */}
         <div className="flex-1 overflow-auto p-4 space-y-3 bg-slate-50/50">
@@ -322,6 +369,16 @@ const ExplicationPanel = ({
                       />
                   </div>
               </div>
+
+              <label className="flex items-center gap-2 text-[10px] font-semibold text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={!!room.isMezzanine}
+                  onChange={e => updateRoom(room.id, 'isMezzanine', e.target.checked)}
+                  disabled={isReadOnly || isMulti || !hasMezzanine}
+                />
+                Помещение в мезонине
+              </label>
   
               {isDuplex && (
                   <div className="pt-1">
@@ -433,6 +490,8 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
         usefulArea: mergedData.usefulArea,
         rooms: mergedData.rooms,
         isSold: mergedData.isSold,
+        hasMezzanine: !!mergedData.hasMezzanine,
+        mezzanineType: mergedData.hasMezzanine ? mergedData.mezzanineType || 'internal' : null,
         explication: mergedData.explication || mergedData.roomsList,
       };
 

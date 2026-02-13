@@ -6,24 +6,26 @@ import { useToast } from '@context/ToastContext';
 import RegistryModalLayout, { StatBadge } from './RegistryModalLayout';
 import { CatalogService } from '@lib/catalog-service';
 
-export default function CommercialInventoryModal({
-  unit,
-  unitsList = [],
-  buildingLabel,
-  onClose,
-  onSave,
-}) {
+const MEZZANINE_TYPES = [
+  { value: 'internal', label: 'Внутренний' },
+  { value: 'external', label: 'Внешний' },
+];
+
+export default function CommercialInventoryModal({ unit, unitsList = [], buildingLabel, onClose, onSave }) {
   const isReadOnly = useReadOnly();
   const toast = useToast();
 
-  // Используем explication (комнаты из БД)
   const [rooms, setRooms] = useState(unit.explication || []);
   const [copySourceNum, setCopySourceNum] = useState('');
+  const [hasMezzanine, setHasMezzanine] = useState(!!unit.hasMezzanine);
+  const [mezzanineType, setMezzanineType] = useState(unit.mezzanineType || 'internal');
 
   useEffect(() => {
     setRooms(unit.explication || []);
     setCopySourceNum('');
-  }, [unit.id, unit.explication]);
+    setHasMezzanine(!!unit.hasMezzanine);
+    setMezzanineType(unit.mezzanineType || 'internal');
+  }, [unit.id, unit.explication, unit.hasMezzanine, unit.mezzanineType]);
 
   const { data: roomTypesRows = [] } = useQuery({
     queryKey: ['catalog', 'dict_room_types', 'commercial'],
@@ -40,7 +42,6 @@ export default function CommercialInventoryModal({
     }));
   }, [roomTypesRows]);
 
-  // Расчет ТЭП Коммерции
   const stats = useMemo(() => {
     let s_total = 0;
     let s_main = 0;
@@ -49,17 +50,14 @@ export default function CommercialInventoryModal({
 
     rooms.forEach(r => {
       const rawArea = parseFloat(r.area) || 0;
-      const typeConfig = commercialRoomTypes.find(t => t.id === r.type) || {
-        k: 1.0,
-        category: 'aux',
-      };
+      const typeConfig = commercialRoomTypes.find(t => t.id === r.type) || { k: 1.0, category: 'aux' };
       const effectiveArea = rawArea * typeConfig.k;
 
       s_total += effectiveArea;
 
       if (typeConfig.category === 'main') {
         s_main += rawArea;
-        count_main++;
+        count_main += 1;
       } else if (typeConfig.category === 'aux') {
         s_aux += rawArea;
       }
@@ -74,11 +72,16 @@ export default function CommercialInventoryModal({
   }, [rooms, commercialRoomTypes]);
 
   const addRoom = () => {
-    if (isReadOnly) return;
-    if (!commercialRoomTypes.length) return;
+    if (isReadOnly || !commercialRoomTypes.length) return;
     setRooms([
       ...rooms,
-      { id: crypto.randomUUID(), type: commercialRoomTypes[0].id, area: '', unitId: unit.id },
+      {
+        id: crypto.randomUUID(),
+        type: commercialRoomTypes[0].id,
+        area: '',
+        isMezzanine: false,
+        unitId: unit.id,
+      },
     ]);
   };
 
@@ -95,10 +98,7 @@ export default function CommercialInventoryModal({
   const handleCopy = () => {
     if (isReadOnly || !copySourceNum.trim()) return;
 
-    // [FIX] Ищем в переданном списке, а не в контексте
-    const sourceUnit = unitsList.find(
-      u => String(u.num) === String(copySourceNum) && u.id !== unit.id
-    );
+    const sourceUnit = unitsList.find(u => String(u.num) === String(copySourceNum) && u.id !== unit.id);
 
     if (!sourceUnit) {
       toast.error(`Помещение №${copySourceNum} не найдено`);
@@ -117,6 +117,7 @@ export default function CommercialInventoryModal({
       id: crypto.randomUUID(),
       type: r.type,
       area: r.area,
+      isMezzanine: !!r.isMezzanine,
       unitId: unit.id,
     }));
 
@@ -127,9 +128,22 @@ export default function CommercialInventoryModal({
 
   const handleSave = () => {
     if (isReadOnly) return;
+
+    if (hasMezzanine && !mezzanineType) {
+      toast.error('Выберите вид мезонина');
+      return;
+    }
+
+    if (hasMezzanine && !rooms.some(r => r.isMezzanine)) {
+      toast.error('Добавьте хотя бы одно помещение с признаком мезонина');
+      return;
+    }
+
     onSave({
       ...unit,
-      explication: rooms, // [FIX] Используем explication для БД
+      hasMezzanine,
+      mezzanineType: hasMezzanine ? mezzanineType : null,
+      explication: rooms,
       area: stats.total,
       mainArea: stats.main,
       auxArea: stats.aux,
@@ -161,9 +175,7 @@ export default function CommercialInventoryModal({
       <div
         className={`p-3 rounded-xl border border-slate-200 bg-slate-50 flex flex-col gap-2 justify-center ${isReadOnly ? 'opacity-50 pointer-events-none' : ''}`}
       >
-        <span className="text-[9px] uppercase font-bold text-slate-400 text-center">
-          Копировать из №
-        </span>
+        <span className="text-[9px] uppercase font-bold text-slate-400 text-center">Копировать из №</span>
         <div className="flex gap-1">
           <input
             className="w-full text-center text-xs font-bold border border-slate-200 rounded-md outline-none focus:border-blue-500 py-1"
@@ -195,12 +207,39 @@ export default function CommercialInventoryModal({
       statsContent={statsContent}
     >
       <div className="space-y-3">
-        <div
-          className={`grid gap-3 px-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider grid-cols-12`}
-        >
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+            <input
+              type="checkbox"
+              checked={hasMezzanine}
+              onChange={e => setHasMezzanine(e.target.checked)}
+              disabled={isReadOnly}
+            />
+            В юните есть мезонин
+          </label>
+          {hasMezzanine && (
+            <div className="mt-2">
+              <Select
+                value={mezzanineType}
+                onChange={e => setMezzanineType(e.target.value)}
+                disabled={isReadOnly}
+                className="text-xs py-2"
+              >
+                {MEZZANINE_TYPES.map(t => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+        </div>
+
+        <div className="grid gap-3 px-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider grid-cols-12">
           <div className="col-span-1 text-center">#</div>
-          <div className="col-span-8">Тип помещения</div>
+          <div className="col-span-7">Тип помещения</div>
           <div className="col-span-2 text-right">Площадь</div>
+          <div className="col-span-1 text-center">Мез.</div>
           <div className="col-span-1"></div>
         </div>
 
@@ -219,7 +258,7 @@ export default function CommercialInventoryModal({
                 </div>
               </div>
 
-              <div className="col-span-8">
+              <div className="col-span-7">
                 <Select
                   value={room.type}
                   onChange={e => updateRoom(room.id, 'type', e.target.value)}
@@ -245,19 +284,21 @@ export default function CommercialInventoryModal({
                   className="text-xs py-2 font-bold text-right pr-6"
                   disabled={isReadOnly}
                 />
-                {k < 1 && (
-                  <div className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-mono">
-                    x{k}
-                  </div>
-                )}
+                {k < 1 && <div className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-mono">x{k}</div>}
+              </div>
+
+              <div className="col-span-1 flex justify-center">
+                <input
+                  type="checkbox"
+                  checked={!!room.isMezzanine}
+                  onChange={e => updateRoom(room.id, 'isMezzanine', e.target.checked)}
+                  disabled={isReadOnly || !hasMezzanine}
+                />
               </div>
 
               <div className="col-span-1 flex justify-end">
                 {!isReadOnly && (
-                  <button
-                    onClick={() => removeRoom(room.id)}
-                    className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg"
-                  >
+                  <button onClick={() => removeRoom(room.id)} className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg">
                     <Trash2 size={14} />
                   </button>
                 )}

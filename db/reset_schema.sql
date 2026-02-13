@@ -491,6 +491,8 @@ create table units (
   unit_code text,
   number text,
   unit_type text not null,
+  has_mezzanine boolean not null default false,
+  mezzanine_type text,
   total_area numeric(14,2) default 0,
   living_area numeric(14,2) default 0,
   useful_area numeric(14,2) default 0,
@@ -498,7 +500,9 @@ create table units (
   status text default 'free',
   cadastre_number text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  check (mezzanine_type in ('internal', 'external') or mezzanine_type is null),
+  check ((has_mezzanine = false and mezzanine_type is null) or has_mezzanine = true)
 );
 create index idx_units_floor on units(floor_id);
 create index idx_units_entrance on units(entrance_id);
@@ -515,6 +519,7 @@ create table rooms (
   area numeric(14,2) default 0,
   room_height numeric(8,2),
   level int default 1,
+  is_mezzanine boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

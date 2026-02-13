@@ -55,6 +55,8 @@ const UnitRegistry = ({ mode = 'apartments' }) => {
         usefulArea: mergedData.usefulArea,
         rooms: mergedData.rooms,
         isSold: mergedData.isSold,
+        hasMezzanine: !!mergedData.hasMezzanine,
+        mezzanineType: mergedData.hasMezzanine ? mergedData.mezzanineType || null : null,
 
         // Комнаты (если есть)
         explication: mergedData.explication || mergedData.roomsList,

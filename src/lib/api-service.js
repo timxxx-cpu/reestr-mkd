@@ -1011,7 +1011,7 @@ const LegacyApiService = {
             supabase
               .from('units')
               .select(
-                'id, floor_id, entrance_id, number, unit_type, total_area, living_area, useful_area, rooms_count, status, cadastre_number'
+                'id, floor_id, entrance_id, number, unit_type, has_mezzanine, mezzanine_type, total_area, living_area, useful_area, rooms_count, status, cadastre_number'
               )
               .in('floor_id', floorIds)
               .order('id', { ascending: true })
@@ -1078,6 +1078,8 @@ const LegacyApiService = {
           num: row.number,
           number: row.number,
           type: row.unit_type,
+          hasMezzanine: !!row.has_mezzanine,
+          mezzanineType: row.mezzanine_type || null,
           area: row.total_area,
           livingArea: row.living_area,
           usefulArea: row.useful_area,
@@ -1623,6 +1625,8 @@ const LegacyApiService = {
       number: data.number,
       num: data.number,
       type: data.unit_type,
+      hasMezzanine: !!data.has_mezzanine,
+      mezzanineType: data.mezzanine_type || null,
       area: data.total_area,
       livingArea: data.living_area,
       usefulArea: data.useful_area,
@@ -1636,6 +1640,7 @@ const LegacyApiService = {
         area: r.area,
         height: r.room_height,
         level: r.level,
+        isMezzanine: !!r.is_mezzanine,
       })),
     };
   },
@@ -1730,6 +1735,8 @@ const LegacyApiService = {
         unit_code: unitCode,
         number: unitData.num || unitData.number,
         unit_type: unitData.type,
+        has_mezzanine: !!unitData.hasMezzanine,
+        mezzanine_type: unitData.hasMezzanine ? (unitData.mezzanineType || null) : null,
         total_area: unitData.area,
         living_area: unitData.livingArea || 0,
         useful_area: unitData.usefulArea || 0,
@@ -1766,6 +1773,7 @@ const LegacyApiService = {
           area: r.area || 0,
           room_height: r.height === '' || r.height === undefined ? null : r.height,
           level: r.level || 1,
+          is_mezzanine: !!r.isMezzanine,
           name: r.label || '',
         }));
         await supabase.from('rooms').insert(roomsPayload);
@@ -2392,6 +2400,8 @@ const LegacyApiService = {
           number: u.number,
           num: u.number,
           type: u.unit_type,
+          hasMezzanine: !!u.has_mezzanine,
+          mezzanineType: u.mezzanine_type || null,
           area: u.total_area,
           livingArea: u.living_area,
           usefulArea: u.useful_area,
@@ -2408,6 +2418,7 @@ const LegacyApiService = {
             area: r.area,
             height: r.room_height,
             level: r.level,
+            isMezzanine: !!r.is_mezzanine,
           })),
         };
       }),

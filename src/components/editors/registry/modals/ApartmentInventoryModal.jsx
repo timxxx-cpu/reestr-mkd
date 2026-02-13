@@ -6,32 +6,26 @@ import { useToast } from '@context/ToastContext';
 import RegistryModalLayout, { StatBadge } from './RegistryModalLayout';
 import { CatalogService } from '@lib/catalog-service';
 
-/**
- * @param {object} props
- * @param {object} props.unit - Текущий юнит
- * @param {Array} props.unitsList - Список всех юнитов (для функции копирования)
- * @param {string} props.buildingLabel
- * @param {function} props.onClose
- * @param {function} props.onSave
- */
-export default function ApartmentInventoryModal({
-  unit,
-  unitsList = [],
-  buildingLabel,
-  onClose,
-  onSave,
-}) {
+const MEZZANINE_TYPES = [
+  { value: 'internal', label: 'Внутренний' },
+  { value: 'external', label: 'Внешний' },
+];
+
+export default function ApartmentInventoryModal({ unit, unitsList = [], buildingLabel, onClose, onSave }) {
   const isReadOnly = useReadOnly();
   const toast = useToast();
 
-  // Используем explication для хранения комнат
   const [rooms, setRooms] = useState(unit.explication || []);
   const [copySourceNum, setCopySourceNum] = useState('');
+  const [hasMezzanine, setHasMezzanine] = useState(!!unit.hasMezzanine);
+  const [mezzanineType, setMezzanineType] = useState(unit.mezzanineType || 'internal');
 
   useEffect(() => {
     setRooms(unit.explication || []);
     setCopySourceNum('');
-  }, [unit.id, unit.explication]);
+    setHasMezzanine(!!unit.hasMezzanine);
+    setMezzanineType(unit.mezzanineType || 'internal');
+  }, [unit.id, unit.explication, unit.hasMezzanine, unit.mezzanineType]);
 
   const isDuplex = ['duplex_up', 'duplex_down'].includes(unit.type);
 
@@ -50,7 +44,6 @@ export default function ApartmentInventoryModal({
     }));
   }, [roomTypesRows]);
 
-  // Расчет ТЭП Жилья
   const stats = useMemo(() => {
     let s_total = 0;
     let s_living = 0;
@@ -59,17 +52,14 @@ export default function ApartmentInventoryModal({
 
     rooms.forEach(r => {
       const rawArea = parseFloat(r.area) || 0;
-      const typeConfig = residentialRoomTypes.find(t => t.id === r.type) || {
-        k: 1.0,
-        category: 'useful',
-      };
+      const typeConfig = residentialRoomTypes.find(t => t.id === r.type) || { k: 1.0, category: 'useful' };
       const effectiveArea = rawArea * typeConfig.k;
 
       s_total += effectiveArea;
 
       if (typeConfig.category === 'living') {
         s_living += rawArea;
-        count_living++;
+        count_living += 1;
       } else if (typeConfig.category === 'useful') {
         s_useful += rawArea;
       }
@@ -84,8 +74,7 @@ export default function ApartmentInventoryModal({
   }, [rooms, residentialRoomTypes]);
 
   const addRoom = () => {
-    if (isReadOnly) return;
-    if (!residentialRoomTypes.length) return;
+    if (isReadOnly || !residentialRoomTypes.length) return;
     setRooms([
       ...rooms,
       {
@@ -94,6 +83,7 @@ export default function ApartmentInventoryModal({
         area: '',
         height: '',
         level: '1',
+        isMezzanine: false,
         unitId: unit.id,
       },
     ]);
@@ -112,11 +102,7 @@ export default function ApartmentInventoryModal({
   const handleCopy = () => {
     if (isReadOnly || !copySourceNum.trim()) return;
 
-    // [FIX] Ищем в переданном unitsList вместо flatMatrix из контекста
-    // Ищем в том же блоке (buildingId у них одинаковый, так как unitsList фильтруется в родителе)
-    const sourceUnit = unitsList.find(
-      u => String(u.num) === String(copySourceNum) && u.id !== unit.id
-    );
+    const sourceUnit = unitsList.find(u => String(u.num) === String(copySourceNum) && u.id !== unit.id);
 
     if (!sourceUnit) {
       toast.error(`Квартира №${copySourceNum} не найдена в этом блоке`);
@@ -137,6 +123,7 @@ export default function ApartmentInventoryModal({
       area: r.area,
       level: r.level || '1',
       height: r.height || '',
+      isMezzanine: !!r.isMezzanine,
       unitId: unit.id,
     }));
 
@@ -147,9 +134,22 @@ export default function ApartmentInventoryModal({
 
   const handleSave = () => {
     if (isReadOnly) return;
+
+    if (hasMezzanine && !mezzanineType) {
+      toast.error('Выберите вид мезонина');
+      return;
+    }
+
+    if (hasMezzanine && !rooms.some(r => r.isMezzanine)) {
+      toast.error('Добавьте хотя бы одно помещение с признаком мезонина');
+      return;
+    }
+
     onSave({
       ...unit,
-      explication: rooms, // [FIX] Передаем как explication, чтобы api-service понял
+      hasMezzanine,
+      mezzanineType: hasMezzanine ? mezzanineType : null,
+      explication: rooms,
       area: stats.total,
       livingArea: stats.living,
       usefulArea: stats.useful,
@@ -181,9 +181,7 @@ export default function ApartmentInventoryModal({
       <div
         className={`p-3 rounded-xl border border-slate-200 bg-slate-50 flex flex-col gap-2 justify-center ${isReadOnly ? 'opacity-50 pointer-events-none' : ''}`}
       >
-        <span className="text-[9px] uppercase font-bold text-slate-400 text-center">
-          Копировать из №
-        </span>
+        <span className="text-[9px] uppercase font-bold text-slate-400 text-center">Копировать из №</span>
         <div className="flex gap-1">
           <input
             className="w-full text-center text-xs font-bold border border-slate-200 rounded-md outline-none focus:border-blue-500 py-1"
@@ -216,20 +214,47 @@ export default function ApartmentInventoryModal({
       statsContent={statsContent}
     >
       <div className="space-y-3">
-        <div
-          className={`grid gap-3 px-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider grid-cols-12`}
-        >
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+            <input
+              type="checkbox"
+              checked={hasMezzanine}
+              onChange={e => setHasMezzanine(e.target.checked)}
+              disabled={isReadOnly}
+            />
+            В юните есть мезонин
+          </label>
+          {hasMezzanine && (
+            <div className="mt-2">
+              <Select
+                value={mezzanineType}
+                onChange={e => setMezzanineType(e.target.value)}
+                disabled={isReadOnly}
+                className="text-xs py-2"
+              >
+                {MEZZANINE_TYPES.map(t => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+        </div>
+
+        <div className="grid gap-3 px-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider grid-cols-12">
           <div className="col-span-1 text-center">#</div>
           {isDuplex ? (
             <>
               <div className="col-span-2">Уровень</div>
-              <div className="col-span-6">Тип</div>
+              <div className="col-span-5">Тип</div>
             </>
           ) : (
-            <div className="col-span-8">Тип помещения</div>
+            <div className="col-span-7">Тип помещения</div>
           )}
           <div className="col-span-2 text-right">Площадь</div>
-          <div className="col-span-1"></div>
+          <div className="col-span-1 text-center">Выс.</div>
+          <div className="col-span-1 text-center">Мез.</div>
         </div>
 
         {rooms.map((room, idx) => {
@@ -261,7 +286,7 @@ export default function ApartmentInventoryModal({
                 </div>
               )}
 
-              <div className={isDuplex ? 'col-span-6' : 'col-span-8'}>
+              <div className={isDuplex ? 'col-span-5' : 'col-span-7'}>
                 <Select
                   value={room.type}
                   onChange={e => updateRoom(room.id, 'type', e.target.value)}
@@ -287,11 +312,7 @@ export default function ApartmentInventoryModal({
                   className="text-xs py-2 font-bold text-right pr-6"
                   disabled={isReadOnly}
                 />
-                {k < 1 && (
-                  <div className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-mono">
-                    x{k}
-                  </div>
-                )}
+                {k < 1 && <div className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-mono">x{k}</div>}
               </div>
 
               <div className="col-span-1">
@@ -307,7 +328,16 @@ export default function ApartmentInventoryModal({
                 />
               </div>
 
-              <div className="col-span-1 flex justify-end">
+              <div className="col-span-1 flex justify-center">
+                <input
+                  type="checkbox"
+                  checked={!!room.isMezzanine}
+                  onChange={e => updateRoom(room.id, 'isMezzanine', e.target.checked)}
+                  disabled={isReadOnly || !hasMezzanine}
+                />
+              </div>
+
+              <div className="col-span-12 flex justify-end -mt-1">
                 {!isReadOnly && (
                   <button
                     onClick={() => removeRoom(room.id)}

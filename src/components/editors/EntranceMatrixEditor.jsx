@@ -566,7 +566,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
       </div>
 
       {/* CONTENT */}
-      <div className="flex-1 flex flex-col lg:flex-row gap-6 items-start min-h-0">
+      <div className="flex-1 flex flex-col lg:flex-row gap-6 items-stretch min-h-0">
          
          {/* LEFT GRID */}
          <Card className="flex-1 h-full border border-slate-300 shadow-md bg-white p-0 relative flex flex-col overflow-hidden">

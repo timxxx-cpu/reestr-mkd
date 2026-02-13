@@ -647,6 +647,8 @@
 | `unit_code` | TEXT | NULL, UNIQUE (partial), INDEX | `flatMatrix[*].unitCode` | **Код помещения (EF000/EO000/EP000)** | Шаг `apartments` | Автогенерация через `generateUnitCode()` |
 | `number` | TEXT | NULL | `flatMatrix[*].num/number` | **Номер помещения** | Шаг `apartments` | Ввод пользователя (номер квартиры/офиса/места) |
 | `unit_type` | TEXT | NOT NULL, INDEX | `flatMatrix[*].type` | **Тип помещения** | Шаг `apartments` | Справочник `dict_unit_types` |
+| `has_mezzanine` | BOOLEAN | NOT NULL, DEFAULT false | `flatMatrix[*].hasMezzanine` | **Признак наличия мезонина** | Шаги реестра помещений | Ввод пользователя (чекбокс) |
+| `mezzanine_type` | TEXT | NULL, CHECK(`internal`/`external`), при `has_mezzanine=false` должен быть NULL | `flatMatrix[*].mezzanineType` | **Тип мезонина (внутренний/внешний)** | Шаги реестра помещений | Ввод пользователя (селект) |
 | `total_area` | NUMERIC(14,2) | NULL, DEFAULT 0 | `flatMatrix[*].area` | **Общая площадь (м²)** | Шаг `apartments` | Рассчитывается из экспликации или ввод пользователя |
 | `living_area` | NUMERIC(14,2) | NULL, DEFAULT 0 | `flatMatrix[*].livingArea` | **Жилая площадь (м²)** | Шаг `apartments` | Рассчитывается из экспликации (для квартир) |
 | `useful_area` | NUMERIC(14,2) | NULL, DEFAULT 0 | `flatMatrix[*].usefulArea` | **Полезная площадь (м²)** | Шаг `apartments` | Рассчитывается из экспликации |
@@ -670,6 +672,7 @@
 - Полный идентификатор помещения формируется как `UJ000000-ZD00-EL000`
 - Площади автоматически рассчитываются на основе экспликации (таблица `rooms`)
 - Для дуплексов создается 2 записи (duplex_up и duplex_down) на разных этажах
+- Для юнитов с мезонином хранится признак `has_mezzanine` и тип `mezzanine_type` (`internal` или `external`)
 
 **Связи**:
 - Многие-к-одному с `floors` через `floor_id`
@@ -697,6 +700,7 @@
 | `area` | NUMERIC(14,2) | NULL, DEFAULT 0 | `explication[].area` | **Площадь комнаты (м²)** | Шаг `apartments` / `registry_apartments` | Ввод пользователя |
 | `room_height` | NUMERIC(8,2) | NULL | `explication[].height` | **Высота помещения (м)** | Шаг `registry_apartments` | Ввод пользователя |
 | `level` | INT | NULL, DEFAULT 1 | `explication[].level` | **Уровень** | Шаг `apartments` / `registry_apartments` | Для дуплексов: 1 (нижний), 2 (верхний) |
+| `is_mezzanine` | BOOLEAN | NOT NULL, DEFAULT false | `explication[].isMezzanine` | **Помещение находится в мезонине** | Шаги реестра помещений | Ввод пользователя (чекбокс) |
 | `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата создания** | При создании | Автоматически БД |
 | `updated_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата изменения** | При изменении | Автоматически при UPDATE |
 
@@ -705,6 +709,7 @@
 - Для офисов/коммерции используется `room_scope='commercial'`
 - Площади комнат суммируются с учетом коэффициентов из справочника (например, балкон × 0.3)
 - Жилая площадь = сумма комнат с `area_bucket='living'`
+- При наличии мезонина в юните в экспликации должно быть минимум одно помещение с `is_mezzanine=true` (проверка на уровне UI)
 - Общая площадь = сумма всех комнат с учетом коэффициентов
 
 **Связи**:
@@ -1011,6 +1016,7 @@
 - `area_bucket` определяет категорию для расчета площадей
 - `coefficient` учитывается при подсчете общей площади (балкон × 0.3, лоджия × 0.5)
 - Жилая площадь = сумма комнат с `area_bucket='living'`
+- При наличии мезонина в юните в экспликации должно быть минимум одно помещение с `is_mezzanine=true` (проверка на уровне UI)
 - Полезная площадь = сумма комнат с `area_bucket IN ('living', 'main', 'useful')`
 
 ### Таблица `dict_system_users` — Системные пользователи (DEV)
