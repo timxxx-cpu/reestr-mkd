@@ -4,9 +4,9 @@ import { ImageIcon, LayoutGrid } from 'lucide-react';
 // ИМПОРТЫ
 import { useProject } from '@context/ProjectContext';
 import { useReadOnly } from '@components/ui/UIKit';
-import { getBlocksList } from '@lib/utils';
 import { Validators } from '@lib/validators';
 import { BuildingConfigSchema } from '@lib/schemas';
+import { getBlocksList, createClientId } from '@lib/utils';
 import { cleanBlockDetails } from '@lib/building-details';
 import { useValidation } from '@hooks/useValidation';
 
@@ -213,7 +213,7 @@ export default function StandardView({ building, mode }) {
   const createBlockBasement = () => {
     if (isReadOnly || !canAddBasement || !currentBlock) return;
     const newB = {
-      id: crypto.randomUUID(),
+      id: createClientId(),
       depth: 1,
       hasParking: false,
       parkingLevels: {},

@@ -1058,7 +1058,7 @@
 | `entity_type` | TEXT | NOT NULL | Тип объекта (`project`, `building`, `building_block`, `floor`, `unit`, `common_area`) |
 | `entity_id` | UUID | NOT NULL | ID объекта в соответствующей таблице |
 | `version_number` | INT | NOT NULL, DEFAULT 1 | Номер версии для пары (`entity_type`, `entity_id`) |
-| `version_status` | TEXT | NOT NULL, DEFAULT `IN_WORK`, CHECK IN (`ACTUAL`,`IN_WORK`,`DECLINED`,`ARCHIVED`) | Статус версии |
+| `version_status` | TEXT | NOT NULL, DEFAULT `PENDING`, CHECK IN (`CURRENT`,`PENDING`,`REJECTED`,`PREVIOUS`) | Статус версии |
 | `snapshot_data` | JSONB | NOT NULL, DEFAULT `{}` | Снимок данных объекта |
 | `created_by` | TEXT | NULL | Кто создал версию |
 | `approved_by` | TEXT | NULL | Кто утвердил версию |
@@ -1070,17 +1070,17 @@
 
 **Ограничения и индексы:**
 - `UNIQUE(entity_type, entity_id, version_number)` — уникальный номер версии на объект.
-- Частичный `UNIQUE` для `ACTUAL` (не более одной актуальной версии на объект).
-- Частичный `UNIQUE` для `IN_WORK` (не более одной рабочей версии на объект).
+- Частичный `UNIQUE` для `CURRENT` (не более одной текущей версии на объект).
+- Частичный `UNIQUE` для `PENDING` (не более одной рабочей версии на объект).
 
 ### 16.2 Таблица `dict_version_statuses`
 
 | Код | Название | Применение |
 |-----|----------|------------|
-| `ACTUAL` | Актуальная | Действующая версия объекта |
-| `IN_WORK` | В работе | Черновик для редактирования |
-| `DECLINED` | Отказанная | Отклоненная версия |
-| `ARCHIVED` | Архивированная | Историческая версия |
+| `CURRENT` | Текущая | Действующая версия объекта |
+| `PENDING` | В ожидании | Рабочая (черновая) версия |
+| `REJECTED` | Отклонена | Отклоненная версия |
+| `PREVIOUS` | Предыдущая | Историческая версия |
 
 
 

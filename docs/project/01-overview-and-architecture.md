@@ -45,9 +45,15 @@
    - data-layer (агрегация и read-only),
    - sync-layer (очередь сохранений),
    - workflow-layer (переходы статусов/подстатусов/шагов/этапов).
-3. ApiService (чтение/запись PostgreSQL).
+3. ApiService (чтение/запись PostgreSQL через Supabase-клиент в DEV-контуре).
 4. db-mappers (snake_case БД -> camelCase UI).
 5. validators/state-machine (проверки и правила workflow).
+
+## Текущий runtime-контур (этап миграции)
+
+- Целевая БД: PostgreSQL (схема описана в `db/reset_schema.sql`).
+- Текущий DEV-рантайм: Supabase (`src/lib/supabase.js`, `src/lib/api-service.js`).
+- Это означает, что документация и SQL описывают **PostgreSQL-модель данных**, а прикладной слой в DEV обращается к этой модели через Supabase SDK.
 
 ## Загрузка и сохранение (обобщение)
 
