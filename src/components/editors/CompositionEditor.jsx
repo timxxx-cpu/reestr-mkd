@@ -14,7 +14,9 @@ import {
   AlertCircle,
   Eye,
   Loader2,
-  Hash, // <--- Добавлен Hash
+  Hash,
+  LayoutGrid, // Иконка сетки
+  List as ListIcon, // Иконка списка
 } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { useDirectBuildings } from '@hooks/api/useDirectBuildings';
@@ -88,6 +90,115 @@ const generateBlocksPayload = params => {
 
   return blocks;
 };
+
+// --- Компонент Карточки Строения ---
+const BuildingCard = ({ item, projectUjCode, isReadOnly, onEdit, onDelete }) => {
+  const isRes = item.category.includes('residential');
+  
+  let detailsBadge = null;
+  if (item.category === 'parking_separate') {
+    const pType =
+      item.parkingType === 'ground' || item.parkingType === 'aboveground'
+        ? 'Наземный'
+        : 'Подземный';
+    const pConstName =
+      PARKING_CONSTRUCTION_NAMES[item.constructionType] || item.constructionType;
+    detailsBadge = `${pType} • ${pConstName}`;
+  }
+
+  const Icon = item.category === 'parking_separate' ? Car : item.category === 'infrastructure' ? Box : Building2;
+
+  return (
+    <div className="group bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col overflow-hidden relative">
+      {/* Верхняя часть с номером и иконкой */}
+      <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-start">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-lg flex items-center justify-center shadow-sm border ${isRes ? 'bg-white border-slate-200 text-blue-600' : 'bg-slate-100 border-slate-200 text-amber-600'}`}>
+             <Icon size={20} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Строение</span>
+              <span className="font-black text-slate-800 bg-white border border-slate-200 px-1.5 rounded text-xs">{item.houseNumber || '?'}</span>
+            </div>
+            {item.buildingCode && projectUjCode ? (
+              <div className="mt-1">
+                <FullIdentifierCompact 
+                  fullCode={formatFullIdentifier(projectUjCode, item.buildingCode)}
+                  variant="default"
+                />
+              </div>
+            ) : (
+              <span className="text-[10px] text-slate-400 italic mt-1 block">Нет UJ кода</span>
+            )}
+          </div>
+        </div>
+        
+        {/* Статус */}
+        <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}>
+          {item.stage || 'Проект'}
+        </span>
+      </div>
+
+      {/* Основная информация */}
+      <div className="p-4 flex-grow space-y-3">
+        <div>
+          <h3 className="font-bold text-slate-800 leading-tight group-hover:text-blue-700 transition-colors">
+            {item.label}
+          </h3>
+          <p className="text-xs text-slate-500 mt-1">
+            {TYPE_NAMES[item.category] || item.category}
+          </p>
+        </div>
+
+        {/* Характеристики */}
+        <div className="flex flex-wrap gap-1.5">
+           {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
+              <span className="px-2 py-1 bg-slate-100 rounded border border-slate-200 text-[10px] font-semibold text-slate-600">
+                {item.resBlocks} жил. / {item.nonResBlocks} нежил. бл.
+              </span>
+            )}
+            {item.hasNonResPart && (
+              <span className="px-2 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-semibold">
+                Нежилые на жил. эт.
+              </span>
+            )}
+            {item.category === 'infrastructure' && (
+              <span className="px-2 py-1 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-semibold">
+                {item.infraType}
+              </span>
+            )}
+            {detailsBadge && (
+              <span className="px-2 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-semibold">
+                {detailsBadge}
+              </span>
+            )}
+        </div>
+      </div>
+
+      {/* Футер с действиями */}
+      <div className="p-3 border-t border-slate-100 flex gap-2 bg-slate-50/30 mt-auto">
+        <button
+          onClick={() => onEdit(item)}
+          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+        >
+          {isReadOnly ? <Eye size={14} /> : <Pencil size={14} />}
+          {isReadOnly ? 'Просмотр' : 'Редактировать'}
+        </button>
+        {!isReadOnly && (
+          <button
+            onClick={() => onDelete(item.id)}
+            className="px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+            title="Удалить"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+// -------------------------------------
 
 const BuildingModal = ({
   modal,
@@ -424,6 +535,16 @@ const CompositionEditor = () => {
   const isReadOnly = useReadOnly();
   const projectUjCode = complexInfo?.ujCode;
 
+  // State для переключения вида (grid/list)
+  // Инициализируем из localStorage или по умолчанию 'grid'
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('compositionViewMode') || 'grid');
+
+  // Функция для сохранения выбора пользователя
+  const handleSetViewMode = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('compositionViewMode', mode);
+  };
+
   const { buildings, isLoading, createBuilding, updateBuilding, deleteBuilding, isMutating } =
     useDirectBuildings(projectId);
 
@@ -600,6 +721,31 @@ const CompositionEditor = () => {
           </p>
         </div>
         <div className="flex gap-3">
+          <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+            <button
+              onClick={() => handleSetViewMode('list')}
+              className={`p-2 rounded-lg transition-all ${
+                viewMode === 'list' 
+                  ? 'bg-white shadow-sm text-blue-600' 
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+              title="Списком"
+            >
+              <ListIcon size={18} />
+            </button>
+            <button
+              onClick={() => handleSetViewMode('grid')}
+              className={`p-2 rounded-lg transition-all ${
+                viewMode === 'grid' 
+                  ? 'bg-white shadow-sm text-blue-600' 
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+              title="Карточки"
+            >
+              <LayoutGrid size={18} />
+            </button>
+          </div>
+
           <Button
             onClick={generateDemoComplex}
             disabled={isReadOnly || isMutating}
@@ -681,147 +827,176 @@ const CompositionEditor = () => {
         </div>
       )}
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-h-[400px]">
-       <div className="grid grid-cols-12 bg-slate-50/80 border-b border-slate-200 py-4 pl-6 pr-4 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
-          <div className="col-span-1 text-center">#</div>
-          <div className="col-span-1 text-center">Дом №</div>
-          <div className="col-span-2">Код</div> {/* Новая колонка */}
-          <div className="col-span-3">Наименование</div>
-          <div className="col-span-2">Характеристики</div>
-          <div className="col-span-1">Статус</div>
-          <div className="col-span-1 text-right">Ред.</div>
-          <div className="col-span-1 text-right">Действия</div>
-        </div>
-
-        {buildings.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
+      {buildings.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-20 flex flex-col items-center justify-center text-center">
             <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4 text-slate-300">
               <Building2 size={32} />
             </div>
             <h3 className="text-sm font-bold text-slate-700">Список объектов пуст</h3>
             <p className="text-xs text-slate-400 mt-1">Используйте кнопки сверху для создания</p>
-          </div>
-        )}
-
-        <div className="divide-y divide-slate-100">
-          {buildings.map((item, idx) => {
-            const isRes = item.category.includes('residential');
-            let detailsBadge = null;
-            if (item.category === 'parking_separate') {
-              const pType =
-                item.parkingType === 'ground' || item.parkingType === 'aboveground'
-                  ? 'Наземный'
-                  : 'Подземный';
-              const pConstName =
-                PARKING_CONSTRUCTION_NAMES[item.constructionType] || item.constructionType;
-              detailsBadge = `${pType} • ${pConstName}`;
-            }
-
-           return (
-              <div
-                key={item.id}
-                className="grid grid-cols-12 items-center py-4 pl-6 pr-4 hover:bg-blue-50/50 transition-colors group even:bg-slate-50/50"
-              >
-                <div className="col-span-1 text-xs font-bold text-slate-400 text-center">
-                  {idx + 1}
-                </div>
-                <div className="col-span-1 flex justify-center">
-                  <div
-                    className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-sm shadow-sm border ${isRes ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-200 text-amber-700'}`}
-                  >
-                    {item.houseNumber || '?'}
-                  </div>
-                </div>
-
-                {/* НОВАЯ КОЛОНКА КОД */}
-                <div className="col-span-2 flex items-center">
-                   {item.buildingCode && projectUjCode ? (
-                      <FullIdentifierCompact 
-                        fullCode={formatFullIdentifier(projectUjCode, item.buildingCode)}
-                        variant="default" 
-                      />
-                   ) : (
-                     <span className="text-slate-300 text-xs px-2">-</span>
-                   )}
-                </div>
-
-                <div className="col-span-3 pr-4">
-                  <div className="flex items-start gap-2">
-                    <div className="flex-1">
-                      <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">
-                        {item.label}
-                      </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">
-                        {TYPE_NAMES[item.category] || item.category}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="col-span-2 pr-4 flex flex-col justify-center gap-1.5">
-                  <div className="flex flex-wrap gap-1">
-                    {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
-                      <span className="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-[10px] font-bold text-slate-600">
-                        {item.resBlocks} жил. / {item.nonResBlocks} нежил.
-                      </span>
-                    )}
-                    {item.hasNonResPart && (
-                      <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">
-                        +Нежилые объекты на жилых этажах
-                      </span>
-                    )}
-                    {item.category === 'infrastructure' && (
-                      <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold">
-                        {item.infraType}
-                      </span>
-                    )}
-                    {detailsBadge && (
-                      <span className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold">
-                        {detailsBadge}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="col-span-1 pr-4">
-                  <span
-                    className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}
-                  >
-                    {item.stage || 'Проект'}
-                  </span>
-                </div>
-                <div className="col-span-1 flex justify-end">
-                  <button
-                    onClick={() => openEditing(item)}
-                    title={isReadOnly ? 'Просмотр' : 'Редактировать'}
-                    className="inline-flex items-center gap-1 h-8 px-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold shadow-sm hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-all"
-                  >
-                    {isReadOnly ? <Eye size={14} /> : <Pencil size={14} />}
-                    <span>{isReadOnly ? 'Просм.' : 'Ред.'}</span>
-                  </button>
-                </div>
-                <div className="col-span-1 flex justify-end gap-1">
-                  <button
-                    onClick={() => openEditing(item)}
-                    title="Открыть"
-                    className="w-8 h-8 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm flex items-center justify-center hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all"
-                  >
-                    <ArrowRight size={14} />
-                  </button>
-                  {!isReadOnly && (
-                    <button
-                      onClick={() => deleteItem(item.id)}
-                      title="Удалить"
-                      className="w-8 h-8 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm flex items-center justify-center hover:bg-red-600 hover:text-white hover:border-red-600 transition-all"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
         </div>
-      </div>
+      ) : (
+        <>
+          {viewMode === 'list' ? (
+             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-h-[400px]">
+                <div className="grid grid-cols-12 bg-slate-50/80 border-b border-slate-200 py-4 pl-6 pr-4 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
+                  <div className="col-span-1 text-center">#</div>
+                  <div className="col-span-1 text-center">Дом №</div>
+                  <div className="col-span-2">Код</div>
+                  <div className="col-span-3">Наименование</div>
+                  <div className="col-span-2">Характеристики</div>
+                  <div className="col-span-1">Статус</div>
+                  <div className="col-span-1 text-right">Ред.</div>
+                  <div className="col-span-1 text-right">Действия</div>
+                </div>
+
+                <div className="divide-y divide-slate-100">
+                  {buildings.map((item, idx) => {
+                    const isRes = item.category.includes('residential');
+                    let detailsBadge = null;
+                    if (item.category === 'parking_separate') {
+                      const pType =
+                        item.parkingType === 'ground' || item.parkingType === 'aboveground'
+                          ? 'Наземный'
+                          : 'Подземный';
+                      const pConstName =
+                        PARKING_CONSTRUCTION_NAMES[item.constructionType] || item.constructionType;
+                      detailsBadge = `${pType} • ${pConstName}`;
+                    }
+
+                  return (
+                      <div
+                        key={item.id}
+                        className="grid grid-cols-12 items-center py-4 pl-6 pr-4 hover:bg-blue-50/50 transition-colors group even:bg-slate-50/50"
+                      >
+                        <div className="col-span-1 text-xs font-bold text-slate-400 text-center">
+                          {idx + 1}
+                        </div>
+                        <div className="col-span-1 flex justify-center">
+                          <div
+                            className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-sm shadow-sm border ${isRes ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-200 text-amber-700'}`}
+                          >
+                            {item.houseNumber || '?'}
+                          </div>
+                        </div>
+
+                        {/* НОВАЯ КОЛОНКА КОД */}
+                        <div className="col-span-2 flex items-center">
+                          {item.buildingCode && projectUjCode ? (
+                              <FullIdentifierCompact 
+                                fullCode={formatFullIdentifier(projectUjCode, item.buildingCode)}
+                                variant="default" 
+                              />
+                          ) : (
+                            <span className="text-slate-300 text-xs px-2">-</span>
+                          )}
+                        </div>
+
+                        <div className="col-span-3 pr-4">
+                          <div className="flex items-start gap-2">
+                            <div className="flex-1">
+                              <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">
+                                {item.label}
+                              </div>
+                              <div className="text-[10px] text-slate-400 mt-0.5">
+                                {TYPE_NAMES[item.category] || item.category}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="col-span-2 pr-4 flex flex-col justify-center gap-1.5">
+                          <div className="flex flex-wrap gap-1">
+                            {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
+                              <span className="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-[10px] font-bold text-slate-600">
+                                {item.resBlocks} жил. / {item.nonResBlocks} нежил.
+                              </span>
+                            )}
+                            {item.hasNonResPart && (
+                              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">
+                                +Нежилые объекты на жилых этажах
+                              </span>
+                            )}
+                            {item.category === 'infrastructure' && (
+                              <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold">
+                                {item.infraType}
+                              </span>
+                            )}
+                            {detailsBadge && (
+                              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold">
+                                {detailsBadge}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="col-span-1 pr-4">
+                          <span
+                            className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}
+                          >
+                            {item.stage || 'Проект'}
+                          </span>
+                        </div>
+                        <div className="col-span-1 flex justify-end">
+                          <button
+                            onClick={() => openEditing(item)}
+                            title={isReadOnly ? 'Просмотр' : 'Редактировать'}
+                            className="inline-flex items-center gap-1 h-8 px-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold shadow-sm hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                          >
+                            {isReadOnly ? <Eye size={14} /> : <Pencil size={14} />}
+                            <span>{isReadOnly ? 'Просм.' : 'Ред.'}</span>
+                          </button>
+                        </div>
+                        <div className="col-span-1 flex justify-end gap-1">
+                          <button
+                            onClick={() => openEditing(item)}
+                            title="Открыть"
+                            className="w-8 h-8 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm flex items-center justify-center hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all"
+                          >
+                            <ArrowRight size={14} />
+                          </button>
+                          {!isReadOnly && (
+                            <button
+                              onClick={() => deleteItem(item.id)}
+                              title="Удалить"
+                              className="w-8 h-8 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm flex items-center justify-center hover:bg-red-600 hover:text-white hover:border-red-600 transition-all"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-in fade-in">
+              {buildings.map((item) => (
+                <BuildingCard 
+                  key={item.id}
+                  item={item}
+                  projectUjCode={projectUjCode}
+                  isReadOnly={isReadOnly}
+                  onEdit={openEditing}
+                  onDelete={deleteItem}
+                />
+              ))}
+              {!isReadOnly && (
+                <button
+                   onClick={() => openPlanning('residential')}
+                   className="flex flex-col items-center justify-center h-full min-h-[220px] border-2 border-dashed border-slate-200 rounded-xl hover:border-blue-400 hover:bg-blue-50/50 transition-all group"
+                >
+                    <div className="w-12 h-12 rounded-full bg-slate-50 group-hover:bg-blue-100 flex items-center justify-center mb-3 transition-colors">
+                       <span className="text-2xl text-slate-400 group-hover:text-blue-600">+</span>
+                    </div>
+                    <span className="text-slate-500 font-bold group-hover:text-blue-600 text-sm">Добавить строение</span>
+                </button>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
       {modal.isOpen && (
         <BuildingModal
           modal={modal}
