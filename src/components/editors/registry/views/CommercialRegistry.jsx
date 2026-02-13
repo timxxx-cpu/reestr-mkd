@@ -278,7 +278,7 @@ const ExplicationPanel = ({
               onChange={e => setHasMezzanine(e.target.checked)}
               disabled={isReadOnly || isUnitLoading}
             />
-            В юните есть мезонин
+            В объекте есть мезонин
           </label>
           {hasMezzanine && (
             <div className="mt-2">

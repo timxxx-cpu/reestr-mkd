@@ -302,7 +302,7 @@ const ExplicationPanel = ({
                 onChange={e => setHasMezzanine(e.target.checked)}
                 disabled={isReadOnly}
               />
-              В юните есть мезонин
+              В квартире есть мезонин
             </label>
             {hasMezzanine && (
               <div className="mt-2">
