@@ -499,17 +499,7 @@ function ProjectEditorRoute({ user }) {
             />
           )}
 
-          <div className="px-8 pt-6 pb-2">
-            <Breadcrumbs
-              projectName={complexInfo?.name || 'Загрузка...'}
-              stepTitle={stepConfig?.title}
-              buildingName={
-                editingBuildingId ? composition?.find(b => b.id === editingBuildingId)?.label : null
-              }
-              onBackToStep={() => setEditingBuildingId(null)}
-            />
-          </div>
-          <div className="flex-1 overflow-y-auto pb-6 scroll-smooth custom-scrollbar">
+            <div className="flex-1 overflow-y-auto pb-6 scroll-smooth custom-scrollbar">
             {!editingBuildingId && <StepIndicator currentStep={currentStep} />}
             <React.Suspense fallback={<Loader2 className="animate-spin text-blue-600" />}>
               {renderStepContent()}

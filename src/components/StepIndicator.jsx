@@ -30,8 +30,8 @@ export default function StepIndicator({ currentStep }) {
       : applicationInfo?.verifiedSteps || [];
 
   return (
-    <div className="mb-6">
-      <div ref={scrollRef} className="flex items-center gap-1.5 overflow-x-auto pb-2 no-scrollbar">
+    <div className="sticky top-0 z-30 bg-white mb-6 pt-4 pb-2">
+    <div ref={scrollRef} className="flex items-center gap-1.5 overflow-x-auto pb-2 no-scrollbar">
         {STEPS_CONFIG.map((step, idx) => {
           const isActive = idx === currentStep;
           const stepStage = getStepStage(idx);
