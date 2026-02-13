@@ -8,25 +8,26 @@ import {
   MousePointer2,
   Plus,
   Trash2,
-  Copy,
   CheckCircle2,
   RotateCcw,
-  Check,
   X,
-  ArrowDown,
-  ChevronLeft,
-  ArrowRight
+  AlertTriangle,
+  Loader2,
+  LayoutTemplate
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
 import { useDirectMatrix } from '@hooks/api/useDirectMatrix';
-import { Card, DebouncedInput, Input, Label, Select, useReadOnly, Button, Skeleton } from '@components/ui/UIKit';
+import { useDirectBuildings } from '@hooks/api/useDirectBuildings';
+import { useBuildingType } from '@hooks/useBuildingType';
+import { Card, DebouncedInput, Input, Label, Select, useReadOnly, Button, Modal, BlockingLoader } from '@components/ui/UIKit';
 import { useToast } from '@context/ToastContext';
 import { CatalogService } from '@lib/catalog-service';
 import { ApiService } from '@lib/api-service';
 import { formatBlockSwitcherLabel } from '@lib/building-details';
 import { useProject } from '@context/ProjectContext';
 import BuildingSelector from '../../BuildingSelector';
+import ConfigHeader from '../../configurator/ConfigHeader';
 
 // --- STYLES & COMPONENTS ---
 
@@ -60,10 +61,18 @@ const ExplicationPanel = ({
   onApplySingle,
   onApplyBulk,
   onResetExplication,
-  onClearSelection
+  onClearSelection,
+  isSaving
 }) => {
   const isReadOnly = useReadOnly();
   const toast = useToast();
+  
+  const [confirmModal, setConfirmModal] = useState({ 
+    isOpen: false, 
+    type: null,
+    title: '',
+    description: '' 
+  });
   
   const count = selectedUnits.length;
   const isMulti = count > 1;
@@ -71,9 +80,8 @@ const ExplicationPanel = ({
   
   const isDuplex = activeUnit && ['duplex_up', 'duplex_down'].includes(activeUnit.type);
   const [rooms, setRooms] = useState([]);
-  const [copySourceNum, setCopySourceNum] = useState('');
 
-  const { data: freshUnit, isFetching } = useQuery({
+  const { data: freshUnit } = useQuery({
     queryKey: ['registry-unit-explication', activeUnit?.id],
     queryFn: () => ApiService.getUnitExplicationById(activeUnit.id),
     enabled: !!activeUnit?.id && !isMulti,
@@ -82,7 +90,6 @@ const ExplicationPanel = ({
   useEffect(() => {
     if (isMulti || count === 0) {
       setRooms([]);
-      setCopySourceNum('');
       return;
     }
 
@@ -92,7 +99,6 @@ const ExplicationPanel = ({
         id: r.id || crypto.randomUUID(),
         level: isDuplex ? String(r.level || 1) : '1' 
     })));
-    setCopySourceNum('');
   }, [isMulti, freshUnit, activeUnit, isDuplex, count]);
 
   const stats = useMemo(() => {
@@ -174,13 +180,17 @@ const ExplicationPanel = ({
     rooms: stats.rooms > 0 ? stats.rooms : unit.rooms,
   });
 
-  const handleSave = async () => {
-    if (isReadOnly) return;
+  const handleSaveClick = async () => {
+    if (isReadOnly || isSaving) return;
     if (!validateRooms()) return;
 
     if (isMulti) {
-      if(!confirm(`Применить эту экспликацию ко всем выбранным квартирам (${count} шт)?`)) return;
-      await onApplyBulk(selectedUnits.map(buildPayload));
+      setConfirmModal({
+        isOpen: true,
+        type: 'save',
+        title: 'Массовое заполнение',
+        description: `Вы уверены, что хотите применить текущую экспликацию ко всем выбранным квартирам (${count} шт)? Это перезапишет существующие данные.`
+      });
       return;
     }
 
@@ -189,137 +199,188 @@ const ExplicationPanel = ({
     }
   };
 
-  const handleReset = async () => {
-    if (isReadOnly) return;
-    if (!confirm('Стереть экспликацию у выбранных квартир?')) return;
-    await onResetExplication(selectedUnits);
-    if (!isMulti) setRooms([]);
+  const handleResetClick = async () => {
+    if (isReadOnly || isSaving) return;
+    setConfirmModal({
+        isOpen: true,
+        type: 'reset',
+        title: 'Очистка данных',
+        description: `Вы уверены, что хотите стереть экспликацию у выбранных квартир (${count} шт)? Данные будут удалены безвозвратно.`
+    });
+  };
+
+  const performConfirmedAction = async () => {
+    setConfirmModal(prev => ({ ...prev, isOpen: false }));
+    
+    if (confirmModal.type === 'save') {
+        await onApplyBulk(selectedUnits.map(buildPayload));
+    } else if (confirmModal.type === 'reset') {
+        await onResetExplication(selectedUnits);
+        if (!isMulti) setRooms([]);
+    }
   };
 
   if (count === 0) {
     return (
-      <div className="bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 p-8 flex flex-col items-center justify-center text-center h-full text-slate-400">
+      <div className="bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 p-8 flex flex-col items-center justify-center text-center h-full text-slate-400 w-full lg:w-80 shrink-0">
         <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4">
           <MousePointer2 size={32} className="text-slate-300" />
         </div>
-        <h3 className="font-bold text-slate-600 mb-1">Выберите квартиры</h3>
-        <p className="text-sm">
-            Кликните по ячейкам или отдельным квартирам в матрице.
-        </p>
+        <h3 className="font-bold text-slate-600 mb-2">Мультивыбор</h3>
+        <ul className="text-xs text-slate-500 text-left space-y-2 bg-slate-100 p-3 rounded-xl">
+           <li className="flex gap-2">
+              <span className="font-bold bg-white px-1 rounded border border-slate-200">Alt + Клик</span>
+              <span>по нижнему этажу — выбрать вертикальный стояк.</span>
+           </li>
+           <li className="flex gap-2">
+              <span className="font-bold bg-white px-1 rounded border border-slate-200">Shift + Клик</span>
+              <span>по первому подъезду — выбрать горизонтальный ряд.</span>
+           </li>
+        </ul>
       </div>
     );
   }
 
   return (
-    <div className="h-full bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden flex flex-col w-full lg:w-80 shrink-0">
-      {/* Header */}
-      <div className="bg-blue-600 px-6 py-4 flex justify-between items-center text-white shrink-0">
-         <div>
-            <h3 className="font-bold text-lg flex items-center gap-2">
-                <CheckCircle2 size={18} />
-                {count} {count === 1 ? 'квартира' : 'квартир'}
-            </h3>
-            <p className="text-blue-100 text-xs">
-                {isMulti ? 'Массовое редактирование' : `Кв. №${activeUnit?.number || activeUnit?.num || '?'}`}
-            </p>
-         </div>
-         <button onClick={onClearSelection} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-            <X size={18} />
-         </button>
-      </div>
-
-      {/* Info Bar */}
-      {!isMulti && (
-          <div className="grid grid-cols-2 gap-px bg-slate-200 border-b border-slate-200">
-            <div className="bg-slate-50 p-2 text-center">
-                <span className="block text-[10px] text-slate-400 uppercase font-bold">Общая S</span>
-                <span className="text-sm font-black text-slate-700">{stats.total} м²</span>
+    <>
+      <div className="h-full bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden flex flex-col w-full lg:w-80 shrink-0">
+        {/* Header */}
+        <div className="bg-blue-600 px-6 py-4 flex justify-between items-center text-white shrink-0">
+           <div>
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                  <CheckCircle2 size={18} />
+                  {count} {count === 1 ? 'квартира' : 'квартир'}
+              </h3>
+              <p className="text-blue-100 text-xs">
+                  {isMulti ? 'Массовое редактирование' : `Кв. №${activeUnit?.number || activeUnit?.num || '?'}`}
+              </p>
+           </div>
+           <button onClick={onClearSelection} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+              <X size={18} />
+           </button>
+        </div>
+  
+        {/* Info Bar */}
+        {!isMulti && (
+            <div className="grid grid-cols-2 gap-px bg-slate-200 border-b border-slate-200">
+              <div className="bg-slate-50 p-2 text-center">
+                  <span className="block text-[10px] text-slate-400 uppercase font-bold">Общая S</span>
+                  <span className="text-sm font-black text-slate-700">{stats.total} м²</span>
+              </div>
+              <div className="bg-slate-50 p-2 text-center">
+                  <span className="block text-[10px] text-slate-400 uppercase font-bold">Жилая S</span>
+                  <span className="text-sm font-black text-emerald-600">{stats.living} м²</span>
+              </div>
             </div>
-            <div className="bg-slate-50 p-2 text-center">
-                <span className="block text-[10px] text-slate-400 uppercase font-bold">Жилая S</span>
-                <span className="text-sm font-black text-emerald-600">{stats.living} м²</span>
-            </div>
-          </div>
-      )}
-
-      {/* Rooms List */}
-      <div className="flex-1 overflow-auto p-4 space-y-3 bg-slate-50/50">
-        {rooms.map((room, idx) => (
-          <div key={room.id} className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm space-y-2 relative group">
-            <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 px-1">
-                <span>#{idx + 1}</span>
-                {!isReadOnly && (
-                    <button onClick={() => removeRoom(room.id)} className="text-red-300 hover:text-red-500 transition-colors">
-                        <Trash2 size={12} />
-                    </button>
-                )}
-            </div>
-            
-            <Select 
-                value={room.type} 
-                onChange={e => updateRoom(room.id, 'type', e.target.value)} 
-                disabled={isReadOnly}
-                className="w-full text-sm font-bold"
-            >
-                {roomTypes.map(t => (
-                  <option key={t.id} value={t.id}>{t.label}</option>
-                ))}
-            </Select>
-
-            <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-0.5">
-                    <Label className="text-[9px]">Площадь</Label>
-                    <DebouncedInput 
-                        type="number" step="0.01" min="0" 
-                        value={room.area || ''} 
-                        onChange={v => updateRoom(room.id, 'area', v)} 
-                        placeholder="0.00" 
-                        disabled={isReadOnly}
-                        className="h-8 text-sm"
-                    />
-                </div>
-                <div className="space-y-0.5">
-                    <Label className="text-[9px]">Высота</Label>
-                    <DebouncedInput 
-                        type="number" step="0.01" min="0" 
-                        value={room.height || ''} 
-                        onChange={v => updateRoom(room.id, 'height', v)} 
-                        placeholder="0.00" 
-                        disabled={isReadOnly}
-                        className="h-8 text-sm"
-                    />
-                </div>
-            </div>
-
-            {isDuplex && (
-                <div className="pt-1">
-                    <Label className="text-[9px]">Уровень</Label>
-                    <Select value={String(room.level || '1')} onChange={e => updateRoom(room.id, 'level', e.target.value)} disabled={isReadOnly} className="h-8 text-xs">
-                        <option value="1">Нижний уровень</option>
-                        <option value="2">Верхний уровень</option>
-                    </Select>
-                </div>
-            )}
-          </div>
-        ))}
-
-        {!isReadOnly && (
-          <Button variant="secondary" onClick={addRoom} className="w-full border-dashed border-slate-300 text-slate-500">
-            <Plus size={14} className="mr-1" /> Добавить
-          </Button>
         )}
+  
+        {/* Rooms List */}
+        <div className="flex-1 overflow-auto p-4 space-y-3 bg-slate-50/50">
+          {rooms.map((room, idx) => (
+            <div key={room.id} className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm space-y-2 relative group">
+              <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 px-1">
+                  <span>#{idx + 1}</span>
+                  {!isReadOnly && (
+                      <button onClick={() => removeRoom(room.id)} className="text-red-300 hover:text-red-500 transition-colors">
+                          <Trash2 size={12} />
+                      </button>
+                  )}
+              </div>
+              
+              <Select 
+                  value={room.type} 
+                  onChange={e => updateRoom(room.id, 'type', e.target.value)} 
+                  disabled={isReadOnly}
+                  className="w-full text-sm font-bold"
+              >
+                  {roomTypes.map(t => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))}
+              </Select>
+  
+              <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-0.5">
+                      <Label className="text-[9px]">Площадь</Label>
+                      <DebouncedInput 
+                          type="number" step="0.01" min="0" 
+                          value={room.area || ''} 
+                          onChange={v => updateRoom(room.id, 'area', v)} 
+                          placeholder="0.00" 
+                          disabled={isReadOnly}
+                          className="h-8 text-sm"
+                      />
+                  </div>
+                  <div className="space-y-0.5">
+                      <Label className="text-[9px]">Высота</Label>
+                      <DebouncedInput 
+                          type="number" step="0.01" min="0" 
+                          value={room.height || ''} 
+                          onChange={v => updateRoom(room.id, 'height', v)} 
+                          placeholder="0.00" 
+                          disabled={isReadOnly}
+                          className="h-8 text-sm"
+                      />
+                  </div>
+              </div>
+  
+              {isDuplex && (
+                  <div className="pt-1">
+                      <Label className="text-[9px]">Уровень</Label>
+                      <Select value={String(room.level || '1')} onChange={e => updateRoom(room.id, 'level', e.target.value)} disabled={isReadOnly} className="h-8 text-xs">
+                          <option value="1">Нижний уровень</option>
+                          <option value="2">Верхний уровень</option>
+                      </Select>
+                  </div>
+              )}
+            </div>
+          ))}
+  
+          {!isReadOnly && (
+            <Button variant="secondary" onClick={addRoom} className="w-full border-dashed border-slate-300 text-slate-500">
+              <Plus size={14} className="mr-1" /> Добавить
+            </Button>
+          )}
+        </div>
+  
+        {/* Footer Actions */}
+        <div className="bg-white p-4 border-t border-slate-100 shadow-lg z-10 space-y-2">
+          <Button onClick={handleSaveClick} disabled={isReadOnly || isSaving} className="w-full">
+            {isSaving ? (
+                <><Loader2 className="animate-spin mr-2" size={16} /> Сохранение...</>
+            ) : (
+                isMulti ? 'Применить ко всем' : 'Сохранить'
+            )}
+          </Button>
+          <Button variant="ghost" onClick={handleResetClick} disabled={isReadOnly || isSaving} className="w-full text-red-400 hover:text-red-600 hover:bg-red-50">
+            <RotateCcw size={14} className="mr-2" /> Очистить экспликацию
+          </Button>
+        </div>
       </div>
 
-      {/* Footer Actions */}
-      <div className="bg-white p-4 border-t border-slate-100 shadow-lg z-10 space-y-2">
-        <Button onClick={handleSave} disabled={isReadOnly} className="w-full">
-          {isMulti ? 'Применить ко всем' : 'Сохранить'}
-        </Button>
-        <Button variant="ghost" onClick={handleReset} disabled={isReadOnly} className="w-full text-red-400 hover:text-red-600 hover:bg-red-50">
-          <RotateCcw size={14} className="mr-2" /> Очистить экспликацию
-        </Button>
-      </div>
-    </div>
+      <Modal
+          isOpen={confirmModal.isOpen}
+          onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+          title={confirmModal.title}
+      >
+          <div className="space-y-4">
+              <div className="flex items-start gap-4 p-4 bg-amber-50 text-amber-900 rounded-xl border border-amber-200">
+                  <AlertTriangle className="shrink-0 text-amber-600" />
+                  <p className="text-sm">{confirmModal.description}</p>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                  <Button variant="ghost" onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}>
+                      Отмена
+                  </Button>
+                  <Button 
+                      onClick={performConfirmedAction} 
+                      className={confirmModal.type === 'reset' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600'}
+                  >
+                      {confirmModal.type === 'reset' ? 'Да, очистить' : 'Да, применить'}
+                  </Button>
+              </div>
+          </div>
+      </Modal>
+    </>
   );
 };
 
@@ -333,9 +394,13 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
   const [internalSelectedId, setInternalSelectedId] = useState(null);
   const selectedBuildingId = buildingId || internalSelectedId;
 
+  const { buildings } = useDirectBuildings(projectId);
+  const building = useMemo(() => buildings.find(b => b.id === selectedBuildingId), [buildings, selectedBuildingId]);
+  const typeInfo = useBuildingType(building);
+
   const [activeBlockId, setActiveBlockId] = useState(null);
   const [selectedUnitIds, setSelectedUnitIds] = useState(new Set());
-  const [selectedCellKeys, setSelectedCellKeys] = useState(new Set());
+  const [isSaving, setIsSaving] = useState(false);
 
   // --- CATALOGS ---
   const { data: roomTypesRows = [] } = useQuery({
@@ -353,8 +418,8 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
     }));
   }, [roomTypesRows]);
 
-  // --- LOGIC: SAVE UNIT (INTERNAL) ---
-  const handleSaveUnit = async (originalUnit, changes) => {
+  // --- LOGIC: SAVE UNIT ---
+  const handleSaveUnit = async (originalUnit, changes, shouldInvalidate = true) => {
     try {
       const mergedData = { ...originalUnit, ...changes };
       const payload = {
@@ -372,11 +437,14 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
       };
 
       await ApiService.upsertUnit(payload);
-      await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
+      
+      if (shouldInvalidate) {
+        await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
+      }
       return true;
     } catch (error) {
       console.error('Save error:', error);
-      toast.error('Ошибка сохранения: ' + error.message);
+      if (shouldInvalidate) toast.error('Ошибка сохранения: ' + error.message);
       return false;
     }
   };
@@ -391,15 +459,11 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
 
     const { blocks = [], floors = [], entrances = [], units = [] } = fullRegistry;
     
-    // Filter by selected building
     const currentBuildingBlocks = blocks.filter(b => b.buildingId === selectedBuildingId || b.building_id === selectedBuildingId);
     
-    // [MODIFIED] Relaxed filter: if blocks are found, we use them.
-    // If no explicit residential blocks found, we try to use any blocks (fallback for dev data)
     let residentialBlocks = currentBuildingBlocks.filter(b => b.type === 'Ж' || b.type === 'residential');
     
     if (residentialBlocks.length === 0 && currentBuildingBlocks.length > 0) {
-        // Fallback: if no explicit residential types, use what we have (e.g. mixed or legacy)
         residentialBlocks = currentBuildingBlocks;
     }
 
@@ -427,7 +491,6 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
         const floor = floorMap.get(u.floorId);
         if (!floor) return;
         
-        // Ensure unit belongs to selected building blocks
         const block = blockMap.get(floor.blockId);
         if (!block || block.buildingId !== selectedBuildingId && block.building_id !== selectedBuildingId) return;
 
@@ -487,7 +550,32 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
       });
   }, [activeBlock, prepared.floorsByBlock, prepared.entrancesByBlock, prepared.unitsByCell, matrixMap]);
 
+  const bottomFloorId = useMemo(() => floors.length > 0 ? floors[floors.length - 1].id : null, [floors]);
+  
   const entrances = useMemo(() => (activeBlock ? prepared.entrancesByBlock[activeBlock.id] || [] : []), [activeBlock, prepared.entrancesByBlock]);
+  
+  const firstEntranceId = useMemo(() => entrances.length > 0 ? entrances[0].id : null, [entrances]);
+
+  // [NEW] Расчет статистики по подъездам для шапки
+  const entranceStats = useMemo(() => {
+    const stats = {};
+    if (!activeBlock) return stats;
+
+    entrances.forEach(e => {
+        let total = 0;
+        let filled = 0;
+        
+        floors.forEach(f => {
+            const cellKey = `${activeBlock.id}_${f.id}_${e.id}`;
+            const units = prepared.unitsByCell[cellKey] || [];
+            total += units.length;
+            filled += units.filter(u => u.isExplicationFilled).length;
+        });
+
+        stats[e.id] = { total, filled };
+    });
+    return stats;
+  }, [activeBlock, entrances, floors, prepared.unitsByCell]);
 
   const selectedUnits = useMemo(() => {
     if (!activeBlock || selectedUnitIds.size === 0) return [];
@@ -504,7 +592,6 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
 
   const clearSelection = () => {
     setSelectedUnitIds(new Set());
-    setSelectedCellKeys(new Set());
   };
 
   const toggleUnit = (unitId) => {
@@ -516,80 +603,112 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
       });
   };
 
-  const selectFloor = floorId => {
-    const cellKeys = entrances.map(e => `${activeBlock.id}_${floorId}_${e.id}`);
-    const allSelected = cellKeys.every(k => selectedCellKeys.has(k));
-    
-    setSelectedCellKeys(prev => {
-        const nextCells = new Set(prev);
-        const nextUnits = new Set(selectedUnitIds);
+  const handleUnitClick = (unit, floorId, entranceId, indexInCell, event) => {
+      event.stopPropagation();
 
-        cellKeys.forEach(key => {
-             const cellUnits = prepared.unitsByCell[key] || [];
-             if (allSelected) {
-                 nextCells.delete(key);
-                 cellUnits.forEach(u => nextUnits.delete(u.id));
-             } else {
-                 nextCells.add(key);
-                 cellUnits.forEach(u => nextUnits.add(u.id));
+      if (floorId === bottomFloorId && event.altKey) {
+          const riserUnitIds = [];
+          floors.forEach(f => {
+              const cellKey = `${activeBlock.id}_${f.id}_${entranceId}`;
+              const cellUnits = prepared.unitsByCell[cellKey] || [];
+              if (cellUnits.length > indexInCell) {
+                  riserUnitIds.push(cellUnits[indexInCell].id);
+              }
+          });
+
+          if (riserUnitIds.length > 0) {
+            setSelectedUnitIds(prev => {
+                const next = new Set(prev);
+                const allSelected = riserUnitIds.every(id => prev.has(id));
+                if (allSelected) riserUnitIds.forEach(id => next.delete(id));
+                else riserUnitIds.forEach(id => next.add(id));
+                return next;
+            });
+            toast.success(`Выбран стояк: ${riserUnitIds.length} кв.`);
+          }
+      } 
+      else if (entranceId === firstEntranceId && event.shiftKey) {
+          const horizontalUnitIds = [];
+          entrances.forEach(e => {
+             const cellKey = `${activeBlock.id}_${floorId}_${e.id}`;
+             const cellUnits = prepared.unitsByCell[cellKey] || [];
+             if (cellUnits.length > indexInCell) {
+                 horizontalUnitIds.push(cellUnits[indexInCell].id);
              }
-        });
+          });
 
-        setSelectedUnitIds(nextUnits);
-        return nextCells;
-    });
-  };
-
-  const selectEntrance = entranceId => {
-    const cellKeys = floors.map(f => `${activeBlock.id}_${f.id}_${entranceId}`);
-    const allSelected = cellKeys.every(k => selectedCellKeys.has(k));
-
-    setSelectedCellKeys(prev => {
-        const nextCells = new Set(prev);
-        const nextUnits = new Set(selectedUnitIds);
-
-        cellKeys.forEach(key => {
-             const cellUnits = prepared.unitsByCell[key] || [];
-             if (allSelected) {
-                 nextCells.delete(key);
-                 cellUnits.forEach(u => nextUnits.delete(u.id));
-             } else {
-                 nextCells.add(key);
-                 cellUnits.forEach(u => nextUnits.add(u.id));
-             }
-        });
-
-        setSelectedUnitIds(nextUnits);
-        return nextCells;
-    });
+          if (horizontalUnitIds.length > 0) {
+             setSelectedUnitIds(prev => {
+                 const next = new Set(prev);
+                 const allSelected = horizontalUnitIds.every(id => prev.has(id));
+                 if (allSelected) horizontalUnitIds.forEach(id => next.delete(id));
+                 else horizontalUnitIds.forEach(id => next.add(id));
+                 return next;
+             });
+             toast.success(`Выбран ряд: ${horizontalUnitIds.length} кв.`);
+          }
+      }
+      else {
+          toggleUnit(unit.id);
+      }
   };
 
   const applySingle = async payload => {
-    const success = await handleSaveUnit(payload, payload);
+    setIsSaving(true);
+    const success = await handleSaveUnit(payload, payload, true);
+    setIsSaving(false);
     if (success) {
       toast.success('Экспликация сохранена');
+      clearSelection(); 
     }
   };
 
   const applyBulk = async payloadList => {
-    for (const payload of payloadList) {
-      await handleSaveUnit(payload, payload);
+    setIsSaving(true);
+    try {
+      const savePromises = payloadList.map(payload => 
+          handleSaveUnit(payload, payload, false)
+      );
+
+      const results = await Promise.all(savePromises);
+      const successCount = results.filter(Boolean).length;
+
+      await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
+      
+      if (successCount === payloadList.length) {
+          toast.success(`Успешно обновлено ${successCount} квартир`);
+      } else {
+          toast.warning(`Обновлено ${successCount} из ${payloadList.length} квартир`);
+      }
+      clearSelection(); 
+    } catch (e) {
+        console.error(e);
+        toast.error('Произошла ошибка при массовом сохранении');
+    } finally {
+        setIsSaving(false);
     }
-    toast.success(`Обновлено ${payloadList.length} квартир`);
   };
 
   const resetExplication = async units => {
-    for (const unit of units) {
-      await handleSaveUnit(unit, {
-        ...unit,
-        explication: [],
-        area: 0,
-        livingArea: 0,
-        usefulArea: 0,
-        rooms: 0,
-      });
+    setIsSaving(true);
+    try {
+        const resetPromises = units.map(unit => handleSaveUnit(unit, {
+            ...unit,
+            explication: [],
+            area: 0,
+            livingArea: 0,
+            usefulArea: 0,
+            rooms: 0,
+        }, false));
+
+        await Promise.all(resetPromises);
+        await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
+        
+        toast.success('Сброшено');
+        clearSelection(); 
+    } finally {
+        setIsSaving(false);
     }
-    toast.success('Сброшено');
   };
 
   // --- RENDER ---
@@ -604,26 +723,30 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
   }
 
   if (loadingRegistry) return <div className="p-12 text-center text-slate-500">Загрузка реестра...</div>;
+  if (!building) return <div className="p-12 text-center text-slate-500">Загрузка информации о здании...</div>;
   if (!activeBlock) return <div className="p-12 text-center text-slate-500">Нет блоков для отображения.</div>;
 
   return (
     <div className="flex flex-col h-[calc(100vh-200px)] w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in duration-500 overflow-hidden pb-4">
-      <div className="flex-none flex items-center justify-between pb-4">
-          <div className="flex items-center gap-4">
-              <button 
-                  onClick={() => {
-                      if (onBack) onBack(); 
-                      else setInternalSelectedId(null);
-                  }}
-                  className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 transition-colors"
-                  title="Назад к выбору здания"
-              >
-                  <ChevronLeft size={20} />
-              </button>
-              
-              <div className="h-6 w-px bg-slate-300"></div>
+      
+      <BlockingLoader isOpen={isSaving} message="Применение изменений..." />
 
-              <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl shadow-inner border border-slate-700 custom-scrollbar overflow-x-auto max-w-[60vw]">
+      <div className="flex-none space-y-4 pb-4">
+         <ConfigHeader
+            building={building}
+            isParking={typeInfo.isParking}
+            isInfrastructure={typeInfo.isInfrastructure}
+            isUnderground={typeInfo.isUnderground}
+            onBack={() => {
+                if (onBack) onBack(); 
+                else setInternalSelectedId(null);
+            }}
+            isSticky={false}
+            showSaveButton={false} 
+         />
+
+         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+             <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl shadow-inner border border-slate-700 custom-scrollbar overflow-x-auto max-w-[60vw]">
                 {prepared.blocks.map(b => (
                   <DarkTabButton
                     key={b.id}
@@ -634,88 +757,129 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
                     }}
                     icon={getBlockIcon(b.type)}
                   >
-                    {formatBlockSwitcherLabel({ building: { id: projectId }, block: b, buildingDetails })} 
+                    {formatBlockSwitcherLabel({ building, block: b, buildingDetails })} 
                   </DarkTabButton>
                 ))}
-              </div>
-          </div>
+             </div>
 
-          <div className="hidden md:flex items-center gap-3 text-xs text-slate-500">
-             <div className="flex items-center gap-1"><div className="w-3 h-3 bg-emerald-100 border border-emerald-200 rounded"></div> Готово</div>
-             <div className="flex items-center gap-1"><div className="w-3 h-3 bg-slate-100 border border-slate-200 rounded"></div> Пусто</div>
-             <div className="flex items-center gap-1"><div className="w-3 h-3 bg-blue-600 rounded"></div> Выбрано</div>
-          </div>
+             <div className="hidden md:flex items-center gap-3 text-xs text-slate-500">
+                <div className="flex items-center gap-1"><div className="w-3 h-3 bg-emerald-100 border border-emerald-200 rounded"></div> Готово</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 bg-rose-50 border border-rose-200 rounded"></div> Нет жилых комнат</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 bg-slate-100 border border-slate-200 rounded"></div> Не заполнены комнаты</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 bg-blue-600 rounded"></div> Выбрано</div>
+             </div>
+         </div>
       </div>
 
       <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
         <Card className="flex-1 h-full border border-slate-300 shadow-md bg-white p-0 relative flex flex-col overflow-hidden">
           <div className="flex-1 overflow-auto relative scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
             <table className="border-collapse w-max min-w-full">
-              <thead className="sticky top-0 z-20 bg-slate-100 border-b border-slate-300">
+              {/* [UPDATED] Sticky Header с фоном и улучшенным UI */}
+              <thead className="sticky top-0 z-30 bg-slate-100 backdrop-blur-sm shadow-sm border-b-2 border-slate-300">
                 <tr>
-                  <th className="p-2 sticky left-0 z-30 bg-slate-200 border-r border-slate-300 w-20 text-center text-[10px] font-black text-slate-600 uppercase">
-                    Этаж
+                  <th className="p-2 sticky left-0 z-40 bg-slate-100 border-r-2 border-slate-300 w-20 text-center text-[10px] font-black text-slate-500 uppercase">
+                    <div className="flex flex-col items-center gap-1">
+                        <LayoutTemplate size={16} className="opacity-50" />
+                        Этаж
+                    </div>
                   </th>
-                  {entrances.map(e => (
-                    <th key={e.id} className="p-2 text-center border-r border-slate-300/50 min-w-[200px]">
-                      <button onClick={() => selectEntrance(e.id)} className="font-bold hover:text-blue-700">
-                        Подъезд {e.number}
-                      </button>
-                    </th>
-                  ))}
+                  {entrances.map(e => {
+                    const stat = entranceStats[e.id] || { total: 0, filled: 0 };
+                    const progress = stat.total > 0 ? (stat.filled / stat.total) * 100 : 0;
+                    const isComplete = stat.total > 0 && stat.filled === stat.total;
+
+                    return (
+                        <th key={e.id} className="p-2 border-r-2 border-slate-300 min-w-[200px] align-bottom">
+                            <div className="flex flex-col gap-2 pb-1 h-full justify-end">
+                                <div className="relative flex items-center justify-center px-2 py-1">
+                                    <span className="font-black text-slate-700 text-sm uppercase tracking-wide text-center">
+                                        Подъезд {e.number}
+                                    </span>
+                                    {isComplete && (
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                                            <CheckCircle2 size={18} className="text-emerald-600" />
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                <div className="flex items-center gap-2 px-1">
+                                    <div className="flex-1 bg-slate-200/80 rounded-full h-1.5 overflow-hidden border border-slate-200">
+                                        <div 
+                                            className={`h-full transition-all duration-500 ${isComplete ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                                            style={{ width: `${progress}%` }}
+                                        />
+                                    </div>
+                                    <div className="text-[10px] font-bold text-slate-500 whitespace-nowrap tabular-nums">
+                                        <span className={isComplete ? 'text-emerald-600' : 'text-slate-700'}>{stat.filled}</span>
+                                        <span className="opacity-40"> / </span>
+                                        <span>{stat.total}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
                 {floors.map(f => (
-                  <tr key={f.id} className="border-b border-slate-100">
-                    <td className="sticky left-0 z-10 bg-slate-50 border-r border-slate-200 px-3 py-2 text-right font-bold text-slate-600">
-                        <button onClick={() => selectFloor(f.id)} className="hover:text-blue-700">
+                  <tr key={f.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                    <td className="sticky left-0 z-10 bg-slate-50 border-r-2 border-slate-300 px-3 py-2 text-right font-bold text-slate-600 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                        <span className="text-sm">
                             {f.label || f.index}
-                        </button>
+                        </span>
                     </td>
                     {entrances.map(e => {
                       const cellKey = `${activeBlock.id}_${f.id}_${e.id}`;
                       const cellUnits = prepared.unitsByCell[cellKey] || [];
-                      const isRowOrColSelected = selectedCellKeys.has(cellKey);
+                      
+                      const isBottom = f.id === bottomFloorId;
+                      const isFirstEntrance = e.id === firstEntranceId;
 
                       return (
                         <td
                           key={e.id}
-                          className={`
-                            p-2 border-r border-slate-100 align-top
-                            ${isRowOrColSelected ? 'bg-blue-50/60' : ''}
-                          `}
+                          className="p-2 border-r-2 border-slate-300 align-top"
                         >
-                          <div className="flex flex-nowrap gap-1.5 items-center">
+                          <div className="flex flex-nowrap gap-1.5 items-center justify-start">
                             {cellUnits.length === 0 ? (
-                                <span className="text-xs text-slate-300 w-full text-center py-1 block">—</span>
+                                <span className="text-xs text-slate-300 w-full text-center py-1 block opacity-30">—</span>
                             ) : (
-                                cellUnits.map(unit => {
+                                cellUnits.map((unit, unitIdx) => {
                                   const isSelected = selectedUnitIds.has(unit.id);
                                   const ready = unit.isExplicationFilled;
+                                  const hasLiving = Number(unit.livingArea) > 0;
                                   
                                   let chipClass = '';
                                   if (isSelected) {
                                       chipClass = 'bg-blue-600 text-white border-blue-600 shadow-md ring-1 ring-blue-200 z-20';
                                   } else if (ready) {
-                                      chipClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                                      if (hasLiving) {
+                                        chipClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                                      } else {
+                                        chipClass = 'bg-rose-50 text-rose-700 border-rose-200';
+                                      }
                                   } else {
-                                      chipClass = 'bg-slate-100 text-slate-600 border-slate-200';
+                                      chipClass = 'bg-white text-slate-600 border-slate-200 hover:border-blue-300';
                                   }
+
+                                  let title = ready ? 'Заполнено' : 'Нет экспликации';
+                                  if (ready && !hasLiving) title = 'Заполнено (нет жилых комнат)';
+                                  
+                                  if (isBottom) title = `Alt + Клик: выделить стояк\n${title}`;
+                                  else if (isFirstEntrance) title = `Shift + Клик: выделить ряд\n${title}`;
 
                                   return (
                                     <button
                                       key={unit.id}
                                       type="button"
-                                      onClick={event => {
-                                        event.stopPropagation();
-                                        toggleUnit(unit.id);
-                                      }}
+                                      onClick={event => handleUnitClick(unit, f.id, e.id, unitIdx, event)}
                                       className={`
-                                          h-7 px-2 rounded text-xs font-bold border transition-all truncate min-w-[36px] max-w-[60px] flex-shrink-0
-                                          ${chipClass} hover:scale-105
+                                          h-7 px-2 rounded-md text-xs font-bold border transition-all truncate min-w-[38px] max-w-[60px] flex-shrink-0
+                                          ${chipClass} hover:scale-110 hover:shadow-lg hover:z-30
                                       `}
-                                      title={ready ? 'Заполнено' : 'Нет экспликации'}
+                                      title={title}
                                     >
                                       {unit.number || unit.num}
                                     </button>
@@ -740,6 +904,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
           onApplyBulk={applyBulk}
           onResetExplication={resetExplication}
           onClearSelection={clearSelection}
+          isSaving={isSaving}
         />
       </div>
     </div>
