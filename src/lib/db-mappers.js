@@ -254,6 +254,7 @@ export const mapUnitFromDB = (u, rooms = [], entranceMap = {}, buildingId, block
     type: r.room_type,
     label: r.name,
     area: r.area,
+    height: r.room_height,
     level: r.level,
   })),
 });
@@ -271,6 +272,7 @@ export const mapMopFromDB = (m, entranceMap = {}, buildingId, blockId) => ({
   blockId,
   type: m.type,
   area: m.area,
+  height: m.height,
   floorId: m.floor_id,
   entranceIndex: m.entrance_id ? entranceMap[m.entrance_id] || 1 : 1,
   entranceId: m.entrance_id,

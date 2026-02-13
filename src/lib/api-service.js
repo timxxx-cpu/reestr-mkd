@@ -1099,6 +1099,7 @@ const LegacyApiService = {
           entranceId: row.entrance_id,
           type: row.type,
           area: row.area,
+          height: row.height,
         });
       });
     }
@@ -1605,6 +1606,40 @@ const LegacyApiService = {
   },
 
   // --- UNITS ---
+
+  getUnitExplicationById: async unitId => {
+    const { data, error } = await supabase
+      .from('units')
+      .select('*, rooms (*)')
+      .eq('id', unitId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return null;
+
+    return {
+      id: data.id,
+      unitCode: data.unit_code,
+      number: data.number,
+      num: data.number,
+      type: data.unit_type,
+      area: data.total_area,
+      livingArea: data.living_area,
+      usefulArea: data.useful_area,
+      rooms: data.rooms_count,
+      floorId: data.floor_id,
+      entranceId: data.entrance_id,
+      explication: (data.rooms || []).map(r => ({
+        id: r.id,
+        type: r.room_type,
+        label: r.name,
+        area: r.area,
+        height: r.room_height,
+        level: r.level,
+      })),
+    };
+  },
+
   getUnits: async (blockId, options = {}) => {
     const extraFloorIds = Array.isArray(options?.floorIds) ? options.floorIds.filter(Boolean) : [];
 
@@ -1729,6 +1764,7 @@ const LegacyApiService = {
           unit_id: savedUnit.id,
           room_type: r.type,
           area: r.area || 0,
+          room_height: r.height === '' || r.height === undefined ? null : r.height,
           level: r.level || 1,
           name: r.label || '',
         }));
@@ -1774,6 +1810,7 @@ const LegacyApiService = {
       entrance_id: data.entranceId,
       type: data.type,
       area: data.area,
+      height: data.height === "" || data.height === undefined ? null : data.height,
     };
     const { data: res, error } = await upsertWithConflict('common_areas', payload, {
       single: true,
@@ -2273,6 +2310,7 @@ const LegacyApiService = {
             type: r.room_type,
             label: r.name,
             area: r.area,
+            height: r.room_height,
             level: r.level,
           })),
         };

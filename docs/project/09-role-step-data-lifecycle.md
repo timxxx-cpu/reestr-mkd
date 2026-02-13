@@ -292,13 +292,29 @@ application_history: INSERT (action='COMPLETE_STEP')
 - `rooms.room_type` -> `explication.type` -> **Тип комнаты/зоны**.
 - `rooms.name` -> `explication.label` -> **Название комнаты/зоны**.
 - `rooms.area` -> `explication.area` -> **Площадь комнаты/зоны**.
+- `rooms.room_height` -> `explication.height` -> **Высота комнаты/зоны**.
 - `rooms.level` -> `explication.level` -> **Уровень комнаты**.
 - `application_steps.block_statuses` -> `applicationInfo.stepBlockStatuses[currentStepIndex]` -> **Статус заполнения блоков по шагу `apartments`**.
+
+
+
+## 9.7.1 Шаг `registry_apartments`
+
+- Использует те же данные `units`/`rooms`, но в режиме реестра квартир (этап 3).
+- UI-режим: матрица этаж × подъезд по выбранному блоку + правая панель редактирования экспликации выбранной квартиры.
+- Редактируются поля: `rooms.room_type`, `rooms.area`, `rooms.room_height`, `rooms.level`, а агрегаты сохраняются в `units.total_area/living_area/useful_area/rooms_count`.
+- Данные выбранной квартиры перечитываются напрямую из БД при открытии панели редактирования (актуальная экспликация без ожидания общего рефетча).
+- Квартиры в матрице имеют цветовой индикатор заполненности: экспликация считается заполненной, если существует хотя бы одна строка `rooms`.
+- Валидация сохранения экспликации: `room_type`, `area` и `room_height` обязательны (положительные значения).
+- При множественном выборе можно массово применить экспликацию ко всем выбранным квартирам.
+- В правой панели доступна кнопка `Сброс` — удаляет экспликацию у выбранных квартир.
+- Правило уровня комнаты: выбор `rooms.level` доступен только для квартир типа `duplex_up` / `duplex_down`; для обычной квартиры уровень фиксируется как `1`.
 
 ## 9.8 Шаг `mop`
 
 - `common_areas.type` -> `mopData.type` -> **Тип МОП**.
 - `common_areas.area` -> `mopData.area` -> **Площадь МОП**.
+- `common_areas.height` -> `mopData.height` -> **Высота МОП**.
 - `common_areas.floor_id` -> `mopData.floorId` -> **Этаж МОП**.
 - `common_areas.entrance_id` -> `mopData.entranceId` -> **Подъезд МОП**.
 - `application_steps.block_statuses` -> `applicationInfo.stepBlockStatuses[currentStepIndex]` -> **Статус заполнения блоков по шагу `mop`**.
@@ -314,6 +330,13 @@ application_history: INSERT (action='COMPLETE_STEP')
    - `Заполнено частично`
 5. Результат сохраняется в `application_steps.block_statuses` текущего `step_index`.
 6. В таблице зданий (`BuildingSelector`) обновляется колонка `Статус заполнения`.
+
+### 9.8.2 UX режима `mop` (обновлено)
+
+- В шаге `mop` используется матрица этаж × подъезд + правая панель редактирования.
+- Для массового редактирования применяется многократный выбор ячеек (как в шаге `entrances`).
+- Доступны массовые действия: `Применить к выбранным` и `Сброс` (очистка МОП в выбранных ячейках).
+- Валидация перед сохранением: для каждой строки обязательны `тип`, `площадь > 0`, `высота > 0`.
 
 ## 9.9 Шаг `parking_config`
 

@@ -21,6 +21,7 @@ const UnitRegistry = ({ mode = 'apartments' }) => {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState(mode);
   const [isSaving, setIsSaving] = useState(false);
+  const isLockedMode = Boolean(MODES[mode]);
 
   useEffect(() => {
     if (MODES[mode]) {
@@ -98,14 +99,16 @@ const UnitRegistry = ({ mode = 'apartments' }) => {
           )}
         </div>
 
-        <div className="flex gap-2 p-1 bg-slate-100 rounded-xl w-max">
-          {Object.entries(MODES).map(([key, config]) => (
-            <TabButton key={key} active={activeTab === key} onClick={() => setActiveTab(key)}>
-              <config.icon size={16} className="mr-2 opacity-70" />
-              {config.title}
-            </TabButton>
-          ))}
-        </div>
+        {!isLockedMode && (
+          <div className="flex gap-2 p-1 bg-slate-100 rounded-xl w-max">
+            {Object.entries(MODES).map(([key, config]) => (
+              <TabButton key={key} active={activeTab === key} onClick={() => setActiveTab(key)}>
+                <config.icon size={16} className="mr-2 opacity-70" />
+                {config.title}
+              </TabButton>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Контент */}
