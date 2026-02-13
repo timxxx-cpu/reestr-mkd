@@ -92,6 +92,7 @@ export default function ApartmentInventoryModal({
         id: crypto.randomUUID(),
         type: residentialRoomTypes[0].id,
         area: '',
+        height: '',
         level: '1',
         unitId: unit.id,
       },
@@ -135,6 +136,7 @@ export default function ApartmentInventoryModal({
       type: r.type,
       area: r.area,
       level: r.level || '1',
+      height: r.height || '',
       unitId: unit.id,
     }));
 
@@ -290,6 +292,19 @@ export default function ApartmentInventoryModal({
                     x{k}
                   </div>
                 )}
+              </div>
+
+              <div className="col-span-1">
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={room.height || ''}
+                  onChange={e => updateRoom(room.id, 'height', e.target.value)}
+                  placeholder="2.70"
+                  className="text-xs py-2 font-bold text-right"
+                  disabled={isReadOnly}
+                />
               </div>
 
               <div className="col-span-1 flex justify-end">

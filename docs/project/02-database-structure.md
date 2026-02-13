@@ -694,8 +694,9 @@
 | `unit_id` | UUID | NOT NULL, FK -> units(id) ON DELETE CASCADE, INDEX | (связь) | **Помещение** | Шаг `apartments` | ID помещения |
 | `room_type` | TEXT | NULL, INDEX | `explication[].type` | **Тип комнаты/зоны** | Шаг `apartments` | Справочник `dict_room_types` |
 | `name` | TEXT | NULL | `explication[].label` | **Название комнаты** | Шаг `apartments` | Автоматически из справочника или ввод пользователя |
-| `area` | NUMERIC(14,2) | NULL, DEFAULT 0 | `explication[].area` | **Площадь комнаты (м²)** | Шаг `apartments` | Ввод пользователя |
-| `level` | INT | NULL, DEFAULT 1 | `explication[].level` | **Уровень** | Шаг `apartments` | Для дуплексов: 1 (нижний), 2 (верхний) |
+| `area` | NUMERIC(14,2) | NULL, DEFAULT 0 | `explication[].area` | **Площадь комнаты (м²)** | Шаг `apartments` / `registry_apartments` | Ввод пользователя |
+| `room_height` | NUMERIC(8,2) | NULL | `explication[].height` | **Высота помещения (м)** | Шаг `registry_apartments` | Ввод пользователя |
+| `level` | INT | NULL, DEFAULT 1 | `explication[].level` | **Уровень** | Шаг `apartments` / `registry_apartments` | Для дуплексов: 1 (нижний), 2 (верхний) |
 | `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата создания** | При создании | Автоматически БД |
 | `updated_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата изменения** | При изменении | Автоматически при UPDATE |
 
@@ -728,6 +729,7 @@
 | `entrance_id` | UUID | NULL, FK -> entrances(id) ON DELETE SET NULL, INDEX | `mopData[*].entranceId` | **Подъезд** | Шаг `mop` | ID подъезда (NULL для общих МОП) |
 | `type` | TEXT | NULL | `mopData[*].type` | **Тип МОП** | Шаг `mop` | Справочник `dict_mop_types` |
 | `area` | NUMERIC(14,2) | NULL, DEFAULT 0 | `mopData[*].area` | **Площадь (м²)** | Шаг `mop` | Ввод пользователя |
+| `height` | NUMERIC(8,2) | NULL | `mopData[*].height` | **Высота помещения (м)** | Шаг `mop` | Ввод пользователя |
 | `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата создания** | При создании | Автоматически БД |
 | `updated_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата изменения** | При изменении | Автоматически при UPDATE |
 

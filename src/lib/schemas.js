@@ -6,6 +6,7 @@ export const MopItemSchema = z.object({
   id: z.string().uuid().optional(),
   type: z.string().min(1, 'Тип обязателен'),
   area: z.coerce.number().nonnegative('Площадь должна быть >= 0'),
+  height: z.coerce.number().positive('Высота должна быть > 0'),
   buildingId: z.string().uuid().optional(),
 });
 

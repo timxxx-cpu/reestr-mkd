@@ -20,7 +20,7 @@ export function useDirectCommonAreas(blockId, floorIds = []) {
   // --- WRITE ---
   const upsertMutation = useMutation({
     /**
-     * @param {{ id?: string, floorId: string, entranceId: string, type: string, area: string }} data
+     * @param {{ id?: string, floorId: string, entranceId: string, type: string, area: string, height?: string|number }} data
      */
     mutationFn: data => ApiService.upsertCommonArea(data),
     onMutate: async newData => {

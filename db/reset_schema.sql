@@ -513,6 +513,7 @@ create table rooms (
   room_type text,
   name text,
   area numeric(14,2) default 0,
+  room_height numeric(8,2),
   level int default 1,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -527,6 +528,7 @@ create table common_areas (
   entrance_id uuid references entrances(id) on delete set null,
   type text,
   area numeric(14,2) default 0,
+  height numeric(8,2),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
