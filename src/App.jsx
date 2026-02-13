@@ -183,26 +183,26 @@ function LoginScreen({ onLogin, isLoading, users = [], usersLoading }) {
                 className="h-20 w-auto mb-6 drop-shadow-lg"
               />
               <p className="text-xs uppercase tracking-[0.22em] text-blue-200/80 font-semibold">
-                Кадастровое агентство
+                Агентство по кадастру Республики Узбекистан
               </p>
               <h1 className="mt-3 text-3xl font-black leading-tight tracking-tight">
-                Информационная система
+                Интеграционная
                 <br />
-                Кадастрового Агентства
+                Информационная система
               </h1>
               <p className="mt-4 text-sm text-slate-300 max-w-md">
-                Реестр многоквартирных домов, обработка заявлений и сопровождение инвентаризации в едином рабочем пространстве.
+                Реестр жилых комплексов и многоквартирных домов, ведение и сопровождение технической инвентаризации в едином рабочем пространстве.
               </p>
             </div>
             <div className="mt-8 text-xs text-slate-400">
-              DEV-контур • Supabase / PostgreSQL
+              PREDEV-контур Концепт • Supabase / PostgreSQL
             </div>
           </div>
 
           <div className="p-8 lg:p-10 flex flex-col justify-center">
             <div className="mb-6">
               <h2 className="text-2xl font-black text-slate-800 tracking-tight">Вход в систему</h2>
-              <p className="text-sm text-slate-500 mt-1">Выберите пользователя для входа в рабочий стол</p>
+              <p className="text-sm text-slate-500 mt-1">Выберите пользователя</p>
             </div>
 
             <div className="space-y-4 text-left">
@@ -231,7 +231,7 @@ function LoginScreen({ onLogin, isLoading, users = [], usersLoading }) {
               </button>
 
               <p className="text-xs text-slate-400 text-center">
-                {usersLoading ? 'Загрузка пользователей...' : adminUsers.length === 0 ? 'Администраторы не найдены в справочнике' : 'После входа откроется рабочий стол'}
+                {usersLoading ? 'Загрузка пользователей...' : adminUsers.length === 0 ? 'Администраторы не найдены в справочнике' : 'уровень доступа PRE-DEV'}
               </p>
             </div>
           </div>
