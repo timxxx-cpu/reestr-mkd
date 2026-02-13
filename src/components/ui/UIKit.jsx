@@ -250,6 +250,16 @@ export const Badge = ({ variant = 'secondary', className, children }) => {
 // НОВЫЕ УЛУЧШЕННЫЕ КОМПОНЕНТЫ
 // ============================================
 
+// --- SKELETON (GENERIC) ---
+export const Skeleton = ({ className, ...props }) => {
+  return (
+    <div
+      className={cn("animate-pulse rounded-md bg-slate-200", className)}
+      {...props}
+    />
+  )
+}
+
 // --- TOOLTIP ---
 export function Tooltip({ children, content, placement = 'top' }) {
   const [isOpen, setIsOpen] = useState(false);

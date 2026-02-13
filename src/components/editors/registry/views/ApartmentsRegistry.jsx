@@ -11,13 +11,24 @@ import {
   Copy,
   CheckCircle2,
   RotateCcw,
+  Check,
+  X,
+  ArrowDown,
+  ChevronLeft,
+  ArrowRight
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
-import { Card, DebouncedInput, Input, Label, Select, useReadOnly, Button } from '@components/ui/UIKit';
+import { useDirectMatrix } from '@hooks/api/useDirectMatrix';
+import { useDirectBuildings } from '@hooks/api/useDirectBuildings'; // [NEW]
+import { Card, DebouncedInput, Input, Label, Select, useReadOnly, Button, Skeleton } from '@components/ui/UIKit';
 import { useToast } from '@context/ToastContext';
 import { CatalogService } from '@lib/catalog-service';
 import { ApiService } from '@lib/api-service';
+import { formatBlockSwitcherLabel } from '@lib/building-details';
+import { useProject } from '@context/ProjectContext';
+
+// --- STYLES & COMPONENTS ---
 
 const getBlockIcon = type => {
   if (type === 'residential') return Building2;
@@ -41,18 +52,77 @@ const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
   </button>
 );
 
+const FloorTypeBadge = ({ type }) => {
+    const map = {
+      residential: { color: 'bg-blue-100 text-blue-700', label: 'Жилой' },
+      mixed: { color: 'bg-violet-100 text-violet-700', label: 'Жилой/Нежилой' },
+      technical: { color: 'bg-amber-100 text-amber-700', label: 'Технический' },
+      basement: { color: 'bg-slate-200 text-slate-600', label: 'Подвал' },
+      office: { color: 'bg-emerald-100 text-emerald-700', label: 'Нежилой' },
+      parking_floor: { color: 'bg-indigo-100 text-indigo-700', label: 'Паркинг' },
+      stylobate: { color: 'bg-pink-100 text-pink-700', label: 'Стилобат' },
+    };
+    const style = map[type] || map.residential;
+    return (
+      <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${style.color}`}>
+        {style.label}
+      </span>
+    );
+};
+
+// --- BUILDING SELECTOR CARD ---
+const BuildingCard = ({ building, onClick }) => {
+    return (
+        <div 
+            onClick={onClick}
+            className="group relative bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-blue-300 transition-all cursor-pointer overflow-hidden p-5 flex flex-col gap-4"
+        >
+            <div className="flex items-start justify-between">
+                <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                    <Building2 size={24} />
+                </div>
+                {building.buildingCode && (
+                    <span className="text-[10px] font-bold px-2 py-1 bg-slate-100 rounded text-slate-500">
+                        {building.buildingCode}
+                    </span>
+                )}
+            </div>
+            
+            <div>
+                <h3 className="font-bold text-slate-800 text-lg leading-tight mb-1 group-hover:text-blue-700 transition-colors">
+                    {building.label}
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                    {building.resBlocks || 0} жилых блоков
+                </p>
+            </div>
+
+            <div className="mt-auto pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-400 group-hover:text-blue-600 transition-colors">
+                <span>Открыть реестр</span>
+                <ArrowRight size={16} />
+            </div>
+        </div>
+    );
+};
+
+// --- EXPLICATION PANEL (RIGHT SIDEBAR) ---
+
 const ExplicationPanel = ({
   selectedUnits,
-  activeUnit,
   roomTypes,
   onApplySingle,
   onApplyBulk,
   onResetExplication,
+  onClearSelection
 }) => {
   const isReadOnly = useReadOnly();
   const toast = useToast();
-  const isMulti = selectedUnits.length > 1;
-  const isDuplex = !isMulti && ['duplex_up', 'duplex_down'].includes(activeUnit?.type);
+  
+  const count = selectedUnits.length;
+  const isMulti = count > 1;
+  const activeUnit = count === 1 ? selectedUnits[0] : null;
+  
+  const isDuplex = activeUnit && ['duplex_up', 'duplex_down'].includes(activeUnit.type);
   const [rooms, setRooms] = useState([]);
   const [copySourceNum, setCopySourceNum] = useState('');
 
@@ -63,16 +133,20 @@ const ExplicationPanel = ({
   });
 
   useEffect(() => {
-    if (isMulti) {
+    if (isMulti || count === 0) {
       setRooms([]);
       setCopySourceNum('');
       return;
     }
 
     const source = freshUnit?.explication || activeUnit?.explication || [];
-    setRooms(source.map(r => ({ ...r, level: isDuplex ? String(r.level || 1) : '1' })));
+    setRooms(source.map(r => ({ 
+        ...r, 
+        id: r.id || crypto.randomUUID(),
+        level: isDuplex ? String(r.level || 1) : '1' 
+    })));
     setCopySourceNum('');
-  }, [isMulti, freshUnit, activeUnit?.id, activeUnit?.explication, isDuplex]);
+  }, [isMulti, freshUnit, activeUnit, isDuplex, count]);
 
   const stats = useMemo(() => {
     let total = 0;
@@ -124,52 +198,27 @@ const ExplicationPanel = ({
     setRooms(prev => prev.map(r => (r.id === id ? { ...r, [field]: value } : r)));
   };
 
-  const handleCopy = () => {
-    if (isReadOnly || isMulti || !copySourceNum.trim()) return;
-    const source = selectedUnits.find(u => String(u.num || u.number) === String(copySourceNum) && u.id !== activeUnit.id);
-    if (!source?.explication?.length) {
-      toast.error(`Квартира №${copySourceNum} не найдена или не содержит экспликацию`);
-      return;
-    }
-
-    setRooms(
-      source.explication.map(r => ({
-        id: crypto.randomUUID(),
-        type: r.type,
-        area: r.area,
-        height: r.height,
-        level: isDuplex ? String(r.level || 1) : '1',
-      }))
-    );
-    setCopySourceNum('');
-  };
-
   const validateRooms = () => {
     if (!rooms.length) {
-      toast.error('Добавьте хотя бы одно помещение в экспликацию');
+      toast.error('Добавьте хотя бы одно помещение');
       return false;
     }
-
     const invalid = rooms.find(
-      r =>
-        !r.type ||
-        !(parseFloat(r.area) > 0) ||
-        !(parseFloat(r.height) > 0) ||
-        (isDuplex && !['1', '2', 1, 2].includes(r.level))
+      r => !r.type || !(parseFloat(r.area) > 0) || !(parseFloat(r.height) > 0)
     );
-
     if (invalid) {
-      toast.error('Проверьте экспликацию: тип, площадь и высота обязательны');
+      toast.error('Заполните тип, площадь и высоту для всех помещений');
       return false;
     }
-
     return true;
   };
 
   const buildPayload = unit => ({
     ...unit,
     explication: rooms.map(r => ({
-      ...r,
+      type: r.type,
+      area: parseFloat(r.area),
+      height: parseFloat(r.height),
       level: ['duplex_up', 'duplex_down'].includes(unit.type) ? Number(r.level || 1) : 1,
     })),
     area: stats.total,
@@ -183,127 +232,180 @@ const ExplicationPanel = ({
     if (!validateRooms()) return;
 
     if (isMulti) {
+      if(!confirm(`Применить эту экспликацию ко всем выбранным квартирам (${count} шт)?`)) return;
       await onApplyBulk(selectedUnits.map(buildPayload));
       return;
     }
 
-    await onApplySingle(buildPayload(activeUnit));
+    if (activeUnit) {
+        await onApplySingle(buildPayload(activeUnit));
+    }
   };
 
   const handleReset = async () => {
     if (isReadOnly) return;
     if (!confirm('Стереть экспликацию у выбранных квартир?')) return;
     await onResetExplication(selectedUnits);
-    setRooms([]);
+    if (!isMulti) setRooms([]);
   };
 
-  if (selectedUnits.length === 0) {
+  if (count === 0) {
     return (
       <div className="bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 p-8 flex flex-col items-center justify-center text-center h-full text-slate-400">
         <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4">
           <MousePointer2 size={32} className="text-slate-300" />
         </div>
-        <h3 className="font-bold text-slate-600 mb-1">Выберите ячейки/квартиры</h3>
-        <p className="text-sm">Выделяйте ячейки матрицы как на шаге 5.</p>
+        <h3 className="font-bold text-slate-600 mb-1">Выберите квартиры</h3>
+        <p className="text-sm">
+            Кликните по ячейкам или отдельным квартирам в матрице.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="h-full bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-      <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-base font-black text-slate-800">
-              {isMulti ? `Массовое редактирование (${selectedUnits.length})` : `Квартира №${activeUnit?.number || activeUnit?.num}`}
+    <div className="h-full bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden flex flex-col w-full lg:w-80 shrink-0">
+      {/* Header */}
+      <div className="bg-blue-600 px-6 py-4 flex justify-between items-center text-white shrink-0">
+         <div>
+            <h3 className="font-bold text-lg flex items-center gap-2">
+                <CheckCircle2 size={18} />
+                {count} {count === 1 ? 'квартира' : 'квартир'}
             </h3>
-            <p className="text-xs text-slate-500">
-              {isMulti ? 'Поля можно заполнить и применить ко всем выбранным квартирам' : `${activeUnit?.blockLabel} • ${activeUnit?.floorLabel} • Подъезд ${activeUnit?.entrance}`}
+            <p className="text-blue-100 text-xs">
+                {isMulti ? 'Массовое редактирование' : `Кв. №${activeUnit?.number || activeUnit?.num || '?'}`}
             </p>
-          </div>
-          {isFetching && !isMulti && <span className="text-[11px] text-slate-500">Обновляем из БД...</span>}
-        </div>
-        {!isMulti && (
-          <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
-            <div className="p-2 rounded bg-blue-50 text-blue-700 font-bold">Общая: {stats.total} м²</div>
-            <div className="p-2 rounded bg-emerald-50 text-emerald-700 font-bold">Жилая: {stats.living} м²</div>
-          </div>
-        )}
+         </div>
+         <button onClick={onClearSelection} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+            <X size={18} />
+         </button>
       </div>
 
+      {/* Info Bar */}
       {!isMulti && (
-        <div className="p-4 border-b border-slate-100">
-          <Label>Копировать экспликацию из квартиры</Label>
-          <div className="flex items-center gap-2 mt-1">
-            <DebouncedInput value={copySourceNum} onChange={setCopySourceNum} placeholder="Номер" />
-            <Button variant="secondary" onClick={handleCopy}>
-              <Copy size={14} className="mr-1" />Копировать
-            </Button>
+          <div className="grid grid-cols-2 gap-px bg-slate-200 border-b border-slate-200">
+            <div className="bg-slate-50 p-2 text-center">
+                <span className="block text-[10px] text-slate-400 uppercase font-bold">Общая S</span>
+                <span className="text-sm font-black text-slate-700">{stats.total} м²</span>
+            </div>
+            <div className="bg-slate-50 p-2 text-center">
+                <span className="block text-[10px] text-slate-400 uppercase font-bold">Жилая S</span>
+                <span className="text-sm font-black text-emerald-600">{stats.living} м²</span>
+            </div>
           </div>
-        </div>
       )}
 
-      <div className="flex-1 overflow-auto p-4 space-y-3">
+      {/* Rooms List */}
+      <div className="flex-1 overflow-auto p-4 space-y-3 bg-slate-50/50">
+        {rooms.length === 0 && (
+            <div className="text-center py-8 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
+                <p className="text-sm">Экспликация пуста</p>
+                <p className="text-xs mt-1">Добавьте помещения</p>
+            </div>
+        )}
+
         {rooms.map((room, idx) => (
-          <div key={room.id} className={`grid gap-2 items-center p-2 border border-slate-200 rounded-xl ${isDuplex ? 'grid-cols-12' : 'grid-cols-10'}`}>
-            <div className="col-span-1 text-center text-xs font-bold text-slate-500">{idx + 1}</div>
-            <div className={isDuplex ? 'col-span-3' : 'col-span-4'}>
-              <Select value={room.type} onChange={e => updateRoom(room.id, 'type', e.target.value)} disabled={isReadOnly}>
+          <div key={room.id} className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm space-y-2 relative group">
+            <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 px-1">
+                <span>#{idx + 1}</span>
+                {!isReadOnly && (
+                    <button onClick={() => removeRoom(room.id)} className="text-red-300 hover:text-red-500 transition-colors">
+                        <Trash2 size={12} />
+                    </button>
+                )}
+            </div>
+            
+            <Select 
+                value={room.type} 
+                onChange={e => updateRoom(room.id, 'type', e.target.value)} 
+                disabled={isReadOnly}
+                className="w-full text-sm font-bold"
+            >
                 {roomTypes.map(t => (
                   <option key={t.id} value={t.id}>{t.label}</option>
                 ))}
-              </Select>
+            </Select>
+
+            <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-0.5">
+                    <Label className="text-[9px]">Площадь</Label>
+                    <DebouncedInput 
+                        type="number" step="0.01" min="0" 
+                        value={room.area || ''} 
+                        onChange={v => updateRoom(room.id, 'area', v)} 
+                        placeholder="0.00" 
+                        disabled={isReadOnly}
+                        className="h-8 text-sm"
+                    />
+                </div>
+                <div className="space-y-0.5">
+                    <Label className="text-[9px]">Высота</Label>
+                    <DebouncedInput 
+                        type="number" step="0.01" min="0" 
+                        value={room.height || ''} 
+                        onChange={v => updateRoom(room.id, 'height', v)} 
+                        placeholder="0.00" 
+                        disabled={isReadOnly}
+                        className="h-8 text-sm"
+                    />
+                </div>
             </div>
-            <div className="col-span-2">
-              <Input type="number" step="0.01" min="0" value={room.area || ''} onChange={e => updateRoom(room.id, 'area', e.target.value)} placeholder="Пл." disabled={isReadOnly} />
-            </div>
-            <div className="col-span-2">
-              <Input type="number" step="0.01" min="0" value={room.height || ''} onChange={e => updateRoom(room.id, 'height', e.target.value)} placeholder="Выс." disabled={isReadOnly} />
-            </div>
+
             {isDuplex && (
-              <div className="col-span-3">
-                <Select value={String(room.level || '1')} onChange={e => updateRoom(room.id, 'level', e.target.value)} disabled={isReadOnly}>
-                  <option value="1">1 ур.</option>
-                  <option value="2">2 ур.</option>
-                </Select>
-              </div>
+                <div className="pt-1">
+                    <Label className="text-[9px]">Уровень</Label>
+                    <Select value={String(room.level || '1')} onChange={e => updateRoom(room.id, 'level', e.target.value)} disabled={isReadOnly} className="h-8 text-xs">
+                        <option value="1">Нижний уровень</option>
+                        <option value="2">Верхний уровень</option>
+                    </Select>
+                </div>
             )}
-            <div className="col-span-1 text-right">
-              {!isReadOnly && (
-                <button onClick={() => removeRoom(room.id)} className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg">
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
           </div>
         ))}
 
         {!isReadOnly && (
-          <Button variant="secondary" onClick={addRoom} className="w-full">
-            <Plus size={14} className="mr-1" />Добавить помещение
+          <Button variant="secondary" onClick={addRoom} className="w-full border-dashed border-slate-300 text-slate-500">
+            <Plus size={14} className="mr-1" /> Добавить
           </Button>
         )}
       </div>
 
-      <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 flex justify-between">
-        <Button variant="ghost" onClick={handleReset} disabled={isReadOnly}>
-          <RotateCcw size={14} className="mr-1" />Сброс
+      {/* Footer Actions */}
+      <div className="bg-white p-4 border-t border-slate-100 shadow-lg z-10 space-y-2">
+        <Button onClick={handleSave} disabled={isReadOnly} className="w-full">
+          {isMulti ? 'Применить ко всем' : 'Сохранить'}
         </Button>
-        <Button onClick={handleSave} disabled={isReadOnly}>
-          {isMulti ? 'Применить ко всем выбранным' : 'Сохранить экспликацию'}
+        <Button variant="ghost" onClick={handleReset} disabled={isReadOnly} className="w-full text-red-400 hover:text-red-600 hover:bg-red-50">
+          <RotateCcw size={14} className="mr-2" /> Очистить экспликацию
         </Button>
       </div>
     </div>
   );
 };
 
+// --- MAIN COMPONENT ---
+
 const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const { buildingDetails } = useProject(); 
+  
+  // [MODIFIED] State for Building Selection
+  const [selectedBuildingId, setSelectedBuildingId] = useState(null);
   const [activeBlockId, setActiveBlockId] = useState(null);
-  const [selectedCells, setSelectedCells] = useState(new Set());
-  const [activeUnitId, setActiveUnitId] = useState(null);
+  
+  const [selectedUnitIds, setSelectedUnitIds] = useState(new Set());
+  const [selectedCellKeys, setSelectedCellKeys] = useState(new Set());
 
+  // Load basic building info for selection
+  const { buildings, isLoading: isBuildingsLoading } = useDirectBuildings(projectId);
+  
+  // Residential buildings only
+  const residentialBuildings = useMemo(() => 
+      buildings.filter(b => b.category.includes('residential')), 
+  [buildings]);
+
+  // --- CATALOGS ---
   const { data: roomTypesRows = [] } = useQuery({
     queryKey: ['catalog', 'dict_room_types', 'residential'],
     queryFn: () => CatalogService.getCatalog('dict_room_types'),
@@ -319,42 +421,52 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
     }));
   }, [roomTypesRows]);
 
+  // --- DATA LOADING (Only for selected building) ---
+  // Note: useDirectIntegration loads full project data. 
+  // Optimization: In real world, we should have useDirectIntegration(projectId, buildingId).
+  // For now, we filter on client side as before.
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
 
   const prepared = useMemo(() => {
-    if (!fullRegistry) {
+    if (!fullRegistry || !selectedBuildingId) {
       return { blocks: [], floorsByBlock: {}, entrancesByBlock: {}, unitsByCell: {} };
     }
 
     const { blocks = [], floors = [], entrances = [], units = [] } = fullRegistry;
-    const residentialBlocks = blocks.filter(b => b.type === 'Ж' || b.type === 'residential');
+    
+    // Filter by selected building
+    const currentBuildingBlocks = blocks.filter(b => b.buildingId === selectedBuildingId || b.building_id === selectedBuildingId);
+    // Also filter by type 'residential' (just in case)
+    const residentialBlocks = currentBuildingBlocks.filter(b => b.type === 'Ж' || b.type === 'residential');
 
     const floorsByBlock = {};
+    const entrancesByBlock = {};
+    const unitsByCell = {};
+
     residentialBlocks.forEach(b => {
       floorsByBlock[b.id] = floors
         .filter(f => f.blockId === b.id)
         .sort((a, z) => (Number(z.index) || 0) - (Number(a.index) || 0));
-    });
 
-    const entrancesByBlock = {};
-    residentialBlocks.forEach(b => {
       entrancesByBlock[b.id] = entrances
         .filter(e => e.blockId === b.id)
         .sort((a, z) => Number(a.number) - Number(z.number));
     });
 
     const blockMap = new Map(blocks.map(b => [b.id, b]));
-    const entranceMap = new Map(entrances.map(e => [e.id, e]));
     const floorMap = new Map(floors.map(f => [f.id, f]));
+    const entranceMap = new Map(entrances.map(e => [e.id, e]));
 
-    const unitsByCell = {};
     units
       .filter(u => ['flat', 'duplex_up', 'duplex_down'].includes(u.type))
       .forEach(u => {
         const floor = floorMap.get(u.floorId);
         if (!floor) return;
+        
+        // Ensure unit belongs to selected building blocks
         const block = blockMap.get(floor.blockId);
-        const entrance = entranceMap.get(u.entranceId);
+        if (!block || block.buildingId !== selectedBuildingId && block.building_id !== selectedBuildingId) return;
+
         const cellKey = `${floor.blockId}_${u.floorId}_${u.entranceId}`;
         if (!unitsByCell[cellKey]) unitsByCell[cellKey] = [];
 
@@ -363,7 +475,7 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
           floorLabel: floor.label || floor.index,
           blockId: floor.blockId,
           blockLabel: block?.tabLabel || block?.label || '-',
-          entrance: entrance?.number || '-',
+          entrance: entranceMap.get(u.entranceId)?.number || '-',
           isExplicationFilled: Array.isArray(u.explication) && u.explication.length > 0,
         });
       });
@@ -373,70 +485,150 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
     });
 
     return { blocks: residentialBlocks, floorsByBlock, entrancesByBlock, unitsByCell };
-  }, [fullRegistry]);
+  }, [fullRegistry, selectedBuildingId]);
 
+  // --- DERIVED STATE ---
   const activeBlock = useMemo(() => {
     if (prepared.blocks.length === 0) return null;
-    return prepared.blocks.find(b => b.id === activeBlockId) || prepared.blocks[0];
+    const found = prepared.blocks.find(b => b.id === activeBlockId);
+    return found || prepared.blocks[0];
   }, [prepared.blocks, activeBlockId]);
 
-  const floors = useMemo(() => (activeBlock ? prepared.floorsByBlock[activeBlock.id] || [] : []), [activeBlock, prepared.floorsByBlock]);
+  useEffect(() => {
+      if (activeBlock && activeBlock.id !== activeBlockId) {
+          setActiveBlockId(activeBlock.id);
+      }
+  }, [activeBlock, activeBlockId]);
+
+  const { matrixMap } = useDirectMatrix(activeBlock?.id);
+
+  const floors = useMemo(() => {
+      const allFloors = activeBlock ? prepared.floorsByBlock[activeBlock.id] || [] : [];
+      if (!allFloors.length) return [];
+
+      return allFloors.filter(f => {
+          const hasExistingUnits = (prepared.entrancesByBlock[activeBlock.id] || []).some(e => {
+              const cellKey = `${activeBlock.id}_${f.id}_${e.id}`;
+              const units = prepared.unitsByCell[cellKey];
+              return units && units.length > 0;
+          });
+          if (hasExistingUnits) return true;
+
+          const hasPlan = (prepared.entrancesByBlock[activeBlock.id] || []).some(e => {
+              const key = `${f.id}_${e.number}`;
+              const plan = parseInt(matrixMap[key]?.apts || 0, 10);
+              return plan > 0;
+          });
+          return hasPlan;
+      });
+  }, [activeBlock, prepared.floorsByBlock, prepared.entrancesByBlock, prepared.unitsByCell, matrixMap]);
+
   const entrances = useMemo(() => (activeBlock ? prepared.entrancesByBlock[activeBlock.id] || [] : []), [activeBlock, prepared.entrancesByBlock]);
 
   const selectedUnits = useMemo(() => {
-    if (!activeBlock || selectedCells.size === 0) return [];
-    const map = new Map();
-    selectedCells.forEach(cellKey => {
-      (prepared.unitsByCell[cellKey] || []).forEach(u => map.set(u.id, u));
+    if (!activeBlock || selectedUnitIds.size === 0) return [];
+    const units = [];
+    Object.values(prepared.unitsByCell).flat().forEach(u => {
+        if (selectedUnitIds.has(u.id)) {
+            units.push(u);
+        }
     });
-    return Array.from(map.values());
-  }, [activeBlock, selectedCells, prepared.unitsByCell]);
+    return units;
+  }, [activeBlock, selectedUnitIds, prepared.unitsByCell]);
 
-  const activeUnit = useMemo(() => {
-    if (!selectedUnits.length) return null;
-    if (activeUnitId) {
-      const found = selectedUnits.find(u => u.id === activeUnitId);
-      if (found) return found;
-    }
-    return selectedUnits[0] || null;
-  }, [selectedUnits, activeUnitId]);
+  // --- HANDLERS ---
 
   const clearSelection = () => {
-    setSelectedCells(new Set());
-    setActiveUnitId(null);
+    setSelectedUnitIds(new Set());
+    setSelectedCellKeys(new Set());
   };
 
-  const toggleCell = cellKey => {
-    setSelectedCells(prev => {
-      const next = new Set(prev);
-      if (next.has(cellKey)) next.delete(cellKey);
-      else next.add(cellKey);
-      return next;
+  const toggleUnit = (unitId) => {
+      setSelectedUnitIds(prev => {
+          const next = new Set(prev);
+          if (next.has(unitId)) next.delete(unitId);
+          else next.add(unitId);
+          return next;
+      });
+  };
+
+  const toggleCell = (cellKey) => {
+    const cellUnits = prepared.unitsByCell[cellKey] || [];
+    if (cellUnits.length === 0) return;
+
+    setSelectedCellKeys(prev => {
+        const next = new Set(prev);
+        const isSelecting = !next.has(cellKey); 
+        
+        if (isSelecting) {
+            next.add(cellKey);
+            setSelectedUnitIds(currUnits => {
+                const newUnits = new Set(currUnits);
+                cellUnits.forEach(u => newUnits.add(u.id));
+                return newUnits;
+            });
+        } else {
+            next.delete(cellKey);
+            setSelectedUnitIds(currUnits => {
+                const newUnits = new Set(currUnits);
+                cellUnits.forEach(u => newUnits.delete(u.id));
+                return newUnits;
+            });
+        }
+        return next;
     });
   };
 
   const selectFloor = floorId => {
-    const keys = entrances.map(e => `${activeBlock.id}_${floorId}_${e.id}`);
-    setSelectedCells(prev => {
-      const next = new Set(prev);
-      const allSelected = keys.every(k => next.has(k));
-      keys.forEach(k => (allSelected ? next.delete(k) : next.add(k)));
-      return next;
+    const cellKeys = entrances.map(e => `${activeBlock.id}_${floorId}_${e.id}`);
+    const allSelected = cellKeys.every(k => selectedCellKeys.has(k));
+    
+    setSelectedCellKeys(prev => {
+        const nextCells = new Set(prev);
+        const nextUnits = new Set(selectedUnitIds);
+
+        cellKeys.forEach(key => {
+             const cellUnits = prepared.unitsByCell[key] || [];
+             if (allSelected) {
+                 nextCells.delete(key);
+                 cellUnits.forEach(u => nextUnits.delete(u.id));
+             } else {
+                 nextCells.add(key);
+                 cellUnits.forEach(u => nextUnits.add(u.id));
+             }
+        });
+
+        setSelectedUnitIds(nextUnits);
+        return nextCells;
     });
   };
 
   const selectEntrance = entranceId => {
-    const keys = floors.map(f => `${activeBlock.id}_${f.id}_${entranceId}`);
-    setSelectedCells(prev => {
-      const next = new Set(prev);
-      const allSelected = keys.every(k => next.has(k));
-      keys.forEach(k => (allSelected ? next.delete(k) : next.add(k)));
-      return next;
+    const cellKeys = floors.map(f => `${activeBlock.id}_${f.id}_${entranceId}`);
+    const allSelected = cellKeys.every(k => selectedCellKeys.has(k));
+
+    setSelectedCellKeys(prev => {
+        const nextCells = new Set(prev);
+        const nextUnits = new Set(selectedUnitIds);
+
+        cellKeys.forEach(key => {
+             const cellUnits = prepared.unitsByCell[key] || [];
+             if (allSelected) {
+                 nextCells.delete(key);
+                 cellUnits.forEach(u => nextUnits.delete(u.id));
+             } else {
+                 nextCells.add(key);
+                 cellUnits.forEach(u => nextUnits.add(u.id));
+             }
+        });
+
+        setSelectedUnitIds(nextUnits);
+        return nextCells;
     });
   };
 
   const applySingle = async payload => {
-    const success = await onSaveUnit(activeUnit, payload);
+    const success = await onSaveUnit(payload, payload);
     if (success) {
       await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
       toast.success('Экспликация сохранена');
@@ -448,7 +640,7 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
       await onSaveUnit(payload, payload);
     }
     await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
-    toast.success(`Экспликация применена: ${payloadList.length} кв.`);
+    toast.success(`Обновлено ${payloadList.length} квартир`);
   };
 
   const resetExplication = async units => {
@@ -463,33 +655,92 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
       });
     }
     await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
-    toast.success(`Экспликация сброшена: ${units.length} кв.`);
+    toast.success('Сброшено');
   };
 
-  if (loadingRegistry) return <div className="p-8 text-slate-500">Загрузка реестра...</div>;
-  if (!activeBlock) return <div className="p-8 text-slate-500">Нет жилых блоков для реестра квартир.</div>;
+  // --- RENDER: BUILDING SELECTOR MODE ---
+  
+  if (!selectedBuildingId) {
+      if (isBuildingsLoading) return <div className="p-12 text-center text-slate-500">Загрузка зданий...</div>;
+      
+      return (
+          <div className="animate-in fade-in space-y-6">
+              <div className="flex items-center gap-2 mb-2">
+                  <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+                      <Building2 size={20} />
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-800">Выберите жилое здание</h2>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {residentialBuildings.map(b => (
+                      <BuildingCard 
+                          key={b.id} 
+                          building={b} 
+                          onClick={() => setSelectedBuildingId(b.id)} 
+                      />
+                  ))}
+              </div>
+              
+              {residentialBuildings.length === 0 && (
+                  <div className="p-12 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50">
+                      <p className="text-slate-400 font-medium">Нет жилых зданий в проекте</p>
+                  </div>
+              )}
+          </div>
+      );
+  }
+
+  // --- RENDER: EDITOR MODE ---
+
+  if (loadingRegistry) return <div className="p-12 text-center text-slate-500">Загрузка реестра...</div>;
+  if (!activeBlock) return <div className="p-12 text-center text-slate-500">Нет блоков для отображения.</div>;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl shadow-inner border border-slate-700 custom-scrollbar overflow-x-auto">
-        {prepared.blocks.map(b => (
-          <DarkTabButton
-            key={b.id}
-            active={activeBlock.id === b.id}
-            onClick={() => {
-              setActiveBlockId(b.id);
-              clearSelection();
-            }}
-            icon={getBlockIcon(b.type)}
-          >
-            {b.tabLabel || b.label}
-          </DarkTabButton>
-        ))}
+    <div className="flex flex-col h-[calc(100vh-200px)] w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in duration-500 overflow-hidden pb-4">
+      {/* Top Controls */}
+      <div className="flex-none flex items-center justify-between pb-4">
+          <div className="flex items-center gap-4">
+              <button 
+                  onClick={() => setSelectedBuildingId(null)}
+                  className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 transition-colors"
+                  title="Назад к выбору здания"
+              >
+                  <ChevronLeft size={20} />
+              </button>
+              
+              <div className="h-6 w-px bg-slate-300"></div>
+
+              <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl shadow-inner border border-slate-700 custom-scrollbar overflow-x-auto max-w-[60vw]">
+                {prepared.blocks.map(b => (
+                  <DarkTabButton
+                    key={b.id}
+                    active={activeBlock.id === b.id}
+                    onClick={() => {
+                      setActiveBlockId(b.id);
+                      clearSelection();
+                    }}
+                    icon={getBlockIcon(b.type)}
+                  >
+                    {formatBlockSwitcherLabel({ building: { id: projectId }, block: b, buildingDetails })} 
+                  </DarkTabButton>
+                ))}
+              </div>
+          </div>
+
+          <div className="hidden md:flex items-center gap-3 text-xs text-slate-500">
+             <div className="flex items-center gap-1"><div className="w-3 h-3 bg-emerald-100 border border-emerald-200 rounded"></div> Готово</div>
+             <div className="flex items-center gap-1"><div className="w-3 h-3 bg-slate-100 border border-slate-200 rounded"></div> Пусто</div>
+             <div className="flex items-center gap-1"><div className="w-3 h-3 bg-blue-600 rounded"></div> Выбрано</div>
+          </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_500px] gap-4 min-h-[70vh]">
-        <Card className="shadow-lg border-0 ring-1 ring-slate-200 rounded-xl overflow-hidden">
-          <div className="overflow-auto max-h-[70vh]">
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
+        
+        {/* Matrix */}
+        <Card className="flex-1 h-full border border-slate-300 shadow-md bg-white p-0 relative flex flex-col overflow-hidden">
+          <div className="flex-1 overflow-auto relative scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
             <table className="border-collapse w-max min-w-full">
               <thead className="sticky top-0 z-20 bg-slate-100 border-b border-slate-300">
                 <tr>
@@ -497,7 +748,7 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
                     Этаж
                   </th>
                   {entrances.map(e => (
-                    <th key={e.id} className="p-2 text-center border-r border-slate-300/50 min-w-[280px]">
+                    <th key={e.id} className="p-2 text-center border-r border-slate-300/50 min-w-[200px]">
                       <button onClick={() => selectEntrance(e.id)} className="font-bold hover:text-blue-700">
                         Подъезд {e.number}
                       </button>
@@ -509,51 +760,58 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
                 {floors.map(f => (
                   <tr key={f.id} className="border-b border-slate-100">
                     <td className="sticky left-0 z-10 bg-slate-50 border-r border-slate-200 px-3 py-2 text-right font-bold text-slate-600">
-                      <button onClick={() => selectFloor(f.id)} className="hover:text-blue-700">{f.label || f.index}</button>
+                        <button onClick={() => selectFloor(f.id)} className="hover:text-blue-700">
+                            {f.label || f.index}
+                        </button>
                     </td>
                     {entrances.map(e => {
                       const cellKey = `${activeBlock.id}_${f.id}_${e.id}`;
                       const cellUnits = prepared.unitsByCell[cellKey] || [];
-                      const cellSelected = selectedCells.has(cellKey);
+                      const isRowOrColSelected = selectedCellKeys.has(cellKey);
 
                       return (
                         <td
                           key={e.id}
-                          className={`p-2 border-r border-slate-100 align-top min-w-[280px] cursor-pointer ${cellSelected ? 'bg-blue-50/60' : ''}`}
-                          onClick={() => toggleCell(cellKey)}
+                          className={`
+                            p-2 border-r border-slate-100 align-top
+                            ${isRowOrColSelected ? 'bg-blue-50/60' : ''}
+                          `}
                         >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[10px] text-slate-400 font-bold">{cellUnits.length ? `${cellUnits.length} кв.` : '—'}</span>
-                            {cellSelected && <CheckCircle2 size={12} className="text-blue-600" />}
-                          </div>
-
-                          <div className="flex flex-wrap gap-2 content-start">
+                          <div className="flex flex-nowrap gap-1.5 items-center">
                             {cellUnits.length === 0 ? (
-                              <span className="text-xs text-slate-300">—</span>
+                                <span className="text-xs text-slate-300 w-full text-center py-1 block">—</span>
                             ) : (
-                              cellUnits.map(unit => {
-                                const isActive = unit.id === activeUnit?.id;
-                                const ready = unit.isExplicationFilled;
-                                const base = ready
-                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
-                                  : 'bg-slate-100 border-slate-300 text-slate-700';
+                                cellUnits.map(unit => {
+                                  const isSelected = selectedUnitIds.has(unit.id);
+                                  const ready = unit.isExplicationFilled;
+                                  
+                                  let chipClass = '';
+                                  if (isSelected) {
+                                      chipClass = 'bg-blue-600 text-white border-blue-600 shadow-md ring-1 ring-blue-200 z-20';
+                                  } else if (ready) {
+                                      chipClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                                  } else {
+                                      chipClass = 'bg-slate-100 text-slate-600 border-slate-200';
+                                  }
 
-                                return (
-                                  <button
-                                    key={unit.id}
-                                    type="button"
-                                    onClick={event => {
-                                      event.stopPropagation();
-                                      setActiveUnitId(unit.id);
-                                      if (!selectedCells.has(cellKey)) toggleCell(cellKey);
-                                    }}
-                                    title={ready ? 'Экспликация заполнена' : 'Экспликация не заполнена'}
-                                    className={`px-4 py-2 min-w-[92px] h-[54px] rounded-lg border text-base font-black transition ${base} ${isActive ? 'ring-2 ring-blue-500 border-blue-500' : 'hover:shadow-sm'}`}
-                                  >
-                                    {unit.number || unit.num}
-                                  </button>
-                                );
-                              })
+                                  return (
+                                    <button
+                                      key={unit.id}
+                                      type="button"
+                                      onClick={event => {
+                                        event.stopPropagation();
+                                        toggleUnit(unit.id);
+                                      }}
+                                      className={`
+                                          h-7 px-2 rounded text-xs font-bold border transition-all truncate min-w-[36px] max-w-[60px] flex-shrink-0
+                                          ${chipClass} hover:scale-105
+                                      `}
+                                      title={ready ? 'Заполнено' : 'Нет экспликации'}
+                                    >
+                                      {unit.number || unit.num}
+                                    </button>
+                                  );
+                                })
                             )}
                           </div>
                         </td>
@@ -568,11 +826,11 @@ const ApartmentsRegistry = ({ onSaveUnit, projectId }) => {
 
         <ExplicationPanel
           selectedUnits={selectedUnits}
-          activeUnit={activeUnit}
           roomTypes={roomTypes}
           onApplySingle={applySingle}
           onApplyBulk={applyBulk}
           onResetExplication={resetExplication}
+          onClearSelection={clearSelection}
         />
       </div>
     </div>
