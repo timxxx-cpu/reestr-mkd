@@ -13,7 +13,8 @@ import {
   X,
   AlertTriangle,
   Loader2,
-  LayoutTemplate
+  LayoutTemplate,
+  List as ListIcon,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
@@ -39,6 +40,12 @@ const getBlockIcon = type => {
   return LayoutGrid;
 };
 
+const UNIT_TYPE_NAMES = {
+  flat: 'Квартира',
+  duplex_up: 'Двухуровневая (верх)',
+  duplex_down: 'Двухуровневая (низ)',
+};
+
 const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
   <button
     onClick={onClick}
@@ -62,7 +69,8 @@ const ExplicationPanel = ({
   onApplyBulk,
   onResetExplication,
   onClearSelection,
-  isSaving
+  isSaving,
+  isModal = false,
 }) => {
   const isReadOnly = useReadOnly();
   const toast = useToast();
@@ -262,7 +270,11 @@ const ExplicationPanel = ({
 
   return (
     <>
-      <div className="h-full bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden flex flex-col w-full lg:w-80 shrink-0">
+      <div
+        className={`h-full bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden flex flex-col w-full ${
+          isModal ? '' : 'lg:w-80 shrink-0'
+        }`}
+      >
         {/* Header */}
         <div className="bg-blue-600 px-6 py-4 flex justify-between items-center text-white shrink-0">
            <div>
@@ -457,6 +469,9 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
 
   const [activeBlockId, setActiveBlockId] = useState(null);
   const [selectedUnitIds, setSelectedUnitIds] = useState(new Set());
+  const [selectedTableUnitId, setSelectedTableUnitId] = useState(null);
+  const [isTableExplicationOpen, setIsTableExplicationOpen] = useState(false);
+  const [viewMode, setViewMode] = useState('matrix');
   const [isSaving, setIsSaving] = useState(false);
 
   // --- CATALOGS ---
@@ -647,10 +662,57 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
     return units;
   }, [activeBlock, selectedUnitIds, prepared.unitsByCell]);
 
+  const unitsList = useMemo(() => {
+    if (!activeBlock) return [];
+
+    const result = [];
+    floors.forEach(floor => {
+      entrances.forEach(entrance => {
+        const cellKey = `${activeBlock.id}_${floor.id}_${entrance.id}`;
+        const cellUnits = prepared.unitsByCell[cellKey] || [];
+        cellUnits.forEach(unit => {
+          result.push({
+            ...unit,
+            floorIndex: Number(floor.index) || 0,
+            floorLabel: floor.label || floor.index,
+            entranceNumber: Number(entrance.number) || entrance.number,
+          });
+        });
+      });
+    });
+
+    return result.sort((a, b) => {
+      const entranceCmp = Number(a.entranceNumber) - Number(b.entranceNumber);
+      if (!Number.isNaN(entranceCmp) && entranceCmp !== 0) return entranceCmp;
+
+      const floorCmp = (Number(b.floorIndex) || 0) - (Number(a.floorIndex) || 0);
+      if (floorCmp !== 0) return floorCmp;
+
+      return String(a.number || a.num).localeCompare(String(b.number || b.num), 'ru', {
+        numeric: true,
+      });
+    });
+  }, [activeBlock, floors, entrances, prepared.unitsByCell]);
+
+  const selectedTableUnit = useMemo(() => {
+    if (!selectedTableUnitId) return null;
+    return unitsList.find(unit => unit.id === selectedTableUnitId) || null;
+  }, [unitsList, selectedTableUnitId]);
+
+  const selectedUnitsForPanel = viewMode === 'table'
+    ? (selectedTableUnit ? [selectedTableUnit] : [])
+    : selectedUnits;
+
   // --- HANDLERS ---
 
   const clearSelection = () => {
     setSelectedUnitIds(new Set());
+    setSelectedTableUnitId(null);
+  };
+
+  const handleTableUnitClick = unitId => {
+    setSelectedTableUnitId(unitId);
+    setIsTableExplicationOpen(true);
   };
 
   const toggleUnit = (unitId) => {
@@ -827,11 +889,37 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
                 <div className="flex items-center gap-1"><div className="w-3 h-3 bg-slate-100 border border-slate-200 rounded"></div> Не заполнены комнаты</div>
                 <div className="flex items-center gap-1"><div className="w-3 h-3 bg-blue-600 rounded"></div> Выбрано</div>
              </div>
+
+             <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('matrix')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 ${
+                    viewMode === 'matrix'
+                      ? 'bg-white text-blue-700 border border-blue-100 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <LayoutTemplate size={14} /> Матрица
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('table')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 ${
+                    viewMode === 'table'
+                      ? 'bg-white text-blue-700 border border-blue-100 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <ListIcon size={14} /> Таблица квартир
+                </button>
+             </div>
          </div>
       </div>
 
       <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
         <Card className="flex-1 h-full border border-slate-300 shadow-md bg-white p-0 relative flex flex-col overflow-hidden">
+          {viewMode === 'matrix' ? (
           <div className="flex-1 overflow-auto relative scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
             <table className="border-collapse w-max min-w-full">
               {/* [UPDATED] Sticky Header с фоном и улучшенным UI */}
@@ -954,18 +1042,104 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
               </tbody>
             </table>
           </div>
+          ) : (
+          <div className="flex-1 overflow-auto relative">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead className="sticky top-0 z-20 bg-slate-100 border-b border-slate-300">
+                <tr className="text-[11px] uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2">№</th>
+                  <th className="px-3 py-2">Квартира</th>
+                  <th className="px-3 py-2">Вид</th>
+                  <th className="px-3 py-2">Подъезд</th>
+                  <th className="px-3 py-2">Этаж</th>
+                  <th className="px-3 py-2 text-center">Дуплекс</th>
+                  <th className="px-3 py-2 text-center">Мезонин</th>
+                  <th className="px-3 py-2 text-right">Жилые комнаты</th>
+                  <th className="px-3 py-2 text-right">Общая площадь</th>
+                  <th className="px-3 py-2 text-right">Жилая площадь</th>
+                  <th className="px-3 py-2 text-right">Полезная площадь</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unitsList.map((unit, idx) => {
+                  const isSelected = selectedTableUnitId === unit.id;
+                  return (
+                    <tr
+                      key={unit.id}
+                      onClick={() => handleTableUnitClick(unit.id)}
+                      className={`border-b border-slate-100 cursor-pointer transition-colors ${
+                        isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <td className="px-3 py-2 text-slate-400">{idx + 1}</td>
+                      <td className="px-3 py-2 font-semibold text-slate-800">{unit.number || unit.num || '-'}</td>
+                      <td className="px-3 py-2 text-slate-600">{UNIT_TYPE_NAMES[unit.type] || unit.type}</td>
+                      <td className="px-3 py-2 text-slate-600">{unit.entrance || '-'}</td>
+                      <td className="px-3 py-2 text-slate-600">{unit.floorLabel || '-'}</td>
+                      <td className="px-3 py-2 text-center text-slate-600">
+                        {['duplex_up', 'duplex_down'].includes(unit.type) ? 'Да' : 'Нет'}
+                      </td>
+                      <td className="px-3 py-2 text-center text-slate-600">
+                        {unit.hasMezzanine ? 'Да' : 'Нет'}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono">{Number(unit.rooms) || 0}</td>
+                      <td className="px-3 py-2 text-right font-mono">{Number(unit.area || 0).toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{Number(unit.livingArea || 0).toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{Number(unit.usefulArea || 0).toFixed(2)}</td>
+                    </tr>
+                  );
+                })}
+                {unitsList.length === 0 && (
+                  <tr>
+                    <td colSpan={11} className="px-3 py-10 text-center text-slate-400">
+                      Нет квартир для отображения в текущем блоке.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          )}
         </Card>
 
-        <ExplicationPanel
-          selectedUnits={selectedUnits}
-          roomTypes={roomTypes}
-          onApplySingle={applySingle}
-          onApplyBulk={applyBulk}
-          onResetExplication={resetExplication}
-          onClearSelection={clearSelection}
-          isSaving={isSaving}
-        />
+        {viewMode === 'matrix' && (
+          <ExplicationPanel
+            selectedUnits={selectedUnitsForPanel}
+            roomTypes={roomTypes}
+            onApplySingle={applySingle}
+            onApplyBulk={applyBulk}
+            onResetExplication={resetExplication}
+            onClearSelection={clearSelection}
+            isSaving={isSaving}
+          />
+        )}
       </div>
+
+      {viewMode === 'table' && (
+        <Modal
+          isOpen={isTableExplicationOpen && !!selectedTableUnit}
+          onClose={() => {
+            setIsTableExplicationOpen(false);
+            setSelectedTableUnitId(null);
+          }}
+          title={`Экспликация квартиры №${selectedTableUnit?.number || selectedTableUnit?.num || '-'}`}
+          maxWidth="max-w-3xl"
+        >
+          <ExplicationPanel
+            selectedUnits={selectedUnitsForPanel}
+            roomTypes={roomTypes}
+            onApplySingle={applySingle}
+            onApplyBulk={applyBulk}
+            onResetExplication={resetExplication}
+            onClearSelection={() => {
+              setIsTableExplicationOpen(false);
+              setSelectedTableUnitId(null);
+            }}
+            isSaving={isSaving}
+            isModal
+          />
+        </Modal>
+      )}
     </div>
   );
 };
