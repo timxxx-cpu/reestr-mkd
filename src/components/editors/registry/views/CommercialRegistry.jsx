@@ -13,6 +13,7 @@ import {
   Store,
   LayoutGrid,
   LayoutTemplate,
+  List as ListIcon,
   MousePointer2,
   Plus,
   Trash2,
@@ -74,6 +75,7 @@ const getTypeConfig = type => {
 };
 
 const RESIDENTIAL_UNIT_TYPES = new Set(['flat', 'duplex_up', 'duplex_down']);
+const DUPLEX_TYPES = new Set(['duplex_up', 'duplex_down']);
 
 // --- EXPLICATION PANEL (SINGLE MODE) ---
 
@@ -83,7 +85,8 @@ const ExplicationPanel = ({
   onApplySingle,
   onResetExplication,
   onClearSelection,
-  isSaving
+  isSaving,
+  isModal = false,
 }) => {
   const isReadOnly = useReadOnly();
   const toast = useToast();
@@ -236,7 +239,11 @@ const ExplicationPanel = ({
 
   return (
     <>
-      <div className="h-full bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden flex flex-col w-full lg:w-80 shrink-0">
+      <div
+        className={`h-full bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden flex flex-col w-full ${
+          isModal ? '' : 'lg:w-80 shrink-0'
+        }`}
+      >
         <div className="bg-blue-600 px-6 py-4 flex justify-between items-center text-white shrink-0">
            <div>
               <h3 className="font-bold text-lg flex items-center gap-2">
@@ -416,6 +423,9 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
   
   // Selection State (Single ID)
   const [selectedUnitId, setSelectedUnitId] = useState(null);
+  const [selectedTableUnitId, setSelectedTableUnitId] = useState(null);
+  const [isTableExplicationOpen, setIsTableExplicationOpen] = useState(false);
+  const [viewMode, setViewMode] = useState('matrix');
   const [isSaving, setIsSaving] = useState(false);
 
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
@@ -562,7 +572,16 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
 
   // --- HANDLERS ---
 
-  const clearSelection = () => setSelectedUnitId(null);
+  const clearSelection = () => {
+    setSelectedUnitId(null);
+    setSelectedTableUnitId(null);
+    setIsTableExplicationOpen(false);
+  };
+
+  const handleTableUnitClick = unitId => {
+    setSelectedTableUnitId(unitId);
+    setIsTableExplicationOpen(true);
+  };
 
   const toggleUnit = (unitId) => {
     setSelectedUnitId(prev => prev === unitId ? null : unitId);
@@ -684,6 +703,8 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
   };
 
   const activeUnit = useMemo(() => commercialUnits.find(u => u.id === selectedUnitId) || null, [commercialUnits, selectedUnitId]);
+  const activeTableUnit = useMemo(() => listData.find(u => u.id === selectedTableUnitId) || null, [listData, selectedTableUnitId]);
+  const panelActiveUnit = viewMode === 'table' ? activeTableUnit : activeUnit;
 
   if (loadingRegistry) return <div className="p-12 text-center text-slate-500">Загрузка...</div>;
   if (!selectedBuildingId) return <BuildingSelector stepId="registry_commercial" onSelect={setInternalSelectedId} />;
@@ -709,13 +730,37 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
                 <div className="flex items-center gap-1"><div className="w-3 h-3 bg-slate-100 border border-slate-200 rounded"></div> Не заполнен</div>
                 <div className="flex items-center gap-1"><div className="w-3 h-3 bg-blue-600 rounded"></div> Выбрано</div>
              </div>
+             <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('matrix')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 ${
+                    viewMode === 'matrix'
+                      ? 'bg-white text-blue-700 border border-blue-100 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <LayoutTemplate size={14} /> Матрица
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('table')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 ${
+                    viewMode === 'table'
+                      ? 'bg-white text-blue-700 border border-blue-100 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <ListIcon size={14} /> Таблица
+                </button>
+             </div>
          </div>
       </div>
 
       <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
         <div className="flex-1 flex flex-col h-full overflow-hidden">
             {/* STATS & SEARCH */}
-            {!matrixData && (
+            {viewMode === 'table' && (
                 <div className="flex-none flex gap-4 mb-4">
                     <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm"><div className="text-[10px] text-slate-500 font-bold uppercase">Всего</div><div className="text-xl font-black text-slate-800">{stats?.count}</div></div>
                     <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm"><div className="text-[10px] text-slate-500 font-bold uppercase">Площадь</div><div className="text-xl font-black text-emerald-600">{stats?.area?.toFixed(1)}</div></div>
@@ -742,7 +787,7 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
 
             <Card className="flex-1 h-full border border-slate-300 shadow-md bg-white p-0 relative flex flex-col overflow-hidden">
                 <div className="flex-1 overflow-auto relative scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
-                    {matrixData ? (
+                    {viewMode === 'matrix' && matrixData ? (
                         <table className="border-collapse w-max min-w-full">
                             <thead className="sticky top-0 z-30 bg-slate-100 backdrop-blur-sm shadow-sm border-b-2 border-slate-300">
                                 <tr>
@@ -817,6 +862,8 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
                                     <th className="p-3 w-12 border-r border-slate-200">#</th>
                                     <th className="p-3 w-32 border-r border-slate-200">Номер</th>
                                     <th className="p-3 border-r border-slate-200">Тип</th>
+                                    <th className="p-3 text-center border-r border-slate-200">Дуплекс</th>
+                                    <th className="p-3 text-center border-r border-slate-200">Мезонин</th>
                                     <th className="p-3 text-right text-emerald-700 border-r border-slate-200">Площадь</th>
                                     <th className="p-3 text-center">Статус</th>
                                 </tr>
@@ -824,17 +871,19 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
                             <tbody className="divide-y divide-slate-100">
                                 {listData.length ? listData.map((item, i) => {
                                     const typeConf = getTypeConfig(item.type);
-                                    const isSel = selectedUnitId === item.id;
+                                    const isSel = selectedTableUnitId === item.id;
                                     return (
-                                        <tr key={item.id} onClick={() => toggleUnit(item.id)} className={`cursor-pointer transition-colors ${isSel ? 'bg-blue-50 border-l-4 border-blue-500' : 'hover:bg-slate-50'}`}>
+                                        <tr key={item.id} onClick={() => handleTableUnitClick(item.id)} className={`cursor-pointer transition-colors ${isSel ? 'bg-blue-50 border-l-4 border-blue-500' : 'hover:bg-slate-50'}`}>
                                             <td className="p-3 text-center text-xs text-slate-400">{i+1}</td>
                                             <td className="p-3 text-center font-bold text-slate-800">{item.number}</td>
                                             <td className="p-3"><span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold border ${typeConf.color}`}><typeConf.icon size={12}/>{typeConf.label}</span></td>
+                                            <td className="p-3 text-center text-xs font-semibold text-slate-600">{DUPLEX_TYPES.has(item.type) ? 'Да' : 'Нет'}</td>
+                                            <td className="p-3 text-center text-xs font-semibold text-slate-600">{item.hasMezzanine ? 'Да' : 'Нет'}</td>
                                             <td className="p-3 text-right font-mono font-bold text-slate-700">{parseFloat(item.area).toFixed(2)}</td>
                                             <td className="p-3 text-center">{item.isExplicationFilled ? <CheckCircle2 size={16} className="inline text-emerald-500"/> : <span className="text-[10px] text-slate-300">Пусто</span>}</td>
                                         </tr>
                                     )
-                                }) : <tr><td colSpan={5}><EmptyState icon={Briefcase} title="Нет объектов" description="Список пуст." compact className="py-8"/></td></tr>}
+                                }) : <tr><td colSpan={7}><EmptyState icon={Briefcase} title="Нет объектов" description="Список пуст." compact className="py-8"/></td></tr>}
                             </tbody>
                         </table>
                     )}
@@ -842,15 +891,42 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
             </Card>
         </div>
 
-        <ExplicationPanel
-          activeUnit={activeUnit}
-          roomTypes={roomTypes}
-          onApplySingle={applySingle}
-          onResetExplication={resetExplication}
-          onClearSelection={clearSelection}
-          isSaving={isSaving}
-        />
+        {viewMode === 'matrix' && (
+          <ExplicationPanel
+            activeUnit={panelActiveUnit}
+            roomTypes={roomTypes}
+            onApplySingle={applySingle}
+            onResetExplication={resetExplication}
+            onClearSelection={clearSelection}
+            isSaving={isSaving}
+          />
+        )}
       </div>
+
+      {viewMode === 'table' && (
+        <Modal
+          isOpen={isTableExplicationOpen && !!panelActiveUnit}
+          onClose={() => {
+            setIsTableExplicationOpen(false);
+            setSelectedTableUnitId(null);
+          }}
+          title={`Экспликация помещения №${panelActiveUnit?.number || '-'}`}
+          maxWidth="max-w-3xl"
+        >
+          <ExplicationPanel
+            activeUnit={panelActiveUnit}
+            roomTypes={roomTypes}
+            onApplySingle={applySingle}
+            onResetExplication={resetExplication}
+            onClearSelection={() => {
+              setIsTableExplicationOpen(false);
+              setSelectedTableUnitId(null);
+            }}
+            isSaving={isSaving}
+            isModal
+          />
+        </Modal>
+      )}
     </div>
   );
 };
