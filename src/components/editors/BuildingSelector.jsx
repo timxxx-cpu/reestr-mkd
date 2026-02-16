@@ -25,7 +25,7 @@ const PARKING_CONSTRUCTION_NAMES = {
   open: 'Открытый',
 };
 
-const STATUS_STEP_IDS = ['registry_nonres', 'registry_res', 'floors', 'entrances', 'apartments', 'mop'];
+const STATUS_STEP_IDS = ['registry_nonres', 'registry_res', 'basements', 'floors', 'entrances', 'apartments', 'mop'];
 
 const TYPE_NAMES = {
   residential: 'Отдельный жилой дом (1+ жилых блоков)',
@@ -107,6 +107,11 @@ const BuildingSelector = ({ stepId, onSelect }) => {
 
       if (stepId === 'registry_res') {
         return item.category.includes('residential');
+      }
+
+
+      if (stepId === 'basements') {
+        return item.category.includes('residential') && (item.basementsCount || 0) > 0;
       }
 
       if (stepId === 'floors') {

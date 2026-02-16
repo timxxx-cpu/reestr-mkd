@@ -46,6 +46,7 @@ import FloorMatrixEditor from '@components/editors/FloorMatrixEditor';
 import EntranceMatrixEditor from '@components/editors/EntranceMatrixEditor';
 import MopEditor from '@components/editors/MopEditor';
 import FlatMatrixEditor from '@components/editors/FlatMatrixEditor';
+import BasementsEditor from '@components/editors/BasementsEditor';
 
 // [NEW] Прямые импорты реестров
 import ApartmentsRegistry from '@components/editors/registry/views/ApartmentsRegistry';
@@ -354,6 +355,13 @@ function ProjectEditorRoute({ user }) {
             onBack={() => setEditingBuildingId(null)}
           />
         );
+      if (stepId === 'basements')
+        return (
+          <BasementsEditor
+            buildingId={editingBuildingId}
+            onBack={() => setEditingBuildingId(null)}
+          />
+        );
       if (stepId === 'floors')
         return (
           <FloorMatrixEditor
@@ -427,6 +435,7 @@ function ProjectEditorRoute({ user }) {
       case 'registry_parking':
       case 'registry_res':
       case 'registry_nonres':
+      case 'basements':
       case 'floors':
       case 'entrances':
       case 'mop':

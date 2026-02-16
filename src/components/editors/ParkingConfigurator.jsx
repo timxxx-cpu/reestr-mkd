@@ -195,8 +195,14 @@ export default function ParkingConfigurator({ buildingId }) {
                 isBasement: false,
               });
             }
-            const blockBasements = basements.filter(base => base.blockId === block.id);
-            blockBasements.forEach(base => {
+            const servingBasements = basements.filter(
+              base =>
+                base.buildingId === b.id &&
+                base.hasParking &&
+                Array.isArray(base.servesBlocks) &&
+                base.servesBlocks.includes(block.id)
+            );
+            servingBasements.forEach(base => {
               for (let d = 1; d <= base.depth; d++) {
                 rows.push({
                   ...commonData,
@@ -212,8 +218,18 @@ export default function ParkingConfigurator({ buildingId }) {
             });
           }
         } else {
-          const blockBasements = basements.filter(base => base.blockId === block.id);
-          blockBasements.forEach(base => {
+          if (block.type === 'B') {
+            return;
+          }
+
+          const servingBasements = basements.filter(
+            base =>
+              base.buildingId === b.id &&
+              base.hasParking &&
+              Array.isArray(base.servesBlocks) &&
+              base.servesBlocks.includes(block.id)
+          );
+          servingBasements.forEach(base => {
             for (let d = 1; d <= base.depth; d++) {
               rows.push({
                 ...commonData,
@@ -222,7 +238,7 @@ export default function ParkingConfigurator({ buildingId }) {
                 type: 'Подвал',
                 basementId: base.id,
                 depthLevel: d,
-                isMandatory: false,
+                isMandatory: true,
                 isBasement: true,
               });
             }

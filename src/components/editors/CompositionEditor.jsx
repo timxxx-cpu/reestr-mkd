@@ -50,7 +50,7 @@ const PARKING_CONSTRUCTION_FALLBACK = [
 // Хелпер генерации блоков для payload
 const generateBlocksPayload = params => {
   const blocks = [];
-  const { category, resBlocks, nonResBlocks, infraType, parkingType } = params;
+  const { category, resBlocks, nonResBlocks, basementsCount, infraType, parkingType } = params;
 
   if (category.includes('residential')) {
     const rCount = parseInt(resBlocks) || 0;
@@ -70,6 +70,19 @@ const generateBlocksPayload = params => {
         type: 'non_residential',
         label: `Нежилая секция ${i + 1}`,
         index: rCount + i,
+      });
+    }
+
+    const bCount = Math.min(4, Math.max(0, parseInt(basementsCount) || 0));
+    const residentialBlockIds = blocks.filter(block => block.type === 'residential').map(block => block.id);
+    for (let i = 0; i < bCount; i++) {
+      blocks.push({
+        id: crypto.randomUUID(),
+        type: 'basement',
+        label: `Подвал ${i + 1}`,
+        index: rCount + nCount + i,
+        levelsDepth: 1,
+        parentBlocks: i === 0 ? residentialBlockIds : [],
       });
     }
   } else if (category === 'parking_separate') {
@@ -155,7 +168,7 @@ const BuildingCard = ({ item, projectUjCode, isReadOnly, onEdit, onDelete }) => 
         <div className="flex flex-wrap gap-1.5">
            {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
               <span className="px-2 py-1 bg-slate-100 rounded border border-slate-200 text-[10px] font-semibold text-slate-600">
-                {item.resBlocks} жил. / {item.nonResBlocks} нежил. бл.
+                {item.resBlocks} жил. / {item.nonResBlocks} нежил. / {item.basementsCount || 0} подвал.
               </span>
             )}
             {item.hasNonResPart && (
@@ -220,6 +233,7 @@ const BuildingModal = ({
     quantity: modal.quantity,
     resBlocks: modal.resBlocks,
     nonResBlocks: modal.nonResBlocks,
+    basementsCount: modal.basementsCount,
     hasNonResPart: modal.hasNonResPart,
     stage: modal.stage,
     dateStart: modal.dateStart,
@@ -382,6 +396,24 @@ const BuildingModal = ({
                     <span>Необходимо минимум: 1 жилой блок.</span>
                   </div>
                 )}
+                <div className="space-y-1">
+                  <Label>Подвалов</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="4"
+                    value={modal.basementsCount}
+                    onChange={e =>
+                      setModal(m => ({
+                        ...m,
+                        basementsCount: Math.min(4, Math.max(0, parseInt(e.target.value) || 0)),
+                      }))
+                    }
+                    disabled={modal.editingId || isSaving}
+                  />
+                  <div className="text-[10px] text-slate-500">Минимум 0, максимум 4 подвала.</div>
+                </div>
+
                 {modal.category === 'residential' && (
                   <div className="text-[10px] text-slate-500">
                     Отдельный жилой дом может состоять из нескольких жилых блоков. Нежилые блоки не создаются.
@@ -561,6 +593,7 @@ const CompositionEditor = () => {
     quantity: 1,
     resBlocks: 1,
     nonResBlocks: 0,
+    basementsCount: 0,
     hasNonResPart: false,
     baseName: '',
     houseNumber: '',
@@ -631,6 +664,7 @@ const CompositionEditor = () => {
       quantity: 1,
       resBlocks: category.includes('multiblock') ? 1 : category.includes('residential') ? 1 : 0,
       nonResBlocks: category.includes('multiblock') ? 1 : 0,
+      basementsCount: 0,
       hasNonResPart: false,
       baseName: defaultName,
       houseNumber: '',
@@ -652,6 +686,7 @@ const CompositionEditor = () => {
       quantity: 1,
       resBlocks: item.resBlocks || 0,
       nonResBlocks: item.category === 'residential_multiblock' ? item.nonResBlocks || 0 : 0,
+      basementsCount: item.basementsCount || 0,
       hasNonResPart: item.hasNonResPart || false,
       baseName: item.label,
       houseNumber: item.houseNumber,
@@ -673,6 +708,7 @@ const CompositionEditor = () => {
     const normalizedModal = {
       ...modal,
       nonResBlocks: modal.category === 'residential' ? 0 : modal.nonResBlocks,
+      basementsCount: modal.category.includes('residential') ? modal.basementsCount : 0,
     };
 
     const buildingData = {
@@ -921,7 +957,7 @@ const CompositionEditor = () => {
                           <div className="flex flex-wrap gap-1">
                             {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
                               <span className="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-[10px] font-bold text-slate-600">
-                                {item.resBlocks} жил. / {item.nonResBlocks} нежил.
+                                {item.resBlocks} жил. / {item.nonResBlocks} нежил. / {item.basementsCount || 0} подвал.
                               </span>
                             )}
                             {item.hasNonResPart && (

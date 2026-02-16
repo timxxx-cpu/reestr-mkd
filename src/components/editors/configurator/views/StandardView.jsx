@@ -6,7 +6,7 @@ import { useProject } from '@context/ProjectContext';
 import { useReadOnly } from '@components/ui/UIKit';
 import { Validators } from '@lib/validators';
 import { BuildingConfigSchema } from '@lib/schemas';
-import { getBlocksList, createClientId } from '@lib/utils';
+import { getBlocksList } from '@lib/utils';
 import { cleanBlockDetails } from '@lib/building-details';
 import { useValidation } from '@hooks/useValidation';
 
@@ -17,7 +17,6 @@ import PhotoTab from '../PhotoTab';
 import StylobateCard from '../cards/StylobateCard';
 import GeneralBlockCard from '../cards/GeneralBlockCard';
 import FloorsCard from '../cards/FloorsCard';
-import BasementCard from '../cards/BasementCard';
 
 // Кастомный компонент кнопки для темной панели
 const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
@@ -68,8 +67,6 @@ export default function StandardView({ building, mode }) {
   // 1. Сначала определяем текущий блок и ключи
   const currentBlock = blocksList.find(b => b.id === activeTabId);
   const detailsKey = currentBlock ? `${building.id}_${currentBlock.id}` : null;
-  const featuresKey = `${building.id}_features`;
-  const features = buildingDetails[featuresKey] || { basements: [], exploitableRoofs: [] };
 
   const defaultDetails = useMemo(
     () => ({
@@ -146,11 +143,6 @@ export default function StandardView({ building, mode }) {
     setBuildingDetails(prev => ({ ...prev, [detailsKey]: { ...details, [key]: val } }));
   };
 
-  const updateFeatures = updates => {
-    if (isReadOnly) return;
-    setBuildingDetails(prev => ({ ...prev, [featuresKey]: { ...features, ...updates } }));
-  };
-
   useEffect(() => {
     if (currentBlock && !isReadOnly && detailsKey) {
       if (details.floorsFrom !== 1) {
@@ -205,37 +197,7 @@ export default function StandardView({ building, mode }) {
     updateDetail(targetList, newTarget);
   };
 
-  const blockBasements = (features.basements || []).filter(b =>
-    b.blocks?.includes(currentBlock?.id)
-  );
-  const canAddBasement = blockBasements.length < 3;
-
-  const createBlockBasement = () => {
-    if (isReadOnly || !canAddBasement || !currentBlock) return;
-    const newB = {
-      id: createClientId(),
-      depth: 1,
-      hasParking: false,
-      parkingLevels: {},
-      blocks: [currentBlock.id],
-      buildingId: building.id,
-      blockId: currentBlock.id,
-    };
-    updateFeatures({ basements: [...(features.basements || []), newB] });
-  };
-
-  const removeBasement = id => {
-    if (isReadOnly) return;
-    updateFeatures({ basements: (features.basements || []).filter(b => b.id !== id) });
-  };
-
-  const updateBasement = (id, field, val) => {
-    if (isReadOnly) return;
-    const updatedBasements = (features.basements || []).map(b =>
-      b.id === id ? { ...b, [field]: val } : b
-    );
-    updateFeatures({ basements: updatedBasements });
-  };
+  const blockBasements = [];
 
   const stylobateHeightUnderCurrentBlock = useMemo(() => {
     if (currentBlock?.type !== 'Ж') return 0;
@@ -381,13 +343,6 @@ export default function StandardView({ building, mode }) {
 
           <div className="xl:col-span-3 space-y-6">
             <ConstructiveCard details={details} updateDetail={updateDetail} errors={errors} />
-            <BasementCard
-              blockBasements={blockBasements}
-              canAddBasement={canAddBasement}
-              createBlockBasement={createBlockBasement}
-              removeBasement={removeBasement}
-              updateBasement={updateBasement}
-            />
           </div>
         </div>
       ) : null}
