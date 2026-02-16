@@ -124,6 +124,7 @@ export const BuildingModalSchema = z.object({
   quantity: z.coerce.number().int().min(1).max(20),
   resBlocks: z.coerce.number().int().min(0),
   nonResBlocks: z.coerce.number().int().min(0),
+  basementsCount: z.coerce.number().int().min(0).max(4),
   hasNonResPart: z.boolean().optional(),
   parkingType: z.string().optional(),
   parkingConstruction: z.string().optional(),

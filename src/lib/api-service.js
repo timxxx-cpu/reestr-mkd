@@ -37,6 +37,7 @@ function mapBlockTypeToDB(uiType) {
   if (uiType === 'non_residential') return 'Н';
   if (uiType === 'parking') return 'Parking';
   if (uiType === 'infrastructure') return 'Infra';
+  if (uiType === 'basement') return 'B';
   return uiType;
 }
 
@@ -45,6 +46,7 @@ function mapDbTypeToUi(dbType) {
   if (dbType === 'Н') return 'non_residential';
   if (dbType === 'Parking') return 'parking';
   if (dbType === 'Infra') return 'infrastructure';
+  if (dbType === 'B') return 'basement';
   return dbType;
 }
 
@@ -1106,45 +1108,7 @@ const LegacyApiService = {
       });
     }
 
-    // Подгрузка подвалов для features
-    let featuresMap = {};
-    if (buildingIds.length > 0) {
-      const { data: basementsData } = await supabase
-        .from('basements')
-        .select('id, building_id, block_id, depth, has_parking')
-        .in('building_id', buildingIds);
-
-      const basementIds = (basementsData || []).map(b => b.id);
-      let parkingLevelsMap = {};
-
-      if (basementIds.length > 0) {
-        const { data: levelsData } = await supabase
-          .from('basement_parking_levels')
-          .select('basement_id, depth_level, is_enabled')
-          .in('basement_id', basementIds);
-
-        parkingLevelsMap = (levelsData || []).reduce((acc, level) => {
-          if (!acc[level.basement_id]) acc[level.basement_id] = {};
-          acc[level.basement_id][level.depth_level] = level.is_enabled;
-          return acc;
-        }, {});
-      }
-
-      (basementsData || []).forEach(base => {
-        if (!featuresMap[base.building_id]) {
-          featuresMap[base.building_id] = { basements: [], exploitableRoofs: [] };
-        }
-        featuresMap[base.building_id].basements.push({
-          id: base.id,
-          depth: base.depth,
-          hasParking: base.has_parking,
-          parkingLevels: parkingLevelsMap[base.id] || {},
-          blocks: [base.block_id],
-          buildingId: base.building_id,
-          blockId: base.block_id,
-        });
-      });
-    }
+    // Legacy features basements disabled in hard-switch basement-block mode
 
     // Сборка финальной структуры
     (buildingsRes.data || []).forEach(b => {
@@ -1164,9 +1128,6 @@ const LegacyApiService = {
         buildingDetails[uiKey] = mapped;
       });
 
-      if (featuresMap[b.id]) {
-        buildingDetails[`${b.id}_features`] = featuresMap[b.id];
-      }
     });
 
     return {
@@ -1355,6 +1316,7 @@ const LegacyApiService = {
       cadastreNumber: b.cadastre_number,
       resBlocks: b.building_blocks.filter(x => x.type === 'Ж').length,
       nonResBlocks: b.building_blocks.filter(x => x.type === 'Н').length,
+      basementsCount: b.building_blocks.filter(x => x.type === 'B').length,
       blocks: b.building_blocks
         .map(bl => ({
           id: bl.id,
@@ -1427,6 +1389,8 @@ const LegacyApiService = {
         floors_count: b.floorsCount || 0,
         floors_from: 1,
         floors_to: b.floorsCount || 1,
+        levels_depth: b.levelsDepth || 0,
+        parent_blocks: b.parentBlocks || [],
       }));
 
       const { error: blError } = await supabase.from('building_blocks').insert(blocksPayload);
@@ -1943,23 +1907,25 @@ const LegacyApiService = {
       .from('buildings')
       .select('id')
       .eq('project_id', projectId);
-    const buildingIds = buildings.map(b => b.id);
+    const buildingIds = (buildings || []).map(b => b.id);
     if (buildingIds.length === 0) return [];
+
     const { data, error } = await supabase
-      .from('basements')
-      .select(`*, basement_parking_levels (depth_level, is_enabled)`)
-      .in('building_id', buildingIds);
+      .from('building_blocks')
+      .select('id, building_id, label, levels_depth, has_basement, parent_blocks')
+      .in('building_id', buildingIds)
+      .eq('type', 'B');
     if (error) throw error;
-    return data.map(b => ({
+
+    return (data || []).map(b => ({
       id: b.id,
       buildingId: b.building_id,
-      blockId: b.block_id,
-      depth: b.depth,
-      hasParking: b.has_parking,
-      parkingLevels: (b.basement_parking_levels || []).reduce((acc, l) => {
-        acc[l.depth_level] = l.is_enabled;
-        return acc;
-      }, {}),
+      blockId: b.id,
+      blockLabel: b.label,
+      depth: b.levels_depth || 0,
+      hasParking: !!b.has_basement,
+      servesBlocks: b.parent_blocks || [],
+      parkingLevels: {},
     }));
   },
 
@@ -2571,39 +2537,6 @@ const LegacyApiService = {
     if (generalData.buildingDetails) {
       for (const [key, details] of Object.entries(generalData.buildingDetails)) {
         if (key.includes('_features')) {
-          // Обработка подвалов (basements)
-          const buildingId = key.replace('_features', '');
-          const basements = details.basements || [];
-          for (const base of basements) {
-            if (base.id && base.depth) {
-              promises.push(
-                supabase.from('basements').upsert(
-                  {
-                    id: base.id,
-                    building_id: buildingId,
-                    block_id: base.blockId || (base.blocks ? base.blocks[0] : null), // Привязка к блоку
-                    depth: parseInt(base.depth),
-                    has_parking: !!base.hasParking,
-                  },
-                  { onConflict: UPSERT_ON_CONFLICT.basements }
-                )
-              );
-              // Уровни паркинга
-              if (base.parkingLevels) {
-                const levels = Object.entries(base.parkingLevels).map(([lvl, enabled]) => ({
-                  basement_id: base.id,
-                  depth_level: parseInt(lvl),
-                  is_enabled: enabled,
-                }));
-                if (levels.length)
-                  promises.push(
-                    supabase
-                      .from('basement_parking_levels')
-                      .upsert(levels, { onConflict: UPSERT_ON_CONFLICT.basement_parking_levels })
-                  );
-              }
-            }
-          }
           continue;
         }
 
@@ -2623,7 +2556,7 @@ const LegacyApiService = {
             parent_blocks: details.parentBlocks || [],
             floors_from: details.floorsFrom,
             floors_to: details.floorsTo,
-            has_basement: details.hasBasementFloor,
+            has_basement: details.hasBasementFloor ?? details.hasParking,
             has_attic: details.hasAttic,
             has_loft: details.hasLoft,
             has_roof_expl: details.hasExploitableRoof,

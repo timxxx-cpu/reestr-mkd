@@ -743,6 +743,39 @@ const validateMop = data => {
   return errors.filter((v, i, a) => a.findIndex(t => t.description === v.description) === i);
 };
 
+
+const validateBasements = data => {
+  const { composition, buildingDetails } = data;
+  const errors = [];
+
+  composition.forEach(building => {
+    const blocks = getBlocksList(building, buildingDetails);
+    const basementBlocks = blocks.filter(block => block.type === 'B');
+
+    basementBlocks.forEach(block => {
+      const details = buildingDetails[`${building.id}_${block.id}`] || {};
+      const depth = parseInt(details.levelsDepth || 0, 10);
+      const servedBlocks = details.parentBlocks || [];
+
+      if (!Number.isFinite(depth) || depth <= 0) {
+        errors.push({
+          title: `${building.label} (${block.tabLabel})`,
+          description: 'Для подвального блока необходимо указать глубину (количество уровней > 0).',
+        });
+      }
+
+      if (!Array.isArray(servedBlocks) || servedBlocks.length === 0) {
+        errors.push({
+          title: `${building.label} (${block.tabLabel})`,
+          description: 'Для подвального блока необходимо выбрать минимум один обслуживаемый блок.',
+        });
+      }
+    });
+  });
+
+  return errors;
+};
+
 const validateParkingConfig = data => {
   const { composition, buildingDetails, parkingPlaces } = data;
   const errors = [];
@@ -786,35 +819,29 @@ const validateParkingConfig = data => {
         }
       }
     } else if (building.category.includes('residential')) {
-      const features = buildingDetails[`${building.id}_features`] || {};
-      const basements = features.basements || [];
+      const basementBlocks = blocks.filter(block => block.type === 'B');
 
-      blocks.forEach(block => {
-        const blockBasements = basements.filter(b => b.blocks?.includes(block.id));
+      basementBlocks.forEach(baseBlock => {
+        const baseDetails = buildingDetails[`${building.id}_${baseBlock.id}`] || {};
+        if (!baseDetails.hasParking) return;
 
-        blockBasements.forEach(base => {
-          if (!base.hasParking) return;
+        const depth = parseInt(baseDetails.levelsDepth || 1, 10);
+        const servedBlocks = blocks.filter(block =>
+          block.type !== 'B' && (baseDetails.parentBlocks || []).includes(block.id)
+        );
 
-          const depth = parseInt(base.depth || 1);
+        servedBlocks.forEach(servedBlock => {
           for (let d = 1; d <= depth; d++) {
-            let isLevelEnabled = true;
-            if (base.parkingLevels && base.parkingLevels[d] !== undefined) {
-              isLevelEnabled = base.parkingLevels[d];
-            }
+            const levelId = `base_${baseBlock.id}_L${d}`;
+            const metaKey = `${building.id}_${servedBlock.id}_${levelId}_meta`;
+            const countVal = parkingPlaces[metaKey]?.count;
+            const count = parseInt(countVal || 0, 10);
 
-            if (isLevelEnabled) {
-              const levelId = `base_${base.id}_L${d}`;
-              const metaKey = `${block.fullId}_${levelId}_meta`;
-
-              const countVal = parkingPlaces[metaKey]?.count;
-              const count = parseInt(countVal || 0);
-
-              if (!countVal || count <= 0) {
-                errors.push({
-                  title: `${building.label} (${block.tabLabel})`,
-                  description: `Подвал (Уровень -${d}): Паркинг отмечен активным, но количество мест не указано.`,
-                });
-              }
+            if (!countVal || count <= 0) {
+              errors.push({
+                title: `${building.label} (${baseBlock.tabLabel} → ${servedBlock.tabLabel})`,
+                description: `Уровень -${d}: паркинг активен, но количество мест не указано.`,
+              });
             }
           }
         });
@@ -836,6 +863,7 @@ export const BLOCK_FILL_STATUS = Object.freeze({
 export const BLOCK_STATUS_STEP_IDS = Object.freeze([
   'registry_nonres',
   'registry_res',
+  'basements',
   'floors',
   'entrances',
   'apartments',
@@ -886,6 +914,7 @@ export const STEP_VALIDATORS = {
     return allErrors;
   },
 
+  basements: validateBasements,
   floors: validateFloors,
   entrances: validateEntrances,
   apartments: validateApartments,
@@ -905,17 +934,18 @@ export const getStepBlocksForStatus = (stepId, building, buildingDetails = {}) =
   const blocks = getBlocksList(building, buildingDetails);
 // ...
 
-  if (stepId === 'registry_nonres') return blocks.filter(b => b.type !== 'Ж');
+  if (stepId === 'registry_nonres') return blocks.filter(b => b.type !== 'Ж' && b.type !== 'B');
   if (['registry_res', 'entrances', 'apartments', 'mop'].includes(stepId)) {
     return blocks.filter(b => b.type === 'Ж');
   }
+  if (stepId === 'basements') return blocks.filter(b => b.type === 'B');
   if (stepId === 'floors') return blocks;
 
   return [];
 };
 
 const blockHasStepData = (stepId, detailsKey, contextData = {}) => {
-  if (stepId === 'registry_nonres' || stepId === 'registry_res') {
+  if (stepId === 'registry_nonres' || stepId === 'registry_res' || stepId === 'basements') {
     return !isObjectEmpty(contextData.buildingDetails?.[detailsKey]);
   }
   if (stepId === 'floors') {
@@ -938,7 +968,7 @@ export const buildScopedContextForBlock = (stepId, building, block, contextData 
 // ...
 // ...
 
-  if (stepId === 'registry_nonres' || stepId === 'registry_res') {
+  if (stepId === 'registry_nonres' || stepId === 'registry_res' || stepId === 'basements') {
     return {
       ...contextData,
       composition: [{ ...building, blocks: (building.blocks || []).filter(item => item.id === block.id) }],

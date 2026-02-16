@@ -8,7 +8,7 @@ import {
 } from './constants.js';
 import { getStepStage } from './workflow-utils.js';
 
-const INTEGRATION_START_IDX = 12;
+const INTEGRATION_START_IDX = STEPS_CONFIG.findIndex(step => step.id === 'integration_buildings');
 
 // --- WORKFLOW ACTIONS ---
 export const WORKFLOW_ACTIONS = {

@@ -20,9 +20,8 @@ export const buildFloorList = (building, currentBlock, buildingDetails = {}) => 
       : detailsKey;
 
   const blockDetails = buildingDetails[effectiveDetailsKey] || {};
-  const features = buildingDetails[`${building.id}_features`] || {};
-  const basements = features.basements || [];
   const commFloors = (blockDetails.commercialFloors || []).map(val => String(val));
+  const allBlocks = getBlocksList(building, buildingDetails);
 
   const isParking =
     building.category === 'parking_separate' || currentBlock.originalType === 'parking';
@@ -65,7 +64,17 @@ export const buildFloorList = (building, currentBlock, buildingDetails = {}) => 
     return list.sort((a, b) => b.sortOrder - a.sortOrder);
   }
 
-  const currentBlockBasements = basements.filter(b => b.blocks?.includes(currentBlock.id));
+  const basementBlocks = allBlocks.filter(block => block.type === 'B');
+  const currentBlockBasements = basementBlocks
+    .map(baseBlock => {
+      const baseDetails = buildingDetails[`${building.id}_${baseBlock.id}`] || {};
+      return {
+        id: baseBlock.id,
+        depth: Number(baseDetails.levelsDepth || 0),
+        parentBlocks: baseDetails.parentBlocks || [],
+      };
+    })
+    .filter(base => base.depth > 0 && base.parentBlocks.includes(currentBlock.id));
   const hasMultipleBasements = currentBlockBasements.length > 1;
 
   currentBlockBasements.forEach((b, bIdx) => {
@@ -132,7 +141,6 @@ export const buildFloorList = (building, currentBlock, buildingDetails = {}) => 
 
   const stylobateMap = {};
   if (currentBlock.type === 'Ж') {
-    const allBlocks = getBlocksList(building, buildingDetails);
     allBlocks.forEach(b => {
       if (b.type === 'Н') {
         const bDetails = buildingDetails[`${building.id}_${b.id}`];

@@ -28,6 +28,9 @@ export function getBlocksList(building, buildingDetails = {}) {
       } else if (block.type === 'infrastructure') {
         Icon = Box;
         typeLabel = 'И';
+      } else if (block.type === 'basement') {
+        Icon = Box;
+        typeLabel = 'B';
       }
 
       // Формируем уникальный ключ для buildingDetails
