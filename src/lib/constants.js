@@ -248,7 +248,7 @@ export const STEPS_CONFIG = [
   // --- 2 ЭТАП ---
   {
     id: 'apartments',
-    title: 'Инвентаризация квартир',
+    title: 'Присвоение номеров квартирам',
     description: 'Реестр помещений (Unit)',
     icon: Grid3X3,
   },

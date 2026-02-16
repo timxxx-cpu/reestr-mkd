@@ -764,7 +764,7 @@ const ApplicationsDashboard = ({
               <h1 className="text-xl font-black text-white leading-tight">
                 {activeTab === 'registry' ? 'Реестр' : 'Рабочий стол'}
               </h1>
-              <p className="text-xs text-slate-400">Обработка заявлений и ведение реестров</p>
+              <p className="text-xs text-slate-400">Обработка входящих заявлений на инвентаризацию жилых комплексов</p>
             </div>
           </div>
 

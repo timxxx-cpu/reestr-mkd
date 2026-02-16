@@ -288,7 +288,7 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
 | 3 | `registry_res` | Жилые блоки | 1 | - |
 | 4 | `floors` | Внешняя инвентаризация | 1 | - |
 | 5 | `entrances` | Инвентаризация подъездов | 1 | ✓ CHECKPOINT 1 |
-| 6 | `apartments` | Инвентаризация квартир | 2 | - |
+| 6 | `apartments` | Присвоение номеров квартирам | 2 | - |
 | 7 | `mop` | Инвентаризация МОП | 2 | - |
 | 8 | `parking_config` | Инвентаризация паркингов | 2 | ✓ CHECKPOINT 2 |
 | 9 | `registry_apartments` | Инвентаризация квартир | 3 | - |
