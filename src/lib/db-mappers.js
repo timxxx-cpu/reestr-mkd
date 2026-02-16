@@ -286,7 +286,7 @@ export const mapMopFromDB = (m, entranceMap = {}, buildingId, blockId) => ({
 function mapCategoryToLabel(cat) {
   const map = {
     residential: 'Жилой дом',
-    residential_multiblock: 'Жилой комплекс',
+    residential_multiblock: 'Жилой дом (многоблочный)',
     parking_separate: 'Паркинг',
     infrastructure: 'Инфраструктура',
   };

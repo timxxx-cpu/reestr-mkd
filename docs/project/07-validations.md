@@ -373,7 +373,7 @@ if (building.hasNonResPart) {
 }
 ```
 
-### 7.3.6 Шаг `apartments` — Нумерация квартир
+### 7.3.6 Шаг `apartments` — Инвентаризация квартир
 
 **Функция**: `STEP_VALIDATORS.apartments(data)` → `validateApartments(data)`
 
@@ -460,7 +460,7 @@ if (building.hasNonResPart) {
 }
 ```
 
-### 7.3.8 Шаг `parking_config` — Конфигурация паркинга
+### 7.3.8 Шаг `parking_config` — Инвентаризация паркингов
 
 **Функция**: `STEP_VALIDATORS.parking_config(data)` → `validateParkingConfig(data)`
 

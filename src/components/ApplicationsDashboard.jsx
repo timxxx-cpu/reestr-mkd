@@ -6,7 +6,6 @@ import {
   ListTodo,
   ShieldCheck,
   HardHat,
-  Archive,
   Eye,
   PlayCircle,
   MapPin,
@@ -25,6 +24,10 @@ import {
   UserCheck,
   Clock,
   Undo2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  SlidersHorizontal,
   AlertTriangle,
   X,
   MessageSquare
@@ -300,9 +303,12 @@ const ApplicationsDashboard = ({
   onLogout,
   onOpenCatalogs,
 }) => {
-  const [activeTab, setActiveTab] = useState('my_tasks');
+  const [activeTab, setActiveTab] = useState('workdesk');
   const [taskFilter, setTaskFilter] = useState('work');
+  const [registryFilter, setRegistryFilter] = useState('applications'); // applications | complexes
   const [assigneeFilter, setAssigneeFilter] = useState('all'); // all | mine
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
+  const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
 
   const [incomingApps, setIncomingApps] = useState([]);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
@@ -318,7 +324,7 @@ const ApplicationsDashboard = ({
   const isAdmin = user.role === ROLES.ADMIN;
   const isBranchManager = user.role === ROLES.BRANCH_MANAGER;
   const canViewInbox = isAdmin || isBranchManager;
-  const canViewRegistry = isAdmin || isBranchManager;
+  const canViewRegistry = true;
 
   // Авто-выбор фильтра по роли
   useEffect(() => {
@@ -434,7 +440,7 @@ const ApplicationsDashboard = ({
       setIncomingApps(prev => prev.filter(a => a.id !== app.id));
       toast.dismiss(toastId);
       toast.success('Проект создан');
-      setActiveTab('my_tasks');
+      setActiveTab('workdesk');
       setTaskFilter('work');
     } catch (e) {
       console.error(e);
@@ -631,7 +637,7 @@ const ApplicationsDashboard = ({
     let filtered = projects;
 
     // 1. Фильтр по Табу/Роли
-    if (scope === 'my_tasks') {
+    if (scope === 'workdesk') {
       if (taskFilter === 'work') {
         filtered = filtered.filter(p => {
           const sub = p.applicationInfo?.workflowSubstatus;
@@ -661,8 +667,20 @@ const ApplicationsDashboard = ({
       }
     }
 
+    if (scope === 'registry') {
+      if (registryFilter === 'applications') {
+        filtered = filtered.filter(
+          p =>
+            p.applicationInfo?.status === APP_STATUS.COMPLETED ||
+            p.applicationInfo?.status === APP_STATUS.DECLINED
+        );
+      } else {
+        filtered = filtered.filter(p => p.applicationInfo?.status === APP_STATUS.COMPLETED);
+      }
+    }
+
     // 2. Фильтр по исполнителю (только в разделе задач)
-    if (scope === 'my_tasks' && assigneeFilter === 'mine') {
+    if (scope === 'workdesk' && assigneeFilter === 'mine') {
       filtered = filtered.filter(p => p.applicationInfo?.assigneeName === user.name);
     }
 
@@ -712,7 +730,13 @@ const ApplicationsDashboard = ({
       ).length,
       declined: projects.filter(p => p.applicationInfo?.status === APP_STATUS.DECLINED).length,
       completed: projects.filter(p => p.applicationInfo?.status === APP_STATUS.COMPLETED).length,
-      total: projects.length,
+      registryApplications: projects.filter(
+        p =>
+          p.applicationInfo?.status === APP_STATUS.COMPLETED ||
+          p.applicationInfo?.status === APP_STATUS.DECLINED
+      ).length,
+      registryComplexes: projects.filter(p => p.applicationInfo?.status === APP_STATUS.COMPLETED)
+        .length,
     }),
     [projects]
   );
@@ -729,278 +753,93 @@ const ApplicationsDashboard = ({
         />
       )}
 
-      {/* --- ТЕМНАЯ ШАПКА --- */}
-      <div className="bg-slate-900 px-8 pt-8 pb-16 shadow-2xl relative overflow-hidden border-b border-slate-800 shrink-0">
-        {/* Декоративный фон */}
-        <div className="absolute top-0 right-0 p-8 opacity-[0.03] text-white pointer-events-none transform translate-x-1/4 -translate-y-1/4">
-          <Layers size={300} />
-        </div>
-        <div className="absolute inset-0 bg-gradient-to-r from-blue-900/20 to-transparent pointer-events-none"></div>
-
-        <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
-          <div className="flex items-start gap-5">
-            <div className="w-14 h-14 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center text-white shadow-lg ring-4 ring-white/10 shrink-0">
-              <Briefcase size={28} />
+      {/* --- ШАПКА --- */}
+      <div className="bg-slate-900 px-6 py-4 shadow-xl border-b border-slate-800 shrink-0">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl flex items-center justify-center text-white shadow-lg">
+              <Briefcase size={22} />
             </div>
-
             <div>
-              <h1 className="text-3xl font-black text-white tracking-tight leading-none mb-1">
-                Рабочий стол
+              <h1 className="text-xl font-black text-white leading-tight">
+                {activeTab === 'registry' ? 'Реестр' : 'Рабочий стол'}
               </h1>
-              <p className="text-sm font-medium text-slate-400">
-                Реестр Жилых Комплексов и многоквартирных домов
-              </p>
-
-              <div className="flex items-center gap-3 mt-4">
-                <div className="flex items-center gap-2 bg-slate-800/50 rounded-lg px-2 py-1 border border-slate-700/50">
-                  <UserAvatar name={user.name} role={user.role} />
-                  <span className="text-sm font-bold text-slate-200">{user.name}</span>
-                </div>
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider bg-slate-800/50 px-2 py-1.5 rounded-lg border border-slate-700/50">
-                  {user.role === ROLES.TECHNICIAN
-                    ? 'Техник'
-                    : user.role === ROLES.CONTROLLER
-                      ? 'Бригадир'
-                      : user.role === ROLES.BRANCH_MANAGER
-                        ? 'Нач. филиала'
-                        : 'Администратор'}
-                </span>
-              </div>
+              <p className="text-xs text-slate-400">Обработка заявлений и ведение реестров</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {(isAdmin) && onOpenCatalogs && (
-              <button
-                onClick={onOpenCatalogs}
-                className="px-3 py-2 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700"
-              >
-                Справочники
-              </button>
-            )}
-            {/* ВКЛАДКИ */}
-            <div className="flex bg-slate-950/50 p-1 rounded-xl border border-white/5 backdrop-blur-sm">
-              <button
-                onClick={() => setActiveTab('my_tasks')}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'my_tasks' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-              >
-                <ListTodo size={16} /> Задачи
-                <Badge
-                  className={`ml-1 border-0 ${activeTab === 'my_tasks' ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-500'}`}
-                >
-                  {user.role === ROLES.CONTROLLER
-                    ? counts.review
-                    : user.role === ROLES.BRANCH_MANAGER
-                      ? counts.pendingDecline
-                      : counts.work + counts.integration}
-                </Badge>
-              </button>
+          <div className="flex items-center gap-2 relative">
+            <button
+              onClick={() => setIsWorkspaceMenuOpen(v => !v)}
+              className="h-10 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 text-xs font-bold inline-flex items-center gap-2 hover:bg-slate-700"
+            >
+              {activeTab === 'registry' ? <Database size={14} /> : <Briefcase size={14} />}
+              {activeTab === 'registry' ? 'Реестр' : 'Рабочий стол'}
+              <ChevronDown size={14} className={`${isWorkspaceMenuOpen ? 'rotate-180' : ''} transition-transform`} />
+            </button>
 
-              {canViewRegistry && (
+            {isWorkspaceMenuOpen && (
+              <div className="absolute right-0 top-12 z-50 w-56 bg-white rounded-xl border border-slate-200 shadow-xl p-1">
                 <button
-                  onClick={() => setActiveTab('registry')}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'registry' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                  className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-slate-50 flex items-center gap-2"
+                  onClick={() => {
+                    setActiveTab('workdesk');
+                    setIsWorkspaceMenuOpen(false);
+                  }}
                 >
-                  <Database size={16} /> Реестр
-                  <span
-                    className={`px-1.5 rounded text-[9px] ${activeTab === 'registry' ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-500'}`}
+                  <Briefcase size={14} /> Рабочий стол
+                </button>
+                <button
+                  className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-slate-50 flex items-center gap-2"
+                  onClick={() => {
+                    setActiveTab('registry');
+                    setIsWorkspaceMenuOpen(false);
+                  }}
+                >
+                  <Database size={14} /> Реестр
+                </button>
+                {isAdmin && onOpenCatalogs && (
+                  <button
+                    className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-slate-50 flex items-center gap-2"
+                    onClick={() => {
+                      onOpenCatalogs();
+                      setIsWorkspaceMenuOpen(false);
+                    }}
                   >
-                    {counts.total}
-                  </span>
-                </button>
-              )}
+                    <Server size={14} /> Администрирование
+                  </button>
+                )}
+              </div>
+            )}
 
-              {canViewInbox && (
-                <button
-                  onClick={() => setActiveTab('inbox')}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'inbox' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                >
-                  <Inbox size={16} /> Входящие
-                  {incomingApps.length > 0 && (
-                    <Badge className="ml-1 bg-red-500 text-white border-0 animate-pulse">
-                      {incomingApps.length}
-                    </Badge>
-                  )}
-                </button>
-              )}
+            <div className="hidden md:flex items-center gap-2 bg-slate-800/50 rounded-lg px-2 py-1 border border-slate-700/50">
+              <UserAvatar name={user.name} role={user.role} />
+              <span className="text-xs font-bold text-slate-200">{user.name}</span>
             </div>
 
             <button
+              onClick={() => setIsSidePanelOpen(v => !v)}
+              className="h-10 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 text-xs font-bold inline-flex items-center gap-2 hover:bg-slate-700"
+              title={isSidePanelOpen ? 'Скрыть правую панель' : 'Показать правую панель'}
+            >
+              <SlidersHorizontal size={14} />
+              {isSidePanelOpen ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+            </button>
+
+            <button
               onClick={onLogout}
-              className="p-3 bg-slate-950/50 border border-white/5 hover:bg-red-500/20 hover:border-red-500/50 text-slate-400 hover:text-red-400 rounded-xl transition-all"
+              className="h-10 w-10 inline-flex items-center justify-center border border-slate-700 rounded-lg bg-slate-800 text-slate-300 hover:text-red-300 hover:bg-red-500/20"
               title="Выйти из системы"
             >
-              <LogOut size={20} />
+              <LogOut size={16} />
             </button>
           </div>
         </div>
       </div>
 
-      {/* --- КОНТЕНТ (Смещаем вверх на шапку) --- */}
-      <div className="px-8 -mt-10 relative z-20 flex-1 flex flex-col min-h-0">
-        {/* Метрики */}
-        {activeTab !== 'inbox' && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-6 shrink-0">
-            <MetricCard
-              label="В работе"
-              value={counts.work}
-              icon={HardHat}
-              color="text-blue-600"
-              isActive={activeTab === 'my_tasks' && taskFilter === 'work'}
-              onClick={() => {
-                setActiveTab('my_tasks');
-                setTaskFilter('work');
-              }}
-            />
-            <MetricCard
-              label="На проверке"
-              value={counts.review}
-              icon={ShieldCheck}
-              color="text-orange-600"
-              isActive={activeTab === 'my_tasks' && taskFilter === 'review'}
-              onClick={() => {
-                setActiveTab('my_tasks');
-                setTaskFilter('review');
-              }}
-            />
-
-            {/* Плитка для начальника филиала / админа — запросы на отказ */}
-            {(isBranchManager || isAdmin) ? (
-              <MetricCard
-                label="На рассмотрении"
-                value={counts.pendingDecline}
-                icon={Clock}
-                color="text-amber-600"
-                isActive={activeTab === 'my_tasks' && taskFilter === 'pending_decline'}
-                onClick={() => {
-                  setActiveTab('my_tasks');
-                  setTaskFilter('pending_decline');
-                }}
-              />
-            ) : (
-              <MetricCard
-                label="Передача в УЗКАД"
-                value={counts.integration}
-                icon={Globe}
-                color="text-indigo-600"
-                isActive={activeTab === 'my_tasks' && taskFilter === 'integration'}
-                onClick={() => {
-                  setActiveTab('my_tasks');
-                  setTaskFilter('integration');
-                }}
-              />
-            )}
-
-            {canViewRegistry ? (
-              <MetricCard
-                label="Всего в реестре"
-                value={counts.total}
-                icon={Archive}
-                color="text-slate-600"
-                isActive={activeTab === 'registry'}
-                onClick={() => setActiveTab('registry')}
-              />
-            ) : (
-              <div className="hidden md:block opacity-0 pointer-events-none"></div>
-            )}
-          </div>
-        )}
-
-        {/* Фильтры */}
-        <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-5 shrink-0">
-          <div className="flex items-center gap-2">
-            {activeTab === 'my_tasks' && (
-              <div className="flex flex-col gap-2">
-                <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm w-fit">
-                  <button
-                    onClick={() => setAssigneeFilter('mine')}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${assigneeFilter === 'mine' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
-                  >
-                    Мои задачи
-                  </button>
-                  <button
-                    onClick={() => setAssigneeFilter('all')}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${assigneeFilter === 'all' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
-                  >
-                    Все задачи
-                  </button>
-                </div>
-
-              <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-                <button
-                  onClick={() => setTaskFilter('work')}
-                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${taskFilter === 'work' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
-                >
-                  <ListTodo size={14} /> В работе
-                </button>
-                <button
-                  onClick={() => setTaskFilter('review')}
-                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${taskFilter === 'review' ? 'bg-orange-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
-                >
-                  <ShieldCheck size={14} /> На проверке
-                </button>
-                {/* Кнопка фильтра интеграции */}
-                <button
-                  onClick={() => setTaskFilter('integration')}
-                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${taskFilter === 'integration' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
-                >
-                  <Globe size={14} /> Интеграция
-                </button>
-                {/* Кнопка фильтра запросов на отказ (для начальника/админа) */}
-                {(isBranchManager || isAdmin) && (
-                  <button
-                    onClick={() => setTaskFilter('pending_decline')}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${taskFilter === 'pending_decline' ? 'bg-amber-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
-                  >
-                    <Clock size={14} /> На рассмотрении
-                    {counts.pendingDecline > 0 && (
-                      <span className="bg-amber-200 text-amber-800 text-[9px] px-1.5 rounded-full font-bold">{counts.pendingDecline}</span>
-                    )}
-                  </button>
-                )}
-              </div>
-              </div>
-            )}
-            {activeTab === 'inbox' && (
-              <div className="flex items-center gap-2">
-                <Tooltip content="Сгенерировать тестовую заявку из внешней системы">
-                  <Button
-                    onClick={handleEmulateIncoming}
-                    disabled={isLoadingApps}
-                    className="bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 h-10 text-xs px-5 rounded-xl"
-                  >
-                    <Zap size={14} className={isLoadingApps ? 'animate-spin' : ''} /> Эмуляция (API)
-                  </Button>
-                </Tooltip>
-                <Tooltip content="Эмулировать повторную подачу заявки по существующему ЖК (по кадастровому номеру)">
-                  <Button
-                    onClick={handleEmulateResubmission}
-                    disabled={isLoadingApps}
-                    className="bg-emerald-700 text-white hover:bg-emerald-800 shadow-lg shadow-emerald-200 h-10 text-xs px-5 rounded-xl"
-                  >
-                    <RefreshCw size={14} className={isLoadingApps ? 'animate-spin' : ''} /> Повторная подача
-                  </Button>
-                </Tooltip>
-              </div>
-            )}
-          </div>
-
-          <div className="relative w-full md:w-96">
-            <Search
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-              size={18}
-            />
-            <Input
-              placeholder="Поиск по номеру, названию, адресу..."
-              className="pl-10 h-11 text-sm rounded-xl border-slate-200 bg-white shadow-sm focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {/* Таблица */}
-        <Card className="flex-1 overflow-hidden shadow-xl border-0 ring-1 ring-slate-200 rounded-t-2xl rounded-b-none bg-white flex flex-col min-h-0">
+      {/* --- КОНТЕНТ --- */}
+      <div className="px-6 py-4 flex-1 min-h-0 flex gap-4 bg-slate-50">
+        <Card className="flex-1 overflow-hidden shadow-xl border-0 ring-1 ring-slate-200 rounded-2xl bg-white flex flex-col min-h-0">
           {activeTab === 'inbox' ? (
             <InboxTable data={incomingApps} onTake={handleTakeToWork} canTake={canTakeInboxApplication(user.role)} />
           ) : (
@@ -1012,9 +851,126 @@ const ApplicationsDashboard = ({
               onDecline={(isAdmin || isBranchManager || user.role === ROLES.CONTROLLER) ? handleDeclineProject : undefined}
               onReturnFromDecline={(isAdmin || isBranchManager) ? handleReturnFromDecline : undefined}
               onReassign={(isAdmin || isBranchManager) ? handleReassignProject : undefined}
+              viewOnly={activeTab === 'registry'}
             />
           )}
         </Card>
+
+        {isSidePanelOpen && (
+          <Card className="w-[340px] max-w-[40vw] min-w-[300px] p-4 shadow-xl border-0 ring-1 ring-slate-200 rounded-2xl bg-white overflow-y-auto">
+            <div className="space-y-4">
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Поиск</div>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <Input
+                    placeholder="По номеру, названию, адресу..."
+                    className="pl-9 h-10 rounded-lg"
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {(activeTab === 'workdesk' || activeTab === 'inbox') && (
+                <>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Режим</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setActiveTab('workdesk')}
+                        className={`h-10 rounded-lg text-xs font-bold ${activeTab === 'workdesk' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                      >
+                        Рабочий стол
+                      </button>
+                      {canViewInbox && (
+                        <button
+                          onClick={() => setActiveTab('inbox')}
+                          className={`h-10 rounded-lg text-xs font-bold ${activeTab === 'inbox' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                        >
+                          Входящие ({incomingApps.length})
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {activeTab === 'workdesk' && (
+                    <>
+                      <div>
+                        <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Исполнитель</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => setAssigneeFilter('mine')}
+                            className={`h-9 rounded-lg text-xs font-bold ${assigneeFilter === 'mine' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                          >
+                            Мои
+                          </button>
+                          <button
+                            onClick={() => setAssigneeFilter('all')}
+                            className={`h-9 rounded-lg text-xs font-bold ${assigneeFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                          >
+                            Все
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Статусы</div>
+                        <div className="grid grid-cols-1 gap-2">
+                          <button onClick={() => setTaskFilter('work')} className={`h-9 rounded-lg text-xs font-bold ${taskFilter === 'work' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>В работе ({counts.work})</button>
+                          <button onClick={() => setTaskFilter('review')} className={`h-9 rounded-lg text-xs font-bold ${taskFilter === 'review' ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>На проверке ({counts.review})</button>
+                          <button onClick={() => setTaskFilter('integration')} className={`h-9 rounded-lg text-xs font-bold ${taskFilter === 'integration' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Интеграция ({counts.integration})</button>
+                          {(isBranchManager || isAdmin) && (
+                            <button onClick={() => setTaskFilter('pending_decline')} className={`h-9 rounded-lg text-xs font-bold ${taskFilter === 'pending_decline' ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>На рассмотрении ({counts.pendingDecline})</button>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {activeTab === 'inbox' && (
+                    <div className="space-y-2">
+                      <Button
+                        onClick={handleEmulateIncoming}
+                        disabled={isLoadingApps}
+                        className="w-full bg-indigo-600 text-white hover:bg-indigo-700 h-10 text-xs rounded-lg"
+                      >
+                        <Zap size={14} className="mr-2" /> Эмуляция (API)
+                      </Button>
+                      <Button
+                        onClick={handleEmulateResubmission}
+                        disabled={isLoadingApps}
+                        className="w-full bg-emerald-700 text-white hover:bg-emerald-800 h-10 text-xs rounded-lg"
+                      >
+                        <RefreshCw size={14} className="mr-2" /> Повторная подача
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {activeTab === 'registry' && (
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Раздел реестра</div>
+                  <div className="grid grid-cols-1 gap-2">
+                    <button
+                      onClick={() => setRegistryFilter('applications')}
+                      className={`h-10 rounded-lg text-xs font-bold ${registryFilter === 'applications' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      Заявления ({counts.registryApplications})
+                    </button>
+                    <button
+                      onClick={() => setRegistryFilter('complexes')}
+                      className={`h-10 rounded-lg text-xs font-bold ${registryFilter === 'complexes' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      Жилые комплексы ({counts.registryComplexes})
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
+        )}
       </div>
 
       {/* --- ПОДВАЛ (ТЕМНЫЙ) --- */}
@@ -1058,6 +1014,7 @@ const ProjectsTable = ({
   onReturnFromDecline,
   onReassign,
   isLoading = false,
+  viewOnly = false,
 }) => {
   if (!isLoading && data.length === 0) return <EmptyState />;
 
@@ -1310,7 +1267,7 @@ const ProjectsTable = ({
                     {/* #8 Действия */}
                     <td className="px-4 py-5 text-right align-top">
                       <div className="flex flex-col items-end gap-2">
-                         {!isCompleted && canEdit ? (
+                         {!viewOnly && !isCompleted && canEdit ? (
                             <Tooltip content="Взять в работу">
                               <button
                                 onClick={() => {
@@ -1337,7 +1294,7 @@ const ProjectsTable = ({
                          )}
 
                          <div className="flex items-center justify-end gap-1 mt-1 opacity-40 group-hover:opacity-100 transition-opacity duration-300">
-                            {isPendingDeclineStatus && onReturnFromDecline && (isBranchManager || user.role === ROLES.ADMIN) && (
+                            {!viewOnly && isPendingDeclineStatus && onReturnFromDecline && (isBranchManager || user.role === ROLES.ADMIN) && (
                               <Tooltip content="Вернуть на доработку">
                                 <button onClick={() => onReturnFromDecline(p.id, p.name)} className="p-1.5 text-amber-600 bg-amber-50 hover:bg-amber-100 rounded-md transition-colors">
                                   <Undo2 size={14} />
@@ -1345,7 +1302,7 @@ const ProjectsTable = ({
                               </Tooltip>
                             )}
                             
-                            {showDeclineBtn && onDecline && (
+                            {!viewOnly && showDeclineBtn && onDecline && (
                               <Tooltip content="Отказать">
                                 <button onClick={() => onDecline(p.id, p.name)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors">
                                   <Ban size={14} />
@@ -1353,7 +1310,7 @@ const ProjectsTable = ({
                               </Tooltip>
                             )}
 
-                            {onReassign && !isCompleted && !isDeclined && (
+                            {!viewOnly && onReassign && !isCompleted && !isDeclined && (
                               <Tooltip content="Сменить исполнителя">
                                 <button onClick={() => onReassign(p.id, p.name, app.assigneeName)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors">
                                   <UserCheck size={14} />
@@ -1361,7 +1318,7 @@ const ProjectsTable = ({
                               </Tooltip>
                             )}
 
-                            {onDelete && (
+                            {!viewOnly && onDelete && (
                               <Tooltip content="Удалить">
                                 <button onClick={() => onDelete(p.id)} className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors">
                                   <Trash2 size={14} />

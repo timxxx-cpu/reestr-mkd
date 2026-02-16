@@ -33,7 +33,7 @@ const STEPS_WITH_CUSTOM_SAVE = [
   'registry_res',    // Жилые блоки
   'floors',          // Внешняя инвентаризация
   'entrances',       // Инвентаризация подъездов
-  'apartments',      // Нумерация квартир
+  'apartments',      // Инвентаризация квартир
   'mop',             // Инвентаризация МОП
 ];
 

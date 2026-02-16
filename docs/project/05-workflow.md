@@ -155,6 +155,13 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
     INTEGRATION → DONE (COMPLETED)
 ```
 
+## 5.2.1 Отображение на верхнем уровне UI
+
+- **Рабочий стол**: заявления в `IN_PROGRESS` с рабочими подстатусами.
+- **Реестр → Заявления**: закрытые заявления (`COMPLETED` + `DECLINED`).
+- **Реестр → Жилые комплексы**: только завершенные (`COMPLETED`).
+- **Администрирование**: доступ к справочникам (вне workflow-движка заявлений).
+
 ## 5.3 Workflow-операции
 
 ### 5.3.1 COMPLETE_STEP (Завершение шага)
@@ -281,12 +288,12 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
 | 3 | `registry_res` | Жилые блоки | 1 | - |
 | 4 | `floors` | Внешняя инвентаризация | 1 | - |
 | 5 | `entrances` | Инвентаризация подъездов | 1 | ✓ CHECKPOINT 1 |
-| 6 | `apartments` | Нумерация квартир | 2 | - |
+| 6 | `apartments` | Инвентаризация квартир | 2 | - |
 | 7 | `mop` | Инвентаризация МОП | 2 | - |
-| 8 | `parking_config` | Конфигурация паркинга | 2 | ✓ CHECKPOINT 2 |
-| 9 | `registry_apartments` | Реестр квартир | 3 | - |
-| 10 | `registry_commercial` | Реестр нежилых помещений | 3 | - |
-| 11 | `registry_parking` | Реестр машиномест | 3 | ✓ CHECKPOINT 3 |
+| 8 | `parking_config` | Инвентаризация паркингов | 2 | ✓ CHECKPOINT 2 |
+| 9 | `registry_apartments` | Инвентаризация квартир | 3 | - |
+| 10 | `registry_commercial` | Инвентаризация нежилых объектов | 3 | - |
+| 11 | `registry_parking` | Инвентаризация машиномест | 3 | ✓ CHECKPOINT 3 |
 | 12 | `integration_buildings` | Регистрация зданий (УЗКАД) | 4 | - |
 | 13 | `integration_units` | Регистрация помещений (УЗКАД) | 4 | - |
 | 14 | `registry_nonres_view` | Сводная по нежилым блокам | 4 | - |
