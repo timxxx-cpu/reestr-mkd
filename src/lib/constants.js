@@ -248,7 +248,7 @@ export const STEPS_CONFIG = [
   // --- 2 ЭТАП ---
   {
     id: 'apartments',
-    title: 'Нумерация квартир',
+    title: 'Инвентаризация квартир',
     description: 'Реестр помещений (Unit)',
     icon: Grid3X3,
   },
@@ -260,7 +260,7 @@ export const STEPS_CONFIG = [
   },
   {
     id: 'parking_config',
-    title: 'Конфигурация паркинга',
+    title: 'Инвентаризация паркингов',
     description: 'Уровни и машиноместа',
     icon: Car,
   }, // -> CHECKPOINT 2 (Индекс 8)
@@ -268,19 +268,19 @@ export const STEPS_CONFIG = [
   // --- 3 ЭТАП (ФОРМИРОВАНИЕ РЕЕСТРОВ) ---
   {
     id: 'registry_apartments',
-    title: 'Реестр квартир',
+    title: 'Инвентаризация квартир',
     description: 'Жилой фонд для регистрации',
     icon: Home,
   },
   {
     id: 'registry_commercial',
-    title: 'Реестр нежилых помещений',
+    title: 'Инвентаризация нежилых объектов',
     description: 'Коммерция и офисы',
     icon: Briefcase,
   },
   {
     id: 'registry_parking',
-    title: 'Реестр машиномест',
+    title: 'Инвентаризация машиномест',
     description: 'Парковочные места',
     icon: Car,
   }, // -> CHECKPOINT 3 (Индекс 11)

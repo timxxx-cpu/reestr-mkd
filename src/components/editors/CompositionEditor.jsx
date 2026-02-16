@@ -29,7 +29,7 @@ import { useValidation } from '@hooks/useValidation';
 import { useCatalog } from '@hooks/useCatalogs';
 
 const TYPE_NAMES = {
-  residential: 'Отдельный жилой дом',
+  residential: 'Отдельный жилой дом (1+ жилых блоков)',
   residential_multiblock: 'Жилой дом из нескольких секций/блоков',
   parking_separate: 'Отдельный паркинг',
   infrastructure: 'Объект инфраструктуры',
@@ -54,7 +54,7 @@ const generateBlocksPayload = params => {
 
   if (category.includes('residential')) {
     const rCount = parseInt(resBlocks) || 0;
-    const nCount = parseInt(nonResBlocks) || 0;
+    const nCount = category === 'residential_multiblock' ? parseInt(nonResBlocks) || 0 : 0;
 
     for (let i = 0; i < rCount; i++) {
       blocks.push({
@@ -230,7 +230,7 @@ const BuildingModal = ({
   });
 
   const isMultiblockError =
-    modal.category === 'residential_multiblock' && (modal.resBlocks < 1 || modal.nonResBlocks < 1);
+    modal.category?.includes('residential') && modal.resBlocks < 1;
   const ErrorMsg = ({ field }) =>
     errors[field] ? (
       <span className="text-[9px] text-red-500 font-bold ml-1 animate-in fade-in">
@@ -329,11 +329,11 @@ const BuildingModal = ({
           {/* ПРАВАЯ КОЛОНКА */}
           <div className="space-y-5">
             <SectionTitle icon={Clock}>Параметры и Сроки</SectionTitle>
-            {modal.category === 'residential_multiblock' && (
+            {modal.category?.includes('residential') && (
               <div
                 className={`flex flex-col gap-3 p-3 rounded-xl border transition-colors animate-in fade-in ${isMultiblockError ? 'bg-red-50 border-red-200' : 'bg-indigo-50 border-indigo-100'}`}
               >
-               <div className="grid grid-cols-2 gap-3">
+               <div className={`grid ${modal.category === 'residential_multiblock' ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>
                   <div className="space-y-1">
                     <Label>Жилых блоков</Label>
                     <Input
@@ -351,23 +351,25 @@ const BuildingModal = ({
                       disabled={modal.editingId || isSaving}
                     />
                   </div>
-                  <div className="space-y-1">
-                    <Label>Нежилых</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="10"
-                      value={modal.nonResBlocks}
-                      onChange={e =>
-                        setModal(m => ({
-                          ...m,
-                          // Ограничение: 0..10
-                          nonResBlocks: Math.min(10, Math.max(0, parseInt(e.target.value) || 0)),
-                        }))
-                      }
-                      disabled={modal.editingId || isSaving}
-                    />
-                  </div>
+                  {modal.category === 'residential_multiblock' && (
+                    <div className="space-y-1">
+                      <Label>Нежилых</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="10"
+                        value={modal.nonResBlocks}
+                        onChange={e =>
+                          setModal(m => ({
+                            ...m,
+                            // Ограничение: 0..10
+                            nonResBlocks: Math.min(10, Math.max(0, parseInt(e.target.value) || 0)),
+                          }))
+                        }
+                        disabled={modal.editingId || isSaving}
+                      />
+                    </div>
+                  )}
                 </div>
                 {modal.editingId && (
                   <div className="text-[10px] text-slate-500 italic">
@@ -377,7 +379,12 @@ const BuildingModal = ({
                 {isMultiblockError && (
                   <div className="flex items-start gap-2 text-[10px] text-red-600 font-bold leading-tight">
                     <AlertCircle size={14} className="shrink-0 mt-0.5" />
-                    <span>Необходимо минимум: 1 жилой и 1 нежилой блок.</span>
+                    <span>Необходимо минимум: 1 жилой блок.</span>
+                  </div>
+                )}
+                {modal.category === 'residential' && (
+                  <div className="text-[10px] text-slate-500">
+                    Отдельный жилой дом может состоять из нескольких жилых блоков. Нежилые блоки не создаются.
                   </div>
                 )}
               </div>
@@ -644,7 +651,7 @@ const CompositionEditor = () => {
       category: item.category,
       quantity: 1,
       resBlocks: item.resBlocks || 0,
-      nonResBlocks: item.nonResBlocks || 0,
+      nonResBlocks: item.category === 'residential_multiblock' ? item.nonResBlocks || 0 : 0,
       hasNonResPart: item.hasNonResPart || false,
       baseName: item.label,
       houseNumber: item.houseNumber,
@@ -663,6 +670,11 @@ const CompositionEditor = () => {
 
     const isAbovegroundParking =
       modal.parkingType === 'ground' || modal.parkingType === 'aboveground';
+    const normalizedModal = {
+      ...modal,
+      nonResBlocks: modal.category === 'residential' ? 0 : modal.nonResBlocks,
+    };
+
     const buildingData = {
       label: modal.baseName,
       houseNumber: modal.houseNumber,
@@ -687,7 +699,7 @@ const CompositionEditor = () => {
     } else {
       for (let i = 0; i < modal.quantity; i++) {
         const label = modal.quantity > 1 ? `${modal.baseName} ${i + 1}` : modal.baseName;
-        const blocks = generateBlocksPayload(modal);
+        const blocks = generateBlocksPayload(normalizedModal);
 
         await createBuilding({
           buildingData: { ...buildingData, label },
@@ -779,7 +791,7 @@ const CompositionEditor = () => {
               },
               {
                 id: 'residential_multiblock',
-                label: 'Многоблочный',
+                label: 'Жилой дом + нежилые блоки',
                 icon: Layers,
                 color:
                   'text-slate-700 bg-white border-slate-200 hover:border-indigo-400 hover:text-indigo-600 hover:shadow-md',

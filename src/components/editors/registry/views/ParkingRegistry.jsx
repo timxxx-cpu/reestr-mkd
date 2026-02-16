@@ -136,7 +136,7 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
           >
             <ArrowLeft size={20} />
           </button>
-          <h2 className="text-lg font-bold text-slate-800">Реестр машиномест</h2>
+          <h2 className="text-lg font-bold text-slate-800">Инвентаризация машиномест</h2>
         </div>
       )}
 
