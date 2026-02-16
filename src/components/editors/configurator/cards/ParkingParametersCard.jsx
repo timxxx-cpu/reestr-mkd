@@ -1,14 +1,5 @@
 import React from 'react';
-import {
-  Car,
-  ArrowDown,
-  ArrowUp,
-  ArrowDownToLine,
-  Footprints,
-  MapPin,
-  Building2,
-  X,
-} from 'lucide-react';
+import { Car, ArrowDown, ArrowUp, Footprints, MapPin } from 'lucide-react';
 import { Card, SectionTitle, Label, Input, useReadOnly } from '@components/ui/UIKit';
 
 export default function ParkingParametersCard({
@@ -18,11 +9,6 @@ export default function ParkingParametersCard({
   errorBorder,
   availableParents,
   toggleParentBlock,
-  canAddBasement,
-  createBasement,
-  blockBasements,
-  updateBasement,
-  removeBasement,
   increment,
   decrement,
   renderCounterValue,
@@ -35,7 +21,6 @@ export default function ParkingParametersCard({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6">
         <div className="space-y-6">
-          {/* А. Подземный: Глубина и привязка */}
           {isUnderground ? (
             <div className="space-y-3">
               <Label className="flex items-center gap-2">
@@ -54,7 +39,7 @@ export default function ParkingParametersCard({
                   </button>
                 ))}
               </div>
-              {/* Привязка к домам (только для подземного) */}
+
               <div className="mt-4 p-4 bg-blue-50 rounded-xl border border-blue-100">
                 <Label className="flex items-center gap-2 mb-3 text-blue-800">
                   <MapPin size={14} /> Расположен под блоками:
@@ -100,83 +85,30 @@ export default function ParkingParametersCard({
               </div>
             </div>
           ) : (
-            /* Б. Наземный: Высота и Подвал */
-            <>
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <ArrowUp size={16} className="text-blue-600" /> Этажей вверх
-                </Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={details.floorsCount}
-                  onChange={e => {
-                    const val = e.target.value;
-                    if (val === '') {
-                      updateDetail('floorsCount', '');
-                      return;
-                    }
-                    updateDetail('floorsCount', parseInt(val));
-                  }}
-                  className={errorBorder('floorsCount')}
-                  disabled={isReadOnly}
-                />
-              </div>
-
-              {/* Подвал для наземного */}
-              <div className="pt-2">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
-                  <Label className="flex items-center gap-2">
-                    <ArrowDownToLine size={14} /> Подвал
-                  </Label>
-                  <button
-                    disabled={isReadOnly || !canAddBasement}
-                    onClick={createBasement}
-                    className={`px-2 py-1 rounded text-[10px] font-bold border transition-all ${canAddBasement && !isReadOnly ? 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200' : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed opacity-60'}`}
-                  >
-                    {canAddBasement ? '+ Добавить' : 'Макс. 1'}
-                  </button>
-                </div>
-                {blockBasements.map((base, idx) => (
-                  <div
-                    key={base.id}
-                    className="p-3 bg-slate-800 rounded-lg text-white mb-2 relative group flex items-center justify-between"
-                  >
-                    <div className="flex gap-3 items-center">
-                      <div className="w-8 h-8 flex items-center justify-center bg-slate-700 border border-slate-600 rounded font-bold text-xs">
-                        P-{idx + 1}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-slate-400">Глубина:</span>
-                        <input
-                          disabled={isReadOnly}
-                          type="number"
-                          value={-base.depth}
-                          onChange={e => {
-                            let val = parseInt(e.target.value);
-                            if (!isNaN(val)) updateBasement(base.id, 'depth', Math.abs(val));
-                          }}
-                          className="w-10 text-center bg-slate-900 border border-slate-600 rounded text-[10px] font-bold text-white outline-none py-0.5"
-                        />
-                      </div>
-                    </div>
-                    {!isReadOnly && (
-                      <button
-                        onClick={() => removeBasement(base.id)}
-                        className="text-slate-400 hover:text-white"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </>
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <ArrowUp size={16} className="text-blue-600" /> Этажей вверх
+              </Label>
+              <Input
+                type="number"
+                min="1"
+                max="10"
+                value={details.floorsCount}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (val === '') {
+                    updateDetail('floorsCount', '');
+                    return;
+                  }
+                  updateDetail('floorsCount', parseInt(val));
+                }}
+                className={errorBorder('floorsCount')}
+                disabled={isReadOnly}
+              />
+            </div>
           )}
         </div>
 
-        {/* В. Въезды и Входы (Общее) */}
         <div className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-100 h-fit">
           <div className="space-y-1">
             <Label className="flex items-center gap-2">
@@ -215,9 +147,7 @@ export default function ParkingParametersCard({
               >
                 -
               </button>
-              <span className="font-bold text-lg w-8 text-center">
-                {renderCounterValue(details.inputs)}
-              </span>
+              <span className="font-bold text-lg w-8 text-center">{renderCounterValue(details.inputs)}</span>
               <button
                 disabled={isReadOnly}
                 onClick={() => increment('inputs')}

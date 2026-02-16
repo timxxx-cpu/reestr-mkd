@@ -232,6 +232,9 @@ application_history: INSERT (action='COMPLETE_STEP')
 
 ## 9.4 Шаги `registry_res` / `registry_nonres`
 
+- На шаге `registry_nonres` обрабатываются только нежилые/инфраструктурные блоки (`type != Ж` и `type != B`).
+- Подвальные блоки (`type = B`) исключены из `registry_nonres` и настраиваются на отдельном шаге `basements`.
+
 - `building_blocks.floors_from/floors_to` -> `buildingDetails` -> **Диапазон этажности**.
 - `building_blocks.floors_count` -> `buildingDetails.floorsCount` -> **Количество этажей**.
 - `building_blocks.entrances_count` -> `buildingDetails.entrances` -> **Количество подъездов**.
@@ -256,6 +259,12 @@ application_history: INSERT (action='COMPLETE_STEP')
 - `block_engineering.has_firefighting` -> `engineering.firefighting` -> **Пожаротушение**.
 - `block_engineering.has_lowcurrent` -> `engineering.lowcurrent` -> **Слаботочные сети**.
 - `application_steps.block_statuses` -> `applicationInfo.stepBlockStatuses[currentStepIndex]` -> **Статус заполнения блоков/здания по текущему шагу (кнопка "Сохранить" в редакторе)**.
+
+## 9.4.1 Шаг `basements`
+
+- `basements.depth` -> UI глубина -> **Количество подвальных уровней**.
+- `basements.has_parking` -> UI флаг -> **Наличие паркинга в подвальном контуре**.
+- `basement_parking_levels.depth_level/is_enabled` -> UI уровни -> **Активные уровни подвального паркинга**.
 
 ## 9.5 Шаг `floors`
 

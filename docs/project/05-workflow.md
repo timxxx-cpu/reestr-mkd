@@ -119,8 +119,8 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
 | `REVISION` | `IN_PROGRESS` | Возвращено контролером на доработку | Контролер (REJECT) |
 | `PENDING_DECLINE` | `IN_PROGRESS` | Техник запросил отказ — на рассмотрении | Техник (REQUEST_DECLINE) |
 | `RETURNED_BY_MANAGER` | `IN_PROGRESS` | Начальник вернул технику (отказ не утвержден) | Начальник (RETURN_FROM_DECLINE) |
-| `INTEGRATION` | `IN_PROGRESS` | Этап интеграции с УЗКАД | Система при переходе на шаг 12 |
-| `DONE` | `COMPLETED` | Все шаги пройдены | Система при завершении шага 16 |
+| `INTEGRATION` | `IN_PROGRESS` | Этап интеграции с УЗКАД | Система при входе на шаг `integration_buildings` (индекс 13) |
+| `DONE` | `COMPLETED` | Все шаги пройдены | Система при завершении шага 17 |
 | `DECLINED_BY_ADMIN` | `DECLINED` | Отказано администратором | Админ (DECLINE) |
 | `DECLINED_BY_CONTROLLER` | `DECLINED` | Отказано контролером | Контролер (DECLINE) |
 | `DECLINED_BY_MANAGER` | `DECLINED` | Отказано начальником филиала | Начальник (DECLINE) |
@@ -172,7 +172,7 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
 
 **Автонормализация**: Если подстатус `RETURNED_BY_MANAGER`, при выполнении шага он сначала переходит в `DRAFT`.
 
-**Алгоритм**: При завершении checkpoint-а подстатус → `REVIEW`. При переходе на шаг 12 → `INTEGRATION`. При завершении шага 16 → `DONE` (внешний: `COMPLETED`).
+**Алгоритм**: При завершении checkpoint-а подстатус → `REVIEW`. Подстатус `INTEGRATION` выставляется при входе на шаг `integration_buildings` (индекс 13, после проверки этапа 3). При завершении шага 17 → `DONE` (внешний: `COMPLETED`).
 
 ### 5.3.2 ROLLBACK_STEP (Откат шага)
 
@@ -186,7 +186,7 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
 
 **Условие**: подстатус = `REVIEW`
 
-**Результат**: подстатус → `DRAFT` (или `INTEGRATION` для шага 12)
+**Результат**: подстатус → `DRAFT` (или `INTEGRATION` для шага `integration_buildings`, индекс 13)
 
 ### 5.3.4 REVIEW_REJECT (Возврат на доработку)
 
@@ -236,7 +236,7 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
 |---------|---------|-----|-----------|
 | `status` | `applicationInfo.status` | TEXT | Внешний статус (IN_PROGRESS/COMPLETED/DECLINED) |
 | `workflow_substatus` | `applicationInfo.workflowSubstatus` | TEXT | Подстатус workflow |
-| `current_step` | `applicationInfo.currentStepIndex` | INT | Текущий шаг (0-16) |
+| `current_step` | `applicationInfo.currentStepIndex` | INT | Текущий шаг (0-17) |
 | `current_stage` | `applicationInfo.currentStage` | INT | Текущий этап (1-4) |
 | `requested_decline_reason` | `applicationInfo.requestedDeclineReason` | TEXT | Причина запроса на отказ |
 | `requested_decline_step` | `applicationInfo.requestedDeclineStep` | INT | Шаг запроса на отказ |
@@ -273,10 +273,10 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
 
 | Этап | Последний шаг | Название | Шаги в этапе |
 |------|--------------|---------|-------------|
-| **1** | 5 | Этап 1: Инвентаризация | 0-5 (passport, composition, registry_nonres, registry_res, floors, entrances) |
-| **2** | 8 | Этап 2: Конфигурация | 6-8 (apartments, mop, parking_config) |
-| **3** | 11 | Этап 3: Реестры | 9-11 (registry_apartments, registry_commercial, registry_parking) |
-| **4** | 16 | Финал: Интеграция | 12-16 (integration_buildings, integration_units, registry_nonres_view, registry_res_view, summary) |
+| **1** | 6 | Этап 1: Инвентаризация | 0-6 (passport, composition, registry_nonres, registry_res, basements, floors, entrances) |
+| **2** | 9 | Этап 2: Конфигурация | 7-9 (apartments, mop, parking_config) |
+| **3** | 12 | Этап 3: Реестры | 10-12 (registry_apartments, registry_commercial, registry_parking) |
+| **4** | 17 | Финал: Интеграция | 13-17 (integration_buildings, integration_units, registry_nonres_view, registry_res_view, summary) |
 
 ### Полный список шагов
 
@@ -286,19 +286,20 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
 | 1 | `composition` | Здания и сооружения | 1 | - |
 | 2 | `registry_nonres` | Нежилые блоки и инфраструктура | 1 | - |
 | 3 | `registry_res` | Жилые блоки | 1 | - |
-| 4 | `floors` | Внешняя инвентаризация | 1 | - |
-| 5 | `entrances` | Инвентаризация подъездов | 1 | ✓ CHECKPOINT 1 |
-| 6 | `apartments` | Присвоение номеров квартирам | 2 | - |
-| 7 | `mop` | Инвентаризация МОП | 2 | - |
-| 8 | `parking_config` | Инвентаризация паркингов | 2 | ✓ CHECKPOINT 2 |
-| 9 | `registry_apartments` | Инвентаризация квартир | 3 | - |
-| 10 | `registry_commercial` | Инвентаризация нежилых объектов | 3 | - |
-| 11 | `registry_parking` | Инвентаризация машиномест | 3 | ✓ CHECKPOINT 3 |
-| 12 | `integration_buildings` | Регистрация зданий (УЗКАД) | 4 | - |
-| 13 | `integration_units` | Регистрация помещений (УЗКАД) | 4 | - |
-| 14 | `registry_nonres_view` | Сводная по нежилым блокам | 4 | - |
-| 15 | `registry_res_view` | Сводная по жилым блокам | 4 | - |
-| 16 | `summary` | Сводная по ЖК | 4 | ✓ FINAL |
+| 4 | `basements` | Инвентаризация подвалов | 1 | - |
+| 5 | `floors` | Внешняя инвентаризация | 1 | - |
+| 6 | `entrances` | Инвентаризация подъездов | 1 | ✓ CHECKPOINT 1 |
+| 7 | `apartments` | Присвоение номеров квартирам | 2 | - |
+| 8 | `mop` | Инвентаризация МОП | 2 | - |
+| 9 | `parking_config` | Инвентаризация паркингов | 2 | ✓ CHECKPOINT 2 |
+| 10 | `registry_apartments` | Инвентаризация квартир | 3 | - |
+| 11 | `registry_commercial` | Инвентаризация нежилых объектов | 3 | - |
+| 12 | `registry_parking` | Инвентаризация машиномест | 3 | ✓ CHECKPOINT 3 |
+| 13 | `integration_buildings` | Регистрация зданий (УЗКАД) | 4 | - |
+| 14 | `integration_units` | Регистрация помещений (УЗКАД) | 4 | - |
+| 15 | `registry_nonres_view` | Сводная по нежилым блокам | 4 | - |
+| 16 | `registry_res_view` | Сводная по жилым блокам | 4 | - |
+| 17 | `summary` | Сводная по ЖК | 4 | ✓ FINAL |
 
 ## 5.6 Повторная подача заявки по ЖК (новый функционал)
 

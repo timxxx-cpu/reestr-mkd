@@ -87,7 +87,7 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
 
   const relevantBlocks = blocks.filter(b => {
     if (mode === 'res') return b.type === 'Ж';
-    if (mode === 'nonres') return b.type !== 'Ж';
+    if (mode === 'nonres') return b.type !== 'Ж' && b.type !== 'B';
     return true;
   });
 
@@ -818,7 +818,7 @@ const validateParkingConfig = data => {
           errors.push({ title: building.label, description: 'Не создано ни одного машиноместа.' });
         }
       }
-    } else if (building.category.includes('residential')) {
+    } else {
       const basementBlocks = blocks.filter(block => block.type === 'B');
 
       basementBlocks.forEach(baseBlock => {

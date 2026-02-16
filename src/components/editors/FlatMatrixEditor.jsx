@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Wand2,
   Building2,
@@ -109,7 +109,7 @@ const getBlockIcon = type => {
 };
 
 export default function FlatMatrixEditor({ buildingId, onBack }) {
-  const { projectId, buildingDetails, saveStepBuildingStatuses } = useProject();
+  const { projectId, buildingDetails } = useProject();
   const isReadOnly = useReadOnly();
   const toast = useToast();
 
@@ -164,29 +164,47 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
   const [showResetModal, setShowResetModal] = useState(false);
   const [confirmDuplexFloor, setConfirmDuplexFloor] = useState(null); 
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isSaving, setIsSaving] = useState(false); // [NEW] Состояние сохранения шага
   const [startNum, setStartNum] = useState(1);
+  const autoGenerationInFlightRef = useRef(new Set());
 
   useEffect(() => {
     if (isUnitsLoading || !currentBlock || isReadOnly) return;
-    if (units.length === 0 && entrances.length > 0 && displayFloors.length > 0) {
-       const hasPlannedApts = Object.values(matrixMap).some(v => parseInt(v.apts) > 0);
-       if (hasPlannedApts) {
-          setIsGenerating(true);
-          const initialUnits = generateInitialUnits(1);
-          batchUpsertUnits(initialUnits)
-            .then(() => {
-                toast.success(`Сгенерировано ${initialUnits.length} помещений`);
-                setIsGenerating(false);
-            })
-            .catch(e => {
-                console.error(e);
-                toast.error('Ошибка генерации');
-                setIsGenerating(false);
-            });
-       }
-    }
-  }, [isUnitsLoading, units.length, currentBlock, isReadOnly, entrances.length, displayFloors.length]); 
+    if (!(units.length === 0 && entrances.length > 0 && displayFloors.length > 0)) return;
+
+    const hasPlannedApts = Object.values(matrixMap).some(v => parseInt(v.apts || 0, 10) > 0);
+    if (!hasPlannedApts) return;
+
+    const generationKey = currentBlock.id;
+    if (autoGenerationInFlightRef.current.has(generationKey)) return;
+    autoGenerationInFlightRef.current.add(generationKey);
+
+    setIsGenerating(true);
+    const initialUnits = generateInitialUnits(1);
+
+    batchUpsertUnits(initialUnits)
+      .then(() => {
+        toast.success(`Сгенерировано ${initialUnits.length} помещений`);
+      })
+      .catch(e => {
+        console.error(e);
+        toast.error('Ошибка генерации');
+      })
+      .finally(() => {
+        autoGenerationInFlightRef.current.delete(generationKey);
+        setIsGenerating(false);
+      });
+  }, [
+    isUnitsLoading,
+    currentBlock,
+    isReadOnly,
+    units.length,
+    entrances.length,
+    displayFloors.length,
+    matrixMap,
+    generateInitialUnits,
+    batchUpsertUnits,
+    toast,
+  ]);
 
   const handleEditClick = (unit, floor) => {
     if (!floor?.isDuplex) {
@@ -300,21 +318,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     }
   };
 
-  // [UPDATED] Сохранение прогресса и выход
-  const handleSaveStep = async () => {
-      setIsSaving(true);
-      try {
-        await saveStepBuildingStatuses({ stepId: 'apartments', buildingId: building.id });
-        toast.success('Конфигурация квартир сохранена');
-        onBack(); // Возврат к списку
-      } catch (e) {
-        console.error(e);
-        toast.error('Ошибка при сохранении статуса');
-      } finally {
-        setIsSaving(false);
-      }
-  };
-
   const colWidths = useMemo(() => {
     const widths = {};
     entrances.forEach(e => {
@@ -337,7 +340,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
   return (
     <div className="flex flex-col h-[calc(100vh-200px)] min-h-[500px] w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in duration-500 overflow-hidden pb-4">
       
-      <BlockingLoader isOpen={isGenerating || isSaving} message={isSaving ? "Сохранение прогресса..." : "Обработка данных..."} />
+      <BlockingLoader isOpen={isGenerating} message="Обработка данных..." />
 
       <ConfigHeader
         building={building}
@@ -345,10 +348,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         isInfrastructure={isInfrastructure}
         isUnderground={isUnderground}
         onBack={onBack}
-        showSaveButton={true}
-        onSave={handleSaveStep}
-        saveDisabled={isReadOnly || isGenerating || isSaving} // Блокируем при сохранении
-        saveLabel={isSaving ? 'Сохранение...' : 'Сохранить и выйти'}
+        showSaveButton={false}
       />
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 shrink-0">

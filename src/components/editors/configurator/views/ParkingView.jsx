@@ -5,14 +5,12 @@ import { Tent, Warehouse, Store, Car } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { Card, SectionTitle, Label, useReadOnly } from '@components/ui/UIKit';
 import { BuildingConfigSchema } from '@lib/schemas';
-import { createClientId } from '@lib/utils';
 import { useValidation } from '@hooks/useValidation';
 
 // Карточки
 import ConstructiveCard from '../cards/ConstructiveCard';
 import EngineeringCard from '../cards/EngineeringCard';
 import ParkingParametersCard from '../cards/ParkingParametersCard';
-import BasementCard from '../cards/BasementCard'; // [NEW]
 
 export default function ParkingView({ building, typeInfo }) {
   const { buildingDetails, setBuildingDetails, composition } = useProject();
@@ -22,9 +20,7 @@ export default function ParkingView({ building, typeInfo }) {
 
   const blockId = building.blocks?.[0]?.id || 'main';
   const detailsKey = `${building.id}_${blockId}`;
-  const featuresKey = `${building.id}_features`;
 
-  const features = buildingDetails[featuresKey] || { basements: [] };
 
   const defaultDetails = {
     foundation: '',
@@ -54,40 +50,6 @@ export default function ParkingView({ building, typeInfo }) {
   const updateDetail = (key, val) => {
     if (isReadOnly) return;
     setBuildingDetails(prev => ({ ...prev, [detailsKey]: { ...details, [key]: val } }));
-  };
-
-  const updateFeatures = updates => {
-    if (isReadOnly) return;
-    setBuildingDetails(prev => ({ ...prev, [featuresKey]: { ...features, ...updates } }));
-  };
-
-  // Логика подвала (для паркингов это редкость, но архитектурно оставим)
-  const blockBasements = (features.basements || []).filter(
-    b => b.blockId === blockId || b.blocks?.includes(blockId)
-  );
-  const canAddBasement = blockBasements.length < 1;
-
-  const createBlockBasement = () => {
-    if (isReadOnly || !canAddBasement) return;
-    const newB = {
-      id: createClientId(),
-      depth: 1,
-      blocks: [blockId],
-      buildingId: building.id,
-      blockId,
-    };
-    updateFeatures({ basements: [...(features.basements || []), newB] });
-  };
-
-  const removeBasement = id => {
-    if (isReadOnly) return;
-    updateFeatures({ basements: (features.basements || []).filter(b => b.id !== id) });
-  };
-
-  const updateBasement = (id, field, val) => {
-    if (isReadOnly) return;
-    const updated = (features.basements || []).map(b => (b.id === id ? { ...b, [field]: val } : b));
-    updateFeatures({ basements: updated });
   };
 
   const availableParents = composition
@@ -192,11 +154,6 @@ export default function ParkingView({ building, typeInfo }) {
           errorBorder={errorBorder}
           availableParents={availableParents}
           toggleParentBlock={toggleParentBlock}
-          canAddBasement={canAddBasement}
-          createBasement={createBlockBasement}
-          blockBasements={blockBasements}
-          updateBasement={updateBasement}
-          removeBasement={removeBasement}
           increment={increment}
           decrement={decrement}
           renderCounterValue={renderCounterValue}
@@ -209,15 +166,6 @@ export default function ParkingView({ building, typeInfo }) {
 
       <div className="xl:col-span-6 space-y-6">
         <ConstructiveCard details={details} updateDetail={updateDetail} errors={errors} />
-        {isUnderground && (
-          <BasementCard
-            blockBasements={blockBasements}
-            canAddBasement={canAddBasement}
-            createBlockBasement={createBlockBasement}
-            removeBasement={removeBasement}
-            updateBasement={updateBasement}
-          />
-        )}
       </div>
     </div>
   );

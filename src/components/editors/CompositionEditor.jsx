@@ -86,19 +86,45 @@ const generateBlocksPayload = params => {
       });
     }
   } else if (category === 'parking_separate') {
+    const mainBlockId = crypto.randomUUID();
     blocks.push({
-      id: crypto.randomUUID(),
+      id: mainBlockId,
       type: 'parking',
       label: parkingType === 'underground' ? 'Подземный паркинг' : 'Наземный паркинг',
       index: 0,
     });
+
+    const bCount = Math.min(4, Math.max(0, parseInt(basementsCount) || 0));
+    for (let i = 0; i < bCount; i++) {
+      blocks.push({
+        id: crypto.randomUUID(),
+        type: 'basement',
+        label: `Подвал ${i + 1}`,
+        index: 1 + i,
+        levelsDepth: 1,
+        parentBlocks: [mainBlockId],
+      });
+    }
   } else if (category === 'infrastructure') {
+    const mainBlockId = crypto.randomUUID();
     blocks.push({
-      id: crypto.randomUUID(),
+      id: mainBlockId,
       type: 'infrastructure',
       label: infraType || 'Объект инфраструктуры',
       index: 0,
     });
+
+    const bCount = Math.min(4, Math.max(0, parseInt(basementsCount) || 0));
+    for (let i = 0; i < bCount; i++) {
+      blocks.push({
+        id: crypto.randomUUID(),
+        type: 'basement',
+        label: `Подвал ${i + 1}`,
+        index: 1 + i,
+        levelsDepth: 1,
+        parentBlocks: [mainBlockId],
+      });
+    }
   }
 
   return blocks;
@@ -461,6 +487,23 @@ const BuildingModal = ({
                     </Select>
                   </div>
                 )}
+                <div className="space-y-1.5">
+                  <Label>Подвальных блоков</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="4"
+                    value={modal.basementsCount}
+                    onChange={e =>
+                      setModal(m => ({
+                        ...m,
+                        basementsCount: Math.min(4, Math.max(0, parseInt(e.target.value) || 0)),
+                      }))
+                    }
+                    disabled={modal.editingId || isSaving}
+                  />
+                  <div className="text-[10px] text-slate-500">0-4. Настраиваются на шаге «Инвентаризация подвалов».</div>
+                </div>
               </div>
             )}
             {modal.category === 'infrastructure' && (
@@ -477,6 +520,23 @@ const BuildingModal = ({
                     </option>
                   ))}
                 </Select>
+                <div className="space-y-1.5">
+                  <Label>Подвальных блоков</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="4"
+                    value={modal.basementsCount}
+                    onChange={e =>
+                      setModal(m => ({
+                        ...m,
+                        basementsCount: Math.min(4, Math.max(0, parseInt(e.target.value) || 0)),
+                      }))
+                    }
+                    disabled={modal.editingId || isSaving}
+                  />
+                  <div className="text-[10px] text-slate-500">0-4. Настраиваются на шаге «Инвентаризация подвалов».</div>
+                </div>
               </div>
             )}
             <div className="space-y-1.5">
@@ -708,7 +768,7 @@ const CompositionEditor = () => {
     const normalizedModal = {
       ...modal,
       nonResBlocks: modal.category === 'residential' ? 0 : modal.nonResBlocks,
-      basementsCount: modal.category.includes('residential') ? modal.basementsCount : 0,
+      basementsCount: ['residential', 'residential_multiblock', 'parking_separate', 'infrastructure'].includes(modal.category) ? modal.basementsCount : 0,
     };
 
     const buildingData = {

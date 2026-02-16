@@ -143,7 +143,7 @@ const ParkingRow = ({ row, isReadOnly, counts, basements, onToggle, onCountChang
 };
 
 export default function ParkingConfigurator({ buildingId }) {
-  const { projectId } = useProject();
+  const { projectId, buildingDetails } = useProject();
   const isReadOnly = useReadOnly();
 
   const { buildings, isLoading: loadingBuildings } = useDirectBuildings(projectId);
@@ -171,10 +171,13 @@ export default function ParkingConfigurator({ buildingId }) {
 
         if (isParkingBuilding) {
           const isUnderground = b.parkingType === 'underground';
-          const floorsCount = block.floorsCount || 1;
+          const blockDetails = buildingDetails?.[`${b.id}_${block.id}`] || {};
+          const levelsCount = isUnderground
+            ? Math.max(1, parseInt(blockDetails.levelsDepth || 0, 10) || 1)
+            : Math.max(1, parseInt(blockDetails.floorsCount || 0, 10) || 1);
 
           if (isUnderground) {
-            for (let i = 1; i <= floorsCount; i++) {
+            for (let i = 1; i <= levelsCount; i++) {
               rows.push({
                 ...commonData,
                 id: `level_minus_${i}`,
@@ -185,7 +188,7 @@ export default function ParkingConfigurator({ buildingId }) {
               });
             }
           } else {
-            for (let i = 1; i <= floorsCount; i++) {
+            for (let i = 1; i <= levelsCount; i++) {
               rows.push({
                 ...commonData,
                 id: `floor_${i}`,
@@ -247,7 +250,7 @@ export default function ParkingConfigurator({ buildingId }) {
       });
     });
     return rows;
-  }, [buildings, basements, buildingId]);
+  }, [buildings, basements, buildingId, buildingDetails]);
 
   if (loadingBuildings)
     return (

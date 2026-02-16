@@ -47,7 +47,7 @@ export default function StandardView({ building, mode }) {
 
   const visibleBlocks = useMemo(() => {
     if (mode === 'res') return blocksList.filter(b => b.type === 'Ж');
-    if (mode === 'nonres') return blocksList.filter(b => b.type !== 'Ж');
+    if (mode === 'nonres') return blocksList.filter(b => b.type !== 'Ж' && b.type !== 'B');
     return blocksList;
   }, [blocksList, mode]);
 
