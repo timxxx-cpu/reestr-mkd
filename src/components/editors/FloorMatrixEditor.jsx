@@ -102,9 +102,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
   }, [building, activeBlockIndex]);
 
   // 4. Этажи из БД
-  const { floors, isLoading, updateFloor, generateFloors, isMutating } = useDirectFloors(
-    currentBlock?.id
-  );
+  const { floors, isLoading, updateFloor, isMutating } = useDirectFloors(currentBlock?.id);
 
   const hiddenStylobateFloorsCount = useMemo(() => {
     if (currentBlock?.type !== 'residential') return 0;
@@ -143,18 +141,6 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  const handleGenerateMissing = async () => {
-    if (!currentBlock) return;
-    if (confirm('Сгенерировать сетку этажей на основе настроек блока?')) {
-      setHasUnsavedChanges(true); // [NEW]
-      await generateFloors({
-        floorsFrom: 1,
-        floorsTo: 9,
-        defaultType: currentBlock.type === 'residential' ? 'residential' : 'office',
-      });
-    }
-  };
 
   const handleInput = (id, field, value) => {
     if (isReadOnly) return;
@@ -463,15 +449,9 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
           </div>
           <h3 className="text-xl font-bold text-slate-700">Сетка этажей пуста</h3>
           <p className="text-slate-500 max-w-md text-sm">
-            Этажи еще не созданы в базе данных. Вы можете сгенерировать их сейчас.
+            Этажи не найдены в базе. Они формируются на шагах «Жилые блоки» /
+            «Нежилые блоки и инфраструктура» при сохранении конфигурации в карточке объекта.
           </p>
-          <button
-            onClick={handleGenerateMissing}
-            disabled={isMutating}
-            className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
-          >
-            {isMutating ? <Loader2 className="animate-spin" /> : 'Сгенерировать этажи'}
-          </button>
         </div>
       </div>
     );

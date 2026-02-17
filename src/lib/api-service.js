@@ -307,6 +307,82 @@ const syncFloorsForBlockFromDetails = async (building, currentBlock, buildingDet
   }
 };
 
+const ensureEntranceMatrixForBlock = async blockId => {
+  if (!blockId) return;
+
+  const [{ data: floors = [], error: floorsErr }, { data: entrances = [], error: entrancesErr }] =
+    await Promise.all([
+      supabase.from('floors').select('id').eq('block_id', blockId),
+      supabase.from('entrances').select('number').eq('block_id', blockId),
+    ]);
+
+  if (floorsErr) throw floorsErr;
+  if (entrancesErr) throw entrancesErr;
+
+  const floorIds = floors.map(row => row.id).filter(Boolean);
+  const entranceNumbers = entrances
+    .map(row => Number(row.number))
+    .filter(number => Number.isFinite(number) && number > 0);
+
+  if (floorIds.length === 0 || entranceNumbers.length === 0) {
+    const { error: clearErr } = await supabase.from('entrance_matrix').delete().eq('block_id', blockId);
+    if (clearErr) throw clearErr;
+    return;
+  }
+
+  const { data: existingRows = [], error: existingErr } = await supabase
+    .from('entrance_matrix')
+    .select('id, floor_id, entrance_number')
+    .eq('block_id', blockId);
+
+  if (existingErr) throw existingErr;
+
+  const floorIdSet = new Set(floorIds);
+  const entranceSet = new Set(entranceNumbers);
+  const existingKeySet = new Set();
+  const staleIds = [];
+
+  (existingRows || []).forEach(row => {
+    const floorId = row.floor_id;
+    const entranceNumber = Number(row.entrance_number);
+
+    if (!floorIdSet.has(floorId) || !entranceSet.has(entranceNumber)) {
+      if (row.id) staleIds.push(row.id);
+      return;
+    }
+
+    existingKeySet.add(`${floorId}|${entranceNumber}`);
+  });
+
+  if (staleIds.length > 0) {
+    const { error: deleteErr } = await supabase.from('entrance_matrix').delete().in('id', staleIds);
+    if (deleteErr) throw deleteErr;
+  }
+
+  const missingPayload = [];
+  floorIds.forEach(floorId => {
+    entranceNumbers.forEach(entranceNumber => {
+      const key = `${floorId}|${entranceNumber}`;
+      if (!existingKeySet.has(key)) {
+        missingPayload.push({
+          block_id: blockId,
+          floor_id: floorId,
+          entrance_number: entranceNumber,
+          updated_at: new Date(),
+        });
+      }
+    });
+  });
+
+  if (missingPayload.length > 0) {
+    const { error: upsertErr } = await supabase
+      .from('entrance_matrix')
+      .upsert(missingPayload, { onConflict: UPSERT_ON_CONFLICT.entrance_matrix });
+    if (upsertErr) throw upsertErr;
+  }
+};
+
+
 const VERSION_STATUS_FLOW = {
   PENDING: 'PENDING',
   CURRENT: 'CURRENT',
@@ -2434,6 +2510,7 @@ const LegacyApiService = {
     const promises = [];
     const floorSyncTargets = [];
     const entranceSyncTargets = [];
+    const matrixSyncTargets = [];
     let versioningSyncInfo = null;
 
     // 1. Обновление Project/App Info
@@ -2632,6 +2709,7 @@ const LegacyApiService = {
           };
           promises.push(supabase.from('building_blocks').update(blockUpdate).eq('id', blockId));
           floorSyncTargets.push({ buildingId, blockId });
+          matrixSyncTargets.push(blockId);
 
           const desiredEntrancesRaw = details.entrances ?? details.inputs;
           const desiredEntrances = parseInt(desiredEntrancesRaw, 10);
@@ -2902,6 +2980,13 @@ const LegacyApiService = {
           currentBlock,
           generalData.buildingDetails || {}
         );
+      }
+    }
+
+    if (matrixSyncTargets.length > 0) {
+      const uniqueMatrixTargets = Array.from(new Set(matrixSyncTargets.filter(Boolean)));
+      for (const blockId of uniqueMatrixTargets) {
+        await ensureEntranceMatrixForBlock(blockId);
       }
     }
 

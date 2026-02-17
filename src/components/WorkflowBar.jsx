@@ -648,11 +648,20 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       }
       await new Promise(resolve => setTimeout(resolve, 380));
 
-      await saveProjectImmediate({ shouldRefetch: false });
-      await waitForPendingMutations();
+      if (isCustomSaveStep && hasUnsavedChanges) {
+        setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+        toast.error('Сначала сохраните изменения через кнопку "Сохранить" в форме шага.');
+        return;
+      }
 
-      const refetchResult = await refetch();
-      const dbSnapshot = refetchResult?.data;
+      let dbSnapshot = null;
+      if (!isCustomSaveStep) {
+        await saveProjectImmediate({ shouldRefetch: false });
+        await waitForPendingMutations();
+
+        const refetchResult = await refetch();
+        dbSnapshot = refetchResult?.data;
+      }
 
       const currentStepId = STEPS_CONFIG[currentStep]?.id;
       const fallbackSnapshot =
@@ -692,7 +701,9 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     });
 
     try {
-      const nextIndex = await completeTask(currentStep);
+      const nextIndex = await completeTask(currentStep, {
+        persistBeforeTransition: !isCustomSaveStep,
+      });
       setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
 
       if (isStageBoundary || isLastStepGlobal) {
