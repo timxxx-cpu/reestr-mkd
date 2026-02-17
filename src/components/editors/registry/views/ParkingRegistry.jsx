@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Car, CheckCircle2, Loader2, Search, ArrowLeft } from 'lucide-react';
-import { Button, Card, DebouncedInput } from '@components/ui/UIKit';
+import { Car, CheckCircle2, Loader2, ArrowLeft, Wand2, Building2, MapPin, FileText } from 'lucide-react';
+import { Button, Card, useReadOnly } from '@components/ui/UIKit';
 import EmptyState from '@components/ui/EmptyState';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { formatFullIdentifier } from '@lib/uj-identifier';
@@ -16,12 +16,19 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
   const toast = useToast();
   const { complexInfo, saveProjectImmediate, setHasUnsavedChanges } = useProject();
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
+  const isReadOnly = useReadOnly(); // Получаем статус режима чтения для скрытия кнопок
 
-  const [searchTerm, setSearchTerm] = useState('');
   const [editingUnit, setEditingUnit] = useState(null);
   const [isStepSaving, setIsStepSaving] = useState(false);
+  const [isAutoFilling, setIsAutoFilling] = useState(false);
   
   const projectUjCode = complexInfo?.ujCode;
+
+  // Получаем информацию о текущем здании для шапки
+  const currentBuilding = useMemo(() => {
+    if (!fullRegistry?.buildings) return null;
+    return fullRegistry.buildings.find(b => b.id === buildingId);
+  }, [fullRegistry, buildingId]);
 
   const { data, stats } = useMemo(() => {
     if (!fullRegistry || !fullRegistry.units) return { data: [], stats: null };
@@ -54,36 +61,32 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
       };
     });
 
-    // [NEW] Фильтруем по зданию
+    // Фильтруем по зданию (если выбрано)
     if (buildingId) {
         enriched = enriched.filter(item => item.buildingId === buildingId);
     }
 
-    // 3. Поиск
-    const filtered = enriched.filter(item => {
-      if (!searchTerm) return true;
-      return String(item.number || item.num || '')
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase());
+    // Сортировка
+    const sortedData = enriched.sort((a, b) => {
+       if (a.buildingId !== b.buildingId) return a.buildingId.localeCompare(b.buildingId);
+       return String(a.number || '').localeCompare(String(b.number || ''), 'ru', { numeric: true });
     });
 
     // 4. Статистика
-    const totalArea = filtered.reduce((sum, item) => sum + (parseFloat(item.area) || 0), 0);
-    const totalSold = filtered.filter(i => i.isSold).length;
+    const totalArea = sortedData.reduce((sum, item) => sum + (parseFloat(item.area) || 0), 0);
+    const totalReady = sortedData.filter(i => i.number && parseFloat(i.area) > 0).length;
 
     return {
-      data: filtered.sort((a, b) =>
-        String(a.number || '').localeCompare(String(b.number || ''), 'ru', { numeric: true })
-      ),
+      data: sortedData,
       stats: {
-        count: filtered.length,
+        count: sortedData.length,
         area: totalArea,
-        sold: totalSold,
+        ready: totalReady,
       },
     };
-  }, [fullRegistry, searchTerm, buildingId]);
+  }, [fullRegistry, buildingId]);
 
-  // [NEW] Логика сохранения
+  // Логика сохранения одного юнита
   const handleSaveUnit = async (originalUnit, changes) => {
     try {
       const mergedData = { ...originalUnit, ...changes };
@@ -119,8 +122,55 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
     }
   };
 
+  // Логика автозаполнения
+  const handleAutoFill = async () => {
+    if (isReadOnly) return;
+    if (data.length === 0) return;
+    if (!window.confirm('Автоматически присвоить номера и площадь (13.25м²) пустым местам?')) return;
+
+    setIsAutoFilling(true);
+    try {
+        const updates = [];
+        data.forEach((item, index) => {
+            const needsNumber = !item.number;
+            const needsArea = !parseFloat(item.area);
+
+            if (needsNumber || needsArea) {
+                updates.push({
+                    id: item.id,
+                    floorId: item.floorId,
+                    type: item.type,
+                    num: item.number || String(index + 1),
+                    area: parseFloat(item.area) > 0 ? item.area : '13.25',
+                    isSold: item.isSold
+                });
+            }
+        });
+
+        if (updates.length === 0) {
+            toast.info('Все места уже заполнены');
+            return;
+        }
+
+        if (ApiService.batchUpsertUnits) {
+            await ApiService.batchUpsertUnits(updates);
+        } else {
+            await Promise.all(updates.map(u => ApiService.upsertUnit(u)));
+        }
+
+        await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
+        toast.success(`Обновлено ${updates.length} мест`);
+
+    } catch (error) {
+        console.error('Autofill error:', error);
+        toast.error('Ошибка автозаполнения');
+    } finally {
+        setIsAutoFilling(false);
+    }
+  };
+
   const handleStepSave = async () => {
-    if (isStepSaving) return;
+    if (isReadOnly || isStepSaving) return;
 
     setIsStepSaving(true);
     try {
@@ -144,7 +194,7 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
 
   return (
     <div className="space-y-6 px-4 md:px-6 2xl:px-8 pb-10">
-      {/* [NEW] Header с кнопкой назад */}
+      {/* Header */}
       {buildingId && onBack && (
         <div className="flex items-center gap-4 mb-4 pt-4 border-b border-slate-200 pb-4">
           <button 
@@ -153,110 +203,171 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
           >
             <ArrowLeft size={20} />
           </button>
-          <h2 className="text-lg font-bold text-slate-800">Инвентаризация машиномест</h2>
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">Инвентаризация машиномест</h2>
+            <p className="text-sm text-slate-500">Заполнение реестра паркинга</p>
+          </div>
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-xs text-slate-500 font-bold uppercase">Всего мест</div>
-          <div className="text-2xl font-black text-slate-800">{stats?.count || 0}</div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-xs text-slate-500 font-bold uppercase">Общая площадь</div>
-          <div className="text-2xl font-black text-blue-600">
-            {stats?.area?.toFixed(1) || 0} <span className="text-sm text-slate-400">м²</span>
+      {/* Инфо карточка */}
+      {currentBuilding && (
+        <Card className="p-5 bg-white border border-slate-200 shadow-sm rounded-xl">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 flex items-center justify-center bg-blue-50 text-blue-600 rounded-xl">
+                <Building2 size={24} />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg text-slate-800 leading-tight">
+                  {currentBuilding.label}
+                </h3>
+                <div className="flex items-center gap-3 mt-1 text-sm text-slate-500">
+                    <span className="font-medium bg-slate-100 px-2 py-0.5 rounded text-slate-600">
+                        Дом {currentBuilding.houseNumber}
+                    </span>
+                    {currentBuilding.cadastreNumber && (
+                        <span className="flex items-center gap-1 font-mono text-xs">
+                            <FileText size={12} /> {currentBuilding.cadastreNumber}
+                        </span>
+                    )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-8 border-l border-slate-100 pl-8">
+              <div>
+                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Мест</div>
+                <div className="text-2xl font-black text-slate-800">{stats?.count || 0}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Площадь</div>
+                <div className="text-2xl font-black text-blue-600">
+                  {stats?.area?.toFixed(0) || 0} <span className="text-sm text-slate-400 font-medium">м²</span>
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Готово</div>
+                <div className={`text-2xl font-black ${stats?.ready === stats?.count ? 'text-emerald-600' : 'text-amber-500'}`}>
+                  {stats?.ready || 0}<span className="text-lg text-slate-300 font-normal">/{stats?.count}</span>
+                </div>
+              </div>
+            </div>
           </div>
+        </Card>
+      )}
+
+      {/* Панель действий */}
+      <div className="flex justify-between items-center min-h-[40px]">
+        <div className="flex gap-2">
+            {!isReadOnly && (
+                <Button 
+                    variant="secondary"
+                    onClick={handleAutoFill} 
+                    disabled={isAutoFilling || data.length === 0}
+                    className="flex items-center gap-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-200 shadow-sm"
+                >
+                    {isAutoFilling ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+                    Автозаполнение
+                </Button>
+            )}
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-xs text-slate-500 font-bold uppercase">Заполено</div>
-          <div className="text-2xl font-black text-red-600">{stats?.sold || 0}</div>
-        </div>
+
+        {!isReadOnly && (
+            <Button onClick={handleStepSave} disabled={isStepSaving} className="shrink-0 shadow-sm">
+            {isStepSaving ? <><Loader2 size={16} className="animate-spin mr-2" />Сохраняем...</> : 'Сохранить шаг'}
+            </Button>
+        )}
       </div>
 
-      <div className="flex gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-          <DebouncedInput
-            value={searchTerm}
-            onChange={setSearchTerm}
-            placeholder="Поиск по номеру места..."
-            className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:border-blue-500 outline-none"
-          />
-        </div>
-        <Button onClick={handleStepSave} disabled={isStepSaving} className="shrink-0">
-          {isStepSaving ? <><Loader2 size={16} className="animate-spin mr-2" />Сохраняем...</> : 'Сохранить шаг'}
-        </Button>
-      </div>
-
+      {/* Таблица */}
       <Card className="overflow-hidden border-0 shadow-lg ring-1 ring-slate-200 rounded-xl mx-4 md:mx-0">
-        <div className="overflow-auto max-h-[60vh]">
+        <div className="overflow-auto max-h-[65vh]">
           <table className="w-full text-left border-collapse">
-            <thead className="bg-slate-800 text-slate-200 border-b border-slate-700 text-[10px] uppercase font-bold sticky top-0 z-20 shadow-md">
+            <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 text-xs uppercase font-bold sticky top-0 z-20">
               <tr>
-                <th className="p-4 w-12 text-center text-slate-400">№</th>
-                <th className="p-4 w-20 text-center">Дом</th>
-                <th className="p-4 w-32 text-center border-l border-slate-700">Номер места</th>
-                <th className="p-4 border-l border-slate-700">Тип</th>
-                <th className="p-4 text-center">Уровень</th>
-                <th className="p-4 text-right bg-slate-700/50 text-emerald-300 border-l border-slate-700">
-                  Площадь (м²)
-                </th>
-                <th className="p-4 text-center border-l border-slate-700">Заполнение</th>
+                <th className="py-3 px-4 w-12 text-center text-slate-400">№</th>
+                <th className="py-3 px-4 w-24 text-center">Дом</th>
+                <th className="py-3 px-4 w-28 text-center">Номер</th>
+                <th className="py-3 px-4 w-64 text-left">UJ-Код</th>
+                <th className="py-3 px-4 w-32 text-center">Уровень</th>
+                <th className="py-3 px-4 w-24 text-right">Площадь</th>
+                <th className="py-3 px-4 w-32 text-center">Статус</th>
               </tr>
             </thead>
-            <tbody className="bg-white text-sm">
+            <tbody className="bg-white text-sm divide-y divide-slate-100">
               {data.length > 0 ? (
                 data.map((item, index) => {
-                  const isFilled = parseFloat(item.area) > 0;
+                  const hasArea = parseFloat(item.area) > 0;
+                  const hasNumber = !!item.number;
+                  const isReady = hasArea && hasNumber;
+
                   return (
                     <tr
                       key={item.id}
-                      onClick={() => setEditingUnit(item)}
-                      className="group cursor-pointer hover:bg-blue-50 transition-colors border-b border-slate-100 even:bg-slate-50/50"
+                      // В режиме чтения клик не вызывает модалку
+                      onClick={() => !isReadOnly && setEditingUnit(item)}
+                      className={`group transition-colors ${!isReadOnly ? 'cursor-pointer hover:bg-blue-50/50' : 'cursor-default'}`}
                     >
+                      {/* Индекс */}
                       <td className="p-4 text-xs text-slate-400 text-center font-mono">
                         {index + 1}
                       </td>
+
+                      {/* Дом */}
                       <td className="p-4 text-center">
-                        <div className="inline-flex items-center justify-center w-8 h-8 rounded bg-white border border-slate-200 font-bold text-slate-700 text-xs shadow-sm">
-                          {item.houseNumber}
+                        <div className="inline-flex items-center justify-center px-2 py-1 rounded bg-slate-100 text-slate-600 font-bold text-[10px] whitespace-nowrap">
+                           {item.houseNumber ? `Дом ${item.houseNumber}` : '-'}
                         </div>
                       </td>
-                      <td className="p-4 text-center relative border-x border-blue-100 bg-blue-50/20 group-hover:bg-blue-100/50 transition-colors">
-                        <div className="flex flex-col items-center gap-0.5">
-                          <span className="font-black text-slate-800 text-lg">
-                            {item.number || '-'}
-                          </span>
-                          {item.unitCode && item.buildingCode && projectUjCode && (
-                            <FullIdentifierCompact 
-                              fullCode={formatFullIdentifier(projectUjCode, item.buildingCode, item.unitCode)}
-                              variant="compact"
-                            />
-                          )}
-                        </div>
+
+                      {/* Номер (Крупный) */}
+                      <td className="p-4 text-center">
+                         {item.number ? (
+                             <span className="font-black text-slate-800 text-lg">{item.number}</span>
+                         ) : (
+                             <span className="text-xs text-slate-300 italic">пусто</span>
+                         )}
                       </td>
-                      <td className="p-4">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase border bg-slate-100 text-slate-700 border-slate-200">
-                          <Car size={12} /> М/М
-                        </span>
+
+                      {/* UJ-Код (Широкая колонка) */}
+                      <td className="p-4 text-left">
+                        {item.unitCode && item.buildingCode && projectUjCode ? (
+                           <div className="flex items-center gap-2">
+                                <FullIdentifierCompact 
+                                  fullCode={formatFullIdentifier(projectUjCode, item.buildingCode, item.unitCode)}
+                                  variant="compact"
+                                />
+                           </div>
+                        ) : (
+                            <span className="text-xs text-slate-300 pl-2">Код не сгенерирован</span>
+                        )}
                       </td>
-                      <td className="p-4 text-center font-medium text-slate-700">
+                      
+                      {/* Уровень */}
+                      <td className="p-4 text-center font-medium text-slate-600">
                         {item.floorLabel}
                       </td>
-                      <td className="p-4 text-right font-mono font-bold text-slate-800 bg-emerald-50/30 border-l border-emerald-100/50">
-                        {item.area ? parseFloat(item.area).toFixed(2) : '-'}
+
+                      {/* Площадь (Узкая колонка) */}
+                      <td className="p-4 text-right">
+                         <div className={`font-mono font-bold ${item.area ? 'text-slate-800' : 'text-slate-300'}`}>
+                            {item.area ? parseFloat(item.area).toFixed(2) : '-'}
+                         </div>
                       </td>
-                      <td className="p-4 text-center border-l border-slate-100">
-                        {isFilled ? (
-                          <div className="inline-flex items-center gap-1.5 text-emerald-600 px-2 py-0.5 rounded-full text-[10px] font-bold">
-                            <CheckCircle2 size={14} className="text-emerald-500" />
-                            <span>Готов</span>
+
+                      {/* Статус */}
+                      <td className="p-4 text-center">
+                        {isReady ? (
+                          <div className="inline-flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full text-[10px] font-bold shadow-sm">
+                            <CheckCircle2 size={12} className="text-emerald-600" />
+                            <span>ГОТОВ</span>
                           </div>
                         ) : (
-                          <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded">
-                            Не заполнен
-                          </span>
+                          <div className="inline-flex items-center gap-1.5 text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-full text-[10px] font-bold">
+                            <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                            <span>В РАБОТЕ</span>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -267,8 +378,8 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
                   <td colSpan={7}>
                     <EmptyState
                       icon={Car}
-                      title="Нет машиномест"
-                      description="В выбранном здании нет машиномест."
+                      title="Нет мест"
+                      description="В реестре пока нет записей."
                       compact
                     />
                   </td>
@@ -285,6 +396,7 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
           buildingLabel={`Дом ${editingUnit.houseNumber}, ${editingUnit.buildingLabel}`}
           onClose={() => setEditingUnit(null)}
           onSave={handleSave}
+          // Здесь НЕ передаем isReadOnly, так как модалка сама берет его из контекста
         />
       )}
     </div>
