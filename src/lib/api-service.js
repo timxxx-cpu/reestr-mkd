@@ -1098,7 +1098,7 @@ const LegacyApiService = {
         })(),
         supabase
           .from('common_areas')
-          .select('id, floor_id, entrance_id, type, area')
+          .select('id, floor_id, entrance_id, type, area, height')
           .in(
             'floor_id',
             (floorsData || []).map(f => f.id)
@@ -2071,7 +2071,7 @@ const LegacyApiService = {
       const desired = desiredMap.get(key) || { flats: 0, commercial: 0 };
       result.checkedCells += 1;
 
-      const sortByAge = (a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0);
+      const sortByAge = (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
       const flatsSorted = [...bucket.flats].sort(sortByAge);
       const commSorted = [...bucket.commercial].sort(sortByAge);
 
@@ -2143,7 +2143,7 @@ const LegacyApiService = {
       result.checkedCells += 1;
       const desired = desiredMap.get(key) || 0;
       if (list.length <= desired) return;
-      const sorted = [...list].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+      const sorted = [...list].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
       toDelete.push(...sorted.slice(desired).map(a => a.id));
     });
 
@@ -2924,6 +2924,10 @@ const LegacyApiService = {
                   block_id: blockId,
                   has_electricity: details.engineering.electricity,
                   has_water: details.engineering.hvs,
+                  has_hot_water: details.engineering.gvs,       // ГВС
+                  has_ventilation: details.engineering.ventilation, // Вентиляция
+                  has_firefighting: details.engineering.firefighting, // Пожаротушение
+                  has_lowcurrent: details.engineering.lowcurrent,     // Слаботочка
                   has_sewerage: details.engineering.sewerage,
                   has_gas: details.engineering.gas,
                   has_heating: details.engineering.heating,
