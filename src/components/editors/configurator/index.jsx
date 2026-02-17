@@ -179,38 +179,49 @@ export default function BuildingConfiguratorIndex({ buildingId, mode = 'all', on
       )}
 
       <Modal
-        isOpen={showWarningModal}
-        onClose={() => setShowWarningModal(false)}
-        title="Сохранено с предупреждениями"
-        maxWidth="max-w-2xl"
-      >
-        <div className="space-y-4">
-          <div className="flex items-start gap-4 p-4 bg-yellow-50 text-yellow-900 rounded-xl border border-yellow-200">
-            <AlertTriangle className="shrink-0 text-yellow-600" />
-            <div>
-              <p className="font-bold">Данные сохранены частично</p>
-              <p className="text-sm mt-1">
-                Некоторые блоки не прошли проверку заполнения. Вы можете продолжить редактирование
-                сейчас или вернуться к ним позже. Статус "Заполнено" будет присвоен только после
-                исправления всех ошибок.
-              </p>
-            </div>
-          </div>
+  isOpen={showWarningModal}
+  onClose={() => setShowWarningModal(false)}
+  title="Сохранено с предупреждениями"
+  maxWidth="max-w-2xl"
+>
+  <div className="bg-white rounded-b-2xl space-y-4 p-6">
+    {/* Banner */}
+    <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-300 rounded-xl">
+      <div className="shrink-0 mt-0.5 w-8 h-8 flex items-center justify-center bg-amber-100 rounded-full">
+        <AlertTriangle size={16} className="text-amber-600" />
+      </div>
+      <div>
+        <p className="font-semibold text-amber-900 text-sm">Данные сохранены частично</p>
+        <p className="text-sm text-amber-800 mt-1 leading-relaxed">
+          Некоторые блоки не прошли проверку заполнения. Вы можете продолжить
+          редактирование сейчас или вернуться к ним позже. Статус «Заполнено» будет
+          присвоен только после исправления всех ошибок.
+        </p>
+      </div>
+    </div>
 
-          <div className="max-h-[40vh] overflow-y-auto border rounded-xl divide-y">
-            {validationWarnings.map((err, idx) => (
-              <div key={idx} className="p-3 text-sm hover:bg-slate-50">
-                <div className="font-bold text-slate-700">{err.title}</div>
-                <div className="text-slate-500 mt-0.5">{err.description}</div>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex justify-end pt-2">
-            <Button onClick={() => setShowWarningModal(false)}>Понятно</Button>
+    {/* Error list */}
+    <div className="max-h-[40vh] overflow-y-auto rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+      {validationWarnings.map((err, idx) => (
+        <div
+          key={idx}
+          className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50 transition-colors"
+        >
+          <span className="shrink-0 mt-[7px] w-1.5 h-1.5 rounded-full bg-amber-400" />
+          <div>
+            <div className="text-sm font-semibold text-slate-800">{err.title}</div>
+            <div className="text-sm text-slate-500 mt-0.5 leading-snug">{err.description}</div>
           </div>
         </div>
-      </Modal>
+      ))}
+    </div>
+
+    {/* Footer */}
+    <div className="flex justify-end pt-1">
+      <Button onClick={() => setShowWarningModal(false)}>Понятно</Button>
+    </div>
+  </div>
+</Modal>
     </div>
   );
 }
