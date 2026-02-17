@@ -40,8 +40,12 @@ export const useProjectWorkflowLayer = ({
 }) => {
   // --- COMPLETE TASK ---
   const completeTask = useCallback(
-    async currentIndex => {
-      await saveProjectImmediate({ shouldRefetch: false });
+    async (currentIndex, options = {}) => {
+      const { persistBeforeTransition = true } = options;
+
+      if (persistBeforeTransition) {
+        await saveProjectImmediate({ shouldRefetch: false });
+      }
 
       const currentAppInfo = mergedState.applicationInfo;
 
