@@ -1762,83 +1762,125 @@ const LegacyApiService = {
   },
 
   upsertUnit: async unitData => {
-    let buildingId = null;
-    let buildingCode = null;
+    // 1. ОПРЕДЕЛЯЕМ РЕЖИМ РАБОТЫ (Partial Update vs Full Upsert)
+    // Если есть ID, но нет критически важных полей для создания (floorId, type), считаем это PATCH-запросом.
+    const isPatch = !!unitData.id && (unitData.floorId === undefined || unitData.type === undefined);
 
-    if (!unitData.unitCode && unitData.floorId && unitData.type) {
-      const { data: floor } = await supabase
-        .from('floors')
-        .select('block_id')
-        .eq('id', unitData.floorId)
-        .single();
-
-      if (floor?.block_id) {
-        const { data: block } = await supabase
-          .from('building_blocks')
-          .select('building_id')
-          .eq('id', floor.block_id)
-          .single();
-
-        if (block?.building_id) {
-         buildingId = block.building_id;
-          const { data: building } = await supabase
-            .from('buildings')
-            .select('building_code')
-            .eq('id', block.building_id)
-            .single();
-          buildingCode = building?.building_code || null;
-        }
-      }
-    }
-
-    const unitId = unitData.id || crypto.randomUUID();
-    const maxCodeRetries = 3;
     let savedUnit = null;
 
-    for (let attempt = 1; attempt <= maxCodeRetries; attempt += 1) {
-      const unitSegment =
-        unitData.unitCode ||
-        (buildingId && unitData.type ? await generateNextUnitCode(buildingId, unitData.type) : null);
+    if (isPatch) {
+      // --- РЕЖИМ ЧАСТИЧНОГО ОБНОВЛЕНИЯ (PATCH) ---
+      const patchPayload = { updated_at: new Date() };
 
-      const unitCode =
-        unitData.unitCode ||
-        (buildingCode && unitSegment ? `${buildingCode}-${extractUnitSegment(unitSegment)}` : unitSegment);
+      // Маппинг полей (обновляем только то, что пришло)
+      if (unitData.num !== undefined) patchPayload.number = unitData.num;
+      if (unitData.number !== undefined) patchPayload.number = unitData.number;
+      if (unitData.type !== undefined) patchPayload.unit_type = unitData.type;
+      
+      if (unitData.area !== undefined) patchPayload.total_area = unitData.area;
+      if (unitData.livingArea !== undefined) patchPayload.living_area = unitData.livingArea;
+      if (unitData.usefulArea !== undefined) patchPayload.useful_area = unitData.usefulArea;
+      if (unitData.rooms !== undefined) patchPayload.rooms_count = unitData.rooms;
 
-      const unitPayload = {
-        id: unitId,
-        floor_id: unitData.floorId,
-        entrance_id: unitData.entranceId,
-        unit_code: unitCode,
-        number: unitData.num || unitData.number,
-        unit_type: unitData.type,
-        has_mezzanine: !!unitData.hasMezzanine,
-        mezzanine_type: unitData.hasMezzanine ? (unitData.mezzanineType || null) : null,
-        total_area: unitData.area,
-        living_area: unitData.livingArea || 0,
-        useful_area: unitData.usefulArea || 0,
-        rooms_count: unitData.rooms || 0,
-        status: unitData.isSold ? 'sold' : 'free',
-        updated_at: new Date(),
-      };
+      if (unitData.isSold !== undefined) patchPayload.status = unitData.isSold ? 'sold' : 'free';
 
-      const upsertResult = await upsertWithConflict('units', unitPayload, {
-        single: true,
-      });
+      if (unitData.hasMezzanine !== undefined) patchPayload.has_mezzanine = !!unitData.hasMezzanine;
+      if (unitData.mezzanineType !== undefined) patchPayload.mezzanine_type = unitData.mezzanineType || null;
 
-      savedUnit = upsertResult.data;
-      const error = upsertResult.error;
+      // unitCode обновляем только если он явно передан
+      if (unitData.unitCode !== undefined) patchPayload.unit_code = unitData.unitCode;
+      
+      const { data, error } = await supabase
+        .from('units')
+        .update(patchPayload)
+        .eq('id', unitData.id)
+        .select()
+        .single();
 
-      if (!error) break;
+      if (error) throw error;
+      savedUnit = data;
 
-      const canRetryCode = !unitData.unitCode && buildingId && isUnitCodeConflict(error);
-      if (!canRetryCode || attempt === maxCodeRetries) {
-        throw error;
+    } else {
+      // --- РЕЖИМ ПОЛНОГО СОЗДАНИЯ / ПЕРЕЗАПИСИ (UPSERT) ---
+      // (Старая логика с генерацией кодов)
+
+      let buildingId = null;
+      let buildingCode = null;
+
+      if (!unitData.unitCode && unitData.floorId && unitData.type) {
+        const { data: floor } = await supabase
+          .from('floors')
+          .select('block_id')
+          .eq('id', unitData.floorId)
+          .single();
+
+        if (floor?.block_id) {
+          const { data: block } = await supabase
+            .from('building_blocks')
+            .select('building_id')
+            .eq('id', floor.block_id)
+            .single();
+
+          if (block?.building_id) {
+           buildingId = block.building_id;
+            const { data: building } = await supabase
+              .from('buildings')
+              .select('building_code')
+              .eq('id', block.building_id)
+              .single();
+            buildingCode = building?.building_code || null;
+          }
+        }
+      }
+
+      const unitId = unitData.id || crypto.randomUUID();
+      const maxCodeRetries = 3;
+
+      for (let attempt = 1; attempt <= maxCodeRetries; attempt += 1) {
+        const unitSegment =
+          unitData.unitCode ||
+          (buildingId && unitData.type ? await generateNextUnitCode(buildingId, unitData.type) : null);
+
+        const unitCode =
+          unitData.unitCode ||
+          (buildingCode && unitSegment ? `${buildingCode}-${extractUnitSegment(unitSegment)}` : unitSegment);
+
+        const unitPayload = {
+          id: unitId,
+          floor_id: unitData.floorId,
+          entrance_id: unitData.entranceId,
+          unit_code: unitCode,
+          number: unitData.num || unitData.number,
+          unit_type: unitData.type,
+          has_mezzanine: !!unitData.hasMezzanine,
+          mezzanine_type: unitData.hasMezzanine ? (unitData.mezzanineType || null) : null,
+          total_area: unitData.area,
+          living_area: unitData.livingArea || 0,
+          useful_area: unitData.usefulArea || 0,
+          rooms_count: unitData.rooms || 0,
+          status: unitData.isSold ? 'sold' : 'free',
+          updated_at: new Date(),
+        };
+
+        const upsertResult = await upsertWithConflict('units', unitPayload, {
+          single: true,
+        });
+
+        savedUnit = upsertResult.data;
+        const error = upsertResult.error;
+
+        if (!error) break;
+
+        const canRetryCode = !unitData.unitCode && buildingId && isUnitCodeConflict(error);
+        if (!canRetryCode || attempt === maxCodeRetries) {
+          throw error;
+        }
       }
     }
 
     if (!savedUnit) throw new Error('Unit upsert returned empty payload');
 
-    // Sync rooms
+    // Sync rooms (Explication) - работает для обоих режимов
     if (unitData.explication && Array.isArray(unitData.explication)) {
       await supabase.from('rooms').delete().eq('unit_id', savedUnit.id);
       if (unitData.explication.length > 0) {

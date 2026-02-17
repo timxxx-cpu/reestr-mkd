@@ -15,6 +15,7 @@ import {
   Loader2,
   LayoutTemplate,
   List as ListIcon,
+  Copy,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
@@ -65,6 +66,7 @@ const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
 const ExplicationPanel = ({
   selectedUnits,
   roomTypes,
+  allUnits,
   onApplySingle,
   onApplyBulk,
   onResetExplication,
@@ -82,11 +84,12 @@ const ExplicationPanel = ({
     description: '' 
   });
   
+  const [copySourceNum, setCopySourceNum] = useState('');
   const count = selectedUnits.length;
   const isMulti = count > 1;
   const activeUnit = count === 1 ? selectedUnits[0] : null;
   
-  const isDuplex = activeUnit && ['duplex_up', 'duplex_down'].includes(activeUnit.type);
+  const isDuplex = selectedUnits.length > 0 && selectedUnits.every(u => ['duplex_up', 'duplex_down'].includes(u.type));
   const [rooms, setRooms] = useState([]);
   const [hasMezzanine, setHasMezzanine] = useState(false);
   const [mezzanineType, setMezzanineType] = useState('internal');
@@ -187,7 +190,42 @@ const ExplicationPanel = ({
     }
     return true;
   };
+const handleCopy = () => {
+    if (isReadOnly || !copySourceNum.trim()) return;
 
+    // Ищем квартиру в текущем блоке (allUnits содержит квартиры текущего блока)
+    const sourceUnit = allUnits.find(u => String(u.number || u.num) === String(copySourceNum));
+
+    if (!sourceUnit) {
+      toast.error(`Квартира №${copySourceNum} не найдена в этом блоке`);
+      return;
+    }
+
+    const sourceRooms = sourceUnit.explication || [];
+
+    if (sourceRooms.length === 0) {
+       toast.error(`В квартире №${copySourceNum} нет экспликации`);
+       return;
+    }
+
+    if (rooms.length > 0 && !confirm(`Заменить текущую экспликацию данными из кв. №${copySourceNum}?`)) return;
+
+    // Копируем параметры мезонина
+    setHasMezzanine(!!sourceUnit.hasMezzanine);
+    setMezzanineType(sourceUnit.mezzanineType || 'internal');
+    
+    // Копируем комнаты с генерацией новых ID
+    const newRooms = sourceRooms.map(r => ({
+        ...r,
+        id: crypto.randomUUID(),
+        level: isDuplex ? String(r.level || 1) : '1',
+        isMezzanine: !!r.isMezzanine,
+    }));
+    
+    setRooms(newRooms);
+    toast.success(`Скопировано из кв. №${copySourceNum}`);
+    setCopySourceNum('');
+  };
   const buildPayload = unit => ({
     ...unit,
     hasMezzanine: !isMulti ? hasMezzanine : !!unit.hasMezzanine,
@@ -304,7 +342,28 @@ const ExplicationPanel = ({
               </div>
             </div>
         )}
-
+{!isReadOnly && (
+          <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2">
+             <span className="text-[10px] font-bold text-slate-400 uppercase whitespace-nowrap">Копия из №</span>
+             <div className="flex items-center gap-1 flex-1">
+                <input 
+                  type="text" 
+                  value={copySourceNum}
+                  onChange={e => setCopySourceNum(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleCopy()}
+                  className="w-full min-w-0 h-7 text-xs font-bold text-center border border-slate-300 rounded bg-white focus:border-blue-500 outline-none"
+                  placeholder="..."
+                />
+                <button 
+                  onClick={handleCopy}
+                  className="h-7 w-7 flex items-center justify-center bg-white border border-slate-300 rounded hover:text-blue-600 hover:border-blue-400 transition-colors"
+                  title="Скопировать"
+                >
+                   <Copy size={14} />
+                </button>
+             </div>
+          </div>
+        )}
         {!isMulti && (
           <div className="p-3 border-b border-slate-200 bg-slate-50">
             <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
@@ -492,23 +551,35 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
   }, [roomTypesRows]);
 
   // --- LOGIC: SAVE UNIT ---
+  // --- LOGIC: SAVE UNIT ---
   const handleSaveUnit = async (originalUnit, changes, shouldInvalidate = true) => {
     try {
-      const mergedData = { ...originalUnit, ...changes };
+      // 1. Берем базовые значения из изменений или оставляем оригинальные
+      const getVal = (field) => changes[field] !== undefined ? changes[field] : originalUnit[field];
+      
+      const hasMezzanine = changes.hasMezzanine !== undefined ? !!changes.hasMezzanine : !!originalUnit.hasMezzanine;
+      const mezzanineType = hasMezzanine 
+          ? (changes.mezzanineType || originalUnit.mezzanineType || 'internal') 
+          : null;
+
+      // 2. Формируем "чистый" payload только с данными для обновления
       const payload = {
-        id: mergedData.id,
-        floorId: mergedData.floorId,
-        entranceId: mergedData.entranceId,
-        num: mergedData.number || mergedData.num,
-        type: mergedData.type,
-        area: mergedData.area,
-        livingArea: mergedData.livingArea,
-        usefulArea: mergedData.usefulArea,
-        rooms: mergedData.rooms,
-        isSold: mergedData.isSold,
-        hasMezzanine: !!mergedData.hasMezzanine,
-        mezzanineType: mergedData.hasMezzanine ? mergedData.mezzanineType || 'internal' : null,
-        explication: mergedData.explication || mergedData.roomsList,
+        id: originalUnit.id, // ID обязателен для UPDATE
+        
+        // Только обновляемые поля (метрики и состав)
+        area: getVal('area'),
+        livingArea: getVal('livingArea'),
+        usefulArea: getVal('usefulArea'),
+        rooms: getVal('rooms'),
+        isSold: getVal('isSold'),
+        
+        // Мезонин и экспликация
+        hasMezzanine,
+        mezzanineType,
+        explication: changes.explication || originalUnit.explication || [],
+        
+        // ВАЖНО: Мы НЕ отправляем floorId, entranceId, num, type.
+        // Бэкенд должен выполнить частичное обновление (PATCH) по ID.
       };
 
       await ApiService.upsertUnit(payload);
@@ -1126,6 +1197,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
           <ExplicationPanel
             selectedUnits={selectedUnitsForPanel}
             roomTypes={roomTypes}
+            allUnits={unitsList}
             onApplySingle={applySingle}
             onApplyBulk={applyBulk}
             onResetExplication={resetExplication}
@@ -1148,6 +1220,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
           <ExplicationPanel
             selectedUnits={selectedUnitsForPanel}
             roomTypes={roomTypes}
+            allUnits={unitsList}
             onApplySingle={applySingle}
             onApplyBulk={applyBulk}
             onResetExplication={resetExplication}
