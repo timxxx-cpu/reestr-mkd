@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Wand2,
   Building2,
@@ -109,7 +109,7 @@ const getBlockIcon = type => {
 };
 
 export default function FlatMatrixEditor({ buildingId, onBack }) {
-  const { projectId, buildingDetails, saveStepBuildingStatuses } = useProject();
+  const { projectId, buildingDetails, saveStepBuildingStatuses, saveProjectImmediate, setHasUnsavedChanges } = useProject();
   const isReadOnly = useReadOnly();
   const toast = useToast();
 
@@ -166,27 +166,59 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false); // [NEW] Состояние сохранения шага
   const [startNum, setStartNum] = useState(1);
+  const autoGenerationGuardRef = useRef(new Set());
 
   useEffect(() => {
-    if (isUnitsLoading || !currentBlock || isReadOnly) return;
-    if (units.length === 0 && entrances.length > 0 && displayFloors.length > 0) {
-       const hasPlannedApts = Object.values(matrixMap).some(v => parseInt(v.apts) > 0);
-       if (hasPlannedApts) {
-          setIsGenerating(true);
-          const initialUnits = generateInitialUnits(1);
-          batchUpsertUnits(initialUnits)
-            .then(() => {
-                toast.success(`Сгенерировано ${initialUnits.length} помещений`);
-                setIsGenerating(false);
-            })
-            .catch(e => {
-                console.error(e);
-                toast.error('Ошибка генерации');
-                setIsGenerating(false);
-            });
-       }
-    }
-  }, [isUnitsLoading, units.length, currentBlock, isReadOnly, entrances.length, displayFloors.length]); 
+    let cancelled = false;
+
+    const runAutoGeneration = async () => {
+      if (isUnitsLoading || !currentBlock || isReadOnly) return;
+      if (units.length !== 0 || entrances.length === 0 || displayFloors.length === 0) return;
+
+      const hasPlannedApts = Object.values(matrixMap).some(v => parseInt(v.apts || 0, 10) > 0);
+      if (!hasPlannedApts) return;
+
+      const guardKey = `${currentBlock.id}:${displayFloors.length}:${entrances.length}`;
+      if (autoGenerationGuardRef.current.has(guardKey)) return;
+      autoGenerationGuardRef.current.add(guardKey);
+
+      setIsGenerating(true);
+      try {
+        const actualUnits = await ApiService.getUnits(currentBlock.id, { floorIds: linkedStylobateFloorIds });
+        if ((actualUnits || []).length > 0) return;
+
+        const initialUnits = generateInitialUnits(1);
+        if (initialUnits.length === 0) return;
+
+        await batchUpsertUnits(initialUnits);
+        if (!cancelled) {
+          toast.success(`Сгенерировано ${initialUnits.length} помещений`);
+        }
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) toast.error('Ошибка генерации');
+      } finally {
+        if (!cancelled) setIsGenerating(false);
+      }
+    };
+
+    runAutoGeneration();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isUnitsLoading,
+    currentBlock,
+    isReadOnly,
+    units.length,
+    entrances.length,
+    displayFloors.length,
+    matrixMap,
+    linkedStylobateFloorIds,
+    generateInitialUnits,
+    batchUpsertUnits,
+    toast,
+  ]);
 
   const handleEditClick = (unit, floor) => {
     if (!floor?.isDuplex) {
@@ -304,8 +336,16 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
   const handleSaveStep = async () => {
       setIsSaving(true);
       try {
+        await saveProjectImmediate({ shouldRefetch: false });
+        const reconcile = await ApiService.reconcileUnitsForBlock(currentBlock.id);
         await saveStepBuildingStatuses({ stepId: 'apartments', buildingId: building.id });
-        toast.success('Конфигурация квартир сохранена');
+        setHasUnsavedChanges(false);
+
+        if (reconcile?.removed > 0) {
+          toast.warning(`Синхронизация: удалено лишних помещений — ${reconcile.removed}`);
+        } else {
+          toast.success('Конфигурация квартир сохранена');
+        }
         onBack(); // Возврат к списку
       } catch (e) {
         console.error(e);

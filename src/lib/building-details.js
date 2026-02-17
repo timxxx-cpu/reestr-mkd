@@ -100,13 +100,19 @@ export const cleanBuildingDetails = (composition, buildingDetails = {}) => {
 export const formatBlockSwitcherLabel = ({ building, block, buildingDetails = {} }) => {
   if (!block) return '';
 
-  const baseLabel = block.tabLabel || block.label || 'Блок';
   const blockKey = building?.id && block?.id ? `${building.id}_${block.id}` : null;
   const details = blockKey ? buildingDetails[blockKey] || {} : {};
-  const hasCustomAddress = details.hasCustomAddress && details.customHouseNumber;
 
-  if (!hasCustomAddress) return baseLabel;
+  const isResidentialBlock =
+    block.type === 'Ж' || block.type === 'residential' || block.originalType === 'residential';
 
-  const housePart = building?.houseNumber ? ` (Дом №${building.houseNumber})` : '';
-  return `${baseLabel}${housePart} (Корпус ${details.customHouseNumber})`;
+  const blockTypeLabel = isResidentialBlock ? 'Жилой блок' : 'Нежилой блок';
+  const houseNumber = building?.houseNumber || '—';
+  const corpusNumber =
+    (typeof details.customHouseNumber === 'string' ? details.customHouseNumber.trim() : '') ||
+    block.tabLabel ||
+    block.label ||
+    '—';
+
+  return `${blockTypeLabel} - Дом № ${houseNumber} корпус - ${corpusNumber}`;
 };

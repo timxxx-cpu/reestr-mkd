@@ -531,8 +531,13 @@ export default function MopEditor({ buildingId, onBack }) {
       await saveProjectImmediate({ shouldRefetch: false });
       await waitForPendingMutations();
 
+      const reconcile = await ApiService.reconcileCommonAreasForBlock(currentBlock.id);
       const result = await saveStepBuildingStatuses({ stepId: 'mop', buildingId: building.id });
       setHasUnsavedChanges(false);
+
+      if (reconcile?.removed > 0) {
+        toast.warning(`Синхронизация МОП: удалено лишних записей — ${reconcile.removed}`);
+      }
 
       if (result && result.buildingStatus === BLOCK_FILL_STATUS.PARTIAL) {
          const contextData = { composition, buildingDetails, floorData, entrancesData, flatMatrix, mopData: contextMopData };

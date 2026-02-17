@@ -2013,6 +2013,149 @@ const LegacyApiService = {
     }
   },
 
+  reconcileUnitsForBlock: async blockId => {
+    const result = { removed: 0, checkedCells: 0 };
+
+    const { data: floors, error: floorsErr } = await supabase
+      .from('floors')
+      .select('id')
+      .eq('block_id', blockId);
+    if (floorsErr) throw floorsErr;
+
+    const floorIds = (floors || []).map(f => f.id);
+    if (floorIds.length === 0) return result;
+
+    const { data: entrances, error: entErr } = await supabase
+      .from('entrances')
+      .select('id, number')
+      .eq('block_id', blockId);
+    if (entErr) throw entErr;
+
+    const entranceByNumber = new Map((entrances || []).map(e => [Number(e.number), e.id]));
+
+    const { data: matrixRows, error: matrixErr } = await supabase
+      .from('entrance_matrix')
+      .select('floor_id, entrance_number, flats_count, commercial_count')
+      .eq('block_id', blockId);
+    if (matrixErr) throw matrixErr;
+
+    const desiredMap = new Map();
+    (matrixRows || []).forEach(row => {
+      const entranceId = entranceByNumber.get(Number(row.entrance_number));
+      if (!entranceId) return;
+      desiredMap.set(`${row.floor_id}_${entranceId}`, {
+        flats: Math.max(0, parseInt(row.flats_count || 0, 10) || 0),
+        commercial: Math.max(0, parseInt(row.commercial_count || 0, 10) || 0),
+      });
+    });
+
+    const { data: units, error: unitsErr } = await supabase
+      .from('units')
+      .select('id, floor_id, entrance_id, unit_type, created_at')
+      .in('floor_id', floorIds);
+    if (unitsErr) throw unitsErr;
+
+    const isFlatType = type => ['flat', 'duplex_up', 'duplex_down'].includes(type);
+    const isCommercialType = type => ['office', 'office_inventory', 'non_res_block', 'infrastructure'].includes(type);
+
+    const grouped = new Map();
+    (units || []).forEach(u => {
+      const key = `${u.floor_id}_${u.entrance_id}`;
+      if (!grouped.has(key)) grouped.set(key, { flats: [], commercial: [] });
+      if (isFlatType(u.unit_type)) grouped.get(key).flats.push(u);
+      else if (isCommercialType(u.unit_type)) grouped.get(key).commercial.push(u);
+    });
+
+    const toDelete = [];
+    grouped.forEach((bucket, key) => {
+      const desired = desiredMap.get(key) || { flats: 0, commercial: 0 };
+      result.checkedCells += 1;
+
+      const sortByAge = (a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0);
+      const flatsSorted = [...bucket.flats].sort(sortByAge);
+      const commSorted = [...bucket.commercial].sort(sortByAge);
+
+      if (flatsSorted.length > desired.flats) {
+        toDelete.push(...flatsSorted.slice(desired.flats).map(u => u.id));
+      }
+      if (commSorted.length > desired.commercial) {
+        toDelete.push(...commSorted.slice(desired.commercial).map(u => u.id));
+      }
+    });
+
+    if (toDelete.length > 0) {
+      const { error: delErr } = await supabase.from('units').delete().in('id', toDelete);
+      if (delErr) throw delErr;
+      result.removed = toDelete.length;
+    }
+
+    return result;
+  },
+
+  reconcileCommonAreasForBlock: async blockId => {
+    const result = { removed: 0, checkedCells: 0 };
+
+    const { data: floors, error: floorsErr } = await supabase
+      .from('floors')
+      .select('id')
+      .eq('block_id', blockId);
+    if (floorsErr) throw floorsErr;
+
+    const floorIds = (floors || []).map(f => f.id);
+    if (floorIds.length === 0) return result;
+
+    const { data: entrances, error: entErr } = await supabase
+      .from('entrances')
+      .select('id, number')
+      .eq('block_id', blockId);
+    if (entErr) throw entErr;
+
+    const entranceByNumber = new Map((entrances || []).map(e => [Number(e.number), e.id]));
+
+    const { data: matrixRows, error: matrixErr } = await supabase
+      .from('entrance_matrix')
+      .select('floor_id, entrance_number, mop_count')
+      .eq('block_id', blockId);
+    if (matrixErr) throw matrixErr;
+
+    const desiredMap = new Map();
+    (matrixRows || []).forEach(row => {
+      const entranceId = entranceByNumber.get(Number(row.entrance_number));
+      if (!entranceId) return;
+      desiredMap.set(`${row.floor_id}_${entranceId}`, Math.max(0, parseInt(row.mop_count || 0, 10) || 0));
+    });
+
+    const { data: areas, error: areasErr } = await supabase
+      .from('common_areas')
+      .select('id, floor_id, entrance_id, created_at')
+      .in('floor_id', floorIds);
+    if (areasErr) throw areasErr;
+
+    const grouped = new Map();
+    (areas || []).forEach(a => {
+      const key = `${a.floor_id}_${a.entrance_id}`;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(a);
+    });
+
+    const toDelete = [];
+    grouped.forEach((list, key) => {
+      result.checkedCells += 1;
+      const desired = desiredMap.get(key) || 0;
+      if (list.length <= desired) return;
+      const sorted = [...list].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+      toDelete.push(...sorted.slice(desired).map(a => a.id));
+    });
+
+    if (toDelete.length > 0) {
+      const { error: delErr } = await supabase.from('common_areas').delete().in('id', toDelete);
+      if (delErr) throw delErr;
+      result.removed = toDelete.length;
+    }
+
+    return result;
+  },
+
   // --- PARKING & BASEMENTS ---
   getBasements: async projectId => {
     const { data: buildings } = await supabase

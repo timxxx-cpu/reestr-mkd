@@ -414,7 +414,7 @@ const ExplicationPanel = ({
 const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const { complexInfo, buildingDetails } = useProject();
+  const { complexInfo, buildingDetails, saveProjectImmediate, setHasUnsavedChanges } = useProject();
   
   const [internalSelectedId, setInternalSelectedId] = useState(null);
   const selectedBuildingId = buildingId || internalSelectedId;
@@ -427,6 +427,7 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
   const [isTableExplicationOpen, setIsTableExplicationOpen] = useState(false);
   const [viewMode, setViewMode] = useState('matrix');
   const [isSaving, setIsSaving] = useState(false);
+  const [isStepSaving, setIsStepSaving] = useState(false);
 
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
   const { buildings } = useDirectBuildings(projectId);
@@ -702,6 +703,22 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
     }
   };
 
+  const handleStepSave = async () => {
+    if (isStepSaving) return;
+
+    setIsStepSaving(true);
+    try {
+      await saveProjectImmediate({ shouldRefetch: false });
+      setHasUnsavedChanges(false);
+      toast.success('Шаг сохранен');
+    } catch (error) {
+      console.error(error);
+      toast.error('Не удалось сохранить шаг');
+    } finally {
+      setIsStepSaving(false);
+    }
+  };
+
   const activeUnit = useMemo(() => commercialUnits.find(u => u.id === selectedUnitId) || null, [commercialUnits, selectedUnitId]);
   const activeTableUnit = useMemo(() => listData.find(u => u.id === selectedTableUnitId) || null, [listData, selectedTableUnitId]);
   const panelActiveUnit = viewMode === 'table' ? activeTableUnit : activeUnit;
@@ -715,7 +732,7 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
       <BlockingLoader isOpen={isSaving} message="Сохранение..." />
       
       <div className="flex-none space-y-4 pb-4">
-         <ConfigHeader building={building} isParking={typeInfo.isParking} isInfrastructure={typeInfo.isInfrastructure} isUnderground={typeInfo.isUnderground} onBack={() => onBack ? onBack() : setInternalSelectedId(null)} isSticky={false} showSaveButton={false} />
+         <ConfigHeader building={building} isParking={typeInfo.isParking} isInfrastructure={typeInfo.isInfrastructure} isUnderground={typeInfo.isUnderground} onBack={() => onBack ? onBack() : setInternalSelectedId(null)} isSticky={false} showSaveButton={true} onSave={handleStepSave} saveDisabled={isStepSaving} saveLabel={isStepSaving ? 'Сохраняем...' : 'Сохранить шаг'} />
          
          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
              <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl shadow-inner border border-slate-700 custom-scrollbar overflow-x-auto max-w-[60vw]">

@@ -7,7 +7,7 @@ import { useReadOnly } from '@components/ui/UIKit';
 import { Validators } from '@lib/validators';
 import { BuildingConfigSchema } from '@lib/schemas';
 import { getBlocksList, createClientId } from '@lib/utils';
-import { cleanBlockDetails } from '@lib/building-details';
+import { cleanBlockDetails, formatBlockSwitcherLabel } from '@lib/building-details';
 import { useValidation } from '@hooks/useValidation';
 
 // Карточки
@@ -297,13 +297,11 @@ export default function StandardView({ building, mode }) {
       {/* Темная панель вкладок */}
       <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full mb-8 shadow-inner border border-slate-700">
         {visibleBlocks.map(block => {
-          const bKey = `${building.id}_${block.id}`;
-          const bDetails = buildingDetails[bKey] || {};
-          const hasCustom = bDetails.hasCustomAddress && bDetails.customHouseNumber;
-
-          const label = hasCustom
-            ? `${block.tabLabel} (Дом №${building.houseNumber}) (Корпус ${bDetails.customHouseNumber})`
-            : block.tabLabel;
+          const label = formatBlockSwitcherLabel({
+            building,
+            block,
+            buildingDetails,
+          });
 
           return (
             <DarkTabButton

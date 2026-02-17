@@ -479,12 +479,21 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
       await saveProjectImmediate({ shouldRefetch: false });
       await waitForPendingMutations();
 
+      const unitsReconcile = await ApiService.reconcileUnitsForBlock(currentBlock.id);
+      const mopsReconcile = await ApiService.reconcileCommonAreasForBlock(currentBlock.id);
+
       const result = await saveStepBuildingStatuses({
         stepId,
         buildingId: building.id,
       });
 
       setHasUnsavedChanges(false);
+
+      if ((unitsReconcile?.removed || 0) > 0 || (mopsReconcile?.removed || 0) > 0) {
+        toast.warning(
+          `Синхронизация блока: удалено помещений ${unitsReconcile?.removed || 0}, МОП ${mopsReconcile?.removed || 0}`
+        );
+      }
 
       if (result && result.buildingStatus === BLOCK_FILL_STATUS.PARTIAL) {
         const errors = collectValidationErrors(stepId, building);
