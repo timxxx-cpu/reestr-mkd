@@ -169,7 +169,7 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
           </div>
         </div>
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-xs text-slate-500 font-bold uppercase">Продано</div>
+          <div className="text-xs text-slate-500 font-bold uppercase">Заполено</div>
           <div className="text-2xl font-black text-red-600">{stats?.sold || 0}</div>
         </div>
       </div>

@@ -281,44 +281,53 @@ const PassportEditor = () => {
             </div>
           </div>
 
+         {/* СЕТКА ИНФОРМАЦИИ В ШАПКЕ */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="rounded-2xl border border-white/15 bg-white/5 p-4">
-              <div className="text-xs text-slate-300 mb-2">Статус</div>
+            
+            {/* 1. Блок СТАТУСА */}
+            <div className="rounded-2xl border border-white/15 bg-white/5 p-4 flex flex-col justify-center">
+              <div className="text-xs text-slate-300 mb-1.5">Текущий статус</div>
               <div className="flex items-center gap-2">
-                <span className={`w-2.5 h-2.5 rounded-full ${statusConfig.color}`} />
-                <StatusIcon size={16} className="text-blue-200" />
-                <select
-                  value={localInfo.status || 'Проектный'}
-                  onChange={e => handleInfoChange('status', e.target.value)}
-                  disabled={isReadOnly}
-                  className="bg-transparent text-sm font-semibold text-white outline-none w-full"
-                >
-                  {projectStatusOptions.map(s => (
-                    <option key={s.code} value={s.label} className="text-slate-900">
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
+                <span className={`w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(0,0,0,0.5)] ${statusConfig.color}`} />
+                <div className="relative flex-1">
+                  <select
+                    value={localInfo.status || 'Проектный'}
+                    onChange={e => handleInfoChange('status', e.target.value)}
+                    disabled={isReadOnly}
+                    className="w-full bg-transparent text-sm font-bold text-white outline-none appearance-none cursor-pointer hover:text-blue-200 transition-colors"
+                  >
+                    {projectStatusOptions.map(s => (
+                      <option key={s.code} value={s.label} className="text-slate-900">
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/15 bg-white/5 p-4">
-              <div className="text-xs text-slate-300 mb-2">Кадастровый номер</div>
-              <div className="text-sm font-semibold truncate">
-                {localCadastre.number || 'Не указан'}
+            {/* 2. Блок КАДАСТРА */}
+            <div className="rounded-2xl border border-white/15 bg-white/5 p-4 flex flex-col justify-center">
+              <div className="text-xs text-slate-300 mb-1.5">Кадастровый номер</div>
+              <div className="flex items-center gap-2 text-sm font-bold tracking-wide">
+                <MapPin size={16} className="text-blue-400 shrink-0" />
+                <span className="truncate">{localCadastre.number || '—'}</span>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/15 bg-white/5 p-4">
-              <div className="text-xs text-slate-300 mb-2">Прогресс (план)</div>
-              <div className="text-sm font-semibold">{progress}%</div>
-              <div className="h-2 rounded-full bg-white/15 mt-2 overflow-hidden">
-                <div
-                  className="h-full bg-blue-500 transition-all"
-                  style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
-                />
+            {/* 3. Новый блок: СРОКИ (вместо прогресса) */}
+            <div className="rounded-2xl border border-white/15 bg-white/5 p-4 flex flex-col justify-center">
+              <div className="text-xs text-slate-300 mb-1.5">Срок сдачи (План)</div>
+              <div className="flex items-center gap-2 text-sm font-bold">
+                <Clock size={16} className="text-orange-400 shrink-0" />
+                <span>
+                  {localInfo.dateEndProject 
+                    ? new Date(localInfo.dateEndProject).toLocaleDateString('ru-RU') 
+                    : 'Не указан'}
+                </span>
               </div>
             </div>
+
           </div>
         </div>
       </div>
