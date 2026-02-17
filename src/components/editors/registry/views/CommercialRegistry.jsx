@@ -595,14 +595,39 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
 
   const handleSaveUnit = async (originalUnit, changes, invalidate = true) => {
     try {
+      // 1. Извлекаем данные приоритетно из changes, затем из originalUnit
+      const getVal = (field) => changes[field] !== undefined ? changes[field] : originalUnit[field];
+      
+      const hasMezzanine = changes.hasMezzanine !== undefined ? !!changes.hasMezzanine : !!originalUnit.hasMezzanine;
+      const mezzanineType = hasMezzanine 
+          ? (changes.mezzanineType || originalUnit.mezzanineType || 'internal') 
+          : null;
+
+      // 2. Формируем "чистый" payload только для частичного обновления (PATCH)
       const payload = {
-        ...originalUnit, ...changes,
-        explication: changes.explication || originalUnit.explication
+        id: originalUnit.id, // Обязательно для UPDATE
+
+        // Обновляемые бизнес-данные
+        area: getVal('area'),
+        livingArea: getVal('livingArea'),
+        usefulArea: getVal('usefulArea'),
+        rooms: getVal('rooms'),
+        isSold: getVal('isSold'),
+
+        // Мезонин и экспликация
+        hasMezzanine,
+        mezzanineType,
+        explication: changes.explication || originalUnit.explication || [],
+
+        // ВАЖНО: Структурные поля (floorId, entranceId, num, type, unitCode) НЕ отправляем.
+        // Это заставит api-service использовать режим PATCH.
       };
-      payload.id = originalUnit.id;
       
       await ApiService.upsertUnit(payload);
-      if (invalidate) await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
+      
+      if (invalidate) {
+        await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
+      }
       return true;
     } catch (error) {
       console.error(error);
