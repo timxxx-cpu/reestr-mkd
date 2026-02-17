@@ -28,7 +28,7 @@ const PARKING_CONSTRUCTION_NAMES = {
 const STATUS_STEP_IDS = ['registry_nonres', 'registry_res', 'floors', 'entrances', 'apartments', 'mop'];
 
 const TYPE_NAMES = {
-  residential: 'Отдельный жилой дом (1+ жилых блоков)',
+  residential: 'Отдельный жилой дом',
   residential_multiblock: 'Жилой дом из нескольких секций/блоков',
   parking_separate: 'Отдельный паркинг',
   infrastructure: 'Объект инфраструктуры',

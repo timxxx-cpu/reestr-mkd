@@ -29,8 +29,8 @@ import { useValidation } from '@hooks/useValidation';
 import { useCatalog } from '@hooks/useCatalogs';
 
 const TYPE_NAMES = {
-  residential: 'Отдельный жилой дом (1+ жилых блоков)',
-  residential_multiblock: 'Жилой дом из нескольких секций/блоков',
+  residential: 'Обычный многоквартирный дом',
+  residential_multiblock: 'Многоквартирный дом со встроенными нежилыми частями',
   parking_separate: 'Отдельный паркинг',
   infrastructure: 'Объект инфраструктуры',
 };
@@ -90,10 +90,41 @@ const generateBlocksPayload = params => {
 
   return blocks;
 };
-
+// Настройка стилей карточки в зависимости от типа
+const CARD_THEMES = {
+  residential: {
+    bg: 'bg-white', // Жилье оставляем чистым или очень легким
+    border: 'border-slate-200',
+    header: 'bg-slate-50/50',
+    iconWrapper: 'bg-white border-slate-200 text-blue-600',
+    accent: 'group-hover:border-blue-300',
+  },
+  residential_multiblock: {
+    bg: 'bg-indigo-50/30', // Легкий индиго для сложных домов
+    border: 'border-indigo-100',
+    header: 'bg-indigo-50/40',
+    iconWrapper: 'bg-white border-indigo-200 text-indigo-600',
+    accent: 'group-hover:border-indigo-300',
+  },
+  parking_separate: {
+    bg: 'bg-slate-50', // Серый фон для тех. сооружений/паркинга
+    border: 'border-slate-200',
+    header: 'bg-slate-100/50',
+    iconWrapper: 'bg-white border-slate-200 text-slate-600',
+    accent: 'group-hover:border-slate-300',
+  },
+  infrastructure: {
+    bg: 'bg-amber-50/40', // Теплый фон для инфраструктуры
+    border: 'border-amber-200/50',
+    header: 'bg-amber-50/60',
+    iconWrapper: 'bg-white border-amber-200 text-amber-600',
+    accent: 'group-hover:border-amber-300',
+  },
+};
 // --- Компонент Карточки Строения ---
 const BuildingCard = ({ item, projectUjCode, isReadOnly, onEdit, onDelete }) => {
-  const isRes = item.category.includes('residential');
+  // Определяем тему по категории, fallback на residential
+  const theme = CARD_THEMES[item.category] || CARD_THEMES.residential;
   
   let detailsBadge = null;
   if (item.category === 'parking_separate') {
@@ -109,17 +140,21 @@ const BuildingCard = ({ item, projectUjCode, isReadOnly, onEdit, onDelete }) => 
   const Icon = item.category === 'parking_separate' ? Car : item.category === 'infrastructure' ? Box : Building2;
 
   return (
-    <div className="group bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col overflow-hidden relative">
+    <div 
+      className={`group rounded-xl border shadow-sm hover:shadow-md transition-all duration-200 flex flex-col overflow-hidden relative ${theme.bg} ${theme.border} ${theme.accent}`}
+    >
       {/* Верхняя часть с номером и иконкой */}
-      <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-start">
+      <div className={`p-4 border-b ${theme.border} ${theme.header} flex justify-between items-start`}>
         <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-lg flex items-center justify-center shadow-sm border ${isRes ? 'bg-white border-slate-200 text-blue-600' : 'bg-slate-100 border-slate-200 text-amber-600'}`}>
+          <div className={`w-10 h-10 rounded-lg flex items-center justify-center shadow-sm border ${theme.iconWrapper}`}>
              <Icon size={20} />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Строение</span>
-              <span className="font-black text-slate-800 bg-white border border-slate-200 px-1.5 rounded text-xs">{item.houseNumber || '?'}</span>
+              <span className="font-black text-slate-800 bg-white/80 border border-slate-200 px-1.5 rounded text-xs">
+                {item.houseNumber || '?'}
+              </span>
             </div>
             {item.buildingCode && projectUjCode ? (
               <div className="mt-1">
@@ -135,7 +170,7 @@ const BuildingCard = ({ item, projectUjCode, isReadOnly, onEdit, onDelete }) => 
         </div>
         
         {/* Статус */}
-        <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}>
+        <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border bg-white/50 ${getStageColor(item.stage)}`}>
           {item.stage || 'Проект'}
         </span>
       </div>
@@ -151,25 +186,25 @@ const BuildingCard = ({ item, projectUjCode, isReadOnly, onEdit, onDelete }) => 
           </p>
         </div>
 
-        {/* Характеристики */}
+        {/* Характеристики (теги) */}
         <div className="flex flex-wrap gap-1.5">
            {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
-              <span className="px-2 py-1 bg-slate-100 rounded border border-slate-200 text-[10px] font-semibold text-slate-600">
+              <span className="px-2 py-1 bg-white/60 rounded border border-slate-200 text-[10px] font-semibold text-slate-600">
                 {item.resBlocks} жил. / {item.nonResBlocks} нежил. бл.
               </span>
             )}
             {item.hasNonResPart && (
-              <span className="px-2 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-semibold">
+              <span className="px-2 py-1 bg-white/60 text-indigo-700 border border-indigo-100 rounded text-[10px] font-semibold">
                 Нежилые на жил. эт.
               </span>
             )}
             {item.category === 'infrastructure' && (
-              <span className="px-2 py-1 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-semibold">
+              <span className="px-2 py-1 bg-white/60 text-amber-700 border border-amber-100 rounded text-[10px] font-semibold">
                 {item.infraType}
               </span>
             )}
             {detailsBadge && (
-              <span className="px-2 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-semibold">
+              <span className="px-2 py-1 bg-white/60 text-slate-600 border border-slate-200 rounded text-[10px] font-semibold">
                 {detailsBadge}
               </span>
             )}
@@ -177,10 +212,10 @@ const BuildingCard = ({ item, projectUjCode, isReadOnly, onEdit, onDelete }) => 
       </div>
 
       {/* Футер с действиями */}
-      <div className="p-3 border-t border-slate-100 flex gap-2 bg-slate-50/30 mt-auto">
+      <div className={`p-3 border-t ${theme.border} flex gap-2 bg-white/40 mt-auto`}>
         <button
           onClick={() => onEdit(item)}
-          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition-colors shadow-sm"
         >
           {isReadOnly ? <Eye size={14} /> : <Pencil size={14} />}
           {isReadOnly ? 'Просмотр' : 'Редактировать'}
@@ -188,7 +223,7 @@ const BuildingCard = ({ item, projectUjCode, isReadOnly, onEdit, onDelete }) => 
         {!isReadOnly && (
           <button
             onClick={() => onDelete(item.id)}
-            className="px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+            className="px-3 py-2 text-xs font-semibold text-red-600 bg-white border border-slate-200 hover:bg-red-50 hover:border-red-200 rounded-lg transition-colors shadow-sm"
             title="Удалить"
           >
             <Trash2 size={14} />
@@ -230,7 +265,8 @@ const BuildingModal = ({
   });
 
   const isMultiblockError =
-    modal.category?.includes('residential') && modal.resBlocks < 1;
+    (modal.category === 'residential' && modal.resBlocks < 1) ||
+    (modal.category === 'residential_multiblock' && (modal.resBlocks < 1 || modal.nonResBlocks < 1));
   const ErrorMsg = ({ field }) =>
     errors[field] ? (
       <span className="text-[9px] text-red-500 font-bold ml-1 animate-in fade-in">
@@ -293,38 +329,16 @@ const BuildingModal = ({
                 onChange={e => setModal(m => ({ ...m, baseName: e.target.value }))}
                 placeholder="Например: Отдельный жилой дом"
                 className={errors.baseName ? 'border-red-300 bg-red-50' : ''}
-                disabled={isReadOnly || isSaving}
+                disabled={
+                  isReadOnly || 
+                  isSaving || 
+                  modal.category === 'infrastructure' || 
+                  modal.category === 'parking_separate' ||
+                  modal.category.includes('residential') // ИЗМЕНЕНИЕ: Блокируем и для жилья
+                }
               />
             </div>
-            {!modal.editingId && (
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                <div className="flex justify-between items-center">
-                  <Label className="mb-0">Количество копий</Label>
-                  <div className="flex items-center gap-3">
-                    <button
-                      disabled={isReadOnly || isSaving}
-                      onClick={() =>
-                        setModal(m => ({ ...m, quantity: Math.max(1, m.quantity - 1) }))
-                      }
-                      className="w-8 h-8 rounded-full bg-white border shadow-sm flex items-center justify-center font-bold text-slate-500 hover:text-blue-600 disabled:opacity-50"
-                    >
-                      -
-                    </button>
-                    <span className="font-bold text-lg w-4 text-center">{modal.quantity}</span>
-                    <button
-                      disabled={isReadOnly || isSaving}
-                      onClick={() =>
-                        setModal(m => ({ ...m, quantity: Math.min(20, m.quantity + 1) }))
-                      }
-                      className="w-8 h-8 rounded-full bg-white border shadow-sm flex items-center justify-center font-bold text-slate-500 hover:text-blue-600 disabled:opacity-50"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
 
           {/* ПРАВАЯ КОЛОНКА */}
           <div className="space-y-5">
@@ -342,11 +356,21 @@ const BuildingModal = ({
                       max="10"
                       value={modal.resBlocks}
                       onChange={e =>
-                        setModal(m => ({
-                          ...m,
-                          // Ограничение: 0..10
-                          resBlocks: Math.min(10, Math.max(0, parseInt(e.target.value) || 0)),
-                        }))
+                        setModal(m => {
+                          const val = Math.min(10, Math.max(0, parseInt(e.target.value) || 0));
+                          
+                          // ИЗМЕНЕНИЕ: Пересчитываем имя с учетом текущих нежилых блоков
+                          let newName = m.baseName;
+                          if (m.category.includes('residential')) {
+                             newName = getResidentialName(val, m.nonResBlocks);
+                          }
+
+                          return {
+                            ...m,
+                            resBlocks: val,
+                            baseName: newName,
+                          };
+                        })
                       }
                       disabled={modal.editingId || isSaving}
                     />
@@ -354,20 +378,32 @@ const BuildingModal = ({
                   {modal.category === 'residential_multiblock' && (
                     <div className="space-y-1">
                       <Label>Нежилых</Label>
+                      <div className="space-y-1">
                       <Input
                         type="number"
                         min="0"
                         max="10"
                         value={modal.nonResBlocks}
                         onChange={e =>
-                          setModal(m => ({
-                            ...m,
-                            // Ограничение: 0..10
-                            nonResBlocks: Math.min(10, Math.max(0, parseInt(e.target.value) || 0)),
-                          }))
+                          setModal(m => {
+                            const val = Math.min(10, Math.max(0, parseInt(e.target.value) || 0));
+                            
+                            // ИЗМЕНЕНИЕ: Также пересчитываем имя при смене кол-ва нежилых
+                            let newName = m.baseName;
+                            if (m.category.includes('residential')) {
+                               newName = getResidentialName(m.resBlocks, val);
+                            }
+
+                            return {
+                              ...m,
+                              nonResBlocks: val,
+                              baseName: newName,
+                            };
+                          })
                         }
                         disabled={modal.editingId || isSaving}
                       />
+                    </div>
                     </div>
                   )}
                 </div>
@@ -377,9 +413,13 @@ const BuildingModal = ({
                   </div>
                 )}
                 {isMultiblockError && (
-                  <div className="flex items-start gap-2 text-[10px] text-red-600 font-bold leading-tight">
+                  <div className="flex items-start gap-2 text-[10px] text-red-600 font-bold leading-tight mt-2">
                     <AlertCircle size={14} className="shrink-0 mt-0.5" />
-                    <span>Необходимо минимум: 1 жилой блок.</span>
+                    <span>
+                      {modal.category === 'residential_multiblock'
+                        ? 'Для этого типа необходимо минимум: 1 жилой и 1 нежилой блок.'
+                        : 'Необходимо минимум: 1 жилой блок.'}
+                    </span>
                   </div>
                 )}
                 {modal.category === 'residential' && (
@@ -433,12 +473,28 @@ const BuildingModal = ({
             )}
             {modal.category === 'infrastructure' && (
               <div className="space-y-1.5 p-3 bg-amber-50 rounded-xl border border-amber-100 animate-in fade-in">
-                <Label>Тип объекта</Label>
+                <Label>
+                  Тип объекта <span className="text-red-500">*</span>
+                  {/* Вывод ошибки, если валидатор вернул ошибку */}
+                  <ErrorMsg field="infraType" />
+                </Label>
                 <Select
                   value={modal.infraType}
-                  onChange={e => setModal(m => ({ ...m, infraType: e.target.value }))}
+                  onChange={e => {
+                    const newValue = e.target.value;
+                    setModal(m => ({ 
+                      ...m, 
+                      infraType: newValue,
+                      baseName: newValue // Авто-заполнение имени
+                    }));
+                  }}
                   disabled={isReadOnly || isSaving}
+                  // Подсветка красным, если попытка сохранения с пустым полем (зависит от вашей валидации)
+                  className={!modal.infraType && !isValid ? 'border-red-300 bg-white' : 'bg-white'}
                 >
+                  {/* ИЗМЕНЕНИЕ: Добавляем пустой пункт по умолчанию */}
+                  <option value="" disabled>-- Выберите тип --</option>
+                  
                   {infraTypeOptions.map(opt => (
                     <option key={opt.code} value={opt.label}>
                       {opt.label}
@@ -536,11 +592,71 @@ const BuildingModal = ({
     </div>
   );
 };
+const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, isDeleting }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5 animate-in zoom-in-95 duration-200">
+        <div className="p-6 text-center">
+          <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600 border border-red-100">
+            <Trash2 size={24} />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900 mb-2">Удалить объект?</h3>
+          <p className="text-sm text-slate-500 leading-relaxed">
+            Вы собираетесь удалить строение и все связанные с ним данные:
+            <br />
+            <span className="font-semibold text-slate-700">блоки, этажи, помещения и планировки.</span>
+            <br />
+            Это действие невозможно отменить.
+          </p>
+        </div>
+        
+        <div className="flex items-center gap-3 p-4 bg-slate-50 border-t border-slate-100">
+          <Button 
+            variant="ghost" 
+            onClick={onClose}
+            disabled={isDeleting}
+            className="flex-1"
+          >
+            Отмена
+          </Button>
+          <Button 
+            onClick={onConfirm}
+            disabled={isDeleting}
+            className="flex-1 bg-red-600 hover:bg-red-700 text-white shadow-red-200/50"
+          >
+            {isDeleting ? (
+              <Loader2 size={16} className="animate-spin mr-2" />
+            ) : (
+              <Trash2 size={16} className="mr-2" />
+            )}
+            {isDeleting ? 'Удаление...' : 'Удалить'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+// Хелпер для формирования названия жилого дома
+const getResidentialName = (resBlocks, nonResBlocks) => {
+  let name = 'Многоквартирный жилой дом';
+  if (resBlocks > 1) {
+    name += ` из ${resBlocks} блоков`;
+  }
+  if (nonResBlocks > 0) {
+    name += ' с нежилыми блоками';
+  }
+  return name;
+};
 
 const CompositionEditor = () => {
   const { projectId, complexInfo } = useProject();
   const isReadOnly = useReadOnly();
   const projectUjCode = complexInfo?.ujCode;
+  const [deleteTargetId, setDeleteTargetId] = useState(null);
 
   // State для переключения вида (grid/list)
   // Инициализируем из localStorage или по умолчанию 'grid'
@@ -592,45 +708,32 @@ const CompositionEditor = () => {
   const { options: infraTypeOptions } = useCatalog('dict_infra_types');
   const { options: projectStageOptions } = useCatalog('dict_project_statuses');
 
-  const generateDemoComplex = async () => {
-    if (!window.confirm('Создать демо-данные в БД?')) return;
-
-    try {
-      await createBuilding({
-        buildingData: {
-          label: 'Корпус "Доминанта"',
-          houseNumber: '1',
-          stage: 'Строящийся',
-          category: 'residential',
-          hasNonResPart: true,
-        },
-        blocksData: generateBlocksPayload({ category: 'residential', resBlocks: 1 }),
-      });
-      await createBuilding({
-        buildingData: {
-          label: 'Паркинг "Север"',
-          houseNumber: 'P-1',
-          stage: 'Введенный',
-          category: 'parking_separate',
-          parkingType: 'ground',
-          constructionType: 'capital',
-        },
-        blocksData: generateBlocksPayload({ category: 'parking_separate', parkingType: 'ground' }),
-      });
-    } catch (e) {
-      console.error(e);
-      alert('Ошибка при создании демо-данных');
-    }
-  };
+  
 
   const openPlanning = category => {
-    const defaultName = TYPE_NAMES[category] || 'Новый объект';
+    let defaultName = TYPE_NAMES[category] || 'Новый объект';
+    
+    // Начальные значения блоков
+    const initResBlocks = category.includes('multiblock') ? 1 : category.includes('residential') ? 1 : 0;
+    const initNonResBlocks = category.includes('multiblock') ? 1 : 0;
+
+    if (category === 'infrastructure') {
+      defaultName = '';
+    } else if (category === 'parking_separate') {
+      defaultName = 'Отдельно стоящий Паркинг';
+    } else if (category.includes('residential')) {
+      // ИЗМЕНЕНИЕ: Формируем имя через хелпер
+      defaultName = getResidentialName(initResBlocks, initNonResBlocks);
+    }
+
+    const defaultInfraType = category === 'infrastructure' ? '' : 'Котельная';
+
     setModal({
       isOpen: true,
       category,
       quantity: 1,
-      resBlocks: category.includes('multiblock') ? 1 : category.includes('residential') ? 1 : 0,
-      nonResBlocks: category.includes('multiblock') ? 1 : 0,
+      resBlocks: initResBlocks,
+      nonResBlocks: initNonResBlocks,
       hasNonResPart: false,
       baseName: defaultName,
       houseNumber: '',
@@ -639,7 +742,7 @@ const CompositionEditor = () => {
       stage: 'Проектный',
       parkingType: 'ground',
       parkingConstruction: 'light',
-      infraType: 'Котельная',
+      infraType: defaultInfraType,
       editingId: null,
     });
   };
@@ -710,9 +813,15 @@ const CompositionEditor = () => {
     setModal(prev => ({ ...prev, isOpen: false }));
   };
 
-  const deleteItem = id => {
-    if (confirm('Удалить объект и все связанные данные (блоки, этажи, квартиры)?')) {
-      deleteBuilding(id);
+  const handleDeleteClick = (id) => {
+    setDeleteTargetId(id);
+  };
+
+  // 2. Обработчик подтверждения (выполняет удаление)
+  const handleConfirmDelete = async () => {
+    if (deleteTargetId) {
+      await deleteBuilding(deleteTargetId);
+      setDeleteTargetId(null); // Закрываем окно после успеха
     }
   };
 
@@ -727,9 +836,9 @@ const CompositionEditor = () => {
     <div className="w-full px-6 pb-20 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 mb-2 gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Состав комплекса</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Состав жилого комплекса</h1>
           <p className="text-slate-500 text-sm mt-1 flex items-center gap-2">
-            Создание и управление перечнем строений
+            Создание и управление строениями входящими в состав комплекса
           </p>
         </div>
         <div className="flex gap-3">
@@ -757,70 +866,76 @@ const CompositionEditor = () => {
               <LayoutGrid size={18} />
             </button>
           </div>
-
-          <Button
-            onClick={generateDemoComplex}
-            disabled={isReadOnly || isMutating}
-            variant="secondary"
-            className={`bg-white border border-slate-200 transition-all shadow-sm ${isReadOnly ? 'opacity-50 cursor-not-allowed text-slate-400' : 'hover:bg-purple-50 hover:text-purple-600'}`}
-          >
-            {isMutating ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : (
-              <Sparkles size={16} />
-            )}{' '}
-            {isMutating ? 'Создание...' : 'Демо-данные'}
-          </Button>
+         
           <div className="h-10 px-4 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center shadow-lg shadow-slate-900/20">
-            {buildings.length} объектов
+            зданий и сооружений в составе комплекса - {buildings.length} 
           </div>
         </div>
       </div>
 
       {!isReadOnly && (
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap gap-3 items-center">
-          <span className="text-xs font-bold text-slate-400 uppercase mr-2">Создать:</span>
-          <div className="flex flex-wrap gap-2">
-            {[
-              {
-                id: 'residential',
-                label: 'Жилой дом',
-                icon: Home,
-                color:
-                  'text-slate-700 bg-white border-slate-200 hover:border-blue-400 hover:text-blue-600 hover:shadow-md',
-              },
-              {
-                id: 'residential_multiblock',
-                label: 'Жилой дом + нежилые блоки',
-                icon: Layers,
-                color:
-                  'text-slate-700 bg-white border-slate-200 hover:border-indigo-400 hover:text-indigo-600 hover:shadow-md',
-              },
-              {
-                id: 'parking_separate',
-                label: 'Паркинг',
-                icon: Car,
-                color:
-                  'text-slate-700 bg-white border-slate-200 hover:border-slate-400 hover:text-slate-900 hover:shadow-md',
-              },
-              {
-                id: 'infrastructure',
-                label: 'Инфраструктура',
-                icon: Box,
-                color:
-                  'text-slate-700 bg-white border-slate-200 hover:border-amber-400 hover:text-amber-600 hover:shadow-md',
-              },
-            ].map(btn => (
-              <button
-                key={btn.id}
-                onClick={() => openPlanning(btn.id)}
-                disabled={isMutating}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all active:scale-95 shadow-sm ${btn.color}`}
-              >
-                {isMutating ? <Loader2 size={14} className="animate-spin" /> : <btn.icon size={14} />}
-                {isMutating ? 'Сохранение...' : btn.label}
-              </button>
-            ))}
+        <div className="relative overflow-hidden rounded-2xl bg-slate-900 shadow-xl shadow-slate-900/10 mb-8 animate-in slide-in-from-top-4 duration-500">
+          {/* Декоративный фон */}
+          <div className="absolute top-0 right-0 p-12 opacity-10">
+            <Building2 size={200} className="text-white" />
+          </div>
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900 to-blue-900/40" />
+
+          <div className="relative z-10 p-5 md:p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="max-w-xs">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Sparkles size={18} className="text-blue-400" />
+                              </h2>
+              <p className="text-sm text-slate-400 mt-1 leading-relaxed">
+                Выберите тип строения для добавления в состав жилого комплекса.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              {[
+                {
+                  id: 'residential',
+                  label: 'Жилой дом',
+                  desc: 'Обычный / МКД',
+                  icon: Home,
+                  style: 'hover:bg-blue-500 hover:border-blue-400 text-white',
+                },
+                {
+                  id: 'residential_multiblock',
+                  label: 'Многосекционный',
+                  desc: 'Жилье + Нежилые',
+                  icon: Layers,
+                  style: 'hover:bg-indigo-500 hover:border-indigo-400 text-white',
+                },
+                {
+                  id: 'parking_separate',
+                  label: 'Паркинг',
+                  desc: 'Отдельное здание',
+                  icon: Car,
+                  style: 'hover:bg-slate-600 hover:border-slate-500 text-white',
+                },
+                {
+                  id: 'infrastructure',
+                  label: 'Инфраструктура',
+                  desc: 'ТП, Котельная и др.',
+                  icon: Box,
+                  style: 'hover:bg-amber-500 hover:border-amber-400 text-white',
+                },
+              ].map(btn => (
+                <button
+                  key={btn.id}
+                  onClick={() => openPlanning(btn.id)}
+                  disabled={isMutating}
+                  className={`group relative flex flex-col items-start justify-center pl-10 pr-4 py-2.5 rounded-xl border border-white/10 bg-white/5 transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${btn.style}`}
+                >
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-white/10 group-hover:bg-white/20 transition-colors">
+                     {isMutating ? <Loader2 size={16} className="animate-spin" /> : <btn.icon size={16} />}
+                  </div>
+                  <span className="text-xs font-bold leading-none mb-0.5">{btn.label}</span>
+                  <span className="text-[10px] opacity-60 font-medium leading-none">{btn.desc}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -968,7 +1083,7 @@ const CompositionEditor = () => {
                           </button>
                           {!isReadOnly && (
                             <button
-                              onClick={() => deleteItem(item.id)}
+                              onClick={() => handleDeleteClick(item.id)}
                               title="Удалить"
                               className="w-8 h-8 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm flex items-center justify-center hover:bg-red-600 hover:text-white hover:border-red-600 transition-all"
                             >
@@ -990,20 +1105,10 @@ const CompositionEditor = () => {
                   projectUjCode={projectUjCode}
                   isReadOnly={isReadOnly}
                   onEdit={openEditing}
-                  onDelete={deleteItem}
+                  onDelete={handleDeleteClick}
                 />
               ))}
-              {!isReadOnly && (
-                <button
-                   onClick={() => openPlanning('residential')}
-                   className="flex flex-col items-center justify-center h-full min-h-[220px] border-2 border-dashed border-slate-200 rounded-xl hover:border-blue-400 hover:bg-blue-50/50 transition-all group"
-                >
-                    <div className="w-12 h-12 rounded-full bg-slate-50 group-hover:bg-blue-100 flex items-center justify-center mb-3 transition-colors">
-                       <span className="text-2xl text-slate-400 group-hover:text-blue-600">+</span>
-                    </div>
-                    <span className="text-slate-500 font-bold group-hover:text-blue-600 text-sm">Добавить строение</span>
-                </button>
-              )}
+              
             </div>
           )}
         </>
@@ -1021,6 +1126,12 @@ const CompositionEditor = () => {
           projectStageOptions={projectStageOptions}
         />
       )}
+      <DeleteConfirmationModal 
+        isOpen={!!deleteTargetId}
+        onClose={() => setDeleteTargetId(null)}
+        onConfirm={handleConfirmDelete}
+        isDeleting={isMutating}
+      />
     </div>
   );
 };
