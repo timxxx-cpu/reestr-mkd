@@ -536,7 +536,9 @@ const validateApartments = data => {
     if (!unit.blockId) return;
     const num = String(unit.num || '').trim();
     if (num !== '') {
-      const key = `${unit.buildingId}_${unit.blockId}_${num}`;
+      // [FIX] Ключ строго привязан к blockId
+      const key = `${unit.blockId}_${num}`;
+      
       if (numbersMap[key]) {
         if (
           !errors.some(

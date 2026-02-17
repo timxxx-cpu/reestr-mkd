@@ -1,10 +1,10 @@
 /**
  * UJ Identifier System
  * * Трёхуровневая система идентификации объектов недвижимости
- * Формат: UJ000000-ZD00-EL000
+ * Формат: UJ000000-ZD00-EL0000  <-- (Изменено на 4 знака)
  * * Уровень I: Проект (UJ000000)
  * Уровень II: Здание (ZR00, ZM00, ZP00, ZI00)
- * Уровень III: Помещение (EF000, EO000, EP000)
+ * Уровень III: Помещение (EF0000, EO0000, EP0000) <-- (Изменено на 4 знака)
  */
 
 // Маппинг категорий зданий на префиксы ZD
@@ -34,7 +34,7 @@ export const UNIT_TYPE_PREFIXES = {
  * @returns {string} Код формата UJ000000
  */
 export const generateProjectCode = sequenceNumber => {
-  const num = parseInt(String(sequenceNumber), 10) || 0; // FIX: добавлен String()
+  const num = parseInt(String(sequenceNumber), 10) || 0;
   return `UJ${String(num).padStart(6, '0')}`;
 };
 
@@ -61,7 +61,7 @@ export const getBuildingPrefix = (category, hasMultipleBlocks = false) => {
  * @returns {string} Код формата ZD00
  */
 export const generateBuildingCode = (prefix, sequenceNumber) => {
-  const num = parseInt(String(sequenceNumber), 10) || 0; // FIX: добавлен String()
+  const num = parseInt(String(sequenceNumber), 10) || 0;
   return `${prefix}${String(num).padStart(2, '0')}`;
 };
 
@@ -78,19 +78,20 @@ export const getUnitPrefix = unitType => {
  * Генерация кода помещения (Уровень III)
  * @param {string} prefix - Префикс типа помещения (EF, EO, EP)
  * @param {number} sequenceNumber - Порядковый номер помещения данного типа в здании
- * @returns {string} Код формата EL000
+ * @returns {string} Код формата EL0000 (4 знака)
  */
 export const generateUnitCode = (prefix, sequenceNumber) => {
-  const num = parseInt(String(sequenceNumber), 10) || 0; // FIX: добавлен String()
-  return `${prefix}${String(num).padStart(3, '0')}`;
+  const num = parseInt(String(sequenceNumber), 10) || 0;
+  // [CHANGED] Расширено до 4 знаков (было 3)
+  return `${prefix}${String(num).padStart(4, '0')}`;
 };
 
 /**
  * Формирование полного идентификатора
  * @param {string} projectCode - Код проекта (UJ000000)
  * @param {string} buildingCode - Код здания (ZD00)
- * @param {string} unitCode - Код помещения (EL000)
- * @returns {string} Полный код формата UJ000000-ZD00-EL000
+ * @param {string} unitCode - Код помещения (EL0000)
+ * @returns {string} Полный код формата UJ000000-ZD00-EL0000
  */
 export const formatFullIdentifier = (projectCode, buildingCode = null, unitCode = null) => {
   if (!projectCode) {
@@ -169,12 +170,13 @@ export const isValidBuildingCode = code => {
  * @returns {boolean}
  */
 export const isValidUnitCode = code => {
-  return /^E[FOP]\d{3}$/.test(code);
+  // [CHANGED] Проверка теперь требует 4 цифры вместо 3
+  return /^E[FOP]\d{4}$/.test(code);
 };
 
 /**
  * Извлечение номера из кода
- * @param {string} code - Любой код (UJ000000, ZR01, EF001)
+ * @param {string} code - Любой код (UJ000000, ZR01, EF0001)
  * @returns {number} Числовая часть кода
  */
 export const extractNumber = code => {

@@ -14,7 +14,8 @@ import {
   Briefcase,
   Package,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  PlusCircle
 } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { useDirectBuildings } from '@hooks/api/useDirectBuildings';
@@ -162,63 +163,44 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
   const [editingUnit, setEditingUnit] = useState(null);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [showFillModal, setShowFillModal] = useState(false); // [NEW] Модалка заполнения
+
   const [confirmDuplexFloor, setConfirmDuplexFloor] = useState(null); 
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isSaving, setIsSaving] = useState(false); // [NEW] Состояние сохранения шага
+  const [isSaving, setIsSaving] = useState(false); 
   const [startNum, setStartNum] = useState(1);
-  const autoGenerationGuardRef = useRef(new Set());
+  
+  // [REMOVED] Автогенерация удалена
 
-  useEffect(() => {
-    let cancelled = false;
+  // [NEW] Ручная генерация
+  const handleManualFill = async () => {
+    setShowFillModal(false);
+    
+    const hasPlannedApts = Object.values(matrixMap).some(v => parseInt(v.apts || 0, 10) > 0);
+    if (!hasPlannedApts) {
+       toast.error('Матрица пуста. Сначала укажите количество квартир на этажах.');
+       return;
+    }
 
-    const runAutoGeneration = async () => {
-      if (isUnitsLoading || !currentBlock || isReadOnly) return;
-      if (units.length !== 0 || entrances.length === 0 || displayFloors.length === 0) return;
+    setIsGenerating(true);
 
-      const hasPlannedApts = Object.values(matrixMap).some(v => parseInt(v.apts || 0, 10) > 0);
-      if (!hasPlannedApts) return;
-
-      const guardKey = `${currentBlock.id}:${displayFloors.length}:${entrances.length}`;
-      if (autoGenerationGuardRef.current.has(guardKey)) return;
-      autoGenerationGuardRef.current.add(guardKey);
-
-      setIsGenerating(true);
-      try {
-        const actualUnits = await ApiService.getUnits(currentBlock.id, { floorIds: linkedStylobateFloorIds });
-        if ((actualUnits || []).length > 0) return;
-
-        const initialUnits = generateInitialUnits(1);
-        if (initialUnits.length === 0) return;
-
-        await batchUpsertUnits(initialUnits);
-        if (!cancelled) {
-          toast.success(`Сгенерировано ${initialUnits.length} помещений`);
-        }
-      } catch (e) {
-        console.error(e);
-        if (!cancelled) toast.error('Ошибка генерации');
-      } finally {
-        if (!cancelled) setIsGenerating(false);
+    try {
+      const initialUnits = generateInitialUnits(startNum);
+      
+      if (initialUnits.length === 0) {
+         toast.info('Нет помещений для создания');
+         return;
       }
-    };
 
-    runAutoGeneration();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    isUnitsLoading,
-    currentBlock,
-    isReadOnly,
-    units.length,
-    entrances.length,
-    displayFloors.length,
-    matrixMap,
-    linkedStylobateFloorIds,
-    generateInitialUnits,
-    batchUpsertUnits,
-    toast,
-  ]);
+      await batchUpsertUnits(initialUnits);
+      toast.success(`Успешно создано ${initialUnits.length} помещений`);
+    } catch (e) {
+      console.error(e);
+      toast.error('Ошибка при создании помещений');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   const handleEditClick = (unit, floor) => {
     if (!floor?.isDuplex) {
@@ -332,7 +314,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     }
   };
 
-  // [UPDATED] Сохранение прогресса и выход
   const handleSaveStep = async () => {
       setIsSaving(true);
       try {
@@ -346,7 +327,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         } else {
           toast.success('Конфигурация квартир сохранена');
         }
-        onBack(); // Возврат к списку
+        onBack();
       } catch (e) {
         console.error(e);
         toast.error('Ошибка при сохранении статуса');
@@ -372,6 +353,8 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     return widths;
   }, [entrances, displayFloors, matrixMap]);
 
+  const hasUnits = units.length > 0;
+
   if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Загрузка...</div>;
 
   return (
@@ -387,7 +370,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         onBack={onBack}
         showSaveButton={true}
         onSave={handleSaveStep}
-        saveDisabled={isReadOnly || isGenerating || isSaving} // Блокируем при сохранении
+        saveDisabled={isReadOnly || isGenerating || isSaving}
         saveLabel={isSaving ? 'Сохранение...' : 'Сохранить и выйти'}
       />
 
@@ -409,23 +392,34 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-sm">
               <span className="text-[10px] font-bold text-slate-400 uppercase">Старт №:</span>
               <input
-                disabled={isReadOnly}
+                disabled={isReadOnly || hasUnits}
                 type="number"
-                className={`w-12 bg-transparent font-bold text-sm text-slate-700 outline-none text-center ${isReadOnly ? 'opacity-50' : ''}`}
+                className={`w-12 bg-transparent font-bold text-sm text-slate-700 outline-none text-center ${isReadOnly || hasUnits ? 'opacity-50' : ''}`}
                 value={startNum}
                 onChange={e => setStartNum(parseInt(e.target.value) || 1)}
               />
            </div>
 
-           <Button 
-              variant="destructive"
-              onClick={() => setShowResetModal(true)}
-              disabled={isReadOnly || isGenerating}
-              className="h-10 px-4 shadow-red-100 bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 hover:text-red-700"
-           >
-              <Eraser size={16} className="mr-2" />
-              Сброс
-           </Button>
+           {!hasUnits ? (
+             <Button 
+                onClick={() => setShowFillModal(true)}
+                disabled={isReadOnly || isGenerating}
+                className="h-10 px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200 shadow-sm"
+             >
+                <PlusCircle size={16} className="mr-2" />
+                Заполнить блок
+             </Button>
+           ) : (
+             <Button 
+                variant="destructive"
+                onClick={() => setShowResetModal(true)}
+                disabled={isReadOnly || isGenerating}
+                className="h-10 px-4 shadow-red-100 bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 hover:text-red-700"
+             >
+                <Eraser size={16} className="mr-2" />
+                Сброс / Пересоздать
+             </Button>
+           )}
         </div>
       </div>
 
@@ -569,6 +563,40 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
          </div>
       </Modal>
 
+      {/* NEW: Модальное окно заполнения */}
+      <Modal
+        isOpen={showFillModal}
+        onClose={() => setShowFillModal(false)}
+        title="Заполнение блока"
+        maxWidth="max-w-sm"
+      >
+        <div className="space-y-4">
+           <div className="p-4 bg-emerald-50 text-emerald-900 rounded-xl border border-emerald-100 flex items-start gap-3">
+              <PlusCircle className="shrink-0 text-emerald-600" size={24} />
+              <div className="text-sm">
+                 <p className="font-bold mb-1">Создание квартир</p>
+                 <p className="opacity-90 leading-relaxed">
+                    Система создаст квартиры и офисы на основе матрицы этажей.
+                 </p>
+                 <div className="mt-2 bg-white/60 p-2 rounded border border-emerald-100/50">
+                    <p className="text-xs font-bold text-emerald-700 uppercase">Нумерация начнется с:</p>
+                    <p className="text-xl font-black text-emerald-800">{startNum}</p>
+                 </div>
+              </div>
+           </div>
+           
+           <div className="flex justify-end gap-2 pt-2">
+              <Button variant="ghost" onClick={() => setShowFillModal(false)}>Отмена</Button>
+              <Button 
+                onClick={handleManualFill}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                Создать и пронумеровать
+              </Button>
+           </div>
+        </div>
+      </Modal>
+
       <Modal
         isOpen={showResetModal}
         onClose={() => setShowResetModal(false)}
@@ -602,7 +630,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         </div>
       </Modal>
 
-      {/* MODAL: Confirm Floor Duplex Update */}
       <Modal
         isOpen={!!confirmDuplexFloor}
         onClose={() => setConfirmDuplexFloor(null)}

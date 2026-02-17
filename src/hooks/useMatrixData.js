@@ -54,15 +54,14 @@ export function useMatrixData(units, floors, entrances, matrixMap) {
           });
         }
 
-        // 2. Генерируем ОФИСЫ (Добавлено)
-        // В api-service.js поле commercial_count мапится в свойство .units
+        // 2. Генерируем ОФИСЫ
         const countOffices = parseInt(cellData.units || 0); 
         for (let k = 0; k < countOffices; k++) {
           newUnits.push({
             id: crypto.randomUUID(),
             floorId: f.id,
             entranceId: e.id,
-            num: String(currentNum++), // Сквозная нумерация (или можно вести отдельную)
+            num: String(currentNum++),
             type: 'office', // Тип Офис
             rooms_count: 0,
             total_area: 0
@@ -82,49 +81,67 @@ export function useMatrixData(units, floors, entrances, matrixMap) {
     // Сортируем этажи СНИЗУ ВВЕРХ
     const floorsAsc = [...floors].sort((a, b) => (Number(a.index) || 0) - (Number(b.index) || 0));
 
-    // Используем gridMap, чтобы находить существующие квартиры по координатам
-    // НО! gridMap построен на отсортированных данных. 
-    // Для "сброса" надежнее брать квартиры в том порядке, в котором они сейчас лежат в gridMap (по порядку номеров), 
-    // либо просто брать слоты по порядку.
-    
-    // ВАЖНО: Если мы хотим "Сбросить", мы должны игнорировать текущие номера и просто брать слоты по порядку (0, 1, 2...).
-    // Но в gridMap у нас квартиры лежат по индексу массива.
-    
     entrances.forEach(e => {
       floorsAsc.forEach(f => {
         const matrixKey = `${f.id}_${e.number}`;
-        const count = parseInt(matrixMap[matrixKey]?.apts || 0);
         
-        // Берем существующие квартиры в этой ячейке
+        // Получаем плановые количества из матрицы
+        const countFlats = parseInt(matrixMap[matrixKey]?.apts || 0);
+        const countOffices = parseInt(matrixMap[matrixKey]?.units || 0);
+        
+        // Берем существующие квартиры в этой ячейке (они уже отсортированы в gridMap)
         const existingInCell = gridMap[f.id]?.[e.id] || [];
+        let existingIndex = 0;
 
-        for (let i = 0; i < count; i++) {
-          const existingUnit = existingInCell[i];
+        // Вспомогательная функция для создания/обновления
+        const processUnit = (targetType) => {
+          const existingUnit = existingInCell[existingIndex];
           const newNum = String(currentNum++);
           
           if (existingUnit) {
-            // Если квартира есть - обновляем её (превращаем в flat и меняем номер)
+            // Если юнит уже есть — обновляем
+            // ВАЖНО: Если тип меняется (например Office -> Flat), нужно сбросить unitCode,
+            // чтобы сервер сгенерировал новый (EF... вместо EO...).
+            // Если тип тот же — сохраняем unitCode, чтобы не было конфликта уникальности.
+            const shouldPreserveCode = existingUnit.type === targetType;
+
             updates.push({
               id: existingUnit.id,
-              floorId: f.id,       // на всякий случай
-              entranceId: e.id,    // на всякий случай
+              floorId: f.id,
+              entranceId: e.id,
               num: newNum,
-              type: 'flat',        // Сброс типа
-              // Можно добавить сброс площадей, если нужно: total_area: 0
+              type: targetType,
+              // Если тип совпадает — оставляем старый код. Если нет — null (пусть пересоздастся)
+              unitCode: shouldPreserveCode ? existingUnit.unitCode : null
             });
           } else {
-            // Если квартиры нет (дырка) - создаем новую
+            // Если юнита нет (дырка) — создаем новый
             updates.push({
               id: crypto.randomUUID(),
               floorId: f.id,
               entranceId: e.id,
               num: newNum,
-              type: 'flat',
+              type: targetType,
               rooms_count: 0,
               total_area: 0
             });
           }
+          existingIndex++;
+        };
+
+        // 1. Проход по КВАРТИРАМ
+        for (let i = 0; i < countFlats; i++) {
+          processUnit('flat');
         }
+
+        // 2. Проход по ОФИСАМ
+        for (let k = 0; k < countOffices; k++) {
+          processUnit('office');
+        }
+        
+        // Примечание: Если в existingInCell осталось больше юнитов, чем (countFlats + countOffices),
+        // они останутся в БД "как есть" до следующей синхронизации (reconcile), 
+        // но нумерация пойдет дальше корректно.
       });
     });
 
