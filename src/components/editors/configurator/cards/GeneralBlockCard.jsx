@@ -12,6 +12,7 @@ export default function GeneralBlockCard({
 }) {
   const isReadOnly = useReadOnly();
   const isResidential = currentBlock?.type === 'Ж';
+  const canEditBlockAddress = String(building?.category || '').includes('residential');
 
   const increment = (field, max = 100) => {
     const val = parseInt(details[field]) || 0;
@@ -95,8 +96,8 @@ export default function GeneralBlockCard({
         </div>
       </Card>
 
-      {/* Адрес блока (только для многоблочных ЖК) */}
-      {building.category === 'residential_multiblock' && (
+      {/* Адрес блока (для жилых зданий и блоков) */}
+      {canEditBlockAddress && (
         <Card className="p-6 shadow-sm flex flex-col">
           <SectionTitle icon={MapPin}>Адрес</SectionTitle>
 
@@ -122,9 +123,9 @@ export default function GeneralBlockCard({
               />
               {/* [ИЗМЕНЕНО] */}
               <div>
-                <span className="text-sm font-bold text-slate-700">Указать корпус</span>
+                <span className="text-sm font-bold text-slate-700">Указать отдельный адрес блока</span>
                 <p className="text-[10px] text-slate-400">
-                  Включите, если у блока есть номер корпуса
+                  Используйте, если блок имеет отдельный номер дома/корпуса
                 </p>
               </div>
             </label>

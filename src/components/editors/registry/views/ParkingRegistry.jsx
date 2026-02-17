@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Car, CheckCircle2, Loader2, Search, ArrowLeft } from 'lucide-react';
-import { Card, DebouncedInput } from '@components/ui/UIKit';
+import { Button, Card, DebouncedInput } from '@components/ui/UIKit';
 import EmptyState from '@components/ui/EmptyState';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { formatFullIdentifier } from '@lib/uj-identifier';
@@ -14,11 +14,12 @@ import { useToast } from '@context/ToastContext';
 const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const { complexInfo } = useProject();
+  const { complexInfo, saveProjectImmediate, setHasUnsavedChanges } = useProject();
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [editingUnit, setEditingUnit] = useState(null);
+  const [isStepSaving, setIsStepSaving] = useState(false);
   
   const projectUjCode = complexInfo?.ujCode;
 
@@ -118,6 +119,22 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
     }
   };
 
+  const handleStepSave = async () => {
+    if (isStepSaving) return;
+
+    setIsStepSaving(true);
+    try {
+      await saveProjectImmediate({ shouldRefetch: false });
+      setHasUnsavedChanges(false);
+      toast.success('Шаг сохранен');
+    } catch (error) {
+      console.error(error);
+      toast.error('Не удалось сохранить шаг');
+    } finally {
+      setIsStepSaving(false);
+    }
+  };
+
   if (loadingRegistry)
     return (
       <div className="p-12 text-center">
@@ -167,6 +184,9 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
             className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:border-blue-500 outline-none"
           />
         </div>
+        <Button onClick={handleStepSave} disabled={isStepSaving} className="shrink-0">
+          {isStepSaving ? <><Loader2 size={16} className="animate-spin mr-2" />Сохраняем...</> : 'Сохранить шаг'}
+        </Button>
       </div>
 
       <Card className="overflow-hidden border-0 shadow-lg ring-1 ring-slate-200 rounded-xl mx-4 md:mx-0">

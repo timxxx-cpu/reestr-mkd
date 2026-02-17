@@ -17,6 +17,8 @@ export const createRegistryApi = legacyApi => ({
   upsertCommonArea: legacyApi.upsertCommonArea,
   deleteCommonArea: legacyApi.deleteCommonArea,
   clearCommonAreas: legacyApi.clearCommonAreas,
+  reconcileUnitsForBlock: legacyApi.reconcileUnitsForBlock,
+  reconcileCommonAreasForBlock: legacyApi.reconcileCommonAreasForBlock,
   getBasements: legacyApi.getBasements,
   toggleBasementLevel: legacyApi.toggleBasementLevel,
   getParkingCounts: legacyApi.getParkingCounts,

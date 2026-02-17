@@ -458,7 +458,7 @@ const ExplicationPanel = ({
 const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const { buildingDetails } = useProject(); 
+  const { buildingDetails, saveProjectImmediate, setHasUnsavedChanges } = useProject(); 
   
   const [internalSelectedId, setInternalSelectedId] = useState(null);
   const selectedBuildingId = buildingId || internalSelectedId;
@@ -473,6 +473,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
   const [isTableExplicationOpen, setIsTableExplicationOpen] = useState(false);
   const [viewMode, setViewMode] = useState('matrix');
   const [isSaving, setIsSaving] = useState(false);
+  const [isStepSaving, setIsStepSaving] = useState(false);
 
   // --- CATALOGS ---
   const { data: roomTypesRows = [] } = useQuery({
@@ -832,6 +833,22 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
     }
   };
 
+  const handleStepSave = async () => {
+    if (isStepSaving) return;
+
+    setIsStepSaving(true);
+    try {
+      await saveProjectImmediate({ shouldRefetch: false });
+      setHasUnsavedChanges(false);
+      toast.success('Шаг сохранен');
+    } catch (error) {
+      console.error(error);
+      toast.error('Не удалось сохранить шаг');
+    } finally {
+      setIsStepSaving(false);
+    }
+  };
+
   // --- RENDER ---
   
   if (!selectedBuildingId) {
@@ -863,7 +880,10 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
                 else setInternalSelectedId(null);
             }}
             isSticky={false}
-            showSaveButton={false} 
+            showSaveButton={true}
+            onSave={handleStepSave}
+            saveDisabled={isStepSaving}
+            saveLabel={isStepSaving ? 'Сохраняем...' : 'Сохранить шаг'}
          />
 
          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

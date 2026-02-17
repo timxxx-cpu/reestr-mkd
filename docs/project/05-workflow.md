@@ -300,6 +300,42 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
 | 15 | `registry_res_view` | Сводная по жилым блокам | 4 | - |
 | 16 | `summary` | Сводная по ЖК | 4 | ✓ FINAL |
 
+### 5.5.1 Стратегия сохранения по шагам (единая модель)
+
+Чтобы не смешивать глобальные и локальные сценарии сохранения, применяется единая матрица ответственности:
+
+- **Local-authoritative**: объектные данные шага сохраняются только локальными действиями экрана шага.
+  Верхняя панель workflow не должна быть «источником истины» для данных этого шага.
+- **Global-authoritative**: шаг не имеет собственной формы/кнопки сохранения и сохраняется только через верхнюю панель.
+
+#### Текущая целевая матрица
+
+| Шаг | Модель | Комментарий |
+|---|---|---|
+| `registry_nonres` | Local-authoritative | Локальный Save в `ConfigHeader`, фиксация `block_statuses` |
+| `registry_res` | Local-authoritative | Локальный Save в `ConfigHeader`, фиксация `block_statuses` |
+| `floors` | Local-authoritative | Локальный Save + step status |
+| `entrances` | Local-authoritative | Локальный Save + step status |
+| `apartments` | Local-authoritative | Локальный Save + step status |
+| `mop` | Local-authoritative | Локальный Save + step status |
+| `registry_apartments` | **Local-authoritative (целевое)** | Добавить явный локальный step-save, убрать зависимость от верхнего Save |
+| `registry_commercial` | **Local-authoritative (целевое)** | Добавить явный локальный step-save, убрать зависимость от верхнего Save |
+| `registry_parking` | **Local-authoritative (целевое)** | Добавить явный локальный step-save, убрать зависимость от верхнего Save |
+
+#### Правила завершения шага
+
+- Для шагов Local-authoritative завершение шага запрещается при `hasUnsavedChanges = true`.
+- После локального сохранения:
+  1. закрываются pending-изменения шага,
+  2. при необходимости сохраняются `block_statuses`,
+  3. `hasUnsavedChanges` сбрасывается консистентно.
+
+#### Минимальный smoke-набор против регрессий
+
+1. На Local-authoritative шаге: `unsaved → complete` блокируется.
+2. После локального save: `complete` разрешен.
+3. Registry-save формирует skeleton `floors + entrance_matrix` без дублирования при повторном сохранении.
+
 ## 5.6 Повторная подача заявки по ЖК (новый функционал)
 
 ### 5.6.1 Контекст
