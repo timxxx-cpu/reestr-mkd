@@ -105,6 +105,21 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
 
     const requiredFields = [];
 
+    // --- НОВАЯ ЛОГИКА: ПРОВЕРКА ИНЖЕНЕРИИ (КРОМЕ ПАРКИНГОВ) ---
+    if (!isParking) {
+      const engineering = details.engineering || {};
+      // Проверяем, есть ли хотя бы одно значение true
+      const hasEngineering = Object.values(engineering).some(val => val === true);
+      
+      if (!hasEngineering) {
+        errors.push({
+          title: contextTitle,
+          description: 'Не выбрана ни одна инженерная коммуникация.',
+        });
+      }
+    }
+    // ----------------------------------------------------------
+
     if (isResidential) {
       requiredFields.push('foundation', 'walls', 'slabs', 'roof', 'seismicity');
       requiredFields.push('entrances', 'floorsFrom', 'floorsTo');
