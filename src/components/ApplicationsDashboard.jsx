@@ -61,6 +61,7 @@ import { useToast } from '@context/ToastContext';
 import { getStageColor } from '@lib/utils';
 import { ApiService } from '@lib/api-service';
 import { createVirtualComplexCadastre } from '@lib/cadastre';
+import BuildingsRegistryTable from '@components/editors/registry/BuildingsRegistryTable';
 
 // --- ХЕЛПЕР: ФОРМАТИРОВАНИЕ ДАТЫ ---
 const formatDate = dateStr => {
@@ -305,7 +306,7 @@ const ApplicationsDashboard = ({
 }) => {
   const [activeTab, setActiveTab] = useState('workdesk');
   const [taskFilter, setTaskFilter] = useState('work');
-  const [registryFilter, setRegistryFilter] = useState('applications'); // applications | complexes
+  const [registryFilter, setRegistryFilter] = useState('applications'); // 'applications' | 'complexes' | 'buildings'
   const [assigneeFilter, setAssigneeFilter] = useState('all'); // all | mine
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
@@ -840,8 +841,16 @@ const ApplicationsDashboard = ({
       {/* --- КОНТЕНТ --- */}
       <div className="px-6 py-4 flex-1 min-h-0 flex gap-4 bg-slate-50">
         <Card className="flex-1 overflow-hidden shadow-xl border-0 ring-1 ring-slate-200 rounded-2xl bg-white flex flex-col min-h-0">
-          {activeTab === 'inbox' ? (
-            <InboxTable data={incomingApps} onTake={handleTakeToWork} canTake={canTakeInboxApplication(user.role)} />
+          {activeTab === 'registry' && registryFilter === 'buildings' ? (
+            <BuildingsRegistryTable 
+               onSelectBuilding={(id) => console.log('Open building', id)} 
+            />
+          ) : activeTab === 'inbox' ? (
+            <InboxTable 
+               data={incomingApps} 
+               onTake={handleTakeToWork} 
+               canTake={canTakeInboxApplication(user.role)} 
+            />
           ) : (
             <ProjectsTable
               data={currentList}
@@ -965,6 +974,12 @@ const ApplicationsDashboard = ({
                     >
                       Жилые комплексы ({counts.registryComplexes})
                     </button>
+                    <button
+  onClick={() => setRegistryFilter('buildings')}
+  className={`h-10 rounded-lg text-xs font-bold ${registryFilter === 'buildings' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+>
+  Здания и сооружения
+</button>
                   </div>
                 </div>
               )}
