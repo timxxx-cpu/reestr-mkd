@@ -14,7 +14,9 @@
     "preview": "vite preview",
     "test:smoke": "node --test tests/workflow-smoke.test.mjs",
     "format": "prettier --write \"src/**/*.{js,jsx}\"",
-    "format:check": "prettier --check \"src/**/*.{js,jsx}\""
+    "format:check": "prettier --check \"src/**/*.{js,jsx}\"",
+    "cutover:smoke": "node scripts/cutover-smoke.mjs",
+    "cutover:legacy-check": "node scripts/legacy-critical-path-check.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.93.3",

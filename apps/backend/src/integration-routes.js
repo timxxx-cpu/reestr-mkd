@@ -1,20 +1,8 @@
+import { requireActor } from './auth.js';
+import { allowByPolicy } from './policy.js';
+
 function sendError(reply, statusCode, code, message, details = null) {
   return reply.code(statusCode).send({ code, message, details, requestId: reply.request.id });
-}
-
-function getActor(req) {
-  const userId = req.headers['x-user-id'];
-  const userRole = req.headers['x-user-role'];
-  if (!userId || !userRole) return null;
-
-  return {
-    userId: decodeURIComponent(String(userId)),
-    userRole: String(userRole),
-  };
-}
-
-function canMutateIntegration(actorRole) {
-  return ['admin', 'branch_manager', 'technician'].includes(actorRole);
 }
 
 function formatByGroups(value, groups) {
@@ -53,9 +41,9 @@ export function registerIntegrationRoutes(app, { supabase }) {
   });
 
   app.put('/api/v1/projects/:projectId/integration-status', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateIntegration(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'integration', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify integration data');
     }
 
@@ -90,9 +78,9 @@ export function registerIntegrationRoutes(app, { supabase }) {
   });
 
   app.put('/api/v1/buildings/:buildingId/cadastre', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateIntegration(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'integration', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify cadastre data');
     }
 
@@ -113,9 +101,9 @@ export function registerIntegrationRoutes(app, { supabase }) {
   });
 
   app.put('/api/v1/units/:unitId/cadastre', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateIntegration(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'integration', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify cadastre data');
     }
 

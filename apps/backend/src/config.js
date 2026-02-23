@@ -8,5 +8,12 @@ export function getConfig() {
     throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
   }
 
-  return { port, host, supabaseUrl, supabaseServiceRoleKey };
+  const authMode = process.env.AUTH_MODE || 'dev';
+  const jwtSecret = process.env.JWT_SECRET || '';
+
+  if (authMode === 'jwt' && !jwtSecret) {
+    throw new Error('Missing JWT_SECRET for AUTH_MODE=jwt');
+  }
+
+  return { port, host, supabaseUrl, supabaseServiceRoleKey, authMode, jwtSecret };
 }

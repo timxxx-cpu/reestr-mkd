@@ -1,22 +1,9 @@
 import { createIdempotencyStore } from './idempotency-store.js';
+import { requireActor } from './auth.js';
+import { allowByPolicy } from './policy.js';
 
 function sendError(reply, statusCode, code, message, details = null) {
   return reply.code(statusCode).send({ code, message, details, requestId: reply.request.id });
-}
-
-function getActor(req) {
-  const userId = req.headers['x-user-id'];
-  const userRole = req.headers['x-user-role'];
-  if (!userId || !userRole) return null;
-
-  return {
-    userId: decodeURIComponent(String(userId)),
-    userRole: String(userRole),
-  };
-}
-
-function canMutateRegistry(actorRole) {
-  return ['admin', 'branch_manager', 'technician'].includes(actorRole);
 }
 
 function buildIdempotencyContext(req, actor) {
@@ -116,9 +103,9 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/floors/:floorId/parking-places/sync', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateRegistry(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
@@ -251,9 +238,9 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/units/upsert', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateRegistry(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
@@ -334,9 +321,9 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/blocks/:blockId/units/reconcile', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateRegistry(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
@@ -427,9 +414,9 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/blocks/:blockId/common-areas/reconcile', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateRegistry(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
@@ -508,9 +495,9 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/units/batch-upsert', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateRegistry(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
@@ -545,9 +532,9 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/common-areas/upsert', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateRegistry(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
@@ -576,9 +563,9 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.delete('/api/v1/common-areas/:id', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateRegistry(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
@@ -590,9 +577,9 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/blocks/:blockId/common-areas/clear', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateRegistry(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
@@ -654,9 +641,9 @@ export function registerRegistryRoutes(app, { supabase }) {
     return reply.send(data || []);
   });
   app.put('/api/v1/floors/:floorId', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateRegistry(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
@@ -685,9 +672,9 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/blocks/:blockId/floors/reconcile', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateRegistry(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
@@ -743,9 +730,9 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/blocks/:blockId/entrances/reconcile', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateRegistry(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
@@ -792,9 +779,9 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.put('/api/v1/blocks/:blockId/entrance-matrix/cell', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateRegistry(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 

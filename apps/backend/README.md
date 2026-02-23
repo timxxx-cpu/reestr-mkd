@@ -40,6 +40,8 @@ npm test
 - `HOST` (optional, default `0.0.0.0`)
 - `VERSIONING_ENABLED` (optional, default `false`)
 - `PROJECT_INIT_RPC_ENABLED` (optional, default `false`)
+- `AUTH_MODE` (`dev` | `jwt`, optional, default `dev`)
+- `JWT_SECRET` (required for `AUTH_MODE=jwt`)
 
 
 ## Структура route-модулей
@@ -124,6 +126,19 @@ npm test
 
 В продовом контуре это должно быть заменено на полноценный auth middleware (JWT/session).
 
+Для cutover-трассировки поддерживаются дополнительные заголовки:
+
+- `x-operation-source` — источник вызова (`bff`, `legacy`, и т.д.);
+- `x-client-request-id` — клиентский correlation-id;
+- ответ включает `x-request-id` для связки frontend/backend логов.
+
 - `POST /api/v1/projects/from-application` также запускает backend-side инициализацию pending versions при `VERSIONING_ENABLED=true` (в случае ошибки вернет `warning` в payload, но не откатывает уже созданные project/application).
 
 - При `PROJECT_INIT_RPC_ENABLED=true` endpoint `POST /api/v1/projects/from-application` использует SQL function `init_project_from_application` (transactional boundary на стороне Postgres); при ошибке RPC автоматически переключается на direct BFF path (fallback).
+
+
+## Auth/Policy layer (module-level)
+
+- `src/auth.js` — auth middleware (`AUTH_MODE=dev|jwt`) и actor-context.
+- `src/policy.js` — единая RBAC policy matrix по доменам/действиям.
+- route-модули используют `requireActor` + `allowByPolicy` без локальных дублей role-check helper.

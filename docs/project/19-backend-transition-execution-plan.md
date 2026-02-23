@@ -15,6 +15,10 @@
 - добавлен backend write-path `project context meta save` и флаг `VITE_BFF_SAVE_META_ENABLED` для переноса сохранения project/application meta в BFF-контур.
 - добавлен backend write-path `project context building-details save` и флаг `VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED` для переноса сохранения block-level конфигураций в BFF.
 - backend маршруты разнесены по модульному слою (`project-init` отдельно от extended project routes), чтобы упростить дальнейший перенос в полноценные `modules/*` и сопровождение.
+- запущен слой cutover-tracing: frontend BFF-запросы маркируются `x-operation-source=bff` и `x-client-request-id`, backend возвращает `x-request-id` и пишет structured лог источника операции.
+- во frontend DEV добавлен runtime-счетчик источников data-path с API `window.__reestrOperationSource.getSummary()/getStats()/reset()`, что позволяет быстро измерять долю `bff/legacy` в cutover rehearsal.
+- добавлен auth profile `AUTH_MODE=jwt` (Bearer JWT, HS256, `JWT_SECRET`) и сохранен `AUTH_MODE=dev` для переходного DEV режима.
+- frontend переведен на backend-first default; legacy path активируется только через аварийный `VITE_LEGACY_ROLLBACK_ENABLED=true`.
 
 Это закрывает стартовую реализацию Iteration A/B/C и формирует основу для cutover smoke в backend-only режиме.
 
@@ -177,3 +181,9 @@
 4. После каждой итерации обновлять gap inventory и критерии отключения fallback.
 
 Такой режим позволяет сохранить скорость тестового DEV-контура, но не накапливать новый технический долг в legacy write-path.
+
+
+Актуальная единая фактология по cutover: `20-cutover-fact-sheet.md`.
+
+
+Для живого user-smoke после hard-switch использовать: `live-business-smoke-checklist.md`.

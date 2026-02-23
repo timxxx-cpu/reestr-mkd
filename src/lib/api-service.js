@@ -16,6 +16,7 @@ import { createRegistryApi } from './api/registry-api';
 import { createVersionsApi } from './api/versions-api-factory';
 import { BffClient } from './bff-client';
 import { AuthService } from './auth-service';
+import { trackOperationSource } from './operation-source-tracker';
 import { normalizeProjectStatusFromDb, normalizeProjectStatusToDb } from './project-status';
 import {
   createVirtualComplexCadastre,
@@ -85,6 +86,10 @@ const resolveActor = (actor = {}) => {
     userName: actor.userName || currentUser?.displayName || currentUser?.email || 'unknown',
     userRole: actor.userRole || currentUser?.role || 'technician',
   };
+};
+
+const trackLegacyPath = operation => {
+  trackOperationSource({ source: 'legacy', operation });
 };
 
 const createIdempotencyKey = (operation, scopeParts = []) => {
@@ -760,6 +765,8 @@ const LegacyApiService = {
       return { ...response, applicationId: app.id };
     }
 
+    trackLegacyPath('acquireApplicationLock');
+
     const { data, error: rpcErr } = await supabase.rpc('acquire_application_lock', {
       p_application_id: app.id,
       p_owner_user_id: userName,
@@ -783,6 +790,8 @@ const LegacyApiService = {
       return BffClient.refreshApplicationLock({ applicationId, userName, userRole, ttlMinutes });
     }
 
+    trackLegacyPath('refreshApplicationLock');
+
     const { data, error } = await supabase.rpc('refresh_application_lock', {
       p_application_id: applicationId,
       p_owner_user_id: userName,
@@ -805,6 +814,8 @@ const LegacyApiService = {
     if (BffClient.isEnabled()) {
       return BffClient.releaseApplicationLock({ applicationId, userName, userRole });
     }
+
+    trackLegacyPath('releaseApplicationLock');
 
     const { data, error } = await supabase.rpc('release_application_lock', {
       p_application_id: applicationId,
@@ -932,6 +943,8 @@ const LegacyApiService = {
 
       return response?.projectId;
     }
+
+    trackLegacyPath('createProjectFromApplication');
 
     // Бизнес-правило повторной подачи: если по ЖК уже есть активная заявка в работе,
     // новую повторную заявку принимать нельзя.
@@ -2802,6 +2815,8 @@ const LegacyApiService = {
       });
     }
 
+    trackLegacyPath('updateBuildingCadastre');
+
     const { error } = await supabase
       .from('buildings')
       .update({ cadastre_number: formatBuildingCadastre(cadastre) })
@@ -2820,6 +2835,8 @@ const LegacyApiService = {
       });
     }
 
+    trackLegacyPath('updateUnitCadastre');
+
     await supabase.from('units').update({ cadastre_number: cadastre }).eq('id', id);
   },
 
@@ -2835,6 +2852,8 @@ const LegacyApiService = {
         idempotencyKey: createIdempotencyKey('workflow-decline', [applicationId]),
       });
     }
+
+    trackLegacyPath('declineApplication');
 
     const { error: appErr } = await supabase
       .from('applications')
@@ -2869,6 +2888,8 @@ const LegacyApiService = {
       });
     }
 
+    trackLegacyPath('requestDecline');
+
     const { error } = await supabase
       .from('applications')
       .update({
@@ -2893,6 +2914,8 @@ const LegacyApiService = {
         idempotencyKey: createIdempotencyKey('workflow-return-from-decline', [applicationId]),
       });
     }
+
+    trackLegacyPath('returnFromDecline');
 
     const { error: appErr } = await supabase
       .from('applications')
@@ -2931,6 +2954,8 @@ const LegacyApiService = {
       });
     }
 
+    trackLegacyPath('assignTechnician');
+
     const { error } = await supabase
       .from('applications')
       .update({ assignee_name: assigneeName, updated_at: new Date().toISOString() })
@@ -2948,6 +2973,8 @@ const LegacyApiService = {
         idempotencyKey: createIdempotencyKey('workflow-restore', [applicationId]),
       });
     }
+
+    trackLegacyPath('restoreApplication');
 
     const { error: appErr } = await supabase
       .from('applications')
@@ -2975,6 +3002,8 @@ const LegacyApiService = {
       return BffClient.getVersions({ entityType, entityId });
     }
 
+    trackLegacyPath('getVersions');
+
     if (!VERSIONING_ENABLED) return [];
 
     const { data, error } = await supabase
@@ -3000,6 +3029,8 @@ const LegacyApiService = {
         userRole: actor.userRole,
       });
     }
+
+    trackLegacyPath('createVersion');
 
     if (!VERSIONING_ENABLED) return null;
 
@@ -3049,6 +3080,8 @@ const LegacyApiService = {
       });
     }
 
+    trackLegacyPath('approveVersion');
+
     if (!VERSIONING_ENABLED) return null;
 
     const { data: current, error: currentErr } = await supabase
@@ -3095,6 +3128,8 @@ const LegacyApiService = {
       });
     }
 
+    trackLegacyPath('declineVersion');
+
     if (!VERSIONING_ENABLED) return null;
 
     const { data, error } = await supabase
@@ -3117,6 +3152,8 @@ const LegacyApiService = {
       return BffClient.getVersionSnapshot({ versionId });
     }
 
+    trackLegacyPath('getVersionSnapshot');
+
     if (!VERSIONING_ENABLED) return {};
 
     const { data, error } = await supabase
@@ -3137,6 +3174,8 @@ const LegacyApiService = {
         userRole: actor.userRole,
       });
     }
+
+    trackLegacyPath('restoreVersion');
 
     if (!VERSIONING_ENABLED) return null;
 
@@ -3170,6 +3209,8 @@ const LegacyApiService = {
     if (BffClient.isFullRegistryEnabled()) {
       return BffClient.getProjectFullRegistry({ projectId });
     }
+
+    trackLegacyPath('getProjectFullRegistry');
 
     // Тяжелый запрос для сводной.
     // Можно оптимизировать RPC, но пока так:

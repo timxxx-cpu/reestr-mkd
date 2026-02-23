@@ -10,7 +10,7 @@
 - units/common areas,
 - parking sync.
 
-**Оценка прогресса миграции write-path:** ~88–92%.
+**Оценка прогресса миграции write-path:** ~92–95% (после переноса passport/basements/versioning/context save-path).
 
 > Это инженерная оценка по текущему `ApiService` и включенным BFF веткам, а не формальная метрика релизного KPI.
 
@@ -82,3 +82,33 @@
 - Добавлен backend read-endpoint `GET /projects/:id/context-registry-details` и frontend-switch под флаг `VITE_BFF_PROJECT_CONTEXT_DETAILS_ENABLED` для переноса детальных реестровых read (markers/floors/matrix/units/mop) из frontend fan-out в BFF.
 - Добавлен backend write-endpoint `POST /projects/:id/context-meta/save` и frontend-switch под флаг `VITE_BFF_SAVE_META_ENABLED` для переноса meta-save (`complexInfo/applicationInfo`) с frontend direct-write на BFF.
 - Добавлен backend write-endpoint `POST /projects/:id/context-building-details/save` и frontend-switch под флаг `VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED` для переноса сохранения `buildingDetails` (blocks/markers/basements/construction/engineering) на BFF.
+
+
+## Update: observability и cutover tracing (новый приоритет P1)
+
+Для безопасного отключения legacy write/read добавлен отдельный технический фокус:
+
+1. Проставлять источник операции в запросах (`x-operation-source`: `bff` / `legacy`).
+2. Прокидывать сквозной клиентский идентификатор запроса (`x-client-request-id`).
+3. Возвращать из backend `x-request-id` и использовать его для корреляции логов frontend/backend.
+
+### Уже сделано в текущем пакете
+
+- `BffClient` отправляет `x-operation-source=bff` и `x-client-request-id`;
+- в DEV frontend пишет корреляционный лог (`clientRequestId` + backend `requestId`);
+- backend принимает заголовки, возвращает `x-request-id` и логирует источник операции;
+- в `ApiService` добавлен DEV-tracking legacy fallback-веток для критичных операций (workflow lock/mutations, project-init fallback, cadastre fallback, versioning fallback, full-registry fallback) через `trackOperationSource`.
+- добавлен DEV helper API для среза долей `bff/legacy`: `window.__reestrOperationSource.getSummary()` / `getStats()` / `reset()`.
+
+### Что еще осталось по observability
+
+- завершить маркировку оставшихся точечных legacy-path в некритичных/редких сценариях;
+- собрать сводную метрику «доля BFF vs legacy» для release-gate на direct-write OFF;
+- включить обязательную проверку трассировки в cutover smoke-checklist.
+
+
+## Update: hard-switch policy
+
+- frontend работает в **backend-first default**;
+- аварийный откат в legacy доступен только через `VITE_LEGACY_ROLLBACK_ENABLED=true`;
+- фактическое состояние фиксируется в `20-cutover-fact-sheet.md`.
