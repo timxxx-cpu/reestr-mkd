@@ -170,4 +170,9 @@
 - ✅ Дополнительно в редакторах/контексте (вне `useDirect*`) прокинут явный `actor` в массовые reconcile/batch мутации (`FlatMatrix`, `EntranceMatrix`, `MopEditor`, `ParkingRegistry`, `ProjectContext`).
 - ✅ В `registry/views/*` и `UnitRegistry` добавлена явная передача `actor` в `upsertUnit`/fallback upsert-вызовы для полного покрытия units-мутаций на UI-слое.
 - ✅ Parking sync/read (`getParkingCounts/syncParkingPlaces`) переключены на BFF при `VITE_BFF_PARKING_ENABLED=true` с legacy fallback.
+- ✅ Для registry batch/reconcile write-path добавлен idempotency слой в BFF (через `x-idempotency-key`, in-memory TTL cache) для защиты от дублей; reuse ключа с другим payload теперь возвращает `409 IDEMPOTENCY_CONFLICT`.
+- ✅ Idempotency расширен на ключевые workflow endpoint-ы BFF (`complete-step`, `rollback-step`, `review-approve`, `review-reject`, `assign-technician`, `request-decline`, `decline`, `return-from-decline`, `restore`) с тем же контрактом `x-idempotency-key` + `409 IDEMPOTENCY_CONFLICT` при payload mismatch.
+- ✅ Frontend `BffClient` расширен: `idempotencyKey` теперь прокидывается в `requestDecline/returnFromDecline/restoreApplication`, чтобы все покрытые workflow-мутации могли стабильно использовать header-контракт `x-idempotency-key`.
 
+
+- ✅ В `ApiService` добавлена автогенерация idempotency-key для workflow BFF-мутаций (и прокидка в `assignTechnician`), чтобы UI не зависел от ручной передачи ключа в каждом вызове.

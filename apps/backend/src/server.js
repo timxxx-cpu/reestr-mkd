@@ -4,6 +4,7 @@ import { getConfig } from './config.js';
 import { createSupabaseAdminClient } from './supabase.js';
 import { registerCompositionRoutes } from './composition-routes.js';
 import { registerRegistryRoutes } from './registry-routes.js';
+import { createIdempotencyStore } from './idempotency-store.js';
 
 const INTEGRATION_START_IDX = 12;
 const LAST_STEP_INDEX_BY_STAGE = {
@@ -99,6 +100,46 @@ function hasAnyRole(actorRole, roles = []) {
   return roles.includes(actorRole);
 }
 
+
+function buildIdempotencyContext(req, actor) {
+  const rawKey = req.headers['x-idempotency-key'];
+  if (!rawKey) return null;
+
+  const idempotencyKey = String(rawKey).trim();
+  if (!idempotencyKey) return null;
+
+  const scope = req.routeOptions?.url || req.url || 'unknown';
+  const actorScope = actor?.userId || 'anonymous';
+  const bodyFingerprint = JSON.stringify(req.body ?? null);
+
+  return {
+    cacheKey: `${scope}:${actorScope}:${idempotencyKey}`,
+    fingerprint: `${req.method}:${scope}:${bodyFingerprint}`,
+  };
+}
+
+function tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply) {
+  if (!idempotencyContext) return false;
+
+  const state = idempotencyStore.get(idempotencyContext.cacheKey, idempotencyContext.fingerprint);
+  if (state.status === 'hit') {
+    reply.send(state.value);
+    return true;
+  }
+
+  if (state.status === 'conflict') {
+    sendError(reply, 409, 'IDEMPOTENCY_CONFLICT', 'Idempotency key was already used with a different payload');
+    return true;
+  }
+
+  return false;
+}
+
+function rememberIdempotentResponse(idempotencyStore, idempotencyContext, payload) {
+  if (!idempotencyContext) return;
+  idempotencyStore.set(idempotencyContext.cacheKey, idempotencyContext.fingerprint, payload);
+}
+
 function sendError(reply, statusCode, code, message, details = null) {
   return reply.code(statusCode).send({ code, message, details, requestId: reply.request.id });
 }
@@ -176,6 +217,7 @@ async function buildServer() {
   const config = getConfig();
   const supabase = createSupabaseAdminClient(config);
   const app = Fastify({ logger: true });
+  const workflowIdempotencyStore = createIdempotencyStore();
 
   await app.register(cors, {
     origin: true, // Разрешаем запросы с любых адресов (для DEV-режима)
@@ -283,6 +325,9 @@ async function buildServer() {
     const stepIndex = Number(req.body?.stepIndex);
     const comment = req.body?.comment || null;
 
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(workflowIdempotencyStore, idempotencyContext, reply)) return;
+
     if (!Number.isInteger(stepIndex) || stepIndex < 0) {
       return sendError(reply, 400, 'INVALID_STEP_INDEX', 'stepIndex must be a non-negative integer');
     }
@@ -315,13 +360,15 @@ async function buildServer() {
     });
     if (!historyRes.ok) return sendError(reply, historyRes.status, historyRes.code, historyRes.message);
 
-    return reply.send({
+    const response = {
       applicationStatus: updateRes.updatedApp.status,
       workflowSubstatus: updateRes.updatedApp.workflow_substatus,
       currentStep: updateRes.updatedApp.current_step,
       currentStage: updateRes.updatedApp.current_stage,
       historyEventId: historyRes.historyEventId,
-    });
+    };
+    rememberIdempotentResponse(workflowIdempotencyStore, idempotencyContext, response);
+    return reply.send(response);
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/rollback-step', async (req, reply) => {
@@ -330,6 +377,9 @@ async function buildServer() {
 
     const { applicationId } = req.params;
     const reason = req.body?.reason || null;
+
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(workflowIdempotencyStore, idempotencyContext, reply)) return;
 
     const lockCheck = await ensureActorLock(supabase, applicationId, actor.userId);
     if (!lockCheck.ok) return sendError(reply, lockCheck.status, lockCheck.code, lockCheck.message);
@@ -352,13 +402,15 @@ async function buildServer() {
     });
     if (!historyRes.ok) return sendError(reply, historyRes.status, historyRes.code, historyRes.message);
 
-    return reply.send({
+    const response = {
       applicationStatus: updateRes.updatedApp.status,
       workflowSubstatus: updateRes.updatedApp.workflow_substatus,
       currentStep: updateRes.updatedApp.current_step,
       currentStage: updateRes.updatedApp.current_stage,
       historyEventId: historyRes.historyEventId,
-    });
+    };
+    rememberIdempotentResponse(workflowIdempotencyStore, idempotencyContext, response);
+    return reply.send(response);
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/review-approve', async (req, reply) => {
@@ -367,6 +419,9 @@ async function buildServer() {
 
     const { applicationId } = req.params;
     const comment = req.body?.comment || null;
+
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(workflowIdempotencyStore, idempotencyContext, reply)) return;
 
     const appRes = await getApplication(supabase, applicationId);
     if (!appRes.ok) return sendError(reply, appRes.status, appRes.code, appRes.message);
@@ -385,13 +440,15 @@ async function buildServer() {
     });
     if (!historyRes.ok) return sendError(reply, historyRes.status, historyRes.code, historyRes.message);
 
-    return reply.send({
+    const response = {
       applicationStatus: updateRes.updatedApp.status,
       workflowSubstatus: updateRes.updatedApp.workflow_substatus,
       currentStep: updateRes.updatedApp.current_step,
       currentStage: updateRes.updatedApp.current_stage,
       historyEventId: historyRes.historyEventId,
-    });
+    };
+    rememberIdempotentResponse(workflowIdempotencyStore, idempotencyContext, response);
+    return reply.send(response);
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/review-reject', async (req, reply) => {
@@ -400,6 +457,9 @@ async function buildServer() {
 
     const { applicationId } = req.params;
     const reason = req.body?.reason || null;
+
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(workflowIdempotencyStore, idempotencyContext, reply)) return;
 
     const appRes = await getApplication(supabase, applicationId);
     if (!appRes.ok) return sendError(reply, appRes.status, appRes.code, appRes.message);
@@ -418,19 +478,25 @@ async function buildServer() {
     });
     if (!historyRes.ok) return sendError(reply, historyRes.status, historyRes.code, historyRes.message);
 
-    return reply.send({
+    const response = {
       applicationStatus: updateRes.updatedApp.status,
       workflowSubstatus: updateRes.updatedApp.workflow_substatus,
       currentStep: updateRes.updatedApp.current_step,
       currentStage: updateRes.updatedApp.current_stage,
       historyEventId: historyRes.historyEventId,
-    });
+    };
+    rememberIdempotentResponse(workflowIdempotencyStore, idempotencyContext, response);
+    return reply.send(response);
   });
 
 
   app.post('/api/v1/applications/:applicationId/workflow/assign-technician', async (req, reply) => {
     const actor = getActor(req);
     if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
+
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(workflowIdempotencyStore, idempotencyContext, reply)) return;
+
     if (!hasAnyRole(actor.userRole, ['admin', 'branch_manager'])) {
       return sendError(reply, 403, 'FORBIDDEN', 'Only admin or branch_manager can assign technician');
     }
@@ -461,7 +527,9 @@ async function buildServer() {
     });
     if (!historyRes.ok) return sendError(reply, historyRes.status, historyRes.code, historyRes.message);
 
-    return reply.send({ assigneeUserId, workflowSubstatus: appRes.appRow.workflow_substatus, historyEventId: historyRes.historyEventId });
+    const response = { assigneeUserId, workflowSubstatus: appRes.appRow.workflow_substatus, historyEventId: historyRes.historyEventId };
+    rememberIdempotentResponse(workflowIdempotencyStore, idempotencyContext, response);
+    return reply.send(response);
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/request-decline', async (req, reply) => {
@@ -473,6 +541,9 @@ async function buildServer() {
 
     const { applicationId } = req.params;
     const reason = req.body?.reason || null;
+
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(workflowIdempotencyStore, idempotencyContext, reply)) return;
     const stepIndex = Number(req.body?.stepIndex ?? 0);
 
     const appRes = await getApplication(supabase, applicationId);
@@ -502,7 +573,13 @@ async function buildServer() {
     });
     if (!historyRes.ok) return sendError(reply, historyRes.status, historyRes.code, historyRes.message);
 
-    return reply.send({ workflowSubstatus: 'PENDING_DECLINE', requestedDeclineAt: new Date().toISOString(), historyEventId: historyRes.historyEventId });
+    const response = {
+      workflowSubstatus: 'PENDING_DECLINE',
+      requestedDeclineAt: new Date().toISOString(),
+      historyEventId: historyRes.historyEventId,
+    };
+    rememberIdempotentResponse(workflowIdempotencyStore, idempotencyContext, response);
+    return reply.send(response);
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/decline', async (req, reply) => {
@@ -514,6 +591,9 @@ async function buildServer() {
 
     const { applicationId } = req.params;
     const reason = req.body?.reason || null;
+
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(workflowIdempotencyStore, idempotencyContext, reply)) return;
 
     const substatusMap = {
       controller: 'DECLINED_BY_CONTROLLER',
@@ -544,13 +624,15 @@ async function buildServer() {
     });
     if (!historyRes.ok) return sendError(reply, historyRes.status, historyRes.code, historyRes.message);
 
-    return reply.send({
+    const response = {
       applicationStatus: updateRes.updatedApp.status,
       workflowSubstatus: updateRes.updatedApp.workflow_substatus,
       currentStep: updateRes.updatedApp.current_step,
       currentStage: updateRes.updatedApp.current_stage,
       historyEventId: historyRes.historyEventId,
-    });
+    };
+    rememberIdempotentResponse(workflowIdempotencyStore, idempotencyContext, response);
+    return reply.send(response);
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/return-from-decline', async (req, reply) => {
@@ -562,6 +644,9 @@ async function buildServer() {
 
     const { applicationId } = req.params;
     const comment = req.body?.comment || null;
+
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(workflowIdempotencyStore, idempotencyContext, reply)) return;
 
     const appRes = await getApplication(supabase, applicationId);
     if (!appRes.ok) return sendError(reply, appRes.status, appRes.code, appRes.message);
@@ -590,7 +675,9 @@ async function buildServer() {
     });
     if (!historyRes.ok) return sendError(reply, historyRes.status, historyRes.code, historyRes.message);
 
-    return reply.send({ workflowSubstatus: 'RETURNED_BY_MANAGER', historyEventId: historyRes.historyEventId });
+    const response = { workflowSubstatus: 'RETURNED_BY_MANAGER', historyEventId: historyRes.historyEventId };
+    rememberIdempotentResponse(workflowIdempotencyStore, idempotencyContext, response);
+    return reply.send(response);
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/restore', async (req, reply) => {
@@ -602,6 +689,9 @@ async function buildServer() {
 
     const { applicationId } = req.params;
     const comment = req.body?.comment || null;
+
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(workflowIdempotencyStore, idempotencyContext, reply)) return;
 
     const appRes = await getApplication(supabase, applicationId);
     if (!appRes.ok) return sendError(reply, appRes.status, appRes.code, appRes.message);
@@ -626,13 +716,15 @@ async function buildServer() {
     });
     if (!historyRes.ok) return sendError(reply, historyRes.status, historyRes.code, historyRes.message);
 
-    return reply.send({
+    const response = {
       applicationStatus: updateRes.updatedApp.status,
       workflowSubstatus: updateRes.updatedApp.workflow_substatus,
       currentStep: updateRes.updatedApp.current_step,
       currentStage: updateRes.updatedApp.current_stage,
       historyEventId: historyRes.historyEventId,
-    });
+    };
+    rememberIdempotentResponse(workflowIdempotencyStore, idempotencyContext, response);
+    return reply.send(response);
   });
 
   return { app, config };

@@ -29,6 +29,7 @@ class BffError extends Error {
  * @property {any} [body]
  * @property {string} [userName]
  * @property {string} [userRole]
+ * @property {string} [idempotencyKey]
  */
 
 /**
@@ -36,14 +37,17 @@ class BffError extends Error {
  * @param {RequestOptions} [options]
  */
 async function request(path, options = {}) {
-  const { method = 'GET', body, userName, userRole } = options;
+  const { method = 'GET', body, userName, userRole, idempotencyKey } = options;
+
+  const headers = {
+    'content-type': 'application/json',
+    ...getAuthHeaders(userName, userRole),
+  };
+  if (idempotencyKey) headers['x-idempotency-key'] = idempotencyKey;
 
   const res = await fetch(`${getBffBaseUrl()}${path}`, {
     method,
-    headers: {
-      'content-type': 'application/json',
-      ...getAuthHeaders(userName, userRole),
-    },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
 
@@ -75,11 +79,12 @@ export const BffClient = {
   getParkingCounts: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/parking-counts`),
 
-  syncParkingPlaces: ({ floorId, targetCount, userName, userRole }) =>
+  syncParkingPlaces: ({ floorId, targetCount, userName, userRole, idempotencyKey }) =>
     request(`/api/v1/floors/${floorId}/parking-places/sync`, {
       method: 'POST',
       userName,
       userRole,
+      idempotencyKey,
       body: { targetCount },
     }),
 
@@ -132,27 +137,30 @@ export const BffClient = {
       body: unitData,
     }),
 
-  batchUpsertUnits: ({ unitsList, userName, userRole }) =>
+  batchUpsertUnits: ({ unitsList, userName, userRole, idempotencyKey }) =>
     request('/api/v1/units/batch-upsert', {
       method: 'POST',
       userName,
       userRole,
+      idempotencyKey,
       body: { unitsList },
     }),
 
-  reconcileUnitsForBlock: ({ blockId, userName, userRole }) =>
+  reconcileUnitsForBlock: ({ blockId, userName, userRole, idempotencyKey }) =>
     request(`/api/v1/blocks/${blockId}/units/reconcile`, {
       method: 'POST',
       userName,
       userRole,
+      idempotencyKey,
       body: {},
     }),
 
-  reconcileCommonAreasForBlock: ({ blockId, userName, userRole }) =>
+  reconcileCommonAreasForBlock: ({ blockId, userName, userRole, idempotencyKey }) =>
     request(`/api/v1/blocks/${blockId}/common-areas/reconcile`, {
       method: 'POST',
       userName,
       userRole,
+      idempotencyKey,
       body: {},
     }),
 
@@ -187,11 +195,12 @@ export const BffClient = {
       body: { updates },
     }),
 
-  reconcileFloors: ({ blockId, floorsFrom, floorsTo, defaultType, userName, userRole }) =>
+  reconcileFloors: ({ blockId, floorsFrom, floorsTo, defaultType, userName, userRole, idempotencyKey }) =>
     request(`/api/v1/blocks/${blockId}/floors/reconcile`, {
       method: 'POST',
       userName,
       userRole,
+      idempotencyKey,
       body: { floorsFrom, floorsTo, defaultType },
     }),
 
@@ -203,11 +212,12 @@ export const BffClient = {
       body: { floorId, entranceNumber, values },
     }),
 
-  reconcileEntrances: ({ blockId, count, userName, userRole }) =>
+  reconcileEntrances: ({ blockId, count, userName, userRole, idempotencyKey }) =>
     request(`/api/v1/blocks/${blockId}/entrances/reconcile`, {
       method: 'POST',
       userName,
       userRole,
+      idempotencyKey,
       body: { count },
     }),
 
@@ -240,7 +250,8 @@ export const BffClient = {
       method: 'POST',
       userName,
       userRole,
-      body: { stepIndex, comment, idempotencyKey },
+      idempotencyKey,
+      body: { stepIndex, comment },
     }),
 
   rollbackStep: ({ applicationId, reason, userName, userRole, idempotencyKey }) =>
@@ -248,7 +259,8 @@ export const BffClient = {
       method: 'POST',
       userName,
       userRole,
-      body: { reason, idempotencyKey },
+      idempotencyKey,
+      body: { reason },
     }),
 
   reviewApprove: ({ applicationId, comment, userName, userRole, idempotencyKey }) =>
@@ -256,7 +268,8 @@ export const BffClient = {
       method: 'POST',
       userName,
       userRole,
-      body: { comment, idempotencyKey },
+      idempotencyKey,
+      body: { comment },
     }),
 
   reviewReject: ({ applicationId, reason, userName, userRole, idempotencyKey }) =>
@@ -264,22 +277,25 @@ export const BffClient = {
       method: 'POST',
       userName,
       userRole,
-      body: { reason, idempotencyKey },
+      idempotencyKey,
+      body: { reason },
     }),
 
-  assignTechnician: ({ applicationId, assigneeUserId, reason, userName, userRole }) =>
+  assignTechnician: ({ applicationId, assigneeUserId, reason, userName, userRole, idempotencyKey }) =>
     request(`/api/v1/applications/${applicationId}/workflow/assign-technician`, {
       method: 'POST',
       userName,
       userRole,
+      idempotencyKey,
       body: { assigneeUserId, reason },
     }),
 
-  requestDecline: ({ applicationId, reason, stepIndex, userName, userRole }) =>
+  requestDecline: ({ applicationId, reason, stepIndex, userName, userRole, idempotencyKey }) =>
     request(`/api/v1/applications/${applicationId}/workflow/request-decline`, {
       method: 'POST',
       userName,
       userRole,
+      idempotencyKey,
       body: { reason, stepIndex },
     }),
 
@@ -288,22 +304,25 @@ export const BffClient = {
       method: 'POST',
       userName,
       userRole,
-      body: { reason, idempotencyKey },
+      idempotencyKey,
+      body: { reason },
     }),
 
-  returnFromDecline: ({ applicationId, comment, userName, userRole }) =>
+  returnFromDecline: ({ applicationId, comment, userName, userRole, idempotencyKey }) =>
     request(`/api/v1/applications/${applicationId}/workflow/return-from-decline`, {
       method: 'POST',
       userName,
       userRole,
+      idempotencyKey,
       body: { comment },
     }),
 
-  restoreApplication: ({ applicationId, comment, userName, userRole }) =>
+  restoreApplication: ({ applicationId, comment, userName, userRole, idempotencyKey }) =>
     request(`/api/v1/applications/${applicationId}/workflow/restore`, {
       method: 'POST',
       userName,
       userRole,
+      idempotencyKey,
       body: { comment },
     }),
 };
