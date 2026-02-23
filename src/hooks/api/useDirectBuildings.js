@@ -24,8 +24,8 @@ export function useDirectBuildings(projectId) {
     /**
      * @param {{ buildingData: any, blocksData: any[] }} params
      */
-    mutationFn: ({ buildingData, blocksData }) =>
-      ApiService.createBuilding(projectId, buildingData, blocksData),
+    mutationFn: ({ buildingData, blocksData, actor }) =>
+      ApiService.createBuilding(projectId, buildingData, blocksData, actor),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
       toast.success('Объект успешно создан');
@@ -41,7 +41,8 @@ export function useDirectBuildings(projectId) {
     /**
      * @param {{ id: string, data: any }} params
      */
-    mutationFn: ({ id, data }) => ApiService.updateBuilding(id, data),
+    mutationFn: ({ id, data, actor, blocksData }) =>
+      ApiService.updateBuilding(id, data, actor, blocksData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
       toast.success('Объект обновлен');
@@ -57,7 +58,7 @@ export function useDirectBuildings(projectId) {
     /**
      * @param {string} id
      */
-    mutationFn: id => ApiService.deleteBuilding(id),
+    mutationFn: ({ id, actor }) => ApiService.deleteBuilding(id, actor),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
       toast.success('Объект удален');

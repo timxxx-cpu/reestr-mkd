@@ -44,6 +44,10 @@ npm run dev
 - `POST /api/v1/applications/:applicationId/workflow/decline`
 - `POST /api/v1/applications/:applicationId/workflow/request-decline`
 - `POST /api/v1/applications/:applicationId/workflow/assign-technician`
+- `GET /api/v1/projects/:projectId/buildings`
+- `POST /api/v1/projects/:projectId/buildings`
+- `PUT /api/v1/buildings/:buildingId`
+- `DELETE /api/v1/buildings/:buildingId`
 
 ## Auth-context (DEV)
 

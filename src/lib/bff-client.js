@@ -1,5 +1,6 @@
 const isBffEnabled = () => import.meta.env.VITE_BFF_ENABLED === 'true';
 const getBffBaseUrl = () => import.meta.env.VITE_BFF_BASE_URL || 'http://localhost:8787';
+const isCompositionEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_COMPOSITION_ENABLED === 'true';
 
 const getAuthHeaders = (userName, userRole) => ({
   'x-user-id': encodeURIComponent(userName || 'unknown'),
@@ -56,6 +57,35 @@ async function request(path, options = {}) {
 
 export const BffClient = {
   isEnabled: isBffEnabled,
+  isCompositionEnabled,
+
+
+
+  getBuildings: ({ projectId }) =>
+    request(`/api/v1/projects/${projectId}/buildings`),
+
+  createBuilding: ({ projectId, buildingData, blocksData, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/buildings`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { buildingData, blocksData },
+    }),
+
+  updateBuilding: ({ buildingId, buildingData, blocksData, userName, userRole }) =>
+    request(`/api/v1/buildings/${buildingId}`, {
+      method: 'PUT',
+      userName,
+      userRole,
+      body: { buildingData, blocksData },
+    }),
+
+  deleteBuilding: ({ buildingId, userName, userRole }) =>
+    request(`/api/v1/buildings/${buildingId}`, {
+      method: 'DELETE',
+      userName,
+      userRole,
+    }),
 
   acquireApplicationLock: ({ applicationId, userName, userRole, ttlMinutes = 20 }) =>
     request(`/api/v1/applications/${applicationId}/locks/acquire`, {

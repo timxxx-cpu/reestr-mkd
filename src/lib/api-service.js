@@ -1490,6 +1490,10 @@ const LegacyApiService = {
   // --- STANDARD API METHODS (Existing ones preserved) ---
 
   getBuildings: async projectId => {
+    if (BffClient.isCompositionEnabled()) {
+      return BffClient.getBuildings({ projectId });
+    }
+
     const { data, error } = await supabase
       .from('buildings')
       .select(`*, building_blocks (*)`)
@@ -1527,7 +1531,17 @@ const LegacyApiService = {
     }));
   },
 
-   createBuilding: async (projectId, buildingData, blocksData) => {
+   createBuilding: async (projectId, buildingData, blocksData, actor = {}) => {
+    if (BffClient.isCompositionEnabled()) {
+      return BffClient.createBuilding({
+        projectId,
+        buildingData,
+        blocksData,
+        userName: actor.userName,
+        userRole: actor.userRole,
+      });
+    }
+
     const normalizedFields = sanitizeBuildingCategoryFields(buildingData);
     const blocksCount = Array.isArray(blocksData) ? blocksData.length : 0;
      const maxCodeRetries = 3;
@@ -1596,7 +1610,17 @@ const LegacyApiService = {
     return building;
   },
 
-  updateBuilding: async (buildingId, buildingData) => {
+  updateBuilding: async (buildingId, buildingData, actor = {}, blocksData = null) => {
+    if (BffClient.isCompositionEnabled()) {
+      return BffClient.updateBuilding({
+        buildingId,
+        buildingData,
+        blocksData,
+        userName: actor.userName,
+        userRole: actor.userRole,
+      });
+    }
+
     const normalizedFields = sanitizeBuildingCategoryFields(buildingData);
 
     const { data, error } = await supabase
@@ -1617,7 +1641,15 @@ const LegacyApiService = {
     return data;
   },
 
-  deleteBuilding: async buildingId => {
+  deleteBuilding: async (buildingId, actor = {}) => {
+    if (BffClient.isCompositionEnabled()) {
+      return BffClient.deleteBuilding({
+        buildingId,
+        userName: actor.userName,
+        userRole: actor.userRole,
+      });
+    }
+
     const { error } = await supabase.from('buildings').delete().eq('id', buildingId);
     if (error) throw error;
   },

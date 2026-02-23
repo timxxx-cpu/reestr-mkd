@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { getConfig } from './config.js';
 import { createSupabaseAdminClient } from './supabase.js';
+import { registerCompositionRoutes } from './composition-routes.js';
 
 const INTEGRATION_START_IDX = 12;
 const LAST_STEP_INDEX_BY_STAGE = {
@@ -182,6 +183,8 @@ async function buildServer() {
   });
 
   app.get('/health', async () => ({ ok: true }));
+
+  registerCompositionRoutes(app, { supabase });
 
   app.get('/api/v1/applications/:applicationId/locks', async (req, reply) => {
     const { applicationId } = req.params;
