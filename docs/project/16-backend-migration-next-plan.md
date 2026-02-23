@@ -176,3 +176,10 @@
 
 
 - ✅ В `ApiService` добавлена автогенерация idempotency-key для workflow BFF-мутаций (и прокидка в `assignTechnician`), чтобы UI не зависел от ручной передачи ключа в каждом вызове.
+- ✅ Добавлены backend endpoint-ы для integration/cadastre операций: `GET/PUT /projects/:id/integration-status`, `PUT /buildings/:id/cadastre`, `PUT /units/:id/cadastre`.
+- ✅ `ApiService` переключает `getIntegrationStatus/updateIntegrationStatus` на BFF при `VITE_BFF_INTEGRATION_ENABLED=true` (с legacy fallback).
+- ✅ `ApiService` переключает `updateBuildingCadastre/updateUnitCadastre` на BFF при `VITE_BFF_CADASTRE_ENABLED=true` (с legacy fallback).
+- ✅ Добавлен backend endpoint `POST /projects/from-application` и frontend-switch в `ApiService.createProjectFromApplication` при `VITE_BFF_PROJECT_INIT_ENABLED=true` (с сохранением legacy fallback).
+- ✅ Для `POST /projects/from-application` добавлена idempotency-защита (`x-idempotency-key`) от дублей создания проекта при ретраях/повторных кликах.
+- ✅ Для `POST /projects/from-application` добавлен backend-side вызов инициализации pending versions (guarded через `VERSIONING_ENABLED`), чтобы закрыть остаток версиирования в backend-контуре.
+- ✅ Для project-init добавлен optional RPC-режим (`PROJECT_INIT_RPC_ENABLED`) через SQL function `init_project_from_application`, что дает transaction boundary на уровне Postgres с fallback на текущий direct path.

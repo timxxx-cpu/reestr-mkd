@@ -925,3 +925,107 @@ end
 $$;
 
 commit;
+
+-- -----------------------------
+-- PROJECT INIT (RPC, TRANSACTIONAL)
+-- -----------------------------
+create or replace function init_project_from_application(
+  p_scope_id text,
+  p_applicant text default null,
+  p_address text default null,
+  p_cadastre_number text default null,
+  p_external_source text default null,
+  p_external_id text default null,
+  p_submission_date timestamptz default null,
+  p_assignee_name text default null
+)
+returns table(
+  ok boolean,
+  reason text,
+  message text,
+  project_id uuid,
+  application_id uuid,
+  uj_code text
+)
+language plpgsql
+as $$
+declare
+  v_existing projects%rowtype;
+  v_project projects%rowtype;
+  v_application applications%rowtype;
+  v_max_num int;
+  v_uj_code text;
+  v_cadastre text;
+begin
+  if p_scope_id is null or btrim(p_scope_id) = '' then
+    return query select false, 'VALIDATION_ERROR'::text, 'scope_id is required'::text, null::uuid, null::uuid, null::text;
+    return;
+  end if;
+
+  v_cadastre := nullif(btrim(coalesce(p_cadastre_number, '')), '');
+
+  if v_cadastre is not null then
+    select p.* into v_existing
+    from projects p
+    join applications a on a.project_id = p.id
+    where p.scope_id = p_scope_id
+      and p.cadastre_number = v_cadastre
+      and a.status = 'IN_PROGRESS'
+    limit 1;
+
+    if found then
+      return query select false, 'REAPPLICATION_BLOCKED'::text,
+        format('Отказ в принятии: по %s уже есть активное заявление в работе. Повторная подача отклонена.', coalesce(v_existing.name, 'ЖК'))::text,
+        null::uuid, null::uuid, null::text;
+      return;
+    end if;
+  end if;
+
+  select max(nullif(regexp_replace(uj_code, '^UJ', ''), '')::int)
+  into v_max_num
+  from projects
+  where scope_id = p_scope_id
+    and uj_code ~ '^UJ[0-9]{6}$';
+
+  v_uj_code := format('UJ%06s', coalesce(v_max_num, 0) + 1);
+
+  insert into projects (
+    scope_id, uj_code, name, address, cadastre_number, construction_status
+  ) values (
+    p_scope_id,
+    v_uj_code,
+    case when p_applicant is not null and btrim(p_applicant) <> '' then format('ЖК от %s', p_applicant) else 'Новый проект' end,
+    p_address,
+    v_cadastre,
+    'Проектный'
+  )
+  returning * into v_project;
+
+  insert into applications (
+    project_id, scope_id, internal_number, external_source, external_id,
+    applicant, submission_date, assignee_name,
+    status, workflow_substatus, current_step, current_stage
+  ) values (
+    v_project.id,
+    p_scope_id,
+    format('INT-%s', right((extract(epoch from now())::bigint)::text, 6)),
+    p_external_source,
+    p_external_id,
+    p_applicant,
+    coalesce(p_submission_date, now()),
+    p_assignee_name,
+    'IN_PROGRESS',
+    'DRAFT',
+    0,
+    1
+  )
+  returning * into v_application;
+
+  return query select true, 'OK'::text, 'Project created'::text, v_project.id, v_application.id, v_project.uj_code;
+exception
+  when unique_violation then
+    return query select false, 'UNIQUE_VIOLATION'::text, sqlerrm::text, null::uuid, null::uuid, null::text;
+  when others then
+    return query select false, 'DB_ERROR'::text, sqlerrm::text, null::uuid, null::uuid, null::text;
+end;
+$$;
