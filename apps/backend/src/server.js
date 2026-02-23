@@ -4,6 +4,8 @@ import { getConfig } from './config.js';
 import { createSupabaseAdminClient } from './supabase.js';
 import { registerCompositionRoutes } from './composition-routes.js';
 import { registerRegistryRoutes } from './registry-routes.js';
+import { registerIntegrationRoutes } from './integration-routes.js';
+import { registerProjectRoutes } from './project-routes.js';
 import { createIdempotencyStore } from './idempotency-store.js';
 
 const INTEGRATION_START_IDX = 12;
@@ -222,13 +224,15 @@ async function buildServer() {
   await app.register(cors, {
     origin: true, // Разрешаем запросы с любых адресов (для DEV-режима)
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-user-role']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-user-role', 'x-idempotency-key']
   });
 
   app.get('/health', async () => ({ ok: true }));
 
   registerCompositionRoutes(app, { supabase });
   registerRegistryRoutes(app, { supabase });
+  registerIntegrationRoutes(app, { supabase });
+  registerProjectRoutes(app, { supabase });
 
   app.get('/api/v1/applications/:applicationId/locks', async (req, reply) => {
     const { applicationId } = req.params;

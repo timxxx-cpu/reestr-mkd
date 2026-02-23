@@ -916,6 +916,23 @@ const LegacyApiService = {
   createProjectFromApplication: async (scope, appData, user) => {
     if (!scope) throw new Error('No scope provided');
 
+    if (BffClient.isProjectInitEnabled()) {
+      const resolvedActor = resolveActor({
+        userName: user?.name,
+        userRole: user?.role,
+      });
+
+      const response = await BffClient.createProjectFromApplication({
+        scope,
+        appData,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+        idempotencyKey: createIdempotencyKey('project-init-from-application', [scope, appData?.externalId || appData?.id || appData?.cadastre]),
+      });
+
+      return response?.projectId;
+    }
+
     // Бизнес-правило повторной подачи: если по ЖК уже есть активная заявка в работе,
     // новую повторную заявку принимать нельзя.
     if (appData?.reapplicationForProjectId || appData?.cadastre) {
@@ -2630,6 +2647,10 @@ const LegacyApiService = {
 
   // --- META & INTEGRATION ---
   getIntegrationStatus: async projectId => {
+    if (BffClient.isIntegrationEnabled()) {
+      return BffClient.getIntegrationStatus({ projectId });
+    }
+
     const { data } = await supabase
       .from('applications')
       .select('integration_data')
@@ -2638,7 +2659,18 @@ const LegacyApiService = {
     return data?.integration_data || {};
   },
 
-  updateIntegrationStatus: async (projectId, field, status) => {
+  updateIntegrationStatus: async (projectId, field, status, actor = {}) => {
+    if (BffClient.isIntegrationEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.updateIntegrationStatus({
+        projectId,
+        field,
+        status,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const { data: app } = await supabase
       .from('applications')
       .select('id, integration_data')
@@ -2649,8 +2681,19 @@ const LegacyApiService = {
     await supabase.from('applications').update({ integration_data: newData }).eq('id', app.id);
   },
 
-  updateBuildingCadastre: async (id, cadastre) => {
+  updateBuildingCadastre: async (id, cadastre, actor = {}) => {
     if (!id) return;
+
+    if (BffClient.isCadastreEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.updateBuildingCadastre({
+        buildingId: id,
+        cadastre,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const { error } = await supabase
       .from('buildings')
       .update({ cadastre_number: formatBuildingCadastre(cadastre) })
@@ -2658,7 +2701,17 @@ const LegacyApiService = {
     if (error) throw error;
   },
 
-  updateUnitCadastre: async (id, cadastre) => {
+  updateUnitCadastre: async (id, cadastre, actor = {}) => {
+    if (BffClient.isCadastreEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.updateUnitCadastre({
+        unitId: id,
+        cadastre,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     await supabase.from('units').update({ cadastre_number: cadastre }).eq('id', id);
   },
 

@@ -15,6 +15,9 @@
 - `composition` (buildings/blocks)
 - `registry-floors`
 - `registry-entrances`
+- `integration-status`
+- `cadastre-updates`
+- `project-init-from-application`
 
 ## Запуск
 
@@ -22,6 +25,7 @@
 cd apps/backend
 npm install
 npm run dev
+npm test
 ```
 
 Требуемые переменные окружения:
@@ -30,6 +34,8 @@ npm run dev
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `PORT` (optional, default `8787`)
 - `HOST` (optional, default `0.0.0.0`)
+- `VERSIONING_ENABLED` (optional, default `false`)
+- `PROJECT_INIT_RPC_ENABLED` (optional, default `false`)
 
 ## API
 
@@ -70,6 +76,11 @@ npm run dev
 - `POST /api/v1/blocks/:blockId/floors/reconcile`
 - `PUT /api/v1/blocks/:blockId/entrance-matrix/cell`
 - `POST /api/v1/blocks/:blockId/entrances/reconcile`
+- `GET /api/v1/projects/:projectId/integration-status`
+- `PUT /api/v1/projects/:projectId/integration-status`
+- `PUT /api/v1/buildings/:buildingId/cadastre`
+- `PUT /api/v1/units/:unitId/cadastre`
+- `POST /api/v1/projects/from-application`
 
 ## Auth-context (DEV)
 
@@ -80,6 +91,10 @@ npm run dev
 
 Дополнительно для batch/reconcile операций поддерживается:
 
-- `x-idempotency-key` — ключ дедупликации повторных запросов в пределах TTL in-memory кэша BFF; поддерживается для registry batch/reconcile и ключевых workflow-мутаций (`complete-step`, `rollback-step`, `review-approve`, `review-reject`, `assign-technician`, `request-decline`, `decline`, `return-from-decline`, `restore`). При повторе с другим payload backend вернет `409 IDEMPOTENCY_CONFLICT`.
+- `x-idempotency-key` — ключ дедупликации повторных запросов в пределах TTL in-memory кэша BFF; поддерживается для registry batch/reconcile, ключевых workflow-мутаций (`complete-step`, `rollback-step`, `review-approve`, `review-reject`, `assign-technician`, `request-decline`, `decline`, `return-from-decline`, `restore`) и `POST /api/v1/projects/from-application`. При повторе с другим payload backend вернет `409 IDEMPOTENCY_CONFLICT`.
 
 В продовом контуре это должно быть заменено на полноценный auth middleware (JWT/session).
+
+- `POST /api/v1/projects/from-application` также запускает backend-side инициализацию pending versions при `VERSIONING_ENABLED=true` (в случае ошибки вернет `warning` в payload, но не откатывает уже созданные project/application).
+
+- При `PROJECT_INIT_RPC_ENABLED=true` endpoint `POST /api/v1/projects/from-application` использует SQL function `init_project_from_application` (transactional boundary на стороне Postgres); при ошибке RPC автоматически переключается на direct BFF path (fallback).

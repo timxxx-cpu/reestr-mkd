@@ -10,36 +10,31 @@
 - units/common areas,
 - parking sync.
 
-**Оценка прогресса миграции write-path:** ~70–75%.
+**Оценка прогресса миграции write-path:** ~88–92%.
 
 > Это инженерная оценка по текущему `ApiService` и включенным BFF веткам, а не формальная метрика релизного KPI.
 
 ## Что еще осталось перенести на Backend (приоритетно)
 
-### P1 — операции создания/инициализации проекта
+### P1 — операции создания/инициализации проекта (частично закрыто)
 
-1. `createProjectFromApplication` (основной сценарий старта жизненного цикла)
-2. Сопутствующие проверки/сайд-эффекты при создании проекта и заявки
+Уже перенесено в BFF под флаг:
+1. `createProjectFromApplication` → `POST /projects/from-application`
 
-Почему важно:
-- это входная точка всего процесса,
-- сейчас там есть значимый direct-write контур.
+Что осталось:
+- объединить `project/application` и pending-version orchestration в единую transaction boundary (часть project/application уже может идти через RPC, pending versions пока за границей этой транзакции).
 
-### P1 — интеграционные статусные мутации
+### P1/P2 — интеграционные и кадастровые мутации (закрыто в текущем пакете)
 
-1. `updateIntegrationStatus`
-2. Специализированные update-операции по интеграции, которые пока идут напрямую в Supabase.
+Уже перенесено в BFF под модульные флаги:
 
-Почему важно:
-- интеграционные статусы должны быть под единым backend error/audit контрактом.
+1. `getIntegrationStatus` / `updateIntegrationStatus`
+2. `updateBuildingCadastre`
+3. `updateUnitCadastre`
 
-### P2 — кадастровые point-updates
-
-1. `updateBuildingCadastre`
-2. `updateUnitCadastre`
-
-Почему важно:
-- небольшие, но частые мутации, которые лучше унифицировать в BFF для трассируемости.
+Используемые флаги:
+- `VITE_BFF_INTEGRATION_ENABLED`
+- `VITE_BFF_CADASTRE_ENABLED`
 
 ### P2/P3 — оставшиеся служебные и административные write-path
 
@@ -58,8 +53,8 @@
 ## Рекомендуемый следующий пакет работ (за один спринт)
 
 1. Вынести `createProjectFromApplication` в backend endpoint + фронтовый adapter.
-2. Перевести `updateIntegrationStatus` на BFF endpoint.
-3. Добавить BFF endpoints для `updateBuildingCadastre` / `updateUnitCadastre`.
-4. После стабилизации — закрыть fallback для этих операций feature-флагами.
+2. Добавить полноценную транзакционную границу для связки `project/application/pending versions` (SQL function или explicit transactional boundary).
+3. Перевести оставшиеся точечные legacy write-path на BFF и зафиксировать список исключений.
+4. После стабилизации — закрыть fallback для модулей `project-init/integration/cadastre` и включить «BFF only» smoke.
 
-Этот пакет обычно закрывает основной остаток до фазы «direct-write off by default».
+Этот пакет доводит migration до near-complete состояния и готовит режим «direct-write off by default».

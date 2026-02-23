@@ -6,6 +6,9 @@ const isEntrancesEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_ENTR
 const isUnitsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_UNITS_ENABLED === 'true';
 const isMopEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_MOP_ENABLED === 'true';
 const isParkingEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PARKING_ENABLED === 'true';
+const isIntegrationEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_INTEGRATION_ENABLED === 'true';
+const isCadastreEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_CADASTRE_ENABLED === 'true';
+const isProjectInitEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_INIT_ENABLED === 'true';
 
 const getAuthHeaders = (userName, userRole) => ({
   'x-user-id': encodeURIComponent(userName || 'unknown'),
@@ -72,12 +75,54 @@ export const BffClient = {
   isUnitsEnabled,
   isMopEnabled,
   isParkingEnabled,
+  isIntegrationEnabled,
+  isCadastreEnabled,
+  isProjectInitEnabled,
 
   getBuildings: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/buildings`),
 
+
+  createProjectFromApplication: ({ scope, appData, userName, userRole, idempotencyKey }) =>
+    request('/api/v1/projects/from-application', {
+      method: 'POST',
+      userName,
+      userRole,
+      idempotencyKey,
+      body: { scope, appData },
+    }),
+
+
   getParkingCounts: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/parking-counts`),
+
+
+  getIntegrationStatus: ({ projectId }) =>
+    request(`/api/v1/projects/${projectId}/integration-status`),
+
+  updateIntegrationStatus: ({ projectId, field, status, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/integration-status`, {
+      method: 'PUT',
+      userName,
+      userRole,
+      body: { field, status },
+    }),
+
+  updateBuildingCadastre: ({ buildingId, cadastre, userName, userRole }) =>
+    request(`/api/v1/buildings/${buildingId}/cadastre`, {
+      method: 'PUT',
+      userName,
+      userRole,
+      body: { cadastre },
+    }),
+
+  updateUnitCadastre: ({ unitId, cadastre, userName, userRole }) =>
+    request(`/api/v1/units/${unitId}/cadastre`, {
+      method: 'PUT',
+      userName,
+      userRole,
+      body: { cadastre },
+    }),
 
   syncParkingPlaces: ({ floorId, targetCount, userName, userRole, idempotencyKey }) =>
     request(`/api/v1/floors/${floorId}/parking-places/sync`, {
