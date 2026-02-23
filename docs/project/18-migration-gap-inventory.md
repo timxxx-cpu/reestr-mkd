@@ -58,3 +58,27 @@
 4. После стабилизации — закрыть fallback для модулей `project-init/integration/cadastre` и включить «BFF only» smoke.
 
 Этот пакет доводит migration до near-complete состояния и готовит режим «direct-write off by default».
+
+## Сводка следующего фокуса
+
+Детальный исполнимый план закрытия оставшихся пунктов вынесен в [раздел 19](./19-backend-transition-execution-plan.md):
+
+- project passport/admin write-path,
+- basements + basement parking levels,
+- backend-модуль versioning,
+- cutover readiness и direct-write OFF by default.
+
+## Выполнено в текущем пакете (по плану раздела 19)
+
+- Добавлены backend endpoint-ы и frontend переключение под флаги для `project passport/admin write-path`.
+- Добавлены backend endpoint-ы и frontend переключение для `basements` (`getBasements/toggleBasementLevel`).
+- Добавлены backend endpoint-ы и frontend переключение для `object versioning` (`get/create/approve/decline/restore/snapshot`).
+- В `.env.example` добавлены флаги:
+  - `VITE_BFF_PROJECT_PASSPORT_ENABLED`
+  - `VITE_BFF_BASEMENTS_ENABLED`
+  - `VITE_BFF_VERSIONING_ENABLED`
+- Добавлен backend read-endpoint `GET /projects/:id/full-registry` и frontend-switch под флаг `VITE_BFF_FULL_REGISTRY_ENABLED` для сводного реестрового чтения без direct Supabase path.
+- Добавлен backend read-endpoint `GET /projects/:id/context?scope=:scope` и frontend-switch под флаг `VITE_BFF_PROJECT_CONTEXT_ENABLED` для загрузки полного контекста проекта через BFF без прямого фронтового fan-out к таблицам.
+- Добавлен backend read-endpoint `GET /projects/:id/context-registry-details` и frontend-switch под флаг `VITE_BFF_PROJECT_CONTEXT_DETAILS_ENABLED` для переноса детальных реестровых read (markers/floors/matrix/units/mop) из frontend fan-out в BFF.
+- Добавлен backend write-endpoint `POST /projects/:id/context-meta/save` и frontend-switch под флаг `VITE_BFF_SAVE_META_ENABLED` для переноса meta-save (`complexInfo/applicationInfo`) с frontend direct-write на BFF.
+- Добавлен backend write-endpoint `POST /projects/:id/context-building-details/save` и frontend-switch под флаг `VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED` для переноса сохранения `buildingDetails` (blocks/markers/basements/construction/engineering) на BFF.

@@ -1,5 +1,6 @@
 import { createIdempotencyStore } from './idempotency-store.js';
 import { createPendingVersionsForApplication } from './versioning.js';
+import { registerProjectExtendedRoutes } from './project-extended-routes.js';
 
 function sendError(reply, statusCode, code, message, details = null) {
   return reply.code(statusCode).send({ code, message, details, requestId: reply.request.id });
@@ -138,6 +139,7 @@ function getNextSequenceNumber(existingCodes, prefix) {
 function generateProjectCode(sequenceNumber) {
   return `UJ${String(Number(sequenceNumber) || 0).padStart(6, '0')}`;
 }
+
 
 async function generateNextProjectCode(supabase, scope) {
   const { data, error } = await supabase
@@ -318,4 +320,5 @@ export function registerProjectRoutes(app, { supabase }) {
     rememberIdempotentResponse(idempotencyStore, idempotencyContext, response);
     return reply.send(response);
   });
+  registerProjectExtendedRoutes(app, { supabase });
 }

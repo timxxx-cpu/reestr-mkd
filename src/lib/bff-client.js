@@ -9,6 +9,14 @@ const isParkingEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PARKIN
 const isIntegrationEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_INTEGRATION_ENABLED === 'true';
 const isCadastreEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_CADASTRE_ENABLED === 'true';
 const isProjectInitEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_INIT_ENABLED === 'true';
+const isProjectPassportEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_PASSPORT_ENABLED === 'true';
+const isBasementsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_BASEMENTS_ENABLED === 'true';
+const isVersioningEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_VERSIONING_ENABLED === 'true';
+const isFullRegistryEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_FULL_REGISTRY_ENABLED === 'true';
+const isProjectContextEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_CONTEXT_ENABLED === 'true';
+const isProjectContextDetailsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_CONTEXT_DETAILS_ENABLED === 'true';
+const isSaveMetaEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_META_ENABLED === 'true';
+const isSaveBuildingDetailsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED === 'true';
 
 const getAuthHeaders = (userName, userRole) => ({
   'x-user-id': encodeURIComponent(userName || 'unknown'),
@@ -78,9 +86,134 @@ export const BffClient = {
   isIntegrationEnabled,
   isCadastreEnabled,
   isProjectInitEnabled,
+  isProjectPassportEnabled,
+  isBasementsEnabled,
+  isVersioningEnabled,
+  isFullRegistryEnabled,
+  isProjectContextEnabled,
+  isProjectContextDetailsEnabled,
+  isSaveMetaEnabled,
+  isSaveBuildingDetailsEnabled,
 
   getBuildings: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/buildings`),
+
+
+  getProjectFullRegistry: ({ projectId }) =>
+    request(`/api/v1/projects/${projectId}/full-registry`),
+
+  getProjectContext: ({ scope, projectId }) =>
+    request(`/api/v1/projects/${projectId}/context?scope=${encodeURIComponent(scope)}`),
+
+  getProjectContextRegistryDetails: ({ projectId }) =>
+    request(`/api/v1/projects/${projectId}/context-registry-details`),
+
+  saveProjectContextMeta: ({ scope, projectId, complexInfo, applicationInfo, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/context-meta/save`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { scope, complexInfo, applicationInfo },
+    }),
+
+  saveProjectBuildingDetails: ({ projectId, buildingDetails, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/context-building-details/save`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { buildingDetails },
+    }),
+
+
+  getProjectPassport: ({ projectId }) =>
+    request(`/api/v1/projects/${projectId}/passport`),
+
+  updateProjectPassport: ({ projectId, info, cadastreData, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/passport`, {
+      method: 'PUT',
+      userName,
+      userRole,
+      body: { info, cadastreData },
+    }),
+
+  upsertProjectParticipant: ({ projectId, role, data, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/participants/${encodeURIComponent(role)}`, {
+      method: 'PUT',
+      userName,
+      userRole,
+      body: { data },
+    }),
+
+  upsertProjectDocument: ({ projectId, doc, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/documents`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { doc },
+    }),
+
+  deleteProjectDocument: ({ documentId, userName, userRole }) =>
+    request(`/api/v1/project-documents/${documentId}`, {
+      method: 'DELETE',
+      userName,
+      userRole,
+    }),
+
+  deleteProject: ({ scope, projectId, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}?scope=${encodeURIComponent(scope || '')}`, {
+      method: 'DELETE',
+      userName,
+      userRole,
+    }),
+
+  getBasements: ({ projectId }) =>
+    request(`/api/v1/projects/${projectId}/basements`),
+
+  toggleBasementLevel: ({ basementId, level, isEnabled, userName, userRole }) =>
+    request(`/api/v1/basements/${basementId}/parking-levels/${level}`, {
+      method: 'PUT',
+      userName,
+      userRole,
+      body: { isEnabled },
+    }),
+
+  getVersions: ({ entityType, entityId }) =>
+    request(`/api/v1/versions?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`),
+
+  createVersion: ({ entityType, entityId, snapshotData, createdBy, applicationId, userName, userRole }) =>
+    request('/api/v1/versions', {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { entityType, entityId, snapshotData, createdBy, applicationId },
+    }),
+
+  approveVersion: ({ versionId, approvedBy, userName, userRole }) =>
+    request(`/api/v1/versions/${versionId}/approve`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { approvedBy },
+    }),
+
+  declineVersion: ({ versionId, reason, declinedBy, userName, userRole }) =>
+    request(`/api/v1/versions/${versionId}/decline`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { reason, declinedBy },
+    }),
+
+  getVersionSnapshot: ({ versionId }) =>
+    request(`/api/v1/versions/${versionId}/snapshot`),
+
+  restoreVersion: ({ versionId, userName, userRole }) =>
+    request(`/api/v1/versions/${versionId}/restore`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: {},
+    }),
 
 
   createProjectFromApplication: ({ scope, appData, userName, userRole, idempotencyKey }) =>

@@ -46,8 +46,19 @@ class MockQuery {
     return this;
   }
 
+  range(from, to) {
+    this.state.range = { from, to };
+    return this;
+  }
+
   insert(payload) {
     this.state.action = 'insert';
+    this.state.payload = payload;
+    return this;
+  }
+
+  upsert(payload) {
+    this.state.action = 'upsert';
     this.state.payload = payload;
     return this;
   }
@@ -426,5 +437,324 @@ test('project-init returns REAPPLICATION_BLOCKED from RPC result', async () => {
   assert.equal(res.statusCode, 409);
   assert.equal(res.json().code, 'REAPPLICATION_BLOCKED');
 
+  await app.close();
+});
+
+test('project-passport get returns aggregated payload', async () => {
+  const supabase = new MockSupabase({
+    projects: {
+      select: state => {
+        if (state.filters.some(f => f.column === 'id')) {
+          return { data: [{ id: 'project-1', name: 'Проект 1', uj_code: 'UJ000001', construction_status: 'Проектный' }] };
+        }
+        return { data: [] };
+      },
+    },
+    project_participants: {
+      select: () => ({ data: [{ id: 'p1', role: 'developer', name: 'ООО Дев', inn: '123' }] }),
+    },
+    project_documents: {
+      select: () => ({ data: [{ id: 'd1', name: 'Док 1', doc_type: 'contract', doc_date: '2026-01-01', doc_number: '1', file_url: null }] }),
+    },
+  });
+
+  const app = await createAppWithRoutes(supabase);
+  const res = await app.inject({ method: 'GET', url: '/api/v1/projects/project-1/passport' });
+
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.complexInfo.name, 'Проект 1');
+  assert.equal(body.participants.developer.name, 'ООО Дев');
+  assert.equal(body.documents.length, 1);
+  await app.close();
+});
+
+test('basement level toggle requires actor headers', async () => {
+  const app = await createAppWithRoutes(new MockSupabase({}));
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/api/v1/basements/b1/parking-levels/1',
+    payload: { isEnabled: true },
+  });
+
+  assert.equal(res.statusCode, 401);
+  await app.close();
+});
+
+test('versioning create returns inserted object version', async () => {
+  const supabase = new MockSupabase({
+    object_versions: {
+      select: state => {
+        if (state.select === 'version_number') return { data: [] };
+        return { data: [] };
+      },
+      update: () => ({ data: [] }),
+      insert: state => ({
+        data: [{
+          id: 'v1',
+          entity_type: state.payload.entity_type,
+          entity_id: state.payload.entity_id,
+          version_number: state.payload.version_number,
+          version_status: state.payload.version_status,
+        }],
+      }),
+    },
+  });
+
+  const app = await createAppWithRoutes(supabase);
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/v1/versions',
+    headers: {
+      'x-user-id': encodeURIComponent('Tester'),
+      'x-user-role': 'technician',
+    },
+    payload: {
+      entityType: 'unit',
+      entityId: 'u1',
+      snapshotData: { a: 1 },
+    },
+  });
+
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.version_number, 1);
+  assert.equal(body.version_status, 'PENDING');
+  await app.close();
+});
+
+test('full-registry endpoint returns mapped aggregate payload', async () => {
+  const supabase = new MockSupabase({
+    buildings: {
+      select: () => ({ data: [{ id: 'b1', project_id: 'p1', label: '1', house_number: '1', building_code: 'UJ000001-ZD01' }] }),
+    },
+    building_blocks: {
+      select: () => ({ data: [{ id: 'bl1', building_id: 'b1', label: '1A' }] }),
+    },
+    floors: {
+      select: () => ({ data: [{ id: 'f1', block_id: 'bl1', area_proj: 100, area_fact: 99 }] }),
+    },
+    entrances: {
+      select: () => ({ data: [{ id: 'e1', block_id: 'bl1', number: 1 }] }),
+    },
+    units: {
+      select: () => ({
+        data: [{
+          id: 'u1',
+          floor_id: 'f1',
+          entrance_id: 'e1',
+          unit_code: 'UJ000001-ZD01-EL001',
+          number: '1',
+          unit_type: 'apartment',
+          total_area: 45,
+          living_area: 20,
+          useful_area: 30,
+          rooms_count: 2,
+          has_mezzanine: false,
+          mezzanine_type: null,
+          cadastre_number: null,
+          rooms: [],
+        }],
+      }),
+    },
+  });
+
+  const app = await createAppWithRoutes(supabase);
+  const res = await app.inject({ method: 'GET', url: '/api/v1/projects/p1/full-registry' });
+
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.buildings.length, 1);
+  assert.equal(body.blocks.length, 1);
+  assert.equal(body.floors.length, 1);
+  assert.equal(body.units.length, 1);
+  assert.equal(body.units[0].buildingCode, 'UJ000001-ZD01');
+  await app.close();
+});
+
+test('project context endpoint returns aggregate source payload', async () => {
+  const supabase = new MockSupabase({
+    applications: {
+      select: () => ({ data: [{ id: 'app-ctx-1', project_id: 'project-1', scope_id: 'shared_dev_env' }] }),
+    },
+    projects: {
+      select: state => {
+        if (state.filters.some(f => f.column === 'id')) {
+          return { data: [{ id: 'project-1', name: 'Проект 1' }] };
+        }
+        return { data: [] };
+      },
+    },
+    project_participants: {
+      select: () => ({ data: [{ id: 'pp1', role: 'developer', name: 'DEV Co', inn: '123' }] }),
+    },
+    project_documents: {
+      select: () => ({ data: [{ id: 'doc1', name: 'Doc', doc_type: 'contract' }] }),
+    },
+    buildings: {
+      select: () => ({ data: [{ id: 'b1', project_id: 'project-1', building_blocks: [] }] }),
+    },
+    application_history: {
+      select: () => ({ data: [{ id: 'h1', application_id: 'app-ctx-1', action: 'CREATE' }] }),
+    },
+    application_steps: {
+      select: () => ({ data: [{ id: 's1', application_id: 'app-ctx-1', step_index: 0, is_completed: false }] }),
+    },
+  });
+
+  const app = await createAppWithRoutes(supabase);
+  const res = await app.inject({
+    method: 'GET',
+    url: '/api/v1/projects/project-1/context?scope=shared_dev_env',
+  });
+
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.project.id, 'project-1');
+  assert.equal(body.application.id, 'app-ctx-1');
+  assert.equal(body.participants.length, 1);
+  assert.equal(body.documents.length, 1);
+  assert.equal(body.buildings.length, 1);
+  assert.equal(body.history.length, 1);
+  assert.equal(body.steps.length, 1);
+  await app.close();
+});
+
+test('project context registry details endpoint returns detailed read payload', async () => {
+  const supabase = new MockSupabase({
+    buildings: {
+      select: () => ({ data: [{ id: 'b1', building_blocks: [{ id: 'bl1' }] }] }),
+    },
+    block_floor_markers: {
+      select: () => ({ data: [{ block_id: 'bl1', marker_key: '1', is_technical: false, is_commercial: true }] }),
+    },
+    floors: {
+      select: () => ({ data: [{ id: 'f1', block_id: 'bl1', index: 1, floor_key: 'floor:1' }] }),
+    },
+    entrances: {
+      select: () => ({ data: [{ id: 'e1', block_id: 'bl1', number: 1 }] }),
+    },
+    entrance_matrix: {
+      select: () => ({ data: [{ floor_id: 'f1', entrance_number: 1, flats_count: 1, commercial_count: 0, mop_count: 0 }] }),
+    },
+    units: {
+      select: () => ({ data: [{ id: 'u1', floor_id: 'f1', entrance_id: 'e1', unit_type: 'apartment', number: '1', rooms: [] }] }),
+    },
+    common_areas: {
+      select: () => ({ data: [{ id: 'm1', floor_id: 'f1', entrance_id: 'e1', type: 'corridor' }] }),
+    },
+  });
+
+  const app = await createAppWithRoutes(supabase);
+  const res = await app.inject({
+    method: 'GET',
+    url: '/api/v1/projects/project-1/context-registry-details',
+  });
+
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.markerRows.length, 1);
+  assert.equal(body.floors.length, 1);
+  assert.equal(body.entrances.length, 1);
+  assert.equal(body.matrix.length, 1);
+  assert.equal(body.units.length, 1);
+  assert.equal(body.mops.length, 1);
+  await app.close();
+});
+
+test('project context meta save endpoint saves project/application meta', async () => {
+  const track = { projectUpdated: 0, appUpdated: 0 };
+  const supabase = new MockSupabase({
+    projects: {
+      update: () => {
+        track.projectUpdated += 1;
+        return { data: [] };
+      },
+      select: () => ({ data: [{ id: 'project-1' }] }),
+    },
+    applications: {
+      select: () => ({ data: [{ id: 'app-1' }] }),
+      update: () => {
+        track.appUpdated += 1;
+        return { data: [] };
+      },
+      insert: () => ({ data: [{ id: 'app-1' }] }),
+    },
+    application_history: { insert: () => ({ data: [] }) },
+    application_steps: { upsert: () => ({ data: [] }) },
+  });
+
+  const app = await createAppWithRoutes(supabase);
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/v1/projects/project-1/context-meta/save',
+    headers: {
+      'x-user-id': encodeURIComponent('Tester'),
+      'x-user-role': 'technician',
+    },
+    payload: {
+      scope: 'shared_dev_env',
+      complexInfo: { name: 'Project 1', status: 'Проектный', street: 'Street 1' },
+      applicationInfo: { status: 'IN_PROGRESS', currentStepIndex: 1, currentStage: 1 },
+    },
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(track.projectUpdated, 1);
+  assert.equal(track.appUpdated, 1);
+  assert.equal(res.json().projectId, 'project-1');
+  assert.equal(res.json().applicationId, 'app-1');
+  await app.close();
+});
+
+test('project context building-details save endpoint processes block updates', async () => {
+  const track = { blockUpdated: 0, markersReplaced: 0 };
+  const supabase = new MockSupabase({
+    buildings: {
+      select: () => ({ data: [{ id: 'b1' }] }),
+    },
+    building_blocks: {
+      update: () => {
+        track.blockUpdated += 1;
+        return { data: [] };
+      },
+    },
+    block_floor_markers: {
+      delete: () => ({ data: [] }),
+      upsert: () => {
+        track.markersReplaced += 1;
+        return { data: [] };
+      },
+    },
+    block_construction: { upsert: () => ({ data: [] }) },
+    block_engineering: { upsert: () => ({ data: [] }) },
+    basements: { upsert: () => ({ data: [] }) },
+    basement_parking_levels: { upsert: () => ({ data: [] }) },
+  });
+
+  const app = await createAppWithRoutes(supabase);
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/v1/projects/project-1/context-building-details/save',
+    headers: {
+      'x-user-id': encodeURIComponent('Tester'),
+      'x-user-role': 'technician',
+    },
+    payload: {
+      buildingDetails: {
+        'b1_11111111-1111-1111-1111-111111111111': {
+          floorsCount: 10,
+          entrances: 2,
+          technicalFloors: [1],
+          commercialFloors: ['1'],
+          engineering: { electricity: true },
+        },
+      },
+    },
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(track.blockUpdated, 1);
+  assert.equal(track.markersReplaced, 1);
   await app.close();
 });

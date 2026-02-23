@@ -1019,8 +1019,19 @@ const LegacyApiService = {
   },
 
   // Удаление проекта (Каскадное удаление настроено в БД, но для надежности можно и тут)
-  deleteProject: async (scope, projectId) => {
+  deleteProject: async (scope, projectId, actor = {}) => {
     if (!scope) return;
+
+    if (BffClient.isProjectPassportEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.deleteProject({
+        scope,
+        projectId,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     // Удаляем проект, заявка удалится каскадно (ON DELETE CASCADE)
     const { error } = await supabase
       .from('projects')
@@ -1036,48 +1047,68 @@ const LegacyApiService = {
   getProjectFullData: async (scope, projectId) => {
     if (!scope || !projectId) return null;
 
-    // 1. Загружаем заявку
-    const { data: app, error: appError } = await supabase
-      .from('applications')
-      .select('*')
-      .eq('project_id', projectId)
-      .eq('scope_id', scope)
-      .maybeSingle();
+    let app = null;
+    let pRes;
+    let partsRes;
+    let docsRes;
+    let buildingsRes;
+    let historyRes;
+    let stepsRes;
 
-    if (appError) {
-      throw appError;
-    }
-
-    // 2. Параллельная загрузка таблиц
-    const [pRes, partsRes, docsRes, buildingsRes, historyRes, stepsRes] = await Promise.all([
-      supabase.from('projects').select('*').eq('id', projectId).single(),
-      supabase.from('project_participants').select('*').eq('project_id', projectId),
-      supabase.from('project_documents').select('*').eq('project_id', projectId),
-      supabase
-        .from('buildings')
-        .select(
-          `
-                    *, 
-                    building_blocks (
-                        *,
-                        block_construction (*),
-                        block_engineering (*)
-                    )
-                `
-        )
+    if (BffClient.isProjectContextEnabled()) {
+      const context = await BffClient.getProjectContext({ scope, projectId });
+      app = context.application || null;
+      pRes = { data: context.project, error: null };
+      partsRes = { data: context.participants || [], error: null };
+      docsRes = { data: context.documents || [], error: null };
+      buildingsRes = { data: context.buildings || [], error: null };
+      historyRes = { data: context.history || [], error: null };
+      stepsRes = { data: context.steps || [], error: null };
+    } else {
+      // 1. Загружаем заявку
+      const appRes = await supabase
+        .from('applications')
+        .select('*')
         .eq('project_id', projectId)
-        .order('created_at', { ascending: true }),
-      app?.id
-        ? supabase
-            .from('application_history')
-            .select('*')
-            .eq('application_id', app.id)
-            .order('created_at', { ascending: false })
-        : Promise.resolve({ data: [], error: null }),
-      app?.id
-        ? supabase.from('application_steps').select('*').eq('application_id', app.id)
-        : Promise.resolve({ data: [], error: null }),
-    ]);
+        .eq('scope_id', scope)
+        .maybeSingle();
+
+      app = appRes.data;
+      if (appRes.error) {
+        throw appRes.error;
+      }
+
+      // 2. Параллельная загрузка таблиц
+      [pRes, partsRes, docsRes, buildingsRes, historyRes, stepsRes] = await Promise.all([
+        supabase.from('projects').select('*').eq('id', projectId).single(),
+        supabase.from('project_participants').select('*').eq('project_id', projectId),
+        supabase.from('project_documents').select('*').eq('project_id', projectId),
+        supabase
+          .from('buildings')
+          .select(
+            `
+                      *,
+                      building_blocks (
+                          *,
+                          block_construction (*),
+                          block_engineering (*)
+                      )
+                  `
+          )
+          .eq('project_id', projectId)
+          .order('created_at', { ascending: true }),
+        app?.id
+          ? supabase
+              .from('application_history')
+              .select('*')
+              .eq('application_id', app.id)
+              .order('created_at', { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+        app?.id
+          ? supabase.from('application_steps').select('*').eq('application_id', app.id)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+    }
 
     if (pRes.error) throw pRes.error;
 
@@ -1129,11 +1160,16 @@ const LegacyApiService = {
     const mopData = {};
     const parkingPlaces = {};
 
+    let contextRegistryDetails = null;
+    if (blockIds.length > 0 && BffClient.isProjectContextDetailsEnabled()) {
+      contextRegistryDetails = await BffClient.getProjectContextRegistryDetails({ projectId });
+    }
+
     if (blockIds.length > 0) {
-      const { data: markerRows } = await supabase
+      const markerRows = contextRegistryDetails?.markerRows || (await supabase
         .from('block_floor_markers')
         .select('block_id, marker_key, is_technical, is_commercial')
-        .in('block_id', blockIds);
+        .in('block_id', blockIds)).data;
 
       (markerRows || []).forEach(row => {
         if (row.is_technical) {
@@ -1151,12 +1187,12 @@ const LegacyApiService = {
 
     if (blockIds.length > 0) {
       // Оптимизация: берем только нужные поля
-      const { data: floorsData } = await supabase
+      const floorsData = contextRegistryDetails?.floors || (await supabase
         .from('floors')
         .select(
           'id, block_id, floor_key, label, index, floor_type, height, area_proj, area_fact, is_duplex, parent_floor_index, is_commercial, is_technical, is_stylobate, is_basement, is_attic, is_loft, is_roof, basement_id'
         )
-        .in('block_id', blockIds);
+        .in('block_id', blockIds)).data;
 
       const blockToBuilding = (buildingsRes.data || []).reduce((acc, building) => {
         (building.building_blocks || []).forEach(block => {
@@ -1222,49 +1258,60 @@ const LegacyApiService = {
         }
       });
 
-      const [entrancesRes, matrixRes, unitsRes, mopsRes] = await Promise.all([
-        supabase.from('entrances').select('id, block_id, number').in('block_id', blockIds),
-        supabase
-          .from('entrance_matrix')
-          .select('floor_id, entrance_number, flats_count, commercial_count, mop_count')
-          .in('block_id', blockIds),
-        (async () => {
-          const floorIds = (floorsData || []).map(f => f.id);
-          if (!floorIds.length) return { data: [], error: null };
+      const [entrancesRows, matrixRows, unitsRows, mopsRows] = contextRegistryDetails
+        ? [
+            contextRegistryDetails.entrances || [],
+            contextRegistryDetails.matrix || [],
+            contextRegistryDetails.units || [],
+            contextRegistryDetails.mops || [],
+          ]
+        : await (async () => {
+            const [entrancesRes, matrixRes, unitsRes, mopsRes] = await Promise.all([
+              supabase.from('entrances').select('id, block_id, number').in('block_id', blockIds),
+              supabase
+                .from('entrance_matrix')
+                .select('floor_id, entrance_number, flats_count, commercial_count, mop_count')
+                .in('block_id', blockIds),
+              (async () => {
+                const floorIds = (floorsData || []).map(f => f.id);
+                if (!floorIds.length) return { data: [], error: null };
 
-          const data = await fetchAllPaged((from, to) =>
-            supabase
-              .from('units')
-              .select(
-                'id, floor_id, entrance_id, number, unit_type, has_mezzanine, mezzanine_type, total_area, living_area, useful_area, rooms_count, status, cadastre_number'
-              )
-              .in('floor_id', floorIds)
-              .order('id', { ascending: true })
-              .range(from, to)
-          );
+                const data = await fetchAllPaged((from, to) =>
+                  supabase
+                    .from('units')
+                    .select(
+                      'id, floor_id, entrance_id, number, unit_type, has_mezzanine, mezzanine_type, total_area, living_area, useful_area, rooms_count, status, cadastre_number'
+                    )
+                    .in('floor_id', floorIds)
+                    .order('id', { ascending: true })
+                    .range(from, to)
+                );
 
-          return { data, error: null };
-        })(),
-        supabase
-          .from('common_areas')
-          .select('id, floor_id, entrance_id, type, area, height')
-          .in(
-            'floor_id',
-            (floorsData || []).map(f => f.id)
-          ),
-      ]);
+                return { data, error: null };
+              })(),
+              supabase
+                .from('common_areas')
+                .select('id, floor_id, entrance_id, type, area, height')
+                .in(
+                  'floor_id',
+                  (floorsData || []).map(f => f.id)
+                ),
+            ]);
 
-      if (entrancesRes.error) throw entrancesRes.error;
-      if (matrixRes.error) throw matrixRes.error;
-      if (unitsRes.error) throw unitsRes.error;
-      if (mopsRes.error) throw mopsRes.error;
+            if (entrancesRes.error) throw entrancesRes.error;
+            if (matrixRes.error) throw matrixRes.error;
+            if (unitsRes.error) throw unitsRes.error;
+            if (mopsRes.error) throw mopsRes.error;
 
-      const entranceNumberById = (entrancesRes.data || []).reduce((acc, row) => {
+            return [entrancesRes.data || [], matrixRes.data || [], unitsRes.data || [], mopsRes.data || []];
+          })();
+
+      const entranceNumberById = (entrancesRows || []).reduce((acc, row) => {
         acc[row.id] = row.number;
         return acc;
       }, {});
 
-      (matrixRes.data || []).forEach(row => {
+      (matrixRows || []).forEach(row => {
         const floorCtx = floorContextById[row.floor_id];
         if (!floorCtx) return;
         const key = `${floorCtx.buildingId}_${floorCtx.blockId}_ent${row.entrance_number}_${floorCtx.virtualId}`;
@@ -1275,7 +1322,7 @@ const LegacyApiService = {
         };
       });
 
-      (unitsRes.data || []).forEach(row => {
+      (unitsRows || []).forEach(row => {
         const floorCtx = floorContextById[row.floor_id];
         if (!floorCtx) return;
 
@@ -1314,7 +1361,7 @@ const LegacyApiService = {
         };
       });
 
-      (mopsRes.data || []).forEach(row => {
+      (mopsRows || []).forEach(row => {
         const floorCtx = floorContextById[row.floor_id];
         if (!floorCtx) return;
         const entranceNum = entranceNumberById[row.entrance_id] || 1;
@@ -1410,6 +1457,10 @@ const LegacyApiService = {
   getProjectDetails: async projectId => {
     if (!projectId) return null;
 
+    if (BffClient.isProjectPassportEnabled()) {
+      return BffClient.getProjectPassport({ projectId });
+    }
+
     const [projectRes, partsRes, docsRes] = await Promise.all([
       supabase.from('projects').select('*').eq('id', projectId).single(),
       supabase.from('project_participants').select('*').eq('project_id', projectId),
@@ -1477,8 +1528,19 @@ const LegacyApiService = {
     return ApiService.createProjectFromApplication(scope, appData, user);
   },
 
-  updateProjectInfo: async (projectId, info = {}, cadastreData = {}) => {
+  updateProjectInfo: async (projectId, info = {}, cadastreData = {}, actor = {}) => {
     if (!projectId) return null;
+
+    if (BffClient.isProjectPassportEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.updateProjectPassport({
+        projectId,
+        info,
+        cadastreData,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
 
     const payload = {
       name: info.name,
@@ -1506,7 +1568,18 @@ const LegacyApiService = {
     return data;
   },
 
-  upsertParticipant: async (projectId, role, data = {}) => {
+  upsertParticipant: async (projectId, role, data = {}, actor = {}) => {
+    if (BffClient.isProjectPassportEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.upsertProjectParticipant({
+        projectId,
+        role,
+        data,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const payload = {
       id: data.id || crypto.randomUUID(),
       project_id: projectId,
@@ -1525,7 +1598,17 @@ const LegacyApiService = {
     return result;
   },
 
-  upsertDocument: async (projectId, doc = {}) => {
+  upsertDocument: async (projectId, doc = {}, actor = {}) => {
+    if (BffClient.isProjectPassportEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.upsertProjectDocument({
+        projectId,
+        doc,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const payload = {
       id: doc.id || crypto.randomUUID(),
       project_id: projectId,
@@ -1546,8 +1629,18 @@ const LegacyApiService = {
     return data;
   },
 
-  deleteDocument: async id => {
+  deleteDocument: async (id, actor = {}) => {
     if (!id) return;
+
+    if (BffClient.isProjectPassportEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.deleteProjectDocument({
+        documentId: id,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const { error } = await supabase.from('project_documents').delete().eq('id', id);
     if (error) throw error;
   },
@@ -2529,6 +2622,10 @@ const LegacyApiService = {
 
   // --- PARKING & BASEMENTS ---
   getBasements: async projectId => {
+    if (BffClient.isBasementsEnabled()) {
+      return BffClient.getBasements({ projectId });
+    }
+
     const { data: buildings } = await supabase
       .from('buildings')
       .select('id')
@@ -2553,7 +2650,18 @@ const LegacyApiService = {
     }));
   },
 
-  toggleBasementLevel: async (basementId, level, isEnabled) => {
+  toggleBasementLevel: async (basementId, level, isEnabled, actor = {}) => {
+    if (BffClient.isBasementsEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.toggleBasementLevel({
+        basementId,
+        level,
+        isEnabled,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const { error } = await supabase
       .from('basement_parking_levels')
       .upsert(
@@ -2863,6 +2971,10 @@ const LegacyApiService = {
   },
 
   getVersions: async (entityType, entityId) => {
+    if (BffClient.isVersioningEnabled()) {
+      return BffClient.getVersions({ entityType, entityId });
+    }
+
     if (!VERSIONING_ENABLED) return [];
 
     const { data, error } = await supabase
@@ -2876,6 +2988,19 @@ const LegacyApiService = {
   },
 
   createVersion: async ({ entityType, entityId, snapshotData, createdBy, applicationId }) => {
+    if (BffClient.isVersioningEnabled()) {
+      const actor = resolveActor({ userName: createdBy });
+      return BffClient.createVersion({
+        entityType,
+        entityId,
+        snapshotData,
+        createdBy,
+        applicationId,
+        userName: actor.userName,
+        userRole: actor.userRole,
+      });
+    }
+
     if (!VERSIONING_ENABLED) return null;
 
     const { data: latest, error: latestErr } = await supabase
@@ -2914,6 +3039,16 @@ const LegacyApiService = {
   },
 
   approveVersion: async ({ versionId, approvedBy }) => {
+    if (BffClient.isVersioningEnabled()) {
+      const actor = resolveActor({ userName: approvedBy });
+      return BffClient.approveVersion({
+        versionId,
+        approvedBy,
+        userName: actor.userName,
+        userRole: actor.userRole,
+      });
+    }
+
     if (!VERSIONING_ENABLED) return null;
 
     const { data: current, error: currentErr } = await supabase
@@ -2949,6 +3084,17 @@ const LegacyApiService = {
   },
 
   declineVersion: async ({ versionId, reason, declinedBy }) => {
+    if (BffClient.isVersioningEnabled()) {
+      const actor = resolveActor({ userName: declinedBy });
+      return BffClient.declineVersion({
+        versionId,
+        reason,
+        declinedBy,
+        userName: actor.userName,
+        userRole: actor.userRole,
+      });
+    }
+
     if (!VERSIONING_ENABLED) return null;
 
     const { data, error } = await supabase
@@ -2967,6 +3113,10 @@ const LegacyApiService = {
   },
 
   getVersionSnapshot: async versionId => {
+    if (BffClient.isVersioningEnabled()) {
+      return BffClient.getVersionSnapshot({ versionId });
+    }
+
     if (!VERSIONING_ENABLED) return {};
 
     const { data, error } = await supabase
@@ -2979,6 +3129,15 @@ const LegacyApiService = {
   },
 
   restoreVersion: async ({ versionId }) => {
+    if (BffClient.isVersioningEnabled()) {
+      const actor = resolveActor({});
+      return BffClient.restoreVersion({
+        versionId,
+        userName: actor.userName,
+        userRole: actor.userRole,
+      });
+    }
+
     if (!VERSIONING_ENABLED) return null;
 
     const { data: current, error: currentErr } = await supabase
@@ -3008,6 +3167,10 @@ const LegacyApiService = {
   },
 
   getProjectFullRegistry: async projectId => {
+    if (BffClient.isFullRegistryEnabled()) {
+      return BffClient.getProjectFullRegistry({ projectId });
+    }
+
     // Тяжелый запрос для сводной.
     // Можно оптимизировать RPC, но пока так:
     const { data: buildings } = await supabase
@@ -3128,9 +3291,31 @@ const LegacyApiService = {
     const entranceSyncTargets = [];
     const matrixSyncTargets = [];
     let versioningSyncInfo = null;
+    const useBffMetaSave = BffClient.isSaveMetaEnabled() && (generalData.complexInfo || generalData.applicationInfo);
+    const useBffBuildingDetailsSave = BffClient.isSaveBuildingDetailsEnabled() && generalData.buildingDetails;
+
+    if (useBffMetaSave) {
+      const resolvedActor = resolveActor({});
+      const metaResponse = await BffClient.saveProjectContextMeta({
+        scope,
+        projectId,
+        complexInfo: generalData.complexInfo || null,
+        applicationInfo: generalData.applicationInfo || null,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+
+      if (metaResponse?.applicationId && generalData.applicationInfo) {
+        versioningSyncInfo = {
+          applicationId: metaResponse.applicationId,
+          appStatus: generalData.applicationInfo.status,
+          userName: generalData.applicationInfo.history?.[0]?.user || resolvedActor.userName,
+        };
+      }
+    }
 
     // 1. Обновление Project/App Info
-    if (generalData.complexInfo) {
+    if (!useBffMetaSave && generalData.complexInfo) {
       const ci = generalData.complexInfo;
       promises.push(
         supabase
@@ -3151,7 +3336,7 @@ const LegacyApiService = {
       );
     }
 
-    if (generalData.applicationInfo) {
+    if (!useBffMetaSave && generalData.applicationInfo) {
       const ai = generalData.applicationInfo;
 
       // Находим заявку; если ее нет (частый кейс при миграции), создаем техническую запись,
@@ -3258,10 +3443,20 @@ const LegacyApiService = {
       }
     }
 
+    if (useBffBuildingDetailsSave) {
+      const resolvedActor = resolveActor({});
+      await BffClient.saveProjectBuildingDetails({
+        projectId,
+        buildingDetails: generalData.buildingDetails,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     // 2. Building Details (Configs)
     // В новой схеме конфиги блоков живут в building_blocks и смежных таблицах.
     // Payload из контекста приходит в виде "buildingDetails": { "bId_blId": {...} }
-    if (generalData.buildingDetails) {
+    if (!useBffBuildingDetailsSave && generalData.buildingDetails) {
       for (const [key, details] of Object.entries(generalData.buildingDetails)) {
         if (key.includes('_features')) {
           // Обработка подвалов (basements)

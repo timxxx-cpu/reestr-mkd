@@ -117,6 +117,10 @@
 18. [FE/BE migration gap inventory (что осталось перенести)](./18-migration-gap-inventory.md) ✨ **НОВОЕ**
     - Оценка прогресса и список оставшихся write-path
 
+19. [Backend transition execution plan](./19-backend-transition-execution-plan.md) ✨ **НОВОЕ**
+    - Исполнимый roadmap по закрытию оставшихся migration-gap
+    - Критерии отключения direct-write по умолчанию
+
 
 ## Ключевые особенности документации
 
