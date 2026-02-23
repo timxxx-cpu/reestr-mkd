@@ -1,0 +1,17 @@
+{
+  "name": "reestr-mkd-bff",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "node src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.93.3",
+    "fastify": "^5.6.1"
+  }
+}

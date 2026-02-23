@@ -106,6 +106,23 @@ export const useProjectWorkflowLayer = ({
       };
 
       setProjectMeta(prev => ({ ...prev, ...updates }));
+
+      const applicationId = currentAppInfo?.id || null;
+      if (applicationId) {
+        const bffResponse = await ApiService.reviewWorkflowStageViaBff({
+          applicationId,
+          action,
+          comment,
+          userName: userProfile?.name,
+          userRole: userProfile?.role,
+        });
+
+        if (bffResponse) {
+          await refetch();
+          return bffResponse.currentStep;
+        }
+      }
+
       await ApiService.saveData(dbScope, projectId, updates);
       await refetch();
 
@@ -151,6 +168,22 @@ export const useProjectWorkflowLayer = ({
     };
 
     setProjectMeta(prev => ({ ...prev, ...updates }));
+
+    const applicationId = currentAppInfo?.id || null;
+    if (applicationId) {
+      const bffResponse = await ApiService.rollbackWorkflowStepViaBff({
+        applicationId,
+        reason: historyItem.comment,
+        userName: userProfile?.name,
+        userRole: userProfile?.role,
+      });
+
+      if (bffResponse) {
+        await refetch();
+        return bffResponse.currentStep;
+      }
+    }
+
     await ApiService.saveData(dbScope, projectId, updates);
     await refetch();
 
@@ -209,6 +242,23 @@ export const useProjectWorkflowLayer = ({
       };
 
       setProjectMeta(prev => ({ ...prev, ...updates }));
+
+      const applicationId = currentAppInfo?.id || null;
+      if (applicationId) {
+        const bffResponse = await ApiService.reviewWorkflowStageViaBff({
+          applicationId,
+          action,
+          comment,
+          userName: userProfile?.name,
+          userRole: userProfile?.role,
+        });
+
+        if (bffResponse) {
+          await refetch();
+          return bffResponse.currentStep;
+        }
+      }
+
       await ApiService.saveData(dbScope, projectId, updates);
       await refetch();
 
@@ -250,6 +300,23 @@ export const useProjectWorkflowLayer = ({
       };
 
       setProjectMeta(prev => ({ ...prev, ...updates }));
+
+      const applicationId = currentAppInfo?.id || null;
+      if (applicationId) {
+        const bffResponse = await ApiService.requestDeclineViaBff({
+          applicationId,
+          reason,
+          stepIndex: currentAppInfo.currentStepIndex,
+          userName: userProfile?.name,
+          userRole: userProfile?.role,
+        });
+
+        if (bffResponse) {
+          await refetch();
+          return;
+        }
+      }
+
       await ApiService.saveData(dbScope, projectId, updates);
       await refetch();
     },
@@ -283,6 +350,22 @@ export const useProjectWorkflowLayer = ({
       };
 
       setProjectMeta(prev => ({ ...prev, ...updates }));
+
+      const applicationId = currentAppInfo?.id || null;
+      if (applicationId) {
+        const bffResponse = await ApiService.declineApplicationViaBff({
+          applicationId,
+          reason: comment || 'Заявление отклонено.',
+          userName: userProfile?.name,
+          userRole: userProfile?.role,
+        });
+
+        if (bffResponse) {
+          await refetch();
+          return;
+        }
+      }
+
       await ApiService.saveData(dbScope, projectId, updates);
       await refetch();
     },
@@ -320,6 +403,22 @@ export const useProjectWorkflowLayer = ({
       };
 
       setProjectMeta(prev => ({ ...prev, ...updates }));
+
+      const applicationId = currentAppInfo?.id || null;
+      if (applicationId) {
+        const bffResponse = await ApiService.returnFromDeclineViaBff({
+          applicationId,
+          comment,
+          userName: userProfile?.name,
+          userRole: userProfile?.role,
+        });
+
+        if (bffResponse) {
+          await refetch();
+          return;
+        }
+      }
+
       await ApiService.saveData(dbScope, projectId, updates);
       await refetch();
     },
@@ -353,6 +452,22 @@ export const useProjectWorkflowLayer = ({
       };
 
       setProjectMeta(prev => ({ ...prev, ...updates }));
+
+      const applicationId = currentAppInfo?.id || null;
+      if (applicationId) {
+        const bffResponse = await ApiService.restoreApplicationViaBff({
+          applicationId,
+          comment,
+          userName: userProfile?.name,
+          userRole: userProfile?.role,
+        });
+
+        if (bffResponse) {
+          await refetch();
+          return;
+        }
+      }
+
       await ApiService.saveData(dbScope, projectId, updates);
       await refetch();
     },
