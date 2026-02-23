@@ -653,7 +653,7 @@ const getResidentialName = (resBlocks, nonResBlocks) => {
 };
 
 const CompositionEditor = () => {
-  const { projectId, complexInfo } = useProject();
+  const { projectId, complexInfo, userProfile } = useProject();
   const isReadOnly = useReadOnly();
   const projectUjCode = complexInfo?.ujCode;
   const [deleteTargetId, setDeleteTargetId] = useState(null);
@@ -764,6 +764,15 @@ const CompositionEditor = () => {
       parkingType: item.parkingType || 'ground',
       parkingConstruction: item.constructionType || 'capital',
       infraType: item.infraType || 'Котельная',
+      blocksData: Array.isArray(item.blocks)
+        ? item.blocks.map((block, index) => ({
+            id: block.id,
+            label: block.label,
+            type: block.type,
+            floorsCount: block.floorsCount,
+            index,
+          }))
+        : [],
     });
   };
 
@@ -798,7 +807,15 @@ const CompositionEditor = () => {
     };
 
     if (modal.editingId) {
-      await updateBuilding({ id: modal.editingId, data: buildingData });
+      await updateBuilding({
+        id: modal.editingId,
+        data: buildingData,
+        blocksData: modal.blocksData,
+        actor: {
+          userName: userProfile?.name,
+          userRole: userProfile?.role,
+        },
+      });
     } else {
       for (let i = 0; i < modal.quantity; i++) {
         const label = modal.quantity > 1 ? `${modal.baseName} ${i + 1}` : modal.baseName;
@@ -807,6 +824,10 @@ const CompositionEditor = () => {
         await createBuilding({
           buildingData: { ...buildingData, label },
           blocksData: blocks,
+          actor: {
+            userName: userProfile?.name,
+            userRole: userProfile?.role,
+          },
         });
       }
     }
@@ -820,7 +841,13 @@ const CompositionEditor = () => {
   // 2. Обработчик подтверждения (выполняет удаление)
   const handleConfirmDelete = async () => {
     if (deleteTargetId) {
-      await deleteBuilding(deleteTargetId);
+      await deleteBuilding({
+        id: deleteTargetId,
+        actor: {
+          userName: userProfile?.name,
+          userRole: userProfile?.role,
+        },
+      });
       setDeleteTargetId(null); // Закрываем окно после успеха
     }
   };
