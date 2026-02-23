@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import { getConfig } from './config.js';
 import { createSupabaseAdminClient } from './supabase.js';
 
@@ -84,7 +85,12 @@ function getActor(req) {
   const userId = req.headers['x-user-id'];
   const userRole = req.headers['x-user-role'];
   if (!userId || !userRole) return null;
-  return { userId: String(userId), userRole: String(userRole) };
+  
+  // Раскодируем обратно в читаемый русский текст для сохранения в БД
+  return { 
+    userId: decodeURIComponent(String(userId)), 
+    userRole: String(userRole) 
+  };
 }
 
 function hasAnyRole(actorRole, roles = []) {
@@ -168,6 +174,12 @@ async function buildServer() {
   const config = getConfig();
   const supabase = createSupabaseAdminClient(config);
   const app = Fastify({ logger: true });
+
+  await app.register(cors, {
+    origin: true, // Разрешаем запросы с любых адресов (для DEV-режима)
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-user-role']
+  });
 
   app.get('/health', async () => ({ ok: true }));
 

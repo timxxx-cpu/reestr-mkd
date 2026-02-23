@@ -109,10 +109,10 @@ export const useProjectWorkflowLayer = ({
 
       const applicationId = currentAppInfo?.id || null;
       if (applicationId) {
-        const bffResponse = await ApiService.reviewWorkflowStageViaBff({
+        const bffResponse = await ApiService.completeWorkflowStepViaBff({
           applicationId,
-          action,
-          comment,
+          stepIndex: currentIndex,
+          comment: historyComment,
           userName: userProfile?.name,
           userRole: userProfile?.role,
         });

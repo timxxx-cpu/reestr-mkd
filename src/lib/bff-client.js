@@ -2,11 +2,36 @@ const isBffEnabled = () => import.meta.env.VITE_BFF_ENABLED === 'true';
 const getBffBaseUrl = () => import.meta.env.VITE_BFF_BASE_URL || 'http://localhost:8787';
 
 const getAuthHeaders = (userName, userRole) => ({
-  'x-user-id': userName || 'unknown',
+  'x-user-id': encodeURIComponent(userName || 'unknown'),
   'x-user-role': userRole || 'technician',
 });
 
-async function request(path, { method = 'GET', body, userName, userRole } = {}) {
+// 1. Создаем кастомный класс ошибки, чтобы VS Code знал о полях code и details
+class BffError extends Error {
+  constructor(message, code, details) {
+    super(message);
+    this.name = 'BffError';
+    this.code = code;
+    this.details = details;
+  }
+}
+
+/**
+ * 2. Описываем типы для аргументов, чтобы убрать ошибки "does not exist on type"
+ * @typedef {Object} RequestOptions
+ * @property {string} [method]
+ * @property {any} [body]
+ * @property {string} [userName]
+ * @property {string} [userRole]
+ */
+
+/**
+ * @param {string} path
+ * @param {RequestOptions} [options]
+ */
+async function request(path, options = {}) {
+  const { method = 'GET', body, userName, userRole } = options;
+
   const res = await fetch(`${getBffBaseUrl()}${path}`, {
     method,
     headers: {
@@ -18,10 +43,12 @@ async function request(path, { method = 'GET', body, userName, userRole } = {}) 
 
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error(payload?.message || `BFF request failed: ${res.status}`);
-    err.code = payload?.code;
-    err.details = payload?.details;
-    throw err;
+    // 3. Используем наш кастомный класс ошибки
+    throw new BffError(
+      payload?.message || `BFF request failed: ${res.status}`,
+      payload?.code,
+      payload?.details
+    );
   }
 
   return payload;
@@ -125,5 +152,4 @@ export const BffClient = {
       userRole,
       body: { comment },
     }),
-
 };
