@@ -18,6 +18,10 @@
 - `integration-status`
 - `cadastre-updates`
 - `project-init-from-application`
+- `project-passport`
+- `basements`
+- `object-versioning`
+- `project-full-registry`
 
 ## Запуск
 
@@ -37,6 +41,12 @@ npm test
 - `VERSIONING_ENABLED` (optional, default `false`)
 - `PROJECT_INIT_RPC_ENABLED` (optional, default `false`)
 
+
+## Структура route-модулей
+
+- `src/project-routes.js` — project-init и orchestration инициализации проекта.
+- `src/project-extended-routes.js` — project passport/admin, basements, versioning, full-registry read.
+
 ## API
 
 - `GET /health`
@@ -55,6 +65,11 @@ npm test
 - `POST /api/v1/applications/:applicationId/workflow/assign-technician`
 - `GET /api/v1/projects/:projectId/buildings`
 - `GET /api/v1/projects/:projectId/parking-counts`
+- `GET /api/v1/projects/:projectId/full-registry`
+- `GET /api/v1/projects/:projectId/context?scope=:scope`
+- `GET /api/v1/projects/:projectId/context-registry-details`
+- `POST /api/v1/projects/:projectId/context-meta/save`
+- `POST /api/v1/projects/:projectId/context-building-details/save`
 - `POST /api/v1/projects/:projectId/buildings`
 - `PUT /api/v1/buildings/:buildingId`
 - `DELETE /api/v1/buildings/:buildingId`
@@ -81,6 +96,20 @@ npm test
 - `PUT /api/v1/buildings/:buildingId/cadastre`
 - `PUT /api/v1/units/:unitId/cadastre`
 - `POST /api/v1/projects/from-application`
+- `GET /api/v1/projects/:projectId/passport`
+- `PUT /api/v1/projects/:projectId/passport`
+- `PUT /api/v1/projects/:projectId/participants/:role`
+- `POST /api/v1/projects/:projectId/documents`
+- `DELETE /api/v1/project-documents/:documentId`
+- `DELETE /api/v1/projects/:projectId?scope=:scope`
+- `GET /api/v1/projects/:projectId/basements`
+- `PUT /api/v1/basements/:basementId/parking-levels/:level`
+- `GET /api/v1/versions?entityType=:entityType&entityId=:entityId`
+- `POST /api/v1/versions`
+- `POST /api/v1/versions/:versionId/approve`
+- `POST /api/v1/versions/:versionId/decline`
+- `GET /api/v1/versions/:versionId/snapshot`
+- `POST /api/v1/versions/:versionId/restore`
 
 ## Auth-context (DEV)
 
