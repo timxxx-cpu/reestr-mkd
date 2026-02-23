@@ -1,3 +1,5 @@
+import { createIdempotencyStore } from './idempotency-store.js';
+
 function sendError(reply, statusCode, code, message, details = null) {
   return reply.code(statusCode).send({ code, message, details, requestId: reply.request.id });
 }
@@ -17,6 +19,45 @@ function canMutateRegistry(actorRole) {
   return ['admin', 'branch_manager', 'technician'].includes(actorRole);
 }
 
+function buildIdempotencyContext(req, actor) {
+  const rawKey = req.headers['x-idempotency-key'];
+  if (!rawKey) return null;
+
+  const idempotencyKey = String(rawKey).trim();
+  if (!idempotencyKey) return null;
+
+  const scope = req.routeOptions?.url || req.url || 'unknown';
+  const actorScope = actor?.userId || 'anonymous';
+  const bodyFingerprint = JSON.stringify(req.body ?? null);
+
+  return {
+    cacheKey: `${scope}:${actorScope}:${idempotencyKey}`,
+    fingerprint: `${req.method}:${scope}:${bodyFingerprint}`,
+  };
+}
+
+function tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply) {
+  if (!idempotencyContext) return false;
+
+  const state = idempotencyStore.get(idempotencyContext.cacheKey, idempotencyContext.fingerprint);
+  if (state.status === 'hit') {
+    reply.send(state.value);
+    return true;
+  }
+
+  if (state.status === 'conflict') {
+    sendError(reply, 409, 'IDEMPOTENCY_CONFLICT', 'Idempotency key was already used with a different payload');
+    return true;
+  }
+
+  return false;
+}
+
+function rememberIdempotentResponse(idempotencyStore, idempotencyContext, payload) {
+  if (!idempotencyContext) return;
+  idempotencyStore.set(idempotencyContext.cacheKey, idempotencyContext.fingerprint, payload);
+}
+
 function parseFloorIdsFromQuery(raw) {
   if (!raw) return [];
   return String(raw)
@@ -26,6 +67,8 @@ function parseFloorIdsFromQuery(raw) {
 }
 
 export function registerRegistryRoutes(app, { supabase }) {
+  const idempotencyStore = createIdempotencyStore();
+
 
   app.get('/api/v1/projects/:projectId/parking-counts', async (req, reply) => {
     const { projectId } = req.params;
@@ -79,6 +122,9 @@ export function registerRegistryRoutes(app, { supabase }) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
+
     const { floorId } = req.params;
     const targetCount = Math.max(0, parseInt(req.body?.targetCount, 10) || 0);
 
@@ -90,7 +136,11 @@ export function registerRegistryRoutes(app, { supabase }) {
     if (fetchErr) return sendError(reply, 500, 'DB_ERROR', fetchErr.message);
 
     const currentCount = (existing || []).length;
-    if (currentCount === targetCount) return reply.send({ ok: true, added: 0, removed: 0 });
+    if (currentCount === targetCount) {
+      const payload = { ok: true, added: 0, removed: 0 };
+      rememberIdempotentResponse(idempotencyStore, idempotencyContext, payload);
+      return reply.send(payload);
+    }
 
     if (targetCount > currentCount) {
       const toAdd = targetCount - currentCount;
@@ -107,7 +157,9 @@ export function registerRegistryRoutes(app, { supabase }) {
       }
       const { error: insErr } = await supabase.from('units').insert(newUnits);
       if (insErr) return sendError(reply, 500, 'DB_ERROR', insErr.message);
-      return reply.send({ ok: true, added: toAdd, removed: 0 });
+      const payload = { ok: true, added: toAdd, removed: 0 };
+      rememberIdempotentResponse(idempotencyStore, idempotencyContext, payload);
+      return reply.send(payload);
     }
 
     const sorted = [...(existing || [])].sort((a, b) => parseInt(b.number || 0, 10) - parseInt(a.number || 0, 10));
@@ -117,7 +169,9 @@ export function registerRegistryRoutes(app, { supabase }) {
       if (delErr) return sendError(reply, 500, 'DB_ERROR', delErr.message);
     }
 
-    return reply.send({ ok: true, added: 0, removed: toDelete.length });
+    const payload = { ok: true, added: 0, removed: toDelete.length };
+    rememberIdempotentResponse(idempotencyStore, idempotencyContext, payload);
+    return reply.send(payload);
   });
 
   app.get('/api/v1/blocks/:blockId/floors', async (req, reply) => {
@@ -286,6 +340,9 @@ export function registerRegistryRoutes(app, { supabase }) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
+
     const { blockId } = req.params;
     const result = { removed: 0, checkedCells: 0 };
 
@@ -296,7 +353,10 @@ export function registerRegistryRoutes(app, { supabase }) {
     if (floorsErr) return sendError(reply, 500, 'DB_ERROR', floorsErr.message);
 
     const floorIds = (floors || []).map(f => f.id);
-    if (floorIds.length === 0) return reply.send(result);
+    if (floorIds.length === 0) {
+      rememberIdempotentResponse(idempotencyStore, idempotencyContext, result);
+      return reply.send(result);
+    }
 
     const { data: entrances, error: entErr } = await supabase
       .from('entrances')
@@ -362,6 +422,7 @@ export function registerRegistryRoutes(app, { supabase }) {
       result.removed = toDelete.length;
     }
 
+    rememberIdempotentResponse(idempotencyStore, idempotencyContext, result);
     return reply.send(result);
   });
 
@@ -371,6 +432,9 @@ export function registerRegistryRoutes(app, { supabase }) {
     if (!canMutateRegistry(actor.userRole)) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
+
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
 
     const { blockId } = req.params;
     const result = { removed: 0, checkedCells: 0 };
@@ -382,7 +446,10 @@ export function registerRegistryRoutes(app, { supabase }) {
     if (floorsErr) return sendError(reply, 500, 'DB_ERROR', floorsErr.message);
 
     const floorIds = (floors || []).map(f => f.id);
-    if (floorIds.length === 0) return reply.send(result);
+    if (floorIds.length === 0) {
+      rememberIdempotentResponse(idempotencyStore, idempotencyContext, result);
+      return reply.send(result);
+    }
 
     const { data: entrances, error: entErr } = await supabase
       .from('entrances')
@@ -436,6 +503,7 @@ export function registerRegistryRoutes(app, { supabase }) {
       result.removed = toDelete.length;
     }
 
+    rememberIdempotentResponse(idempotencyStore, idempotencyContext, result);
     return reply.send(result);
   });
 
@@ -446,8 +514,15 @@ export function registerRegistryRoutes(app, { supabase }) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
+
     const unitsList = Array.isArray(req.body?.unitsList) ? req.body.unitsList : [];
-    if (!unitsList.length) return reply.send({ ok: true, count: 0 });
+    if (!unitsList.length) {
+      const payload = { ok: true, count: 0 };
+      rememberIdempotentResponse(idempotencyStore, idempotencyContext, payload);
+      return reply.send(payload);
+    }
 
     const payload = unitsList.map(u => ({
       id: u.id || crypto.randomUUID(),
@@ -464,7 +539,9 @@ export function registerRegistryRoutes(app, { supabase }) {
     const { error } = await supabase.from('units').upsert(payload, { onConflict: 'id' });
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
 
-    return reply.send({ ok: true, count: payload.length });
+    const response = { ok: true, count: payload.length };
+    rememberIdempotentResponse(idempotencyStore, idempotencyContext, response);
+    return reply.send(response);
   });
 
   app.post('/api/v1/common-areas/upsert', async (req, reply) => {
@@ -614,6 +691,9 @@ export function registerRegistryRoutes(app, { supabase }) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
 
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
+
     const { blockId } = req.params;
     const floorsFrom = Number(req.body?.floorsFrom || 1);
     const floorsTo = Number(req.body?.floorsTo || 1);
@@ -657,7 +737,9 @@ export function registerRegistryRoutes(app, { supabase }) {
       if (insertErr) return sendError(reply, 500, 'DB_ERROR', insertErr.message);
     }
 
-    return reply.send({ ok: true, deleted: toDeleteIds.length, created: toCreateIndices.length });
+    const result = { ok: true, deleted: toDeleteIds.length, created: toCreateIndices.length };
+    rememberIdempotentResponse(idempotencyStore, idempotencyContext, result);
+    return reply.send(result);
   });
 
   app.post('/api/v1/blocks/:blockId/entrances/reconcile', async (req, reply) => {
@@ -666,6 +748,9 @@ export function registerRegistryRoutes(app, { supabase }) {
     if (!canMutateRegistry(actor.userRole)) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
     }
+
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
 
     const { blockId } = req.params;
     const normalizedCount = Math.max(0, parseInt(req.body?.count, 10) || 0);
@@ -701,7 +786,9 @@ export function registerRegistryRoutes(app, { supabase }) {
       .gt('entrance_number', normalizedCount);
     if (matrixTrimErr) return sendError(reply, 500, 'DB_ERROR', matrixTrimErr.message);
 
-    return reply.send({ ok: true, count: normalizedCount, created: toCreate.length, deleted: toDeleteIds.length });
+    const result = { ok: true, count: normalizedCount, created: toCreate.length, deleted: toDeleteIds.length };
+    rememberIdempotentResponse(idempotencyStore, idempotencyContext, result);
+    return reply.send(result);
   });
 
   app.put('/api/v1/blocks/:blockId/entrance-matrix/cell', async (req, reply) => {

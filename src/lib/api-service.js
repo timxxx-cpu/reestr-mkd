@@ -87,6 +87,19 @@ const resolveActor = (actor = {}) => {
   };
 };
 
+const createIdempotencyKey = (operation, scopeParts = []) => {
+  const normalizedScope = scopeParts
+    .filter(Boolean)
+    .map(part => String(part).trim())
+    .join(':');
+
+  const suffix = typeof crypto?.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  return normalizedScope ? `${operation}:${normalizedScope}:${suffix}` : `${operation}:${suffix}`;
+};
+
 const normalizeDateInput = value => {
   if (value === '' || value === undefined) return null;
   return value;
@@ -815,7 +828,7 @@ const LegacyApiService = {
       comment,
       userName,
       userRole,
-      idempotencyKey,
+      idempotencyKey: idempotencyKey || createIdempotencyKey('workflow-complete-step', [applicationId, stepIndex]),
     });
   },
 
@@ -827,7 +840,7 @@ const LegacyApiService = {
       reason,
       userName,
       userRole,
-      idempotencyKey,
+      idempotencyKey: idempotencyKey || createIdempotencyKey('workflow-rollback-step', [applicationId]),
     });
   },
 
@@ -839,7 +852,7 @@ const LegacyApiService = {
         comment,
         userName,
         userRole,
-        idempotencyKey,
+        idempotencyKey: idempotencyKey || createIdempotencyKey('workflow-review-approve', [applicationId]),
       });
     }
     return BffClient.reviewReject({
@@ -847,29 +860,54 @@ const LegacyApiService = {
       reason: comment,
       userName,
       userRole,
-      idempotencyKey,
+      idempotencyKey: idempotencyKey || createIdempotencyKey('workflow-review-reject', [applicationId]),
     });
   },
 
 
-  requestDeclineViaBff: async ({ applicationId, reason, stepIndex, userName, userRole }) => {
+  requestDeclineViaBff: async ({ applicationId, reason, stepIndex, userName, userRole, idempotencyKey }) => {
     if (!BffClient.isEnabled()) return null;
-    return BffClient.requestDecline({ applicationId, reason, stepIndex, userName, userRole });
+    return BffClient.requestDecline({
+      applicationId,
+      reason,
+      stepIndex,
+      userName,
+      userRole,
+      idempotencyKey: idempotencyKey || createIdempotencyKey('workflow-request-decline', [applicationId, stepIndex]),
+    });
   },
 
   declineApplicationViaBff: async ({ applicationId, reason, userName, userRole, idempotencyKey }) => {
     if (!BffClient.isEnabled()) return null;
-    return BffClient.declineApplication({ applicationId, reason, userName, userRole, idempotencyKey });
+    return BffClient.declineApplication({
+      applicationId,
+      reason,
+      userName,
+      userRole,
+      idempotencyKey: idempotencyKey || createIdempotencyKey('workflow-decline', [applicationId]),
+    });
   },
 
-  returnFromDeclineViaBff: async ({ applicationId, comment, userName, userRole }) => {
+  returnFromDeclineViaBff: async ({ applicationId, comment, userName, userRole, idempotencyKey }) => {
     if (!BffClient.isEnabled()) return null;
-    return BffClient.returnFromDecline({ applicationId, comment, userName, userRole });
+    return BffClient.returnFromDecline({
+      applicationId,
+      comment,
+      userName,
+      userRole,
+      idempotencyKey: idempotencyKey || createIdempotencyKey('workflow-return-from-decline', [applicationId]),
+    });
   },
 
-  restoreApplicationViaBff: async ({ applicationId, comment, userName, userRole }) => {
+  restoreApplicationViaBff: async ({ applicationId, comment, userName, userRole, idempotencyKey }) => {
     if (!BffClient.isEnabled()) return null;
-    return BffClient.restoreApplication({ applicationId, comment, userName, userRole });
+    return BffClient.restoreApplication({
+      applicationId,
+      comment,
+      userName,
+      userRole,
+      idempotencyKey: idempotencyKey || createIdempotencyKey('workflow-restore', [applicationId]),
+    });
   },
 
   // --- WORKFLOW & CREATION ---
@@ -2633,6 +2671,7 @@ const LegacyApiService = {
         reason,
         userName,
         userRole,
+        idempotencyKey: createIdempotencyKey('workflow-decline', [applicationId]),
       });
     }
 
@@ -2665,6 +2704,7 @@ const LegacyApiService = {
         stepIndex,
         userName: requestedBy,
         userRole,
+        idempotencyKey: createIdempotencyKey('workflow-request-decline', [applicationId, stepIndex]),
       });
     }
 
@@ -2684,7 +2724,13 @@ const LegacyApiService = {
 
   returnFromDecline: async ({ applicationId, userName, userRole = 'branch_manager', comment }) => {
     if (BffClient.isEnabled()) {
-      return BffClient.returnFromDecline({ applicationId, comment, userName, userRole });
+      return BffClient.returnFromDecline({
+        applicationId,
+        comment,
+        userName,
+        userRole,
+        idempotencyKey: createIdempotencyKey('workflow-return-from-decline', [applicationId]),
+      });
     }
 
     const { error: appErr } = await supabase
@@ -2720,6 +2766,7 @@ const LegacyApiService = {
         reason,
         userName,
         userRole,
+        idempotencyKey: createIdempotencyKey('workflow-assign-technician', [applicationId, assigneeName]),
       });
     }
 
@@ -2732,7 +2779,13 @@ const LegacyApiService = {
 
   restoreApplication: async ({ applicationId, userName, userRole = 'admin', comment }) => {
     if (BffClient.isEnabled()) {
-      return BffClient.restoreApplication({ applicationId, comment, userName, userRole });
+      return BffClient.restoreApplication({
+        applicationId,
+        comment,
+        userName,
+        userRole,
+        idempotencyKey: createIdempotencyKey('workflow-restore', [applicationId]),
+      });
     }
 
     const { error: appErr } = await supabase

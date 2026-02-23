@@ -78,4 +78,8 @@ npm run dev
 - `x-user-id`
 - `x-user-role`
 
+Дополнительно для batch/reconcile операций поддерживается:
+
+- `x-idempotency-key` — ключ дедупликации повторных запросов в пределах TTL in-memory кэша BFF; поддерживается для registry batch/reconcile и ключевых workflow-мутаций (`complete-step`, `rollback-step`, `review-approve`, `review-reject`, `assign-technician`, `request-decline`, `decline`, `return-from-decline`, `restore`). При повторе с другим payload backend вернет `409 IDEMPOTENCY_CONFLICT`.
+
 В продовом контуре это должно быть заменено на полноценный auth middleware (JWT/session).

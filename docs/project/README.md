@@ -111,6 +111,12 @@
     - Приоритеты P1 и итерационный roadmap
     - Чеклисты, DoD, риски и критерии отключения direct-write
 
+17. [Transition briefing (PostgreSQL + Supabase DEV + FE/BE split)](./17-transition-briefing.md) ✨ **НОВОЕ**
+    - Краткая фиксация переходного состояния и рабочего фокуса
+
+18. [FE/BE migration gap inventory (что осталось перенести)](./18-migration-gap-inventory.md) ✨ **НОВОЕ**
+    - Оценка прогресса и список оставшихся write-path
+
 
 ## Ключевые особенности документации
 

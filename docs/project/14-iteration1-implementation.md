@@ -68,7 +68,7 @@
 
 1. Auth реализован DEV-способом через заголовки `x-user-id`/`x-user-role`.
 2. Транзакционность `complete-step` пока на уровне последовательных операций, без server-side SQL function orchestration.
-3. Idempotency key для `complete-step` принят в контракте, но отдельное хранилище идемпотентности пока не добавлено.
+3. Idempotency в BFF уже распространяется на registry batch/reconcile и ключевые workflow-мутации (`complete-step`, `rollback-step`, `review-approve`, `review-reject`, `request-decline`, `decline`, `return-from-decline`, `restore`) через `x-idempotency-key` (TTL in-memory, DEV-уровень + `409 IDEMPOTENCY_CONFLICT` при reuse ключа с иным payload).
 
 ## 5) Рекомендации на Iteration 2
 
