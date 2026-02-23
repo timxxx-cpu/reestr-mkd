@@ -34,6 +34,7 @@ import { useProject } from '@context/ProjectContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CatalogService } from '@lib/catalog-service';
 import { ApiService } from '@lib/api-service';
+import { AuthService } from '@lib/auth-service';
 import { useToast } from '@context/ToastContext';
 import ConfigHeader from '../../configurator/ConfigHeader';
 import BuildingSelector from '../../BuildingSelector';
@@ -412,6 +413,12 @@ const ExplicationPanel = ({
 // --- MAIN COMPONENT ---
 
 const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
+  const currentUser = AuthService.getCurrentUser?.() || null;
+  const actor = {
+    userName: currentUser?.displayName || currentUser?.email || 'unknown',
+    userRole: currentUser?.role || 'technician',
+  };
+
   const queryClient = useQueryClient();
   const toast = useToast();
   const { complexInfo, buildingDetails, saveProjectImmediate, setHasUnsavedChanges } = useProject();
@@ -623,7 +630,7 @@ const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
         // Это заставит api-service использовать режим PATCH.
       };
       
-      await ApiService.upsertUnit(payload);
+      await ApiService.upsertUnit(payload, actor);
       
       if (invalidate) {
         await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });

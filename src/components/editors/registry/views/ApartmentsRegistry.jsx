@@ -26,6 +26,7 @@ import { Card, DebouncedInput, Input, Label, Select, useReadOnly, Button, Modal,
 import { useToast } from '@context/ToastContext';
 import { CatalogService } from '@lib/catalog-service';
 import { ApiService } from '@lib/api-service';
+import { AuthService } from '@lib/auth-service';
 import { formatBlockSwitcherLabel } from '@lib/building-details';
 import { useProject } from '@context/ProjectContext';
 import BuildingSelector from '../../BuildingSelector';
@@ -515,6 +516,12 @@ const handleCopy = () => {
 // --- MAIN COMPONENT ---
 
 const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
+  const currentUser = AuthService.getCurrentUser?.() || null;
+  const actor = {
+    userName: currentUser?.displayName || currentUser?.email || 'unknown',
+    userRole: currentUser?.role || 'technician',
+  };
+
   const queryClient = useQueryClient();
   const toast = useToast();
   const { buildingDetails, saveProjectImmediate, setHasUnsavedChanges } = useProject(); 
@@ -582,7 +589,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
         // Бэкенд должен выполнить частичное обновление (PATCH) по ID.
       };
 
-      await ApiService.upsertUnit(payload);
+      await ApiService.upsertUnit(payload, actor);
       
       if (shouldInvalidate) {
         await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });

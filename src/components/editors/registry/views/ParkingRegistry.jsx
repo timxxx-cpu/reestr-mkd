@@ -8,12 +8,18 @@ import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
 import { useProject } from '@context/ProjectContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiService } from '@lib/api-service';
+import { AuthService } from '@lib/auth-service';
 import ParkingEditModal from '../../ParkingEditModal';
 import { useToast } from '@context/ToastContext';
 
 const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const currentUser = AuthService.getCurrentUser?.() || null;
+  const actor = {
+    userName: currentUser?.displayName || currentUser?.email || 'unknown',
+    userRole: currentUser?.role || 'technician',
+  };
   const { complexInfo, saveProjectImmediate, setHasUnsavedChanges } = useProject();
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
   const isReadOnly = useReadOnly(); // Получаем статус режима чтения для скрытия кнопок
@@ -104,7 +110,7 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
         explication: mergedData.explication || mergedData.roomsList,
       };
 
-      await ApiService.upsertUnit(payload);
+      await ApiService.upsertUnit(payload, actor);
       await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });
       return true;
     } catch (error) {
@@ -153,9 +159,9 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
         }
 
         if (ApiService.batchUpsertUnits) {
-            await ApiService.batchUpsertUnits(updates);
+            await ApiService.batchUpsertUnits(updates, actor);
         } else {
-            await Promise.all(updates.map(u => ApiService.upsertUnit(u)));
+            await Promise.all(updates.map(u => ApiService.upsertUnit(u, actor)));
         }
 
         await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });

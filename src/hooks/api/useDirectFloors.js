@@ -1,10 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiService } from '../../lib/api-service';
+import { AuthService } from '../../lib/auth-service';
 import { useToast } from '../../context/ToastContext';
 
 export function useDirectFloors(blockId) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const currentUser = AuthService.getCurrentUser?.() || null;
+  const actor = {
+    userName: currentUser?.displayName || currentUser?.email || 'unknown',
+    userRole: currentUser?.role || 'technician',
+  };
   const queryKey = ['direct-floors', blockId];
 
   // --- READ ---
@@ -23,7 +29,7 @@ export function useDirectFloors(blockId) {
     /**
      * @param {{ id: string, updates: any }} params
      */
-    mutationFn: ({ id, updates }) => ApiService.updateFloor(id, updates),
+    mutationFn: ({ id, updates }) => ApiService.updateFloor(id, updates, actor),
     onMutate: async ({ id, updates }) => {
       // Optimistic Update
       await queryClient.cancelQueries({ queryKey });
@@ -53,7 +59,7 @@ export function useDirectFloors(blockId) {
      * @param {{ floorsFrom: number, floorsTo: number, defaultType?: string }} params
      */
     mutationFn: ({ floorsFrom, floorsTo, defaultType }) =>
-      ApiService.generateFloors(blockId, floorsFrom, floorsTo, defaultType),
+      ApiService.generateFloors(blockId, floorsFrom, floorsTo, defaultType, actor),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
       toast.success('Сетка этажей обновлена');

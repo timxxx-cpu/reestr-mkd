@@ -156,3 +156,18 @@
 - ✅ Синхронизировано поведение create-building в BFF с legacy: добавлена генерация `building_code` по UJ-схеме проекта.
 - ✅ В composition UI прокинут реальный `actor` (`userName/userRole`) в create/update/delete мутации для корректного RBAC и аудита на backend.
 - ✅ Для `PUT /api/v1/buildings/:buildingId` добавлен reconciliation блоков (`insert/update/delete`) через `blocksData`, чтобы обновление состава блоков шло через BFF.
+- ✅ Iteration 5 (частично): добавлены BFF endpoints для floors/entrances (`PUT /floors/:id`, `POST /blocks/:id/floors/reconcile`, `PUT /blocks/:id/entrance-matrix/cell`, `POST /blocks/:id/entrances/reconcile`).
+- ✅ Frontend `ApiService` переключает write-path для `updateFloor/generateFloors/upsertMatrixCell/syncEntrances` на BFF при флагах `VITE_BFF_FLOORS_ENABLED=true` и `VITE_BFF_ENTRANCES_ENABLED=true`.
+- ✅ Для floors/entrances сохранен fallback на legacy Supabase путь при выключенных модульных флагах.
+- ✅ В `ApiService` для floors/entrances при BFF-пути добавлена подстановка `actor` из контекста/`AuthService` (для корректного RBAC и аудита без ручной прокладки в каждый вызов).
+- ✅ Для floors/entrances read-path (`getFloors/getEntrances/getMatrix`) также переключен на BFF при активных флагах с сохранением legacy fallback.
+- ✅ Добавлены BFF read-endpoints для `units` и `common_areas` и включено флаговое чтение в frontend (`VITE_BFF_UNITS_ENABLED`, `VITE_BFF_MOP_ENABLED`) с legacy fallback.
+- ✅ MOP write-path (`upsertCommonArea/deleteCommonArea/clearCommonAreas`) переведен на BFF при `VITE_BFF_MOP_ENABLED=true` с legacy fallback.
+- ✅ Units write-path (`upsertUnit/batchUpsertUnits`) переключен на BFF при `VITE_BFF_UNITS_ENABLED=true` с legacy fallback.
+- ✅ Reconcile операции `reconcileUnitsForBlock/reconcileCommonAreasForBlock` переведены на BFF (флаги `VITE_BFF_UNITS_ENABLED` / `VITE_BFF_MOP_ENABLED`) с legacy fallback.
+- ✅ Деталка экспликации `getUnitExplicationById` переключена на BFF при `VITE_BFF_UNITS_ENABLED=true` с legacy fallback.
+- ✅ В `useDirect*` hooks добавлена явная передача `actor` в registry-мутации, чтобы BFF вызовы не опирались только на fallback и стабильно сохраняли корректный RBAC/audit контекст.
+- ✅ Дополнительно в редакторах/контексте (вне `useDirect*`) прокинут явный `actor` в массовые reconcile/batch мутации (`FlatMatrix`, `EntranceMatrix`, `MopEditor`, `ParkingRegistry`, `ProjectContext`).
+- ✅ В `registry/views/*` и `UnitRegistry` добавлена явная передача `actor` в `upsertUnit`/fallback upsert-вызовы для полного покрытия units-мутаций на UI-слое.
+- ✅ Parking sync/read (`getParkingCounts/syncParkingPlaces`) переключены на BFF при `VITE_BFF_PARKING_ENABLED=true` с legacy fallback.
+

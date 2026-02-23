@@ -1,10 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiService } from '../../lib/api-service';
+import { AuthService } from '../../lib/auth-service';
 import { useToast } from '../../context/ToastContext';
 
 export function useDirectMatrix(blockId) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const currentUser = AuthService.getCurrentUser?.() || null;
+  const actor = {
+    userName: currentUser?.displayName || currentUser?.email || 'unknown',
+    userRole: currentUser?.role || 'technician',
+  };
 
   // Ключи для кэша
   const keys = {
@@ -34,7 +40,7 @@ export function useDirectMatrix(blockId) {
      * @param {{ floorId: string, entranceNumber: number, values: any }} params
      */
     mutationFn: ({ floorId, entranceNumber, values }) =>
-      ApiService.upsertMatrixCell(blockId, floorId, entranceNumber, values),
+      ApiService.upsertMatrixCell(blockId, floorId, entranceNumber, values, actor),
 
     onMutate: async ({ floorId, entranceNumber, values }) => {
       await queryClient.cancelQueries({ queryKey: keys.matrix });
@@ -75,7 +81,7 @@ export function useDirectMatrix(blockId) {
     /**
      * @param {number} count
      */
-    mutationFn: count => ApiService.syncEntrances(blockId, count),
+    mutationFn: count => ApiService.syncEntrances(blockId, count, actor),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.entrances }),
   });
 

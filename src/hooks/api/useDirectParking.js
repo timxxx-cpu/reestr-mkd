@@ -1,10 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiService } from '../../lib/api-service';
+import { AuthService } from '../../lib/auth-service';
 import { useToast } from '../../context/ToastContext';
 
 export function useDirectParking(projectId) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const currentUser = AuthService.getCurrentUser?.() || null;
+  const actor = {
+    userName: currentUser?.displayName || currentUser?.email || 'unknown',
+    userRole: currentUser?.role || 'technician',
+  };
 
   const keys = {
     basements: ['direct-basements', projectId],
@@ -43,7 +49,7 @@ export function useDirectParking(projectId) {
      * @param {{ floorId: string, count: number, buildingId: string }} params
      */
     mutationFn: ({ floorId, count, buildingId }) =>
-      ApiService.syncParkingPlaces(floorId, count, buildingId),
+      ApiService.syncParkingPlaces(floorId, count, buildingId, actor),
 
     onMutate: async ({ floorId, count }) => {
       // Оптимистичное обновление счетчика

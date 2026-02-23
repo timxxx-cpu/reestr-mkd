@@ -25,6 +25,7 @@ import { useBuildingType } from '@hooks/useBuildingType';
 import { Card, DebouncedInput, useReadOnly, Button, Label, Modal, BlockingLoader } from '@components/ui/UIKit';
 import { Validators } from '@lib/validators';
 import { ApiService } from '@lib/api-service';
+import { AuthService } from '@lib/auth-service';
 import ConfigHeader from './configurator/ConfigHeader';
 import { formatBlockSwitcherLabel } from '@lib/building-details';
 import { useToast } from '@context/ToastContext';
@@ -177,6 +178,11 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
   } = useProject();
   
   const toast = useToast();
+  const currentUser = AuthService.getCurrentUser?.() || null;
+  const actor = {
+    userName: currentUser?.displayName || currentUser?.email || 'unknown',
+    userRole: currentUser?.role || 'technician',
+  };
   const isReadOnly = useReadOnly();
   const queryClient = useQueryClient();
 
@@ -479,8 +485,8 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
       await saveProjectImmediate({ shouldRefetch: false });
       await waitForPendingMutations();
 
-      const unitsReconcile = await ApiService.reconcileUnitsForBlock(currentBlock.id);
-      const mopsReconcile = await ApiService.reconcileCommonAreasForBlock(currentBlock.id);
+      const unitsReconcile = await ApiService.reconcileUnitsForBlock(currentBlock.id, actor);
+      const mopsReconcile = await ApiService.reconcileCommonAreasForBlock(currentBlock.id, actor);
 
       const result = await saveStepBuildingStatuses({
         stepId,

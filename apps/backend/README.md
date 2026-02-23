@@ -1,4 +1,4 @@
-# reestr-mkd BFF (Iteration 1)
+# reestr-mkd BFF (Iteration 5)
 
 Минимальный backend для первой итерации миграции (Вариант A):
 
@@ -12,6 +12,9 @@
 - `workflow/decline`
 - `workflow/request-decline`
 - `workflow/assign-technician`
+- `composition` (buildings/blocks)
+- `registry-floors`
+- `registry-entrances`
 
 ## Запуск
 
@@ -45,9 +48,28 @@ npm run dev
 - `POST /api/v1/applications/:applicationId/workflow/request-decline`
 - `POST /api/v1/applications/:applicationId/workflow/assign-technician`
 - `GET /api/v1/projects/:projectId/buildings`
+- `GET /api/v1/projects/:projectId/parking-counts`
 - `POST /api/v1/projects/:projectId/buildings`
 - `PUT /api/v1/buildings/:buildingId`
 - `DELETE /api/v1/buildings/:buildingId`
+- `GET /api/v1/blocks/:blockId/floors`
+- `GET /api/v1/blocks/:blockId/entrances`
+- `GET /api/v1/blocks/:blockId/entrance-matrix`
+- `GET /api/v1/blocks/:blockId/units`
+- `GET /api/v1/units/:unitId/explication`
+- `GET /api/v1/blocks/:blockId/common-areas`
+- `POST /api/v1/floors/:floorId/parking-places/sync`
+- `POST /api/v1/units/upsert`
+- `POST /api/v1/units/batch-upsert`
+- `POST /api/v1/blocks/:blockId/units/reconcile`
+- `POST /api/v1/blocks/:blockId/common-areas/reconcile`
+- `POST /api/v1/common-areas/upsert`
+- `DELETE /api/v1/common-areas/:id`
+- `POST /api/v1/blocks/:blockId/common-areas/clear`
+- `PUT /api/v1/floors/:floorId`
+- `POST /api/v1/blocks/:blockId/floors/reconcile`
+- `PUT /api/v1/blocks/:blockId/entrance-matrix/cell`
+- `POST /api/v1/blocks/:blockId/entrances/reconcile`
 
 ## Auth-context (DEV)
 

@@ -29,6 +29,7 @@ import ConfigHeader from './configurator/ConfigHeader';
 import { useCatalog } from '@hooks/useCatalogs';
 import { MopItemSchema } from '@lib/schemas';
 import { ApiService } from '@lib/api-service';
+import { AuthService } from '@lib/auth-service';
 import { formatBlockSwitcherLabel } from '@lib/building-details';
 import { useToast } from '@context/ToastContext';
 import {
@@ -106,6 +107,11 @@ const getBlockIcon = type => {
 
 export default function MopEditor({ buildingId, onBack }) {
   const toast = useToast();
+  const currentUser = AuthService.getCurrentUser?.() || null;
+  const actor = {
+    userName: currentUser?.displayName || currentUser?.email || 'unknown',
+    userRole: currentUser?.role || 'technician',
+  };
   const queryClient = useQueryClient();
   const { 
       projectId, 
@@ -531,7 +537,7 @@ export default function MopEditor({ buildingId, onBack }) {
       await saveProjectImmediate({ shouldRefetch: false });
       await waitForPendingMutations();
 
-      const reconcile = await ApiService.reconcileCommonAreasForBlock(currentBlock.id);
+      const reconcile = await ApiService.reconcileCommonAreasForBlock(currentBlock.id, actor);
       const result = await saveStepBuildingStatuses({ stepId: 'mop', buildingId: building.id });
       setHasUnsavedChanges(false);
 
