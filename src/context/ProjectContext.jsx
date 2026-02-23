@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useToast } from './ToastContext';
 import { ApiService } from '../lib/api-service';
+import { AuthService } from '../lib/auth-service';
 import { useProjectData } from '../hooks/useProjectData';
 import { Skeleton } from '../components/ui/Skeleton';
 import { HEAVY_MODEL_KEYS } from '../lib/model-keys';
@@ -113,6 +114,11 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
   // [FIX] Добавляем isViewMode в условие ReadOnly
   const effectiveReadOnly = isReadOnly || Boolean(lockDeniedMessage) || isViewMode;
+  const currentUser = AuthService.getCurrentUser?.() || null;
+  const actor = useMemo(() => ({
+    userName: userProfile?.name || currentUser?.displayName || currentUser?.email || 'unknown',
+    userRole: userProfile?.role || currentUser?.role || 'technician',
+  }), [userProfile, currentUser]);
 
   const { saveData, saveProjectImmediate } = useProjectSyncLayer({
     dbScope,
@@ -159,7 +165,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
         if (dataKey === 'apartmentsData') {
           const unitsArray = Object.values(dataVal);
-          promise = ApiService.batchUpsertUnits(unitsArray);
+          promise = ApiService.batchUpsertUnits(unitsArray, actor);
         } else {
           promise = ApiService.saveData(dbScope, projectId, {
             buildingSpecificData: {
@@ -189,7 +195,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         setIsSyncing(false);
       }
     },
-    [effectiveReadOnly, toast, dbScope, projectId]
+    [effectiveReadOnly, toast, dbScope, projectId, actor]
   );
 
   const deleteProjectBuilding = useCallback(

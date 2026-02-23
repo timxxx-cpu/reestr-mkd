@@ -86,23 +86,28 @@
     - Операции API: создание/утверждение/отклонение/восстановление версий
     - UI-компоненты: `VersionBadge`, `VersionHistory`
 
-12. [План разделения на Backend и Frontend](./13-backend-frontend-split-plan.md) ✨ **НОВОЕ**
+12. [Исследовательские заметки по проекту](./12-project-study-notes.md)
+    - Контекст по архитектуре и модели данных
+    - Наблюдения по workflow и ограничениям
+    - Ключевые риски и точки контроля качества
+
+13. [План разделения на Backend и Frontend](./13-backend-frontend-split-plan.md) ✨ **НОВОЕ**
     - Целевая архитектура разделения
     - Поэтапный план миграции
     - Риски и меры снижения
     - Roadmap релизов
 
-13. [Iteration 1 — внедрение BFF (locks + complete-step)](./14-iteration1-implementation.md) ✨ **НОВОЕ**
+14. [Iteration 1 — внедрение BFF (locks + complete-step)](./14-iteration1-implementation.md) ✨ **НОВОЕ**
     - Что уже внедрено
     - Feature-flag и безопасный rollout
     - Ограничения итерации и шаги Iteration 2
 
-14. [Аудит текущего состояния проекта (snapshot)](./15-project-audit-snapshot.md) ✨ **НОВОЕ**
+15. [Аудит текущего состояния проекта (snapshot)](./15-project-audit-snapshot.md) ✨ **НОВОЕ**
     - Краткая карта текущей архитектуры и миграции
     - Что стабильно, что в переходе, и что делать дальше
 
 
-15. [План следующего этапа миграции на Backend](./16-backend-migration-next-plan.md) ✨ **НОВОЕ**
+16. [План следующего этапа миграции на Backend](./16-backend-migration-next-plan.md) ✨ **НОВОЕ**
     - Приоритеты P1 и итерационный roadmap
     - Чеклисты, DoD, риски и критерии отключения direct-write
 

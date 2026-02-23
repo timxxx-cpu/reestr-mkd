@@ -1,10 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiService } from '../../lib/api-service';
+import { AuthService } from '../../lib/auth-service';
 import { useToast } from '../../context/ToastContext';
 
 export function useDirectCommonAreas(blockId, floorIds = []) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const currentUser = AuthService.getCurrentUser?.() || null;
+  const actor = {
+    userName: currentUser?.displayName || currentUser?.email || 'unknown',
+    userRole: currentUser?.role || 'technician',
+  };
   const normalizedFloorIds = Array.isArray(floorIds)
     ? [...new Set(floorIds.filter(Boolean))].sort()
     : [];
@@ -22,7 +28,7 @@ export function useDirectCommonAreas(blockId, floorIds = []) {
     /**
      * @param {{ id?: string, floorId: string, entranceId: string, type: string, area: string, height?: string|number }} data
      */
-    mutationFn: data => ApiService.upsertCommonArea(data),
+    mutationFn: data => ApiService.upsertCommonArea(data, actor),
     onMutate: async newData => {
       await queryClient.cancelQueries({ queryKey });
       const previousData = queryClient.getQueryData(queryKey);
@@ -65,12 +71,12 @@ export function useDirectCommonAreas(blockId, floorIds = []) {
     /**
      * @param {string} id
      */
-    mutationFn: id => ApiService.deleteCommonArea(id),
+    mutationFn: id => ApiService.deleteCommonArea(id, actor),
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
   });
 
   const clearAllMutation = useMutation({
-    mutationFn: () => ApiService.clearCommonAreas(blockId, { floorIds: normalizedFloorIds }),
+    mutationFn: () => ApiService.clearCommonAreas(blockId, { floorIds: normalizedFloorIds }, actor),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
       toast.success('Все данные МОП очищены');

@@ -15,6 +15,7 @@ import { createWorkflowApi } from './api/workflow-api';
 import { createRegistryApi } from './api/registry-api';
 import { createVersionsApi } from './api/versions-api-factory';
 import { BffClient } from './bff-client';
+import { AuthService } from './auth-service';
 import { normalizeProjectStatusFromDb, normalizeProjectStatusToDb } from './project-status';
 import {
   createVirtualComplexCadastre,
@@ -76,6 +77,15 @@ function sanitizeBuildingCategoryFields(buildingData = {}) {
     infraType: isInfrastructure ? buildingData.infraType || null : null,
   };
 }
+
+const resolveActor = (actor = {}) => {
+  const currentUser = AuthService.getCurrentUser?.() || null;
+
+  return {
+    userName: actor.userName || currentUser?.displayName || currentUser?.email || 'unknown',
+    userRole: actor.userRole || currentUser?.role || 'technician',
+  };
+};
 
 const normalizeDateInput = value => {
   if (value === '' || value === undefined) return null;
@@ -1656,6 +1666,11 @@ const LegacyApiService = {
 
   // --- FLOORS ---
   getFloors: async blockId => {
+    if (BffClient.isFloorsEnabled()) {
+      const data = await BffClient.getFloors({ blockId });
+      return (data || []).map(f => mapFloorFromDB(f, null, blockId));
+    }
+
     const { data, error } = await supabase
       .from('floors')
       .select('*')
@@ -1665,7 +1680,17 @@ const LegacyApiService = {
     return data.map(f => mapFloorFromDB(f, null, blockId));
   },
 
-  updateFloor: async (floorId, updates) => {
+  updateFloor: async (floorId, updates, actor = {}) => {
+    if (BffClient.isFloorsEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.updateFloor({
+        floorId,
+        updates,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const payload = {};
     // Map UI keys to DB columns
     if (updates.height !== undefined) payload.height = updates.height;
@@ -1687,7 +1712,19 @@ const LegacyApiService = {
     return data;
   },
 
-  generateFloors: async (blockId, floorsFrom, floorsTo, defaultType = 'residential') => {
+  generateFloors: async (blockId, floorsFrom, floorsTo, defaultType = 'residential', actor = {}) => {
+    if (BffClient.isFloorsEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.reconcileFloors({
+        blockId,
+        floorsFrom,
+        floorsTo,
+        defaultType,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     // ... (Без изменений, логика уже есть в вашем файле, просто оставляем)
     const { data: existing, error: fetchErr } = await supabase
       .from('floors')
@@ -1719,6 +1756,10 @@ const LegacyApiService = {
 
   // --- MATRIX ---
   getEntrances: async blockId => {
+    if (BffClient.isEntrancesEnabled()) {
+      return BffClient.getEntrances({ blockId });
+    }
+
     const { data, error } = await supabase
       .from('entrances')
       .select('*')
@@ -1729,13 +1770,21 @@ const LegacyApiService = {
   },
 
   getMatrix: async blockId => {
-    const { data, error } = await supabase
-      .from('entrance_matrix')
-      .select('*')
-      .eq('block_id', blockId);
-    if (error) throw error;
+    let data;
+
+    if (BffClient.isEntrancesEnabled()) {
+      data = await BffClient.getEntranceMatrix({ blockId });
+    } else {
+      const { data: matrixRows, error } = await supabase
+        .from('entrance_matrix')
+        .select('*')
+        .eq('block_id', blockId);
+      if (error) throw error;
+      data = matrixRows;
+    }
+
     const map = {};
-    data.forEach(row => {
+    (data || []).forEach(row => {
       map[`${row.floor_id}_${row.entrance_number}`] = {
         id: row.id,
         apts: row.flats_count,
@@ -1746,7 +1795,19 @@ const LegacyApiService = {
     return map;
   },
 
-  upsertMatrixCell: async (blockId, floorId, entranceNumber, values) => {
+  upsertMatrixCell: async (blockId, floorId, entranceNumber, values, actor = {}) => {
+    if (BffClient.isEntrancesEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.upsertMatrixCell({
+        blockId,
+        floorId,
+        entranceNumber,
+        values,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const payload = {
       block_id: blockId,
       floor_id: floorId,
@@ -1766,7 +1827,17 @@ const LegacyApiService = {
     return data;
   },
 
-  syncEntrances: async (blockId, count) => {
+  syncEntrances: async (blockId, count, actor = {}) => {
+    if (BffClient.isEntrancesEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.reconcileEntrances({
+        blockId,
+        count,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const normalizedCount = Math.max(0, parseInt(count, 10) || 0);
     const { data: existing, error: existingErr } = await supabase
       .from('entrances')
@@ -1802,13 +1873,20 @@ const LegacyApiService = {
   // --- UNITS ---
 
   getUnitExplicationById: async unitId => {
-    const { data, error } = await supabase
-      .from('units')
-      .select('*, rooms (*)')
-      .eq('id', unitId)
-      .maybeSingle();
+    let data;
 
-    if (error) throw error;
+    if (BffClient.isUnitsEnabled()) {
+      data = await BffClient.getUnitExplicationById({ unitId });
+    } else {
+      const { data: unitData, error } = await supabase
+        .from('units')
+        .select('*, rooms (*)')
+        .eq('id', unitId)
+        .maybeSingle();
+      if (error) throw error;
+      data = unitData;
+    }
+
     if (!data) return null;
 
     return {
@@ -1839,6 +1917,17 @@ const LegacyApiService = {
 
   getUnits: async (blockId, options = {}) => {
     const extraFloorIds = Array.isArray(options?.floorIds) ? options.floorIds.filter(Boolean) : [];
+
+    if (BffClient.isUnitsEnabled()) {
+      const payload = await BffClient.getUnits({ blockId, floorIds: extraFloorIds });
+      const units = payload?.units || [];
+      const entranceMap = payload?.entranceMap || {};
+
+      return units.map(u => ({
+        ...mapUnitFromDB(u, u.rooms, entranceMap, null, blockId),
+        entranceIndex: u.entrance_id ? entranceMap[u.entrance_id] || 1 : u.entrance_index || 1,
+      }));
+    }
 
     const { data: blockFloors, error: floorsError } = await supabase
       .from('floors')
@@ -1877,7 +1966,15 @@ const LegacyApiService = {
     }));
   },
 
-  upsertUnit: async unitData => {
+  upsertUnit: async (unitData, actor = {}) => {
+    if (BffClient.isUnitsEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.upsertUnit({
+        unitData,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
     // 1. ОПРЕДЕЛЯЕМ РЕЖИМ РАБОТЫ (Partial Update vs Full Upsert)
     // Если есть ID, но нет критически важных полей для создания (floorId, type), считаем это PATCH-запросом.
     const isPatch = !!unitData.id && (unitData.floorId === undefined || unitData.type === undefined);
@@ -2016,7 +2113,15 @@ const LegacyApiService = {
     return savedUnit;
   },
 
-  batchUpsertUnits: async unitsList => {
+  batchUpsertUnits: async (unitsList, actor = {}) => {
+    if (BffClient.isUnitsEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.batchUpsertUnits({
+        unitsList,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
     if (!unitsList || unitsList.length === 0) return;
 
     // 1. Подготовка: Находим ID и код здания (берем floorId из первого элемента)
@@ -2120,6 +2225,12 @@ const LegacyApiService = {
   // --- COMMON AREAS ---
   getCommonAreas: async (blockId, options = {}) => {
     const extraFloorIds = Array.isArray(options?.floorIds) ? options.floorIds.filter(Boolean) : [];
+
+    if (BffClient.isMopEnabled()) {
+      const data = await BffClient.getCommonAreas({ blockId, floorIds: extraFloorIds });
+      return (data || []).map(m => mapMopFromDB(m, {}, null, blockId));
+    }
+
     const { data: floors } = await supabase.from('floors').select('id').eq('block_id', blockId);
     const floorIds = Array.from(new Set([...(floors || []).map(f => f.id), ...extraFloorIds]));
     if (floorIds.length === 0) return [];
@@ -2141,7 +2252,16 @@ const LegacyApiService = {
    * height?: number | string
    * }} data
    */
-  upsertCommonArea: async data => {
+  upsertCommonArea: async (data, actor = {}) => {
+    if (BffClient.isMopEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.upsertCommonArea({
+        data,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const payload = {
       id: data.id || crypto.randomUUID(),
       floor_id: data.floorId,
@@ -2157,13 +2277,33 @@ const LegacyApiService = {
     return res;
   },
 
-  deleteCommonArea: async id => {
+  deleteCommonArea: async (id, actor = {}) => {
+    if (BffClient.isMopEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.deleteCommonArea({
+        id,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const { error } = await supabase.from('common_areas').delete().eq('id', id);
     if (error) throw error;
   },
 
-  clearCommonAreas: async (blockId, options = {}) => {
+  clearCommonAreas: async (blockId, options = {}, actor = {}) => {
     const extraFloorIds = Array.isArray(options?.floorIds) ? options.floorIds.filter(Boolean) : [];
+
+    if (BffClient.isMopEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.clearCommonAreas({
+        blockId,
+        floorIds: extraFloorIds,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const { data: floors } = await supabase.from('floors').select('id').eq('block_id', blockId);
     const floorIds = Array.from(new Set([...(floors || []).map(f => f.id), ...extraFloorIds]));
     if (floorIds.length > 0) {
@@ -2171,7 +2311,16 @@ const LegacyApiService = {
     }
   },
 
-  reconcileUnitsForBlock: async blockId => {
+  reconcileUnitsForBlock: async (blockId, actor = {}) => {
+    if (BffClient.isUnitsEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.reconcileUnitsForBlock({
+        blockId,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const result = { removed: 0, checkedCells: 0 };
 
     const { data: floors, error: floorsErr } = await supabase
@@ -2250,7 +2399,16 @@ const LegacyApiService = {
     return result;
   },
 
-  reconcileCommonAreasForBlock: async blockId => {
+  reconcileCommonAreasForBlock: async (blockId, actor = {}) => {
+    if (BffClient.isMopEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.reconcileCommonAreasForBlock({
+        blockId,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const result = { removed: 0, checkedCells: 0 };
 
     const { data: floors, error: floorsErr } = await supabase
@@ -2351,6 +2509,10 @@ const LegacyApiService = {
   },
 
   getParkingCounts: async projectId => {
+    if (BffClient.isParkingEnabled()) {
+      return BffClient.getParkingCounts({ projectId });
+    }
+
     // Получаем все здания проекта
     const { data: buildings } = await supabase
       .from('buildings')
@@ -2387,7 +2549,17 @@ const LegacyApiService = {
     return counts;
   },
 
-  syncParkingPlaces: async (floorId, targetCount, _buildingId) => {
+  syncParkingPlaces: async (floorId, targetCount, _buildingId, actor = {}) => {
+    if (BffClient.isParkingEnabled()) {
+      const resolvedActor = resolveActor(actor);
+      return BffClient.syncParkingPlaces({
+        floorId,
+        targetCount,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const { data: existing } = await supabase
       .from('units')
       .select('id, number')

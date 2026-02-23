@@ -1,10 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiService } from '../../lib/api-service';
+import { AuthService } from '../../lib/auth-service';
 import { useToast } from '../../context/ToastContext';
 
 export function useDirectUnits(blockId, floorIds = []) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const currentUser = AuthService.getCurrentUser?.() || null;
+  const actor = {
+    userName: currentUser?.displayName || currentUser?.email || 'unknown',
+    userRole: currentUser?.role || 'technician',
+  };
   const normalizedFloorIds = Array.isArray(floorIds)
     ? [...new Set(floorIds.filter(Boolean))].sort()
     : [];
@@ -23,7 +29,7 @@ export function useDirectUnits(blockId, floorIds = []) {
      * [FIXED] Типизация ослаблена для поддержки Partial Update (PATCH)
      * @param {{ id?: string } & Partial<{ floorId: string, entranceId: string, num: string, type: string, area: number }>} data
      */
-    mutationFn: data => ApiService.upsertUnit(data),
+    mutationFn: data => ApiService.upsertUnit(data, actor),
     onMutate: async newData => {
       await queryClient.cancelQueries({ queryKey });
       const previousUnits = queryClient.getQueryData(queryKey);
@@ -65,7 +71,7 @@ export function useDirectUnits(blockId, floorIds = []) {
   // --- BATCH UPDATE (Auto-numbering) ---
   const batchUpsertMutation = useMutation({
     /** @param {Array<any>} list */
-    mutationFn: list => ApiService.batchUpsertUnits(list),
+    mutationFn: list => ApiService.batchUpsertUnits(list, actor),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
       toast.success('Данные обновлены');

@@ -25,6 +25,7 @@ import { useDirectUnits } from '@hooks/api/useDirectUnits';
 import { useBuildingType } from '@hooks/useBuildingType';
 import { Card, useReadOnly, Modal, Button, Label, Select, BlockingLoader, DebouncedInput } from '@components/ui/UIKit';
 import { ApiService } from '@lib/api-service';
+import { AuthService } from '@lib/auth-service';
 import ConfigHeader from './configurator/ConfigHeader';
 import { formatBlockSwitcherLabel } from '@lib/building-details';
 import { useMatrixData } from '@hooks/useMatrixData';
@@ -113,6 +114,11 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
   const { projectId, buildingDetails, saveStepBuildingStatuses, saveProjectImmediate, setHasUnsavedChanges } = useProject();
   const isReadOnly = useReadOnly();
   const toast = useToast();
+  const currentUser = AuthService.getCurrentUser?.() || null;
+  const actor = {
+    userName: currentUser?.displayName || currentUser?.email || 'unknown',
+    userRole: currentUser?.role || 'technician',
+  };
 
   const { buildings } = useDirectBuildings(projectId);
   const building = useMemo(() => buildings.find(b => b.id === buildingId), [buildings, buildingId]);
@@ -318,7 +324,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
       setIsSaving(true);
       try {
         await saveProjectImmediate({ shouldRefetch: false });
-        const reconcile = await ApiService.reconcileUnitsForBlock(currentBlock.id);
+        const reconcile = await ApiService.reconcileUnitsForBlock(currentBlock.id, actor);
         await saveStepBuildingStatuses({ stepId: 'apartments', buildingId: building.id });
         setHasUnsavedChanges(false);
 

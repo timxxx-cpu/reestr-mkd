@@ -1,6 +1,11 @@
 const isBffEnabled = () => import.meta.env.VITE_BFF_ENABLED === 'true';
 const getBffBaseUrl = () => import.meta.env.VITE_BFF_BASE_URL || 'http://localhost:8787';
 const isCompositionEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_COMPOSITION_ENABLED === 'true';
+const isFloorsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_FLOORS_ENABLED === 'true';
+const isEntrancesEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_ENTRANCES_ENABLED === 'true';
+const isUnitsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_UNITS_ENABLED === 'true';
+const isMopEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_MOP_ENABLED === 'true';
+const isParkingEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PARKING_ENABLED === 'true';
 
 const getAuthHeaders = (userName, userRole) => ({
   'x-user-id': encodeURIComponent(userName || 'unknown'),
@@ -58,11 +63,25 @@ async function request(path, options = {}) {
 export const BffClient = {
   isEnabled: isBffEnabled,
   isCompositionEnabled,
-
-
+  isFloorsEnabled,
+  isEntrancesEnabled,
+  isUnitsEnabled,
+  isMopEnabled,
+  isParkingEnabled,
 
   getBuildings: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/buildings`),
+
+  getParkingCounts: ({ projectId }) =>
+    request(`/api/v1/projects/${projectId}/parking-counts`),
+
+  syncParkingPlaces: ({ floorId, targetCount, userName, userRole }) =>
+    request(`/api/v1/floors/${floorId}/parking-places/sync`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { targetCount },
+    }),
 
   createBuilding: ({ projectId, buildingData, blocksData, userName, userRole }) =>
     request(`/api/v1/projects/${projectId}/buildings`, {
@@ -85,6 +104,111 @@ export const BffClient = {
       method: 'DELETE',
       userName,
       userRole,
+    }),
+
+  getFloors: ({ blockId }) =>
+    request(`/api/v1/blocks/${blockId}/floors`),
+
+  getEntrances: ({ blockId }) =>
+    request(`/api/v1/blocks/${blockId}/entrances`),
+
+  getEntranceMatrix: ({ blockId }) =>
+    request(`/api/v1/blocks/${blockId}/entrance-matrix`),
+
+  getUnitExplicationById: ({ unitId }) =>
+    request(`/api/v1/units/${unitId}/explication`),
+
+  getUnits: ({ blockId, floorIds = [] }) =>
+    request(`/api/v1/blocks/${blockId}/units${floorIds.length ? `?floorIds=${encodeURIComponent(floorIds.join(','))}` : ''}`),
+
+  getCommonAreas: ({ blockId, floorIds = [] }) =>
+    request(`/api/v1/blocks/${blockId}/common-areas${floorIds.length ? `?floorIds=${encodeURIComponent(floorIds.join(','))}` : ''}`),
+
+  upsertUnit: ({ unitData, userName, userRole }) =>
+    request('/api/v1/units/upsert', {
+      method: 'POST',
+      userName,
+      userRole,
+      body: unitData,
+    }),
+
+  batchUpsertUnits: ({ unitsList, userName, userRole }) =>
+    request('/api/v1/units/batch-upsert', {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { unitsList },
+    }),
+
+  reconcileUnitsForBlock: ({ blockId, userName, userRole }) =>
+    request(`/api/v1/blocks/${blockId}/units/reconcile`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: {},
+    }),
+
+  reconcileCommonAreasForBlock: ({ blockId, userName, userRole }) =>
+    request(`/api/v1/blocks/${blockId}/common-areas/reconcile`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: {},
+    }),
+
+  upsertCommonArea: ({ data, userName, userRole }) =>
+    request('/api/v1/common-areas/upsert', {
+      method: 'POST',
+      userName,
+      userRole,
+      body: data,
+    }),
+
+  deleteCommonArea: ({ id, userName, userRole }) =>
+    request(`/api/v1/common-areas/${id}`, {
+      method: 'DELETE',
+      userName,
+      userRole,
+    }),
+
+  clearCommonAreas: ({ blockId, floorIds = [], userName, userRole }) =>
+    request(`/api/v1/blocks/${blockId}/common-areas/clear`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { floorIds: floorIds.join(',') },
+    }),
+
+  updateFloor: ({ floorId, updates, userName, userRole }) =>
+    request(`/api/v1/floors/${floorId}`, {
+      method: 'PUT',
+      userName,
+      userRole,
+      body: { updates },
+    }),
+
+  reconcileFloors: ({ blockId, floorsFrom, floorsTo, defaultType, userName, userRole }) =>
+    request(`/api/v1/blocks/${blockId}/floors/reconcile`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { floorsFrom, floorsTo, defaultType },
+    }),
+
+  upsertMatrixCell: ({ blockId, floorId, entranceNumber, values, userName, userRole }) =>
+    request(`/api/v1/blocks/${blockId}/entrance-matrix/cell`, {
+      method: 'PUT',
+      userName,
+      userRole,
+      body: { floorId, entranceNumber, values },
+    }),
+
+  reconcileEntrances: ({ blockId, count, userName, userRole }) =>
+    request(`/api/v1/blocks/${blockId}/entrances/reconcile`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { count },
     }),
 
   acquireApplicationLock: ({ applicationId, userName, userRole, ttlMinutes = 20 }) =>
