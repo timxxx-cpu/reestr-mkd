@@ -14,6 +14,7 @@ import { createProjectApi } from './api/project-api';
 import { createWorkflowApi } from './api/workflow-api';
 import { createRegistryApi } from './api/registry-api';
 import { createVersionsApi } from './api/versions-api-factory';
+import { BffClient } from './bff-client';
 import { normalizeProjectStatusFromDb, normalizeProjectStatusToDb } from './project-status';
 import {
   createVirtualComplexCadastre,
@@ -726,6 +727,16 @@ const LegacyApiService = {
     if (error) throw error;
     if (!app?.id) return { ok: false, reason: 'NOT_FOUND', message: 'Заявка не найдена' };
 
+    if (BffClient.isEnabled()) {
+      const response = await BffClient.acquireApplicationLock({
+        applicationId: app.id,
+        userName,
+        userRole,
+        ttlMinutes,
+      });
+      return { ...response, applicationId: app.id };
+    }
+
     const { data, error: rpcErr } = await supabase.rpc('acquire_application_lock', {
       p_application_id: app.id,
       p_owner_user_id: userName,
@@ -744,7 +755,11 @@ const LegacyApiService = {
     };
   },
 
-  refreshApplicationLock: async ({ applicationId, userName, ttlMinutes = 20 }) => {
+  refreshApplicationLock: async ({ applicationId, userName, userRole = 'technician', ttlMinutes = 20 }) => {
+    if (BffClient.isEnabled()) {
+      return BffClient.refreshApplicationLock({ applicationId, userName, userRole, ttlMinutes });
+    }
+
     const { data, error } = await supabase.rpc('refresh_application_lock', {
       p_application_id: applicationId,
       p_owner_user_id: userName,
@@ -761,8 +776,12 @@ const LegacyApiService = {
     };
   },
 
-  releaseApplicationLock: async ({ applicationId, userName }) => {
+  releaseApplicationLock: async ({ applicationId, userName, userRole = 'technician' }) => {
     if (!applicationId) return { ok: false };
+
+    if (BffClient.isEnabled()) {
+      return BffClient.releaseApplicationLock({ applicationId, userName, userRole });
+    }
 
     const { data, error } = await supabase.rpc('release_application_lock', {
       p_application_id: applicationId,
@@ -776,6 +795,71 @@ const LegacyApiService = {
       reason: row?.reason || null,
       message: row?.message || null,
     };
+  },
+
+  completeWorkflowStepViaBff: async ({ applicationId, stepIndex, comment, userName, userRole, idempotencyKey }) => {
+    if (!BffClient.isEnabled()) return null;
+    return BffClient.completeStep({
+      applicationId,
+      stepIndex,
+      comment,
+      userName,
+      userRole,
+      idempotencyKey,
+    });
+  },
+
+
+  rollbackWorkflowStepViaBff: async ({ applicationId, reason, userName, userRole, idempotencyKey }) => {
+    if (!BffClient.isEnabled()) return null;
+    return BffClient.rollbackStep({
+      applicationId,
+      reason,
+      userName,
+      userRole,
+      idempotencyKey,
+    });
+  },
+
+  reviewWorkflowStageViaBff: async ({ applicationId, action, comment, userName, userRole, idempotencyKey }) => {
+    if (!BffClient.isEnabled()) return null;
+    if (action === 'APPROVE') {
+      return BffClient.reviewApprove({
+        applicationId,
+        comment,
+        userName,
+        userRole,
+        idempotencyKey,
+      });
+    }
+    return BffClient.reviewReject({
+      applicationId,
+      reason: comment,
+      userName,
+      userRole,
+      idempotencyKey,
+    });
+  },
+
+
+  requestDeclineViaBff: async ({ applicationId, reason, stepIndex, userName, userRole }) => {
+    if (!BffClient.isEnabled()) return null;
+    return BffClient.requestDecline({ applicationId, reason, stepIndex, userName, userRole });
+  },
+
+  declineApplicationViaBff: async ({ applicationId, reason, userName, userRole, idempotencyKey }) => {
+    if (!BffClient.isEnabled()) return null;
+    return BffClient.declineApplication({ applicationId, reason, userName, userRole, idempotencyKey });
+  },
+
+  returnFromDeclineViaBff: async ({ applicationId, comment, userName, userRole }) => {
+    if (!BffClient.isEnabled()) return null;
+    return BffClient.returnFromDecline({ applicationId, comment, userName, userRole });
+  },
+
+  restoreApplicationViaBff: async ({ applicationId, comment, userName, userRole }) => {
+    if (!BffClient.isEnabled()) return null;
+    return BffClient.restoreApplication({ applicationId, comment, userName, userRole });
   },
 
   // --- WORKFLOW & CREATION ---
@@ -2338,7 +2422,16 @@ const LegacyApiService = {
 
 
 
-  declineApplication: async ({ applicationId, nextSubstatus, prevStatus, userName, reason }) => {
+  declineApplication: async ({ applicationId, nextSubstatus, prevStatus, userName, reason, userRole = 'branch_manager' }) => {
+    if (BffClient.isEnabled()) {
+      return BffClient.declineApplication({
+        applicationId,
+        reason,
+        userName,
+        userRole,
+      });
+    }
+
     const { error: appErr } = await supabase
       .from('applications')
       .update({
@@ -2360,7 +2453,17 @@ const LegacyApiService = {
     if (histErr) throw histErr;
   },
 
-  requestDecline: async ({ applicationId, reason, stepIndex, requestedBy }) => {
+  requestDecline: async ({ applicationId, reason, stepIndex, requestedBy, userRole = 'technician' }) => {
+    if (BffClient.isEnabled()) {
+      return BffClient.requestDecline({
+        applicationId,
+        reason,
+        stepIndex,
+        userName: requestedBy,
+        userRole,
+      });
+    }
+
     const { error } = await supabase
       .from('applications')
       .update({
@@ -2375,7 +2478,11 @@ const LegacyApiService = {
     if (error) throw error;
   },
 
-  returnFromDecline: async ({ applicationId, userName, comment }) => {
+  returnFromDecline: async ({ applicationId, userName, userRole = 'branch_manager', comment }) => {
+    if (BffClient.isEnabled()) {
+      return BffClient.returnFromDecline({ applicationId, comment, userName, userRole });
+    }
+
     const { error: appErr } = await supabase
       .from('applications')
       .update({
@@ -2401,7 +2508,17 @@ const LegacyApiService = {
     if (histErr) throw histErr;
   },
 
-  assignTechnician: async ({ applicationId, assigneeName }) => {
+  assignTechnician: async ({ applicationId, assigneeName, userName = 'system', userRole = 'branch_manager', reason = null }) => {
+    if (BffClient.isEnabled()) {
+      return BffClient.assignTechnician({
+        applicationId,
+        assigneeUserId: assigneeName,
+        reason,
+        userName,
+        userRole,
+      });
+    }
+
     const { error } = await supabase
       .from('applications')
       .update({ assignee_name: assigneeName, updated_at: new Date().toISOString() })
@@ -2409,7 +2526,11 @@ const LegacyApiService = {
     if (error) throw error;
   },
 
-  restoreApplication: async ({ applicationId, userName, comment }) => {
+  restoreApplication: async ({ applicationId, userName, userRole = 'admin', comment }) => {
+    if (BffClient.isEnabled()) {
+      return BffClient.restoreApplication({ applicationId, comment, userName, userRole });
+    }
+
     const { error: appErr } = await supabase
       .from('applications')
       .update({

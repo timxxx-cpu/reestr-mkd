@@ -85,6 +85,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           ApiService.refreshApplicationLock({
             applicationId: acquiredApplicationId,
             userName: userProfile.name,
+            userRole: userProfile.role,
           }).catch(() => {});
         }, 60000);
       } catch (e) {
@@ -104,6 +105,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         ApiService.releaseApplicationLock({
           applicationId: acquiredApplicationId,
           userName: userProfile?.name,
+          userRole: userProfile?.role,
         }).catch(() => {});
       }
     };
