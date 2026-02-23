@@ -121,6 +121,13 @@
     - Исполнимый roadmap по закрытию оставшихся migration-gap
     - Критерии отключения direct-write по умолчанию
 
+20. [FE/BE cutover fact sheet](./20-cutover-fact-sheet.md) ✨ **НОВОЕ**
+    - Единая фактология по auth/cutover/hard-switch
+    - Текущий статус готовности к direct-write OFF
+
+21. [Live business smoke checklist](./live-business-smoke-checklist.md) ✨ **НОВОЕ**
+    - Реальные пользовательские сценарии для backend-first cutover
+
 
 ## Ключевые особенности документации
 

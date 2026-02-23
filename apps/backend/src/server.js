@@ -7,6 +7,8 @@ import { registerRegistryRoutes } from './registry-routes.js';
 import { registerIntegrationRoutes } from './integration-routes.js';
 import { registerProjectRoutes } from './project-routes.js';
 import { createIdempotencyStore } from './idempotency-store.js';
+import { installAuthMiddleware, requireActor } from './auth.js';
+import { allowByPolicy } from './policy.js';
 
 const INTEGRATION_START_IDX = 12;
 const LAST_STEP_INDEX_BY_STAGE = {
@@ -85,23 +87,6 @@ function buildReviewTransition(current, action) {
 
   return { isApprove, nextStatus, nextSubstatus, nextStepIndex, nextStage };
 }
-
-function getActor(req) {
-  const userId = req.headers['x-user-id'];
-  const userRole = req.headers['x-user-role'];
-  if (!userId || !userRole) return null;
-  
-  // Раскодируем обратно в читаемый русский текст для сохранения в БД
-  return { 
-    userId: decodeURIComponent(String(userId)), 
-    userRole: String(userRole) 
-  };
-}
-
-function hasAnyRole(actorRole, roles = []) {
-  return roles.includes(actorRole);
-}
-
 
 function buildIdempotencyContext(req, actor) {
   const rawKey = req.headers['x-idempotency-key'];
@@ -215,7 +200,7 @@ async function updateApplicationState(supabase, applicationId, transition) {
   return { ok: true, updatedApp: data };
 }
 
-async function buildServer() {
+export async function buildServer() {
   const config = getConfig();
   const supabase = createSupabaseAdminClient(config);
   const app = Fastify({ logger: true });
@@ -224,9 +209,37 @@ async function buildServer() {
   await app.register(cors, {
     origin: true, // Разрешаем запросы с любых адресов (для DEV-режима)
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-user-role', 'x-idempotency-key']
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-user-id',
+      'x-user-role',
+      'x-idempotency-key',
+      'x-client-request-id',
+      'x-operation-source',
+    ]
   });
 
+  app.addHook('onRequest', async (req, reply) => {
+    const operationSource = String(req.headers['x-operation-source'] || 'unknown');
+    const clientRequestId = req.headers['x-client-request-id']
+      ? String(req.headers['x-client-request-id'])
+      : null;
+
+    req.log.info({
+      operationSource,
+      clientRequestId,
+      requestId: req.id,
+      method: req.method,
+      url: req.url,
+    }, 'incoming request');
+
+    reply.header('x-request-id', req.id);
+    reply.header('x-operation-source', operationSource);
+  });
+
+
+  installAuthMiddleware(app, config);
   app.get('/health', async () => ({ ok: true }));
 
   registerCompositionRoutes(app, { supabase });
@@ -254,8 +267,8 @@ async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/locks/acquire', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
+    const actor = requireActor(req, reply);
+    if (!actor) return;
 
     const { applicationId } = req.params;
     const ttlSeconds = Number(req.body?.ttlSeconds || 1200);
@@ -278,8 +291,8 @@ async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/locks/refresh', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
+    const actor = requireActor(req, reply);
+    if (!actor) return;
 
     const { applicationId } = req.params;
     const ttlSeconds = Number(req.body?.ttlSeconds || 1200);
@@ -301,8 +314,8 @@ async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/locks/release', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
+    const actor = requireActor(req, reply);
+    if (!actor) return;
 
     const { applicationId } = req.params;
 
@@ -322,8 +335,8 @@ async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/complete-step', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
+    const actor = requireActor(req, reply);
+    if (!actor) return;
 
     const { applicationId } = req.params;
     const stepIndex = Number(req.body?.stepIndex);
@@ -376,8 +389,8 @@ async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/rollback-step', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
+    const actor = requireActor(req, reply);
+    if (!actor) return;
 
     const { applicationId } = req.params;
     const reason = req.body?.reason || null;
@@ -418,8 +431,8 @@ async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/review-approve', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
+    const actor = requireActor(req, reply);
+    if (!actor) return;
 
     const { applicationId } = req.params;
     const comment = req.body?.comment || null;
@@ -456,8 +469,8 @@ async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/review-reject', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
+    const actor = requireActor(req, reply);
+    if (!actor) return;
 
     const { applicationId } = req.params;
     const reason = req.body?.reason || null;
@@ -495,13 +508,13 @@ async function buildServer() {
 
 
   app.post('/api/v1/applications/:applicationId/workflow/assign-technician', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
+    const actor = requireActor(req, reply);
+    if (!actor) return;
 
     const idempotencyContext = buildIdempotencyContext(req, actor);
     if (tryServeIdempotentResponse(workflowIdempotencyStore, idempotencyContext, reply)) return;
 
-    if (!hasAnyRole(actor.userRole, ['admin', 'branch_manager'])) {
+    if (!allowByPolicy(actor.userRole, 'workflow', 'assignTechnician')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Only admin or branch_manager can assign technician');
     }
 
@@ -537,9 +550,9 @@ async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/request-decline', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!hasAnyRole(actor.userRole, ['technician', 'admin', 'branch_manager'])) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'workflow', 'requestDecline')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot request decline');
     }
 
@@ -587,9 +600,9 @@ async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/decline', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!hasAnyRole(actor.userRole, ['admin', 'branch_manager', 'controller'])) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'workflow', 'decline')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot decline application');
     }
 
@@ -640,9 +653,9 @@ async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/return-from-decline', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!hasAnyRole(actor.userRole, ['admin', 'branch_manager'])) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'workflow', 'assignTechnician')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Only admin or branch_manager can return from decline');
     }
 
@@ -685,9 +698,9 @@ async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/restore', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!hasAnyRole(actor.userRole, ['admin'])) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'workflow', 'restore')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Only admin can restore application');
     }
 
@@ -734,5 +747,9 @@ async function buildServer() {
   return { app, config };
 }
 
-const { app, config } = await buildServer();
-await app.listen({ port: config.port, host: config.host });
+const isDirectRun = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
+
+if (isDirectRun) {
+  const { app, config } = await buildServer();
+  await app.listen({ port: config.port, host: config.host });
+}

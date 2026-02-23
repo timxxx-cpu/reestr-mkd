@@ -456,3 +456,52 @@
 
 - Iteration 1, Iteration 2 и Iteration 3 запущены: реализованы backend endpoints для `locks/*`, `workflow/complete-step`, `workflow/rollback-step`, `workflow/review-approve`, `workflow/review-reject`, `workflow/assign-technician`, `workflow/request-decline`, `workflow/decline`, `workflow/return-from-decline`, `workflow/restore`; добавлен feature-flag rollout во frontend.
 - Подробности реализации и ограничения зафиксированы в `14-iteration1-implementation.md`.
+
+
+## 12) Сверка плана с фактической реализацией (обновлено)
+
+Ниже — контрольная сверка «план vs код» по текущему состоянию ветки.
+
+### 12.1 Что соответствует плану
+
+1. **P0 workflow + locks** реализованы в backend и подключены во frontend через feature-flags.
+2. **P1 registry write-path** в значительной части уже идет через BFF (composition, floors/entrances, units/common-areas, parking).
+3. **Project passport/admin, basements, versioning** переведены на backend endpoints и доступны через модульные BFF-флаги.
+4. **Технический каркас backend** (health, error contract, idempotency для критичных мутаций) реализован.
+5. **Переходный адаптер frontend** реализован в виде `BffClient` + модульные флаги.
+
+### 12.2 Что частично реализовано (есть gap)
+
+1. **Auth/RBAC hardening** — в runtime остается DEV-профиль `x-user-id/x-user-role`; полноценный JWT-профиль не завершен.
+2. **Полная транзакционная orchestration** — часть use-case выполняется последовательными запросами к БД, без централизованной SQL boundary для всех сложных операций.
+3. **Observability уровня cutover** — базовое логирование есть, но требуется доведение до целевой policy (метрики покрытия legacy/bff и релизные стоп-условия).
+
+### 12.3 Что еще не завершено
+
+1. Отключение direct-write из frontend **по умолчанию** (пока fallback сохранен).
+2. Формализация release-gate для режима `backend-only` (чек-лист + обязательный smoke-пакет).
+3. Декомпозиция backend в полноценные `modules/*` с единообразными policy/repository слоями по всем доменам.
+
+### 12.4 Обновленный ближайший фокус внедрения
+
+1. **Наблюдаемость cutover (выполняется):**
+   - маркировать источник операции (`bff/legacy`) и прокидывать `requestId` end-to-end;
+   - логировать клиентский `clientRequestId` во frontend и backend.
+2. **Auth/RBAC hardening:** ввести production-profile middleware для JWT и серверный policy-layer без доверия UI.
+3. **Cutover rehearsal:** прогнать smoke в режиме `VITE_BFF_ENABLED=true` + все модульные флаги, зафиксировать оставшиеся legacy-зависимости.
+
+### 12.5 Что уже начато в текущем пакете изменений
+
+Сделан первый шаг по п.12.4(1):
+
+- frontend BFF-клиент теперь отправляет `x-operation-source=bff` и `x-client-request-id`, а также логирует связку `clientRequestId/requestId` в DEV;
+- backend принимает эти заголовки, возвращает `x-request-id` и пишет в structured log источник операции;
+- legacy fallback-ветки в `ApiService` для критичных сценариев теперь тоже маркируются в DEV-трекере источника (`legacy`), что позволяет оценивать долю `bff/legacy` во время cutover rehearsal.
+
+- frontend переведен в backend-first режим по умолчанию; legacy включается только через аварийный флаг `VITE_LEGACY_ROLLBACK_ENABLED=true`;
+- в backend добавлен auth profile `AUTH_MODE=jwt` (Bearer JWT HS256 + `JWT_SECRET`) с DEV fallback `AUTH_MODE=dev`.
+
+Это закрывает базовый фундамент для трассировки FE→BE запросов в период отключения legacy-path.
+
+
+Сводная фактология текущего cutover-состояния вынесена в `20-cutover-fact-sheet.md`.

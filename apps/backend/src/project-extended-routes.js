@@ -1,16 +1,8 @@
+import { requireActor } from './auth.js';
+import { allowByPolicy } from './policy.js';
+
 function sendError(reply, statusCode, code, message, details = null) {
   return reply.code(statusCode).send({ code, message, details, requestId: reply.request.id });
-}
-
-function getActor(req) {
-  const userId = req.headers['x-user-id'];
-  const userRole = req.headers['x-user-role'];
-  if (!userId || !userRole) return null;
-
-  return {
-    userId: decodeURIComponent(String(userId)),
-    userRole: String(userRole),
-  };
 }
 
 function formatByGroups(value, groups) {
@@ -118,9 +110,9 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/projects/:projectId/context-building-details/save', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!['admin', 'branch_manager', 'technician'].includes(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'projectExtended', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot save building details');
     }
 
@@ -280,9 +272,9 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/projects/:projectId/context-meta/save', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!['admin', 'branch_manager', 'technician'].includes(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'projectExtended', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot save context meta');
     }
 
@@ -548,9 +540,9 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   });
 
   app.put('/api/v1/projects/:projectId/passport', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!['admin', 'branch_manager', 'technician'].includes(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'projectExtended', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify project passport');
     }
 
@@ -585,9 +577,9 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   });
 
   app.put('/api/v1/projects/:projectId/participants/:role', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!['admin', 'branch_manager', 'technician'].includes(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'projectExtended', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify project participants');
     }
 
@@ -613,9 +605,9 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/projects/:projectId/documents', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!['admin', 'branch_manager', 'technician'].includes(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'projectExtended', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify project documents');
     }
 
@@ -643,9 +635,9 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   });
 
   app.delete('/api/v1/project-documents/:documentId', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!['admin', 'branch_manager', 'technician'].includes(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'projectExtended', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot delete project documents');
     }
 
@@ -656,9 +648,9 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   });
 
   app.delete('/api/v1/projects/:projectId', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!['admin', 'branch_manager'].includes(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'projectExtended', 'deleteProject')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot delete projects');
     }
 
@@ -700,9 +692,9 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   });
 
   app.put('/api/v1/basements/:basementId/parking-levels/:level', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!['admin', 'branch_manager', 'technician'].includes(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'projectExtended', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify basement levels');
     }
 
@@ -869,8 +861,11 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/versions', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'versioning', 'mutate')) {
+      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify versions');
+    }
 
     const { entityType, entityId, snapshotData, createdBy, applicationId } = req.body || {};
     if (!entityType || !entityId) return sendError(reply, 400, 'VALIDATION_ERROR', 'entityType and entityId are required');
@@ -912,8 +907,11 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/versions/:versionId/approve', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'versioning', 'mutate')) {
+      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify versions');
+    }
 
     const { versionId } = req.params;
     const approvedBy = req.body?.approvedBy || actor.userId;
@@ -952,8 +950,11 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/versions/:versionId/decline', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'versioning', 'mutate')) {
+      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify versions');
+    }
 
     const { versionId } = req.params;
     const reason = req.body?.reason || null;
@@ -988,8 +989,11 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/versions/:versionId/restore', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'versioning', 'mutate')) {
+      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify versions');
+    }
 
     const { versionId } = req.params;
 

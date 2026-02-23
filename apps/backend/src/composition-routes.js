@@ -1,3 +1,6 @@
+import { requireActor } from './auth.js';
+import { allowByPolicy } from './policy.js';
+
 function sendError(reply, statusCode, code, message, details = null) {
   return reply.code(statusCode).send({ code, message, details, requestId: reply.request.id });
 }
@@ -96,21 +99,6 @@ async function generateNextBuildingCode(supabase, projectId, category, blocksCou
   return generateBuildingCode(prefix, nextNumber);
 }
 
-function getActor(req) {
-  const userId = req.headers['x-user-id'];
-  const userRole = req.headers['x-user-role'];
-  if (!userId || !userRole) return null;
-
-  return {
-    userId: decodeURIComponent(String(userId)),
-    userRole: String(userRole),
-  };
-}
-
-function canMutateComposition(actorRole) {
-  return ['admin', 'branch_manager', 'technician'].includes(actorRole);
-}
-
 export function registerCompositionRoutes(app, { supabase }) {
   app.get('/api/v1/projects/:projectId/buildings', async (req, reply) => {
     const { projectId } = req.params;
@@ -154,9 +142,9 @@ export function registerCompositionRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/projects/:projectId/buildings', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateComposition(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'composition', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify composition');
     }
 
@@ -224,9 +212,9 @@ export function registerCompositionRoutes(app, { supabase }) {
   });
 
   app.put('/api/v1/buildings/:buildingId', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateComposition(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'composition', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify composition');
     }
 
@@ -309,9 +297,9 @@ export function registerCompositionRoutes(app, { supabase }) {
   });
 
   app.delete('/api/v1/buildings/:buildingId', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canMutateComposition(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'composition', 'mutate')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify composition');
     }
 

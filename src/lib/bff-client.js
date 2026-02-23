@@ -1,22 +1,39 @@
-const isBffEnabled = () => import.meta.env.VITE_BFF_ENABLED === 'true';
+import { trackOperationSource } from './operation-source-tracker';
+const isLegacyRollbackEnabled = () => import.meta.env.VITE_LEGACY_ROLLBACK_ENABLED === 'true';
+const isBffEnabled = () => {
+  if (isLegacyRollbackEnabled()) return false;
+
+  const raw = import.meta.env.VITE_BFF_ENABLED;
+  if (raw === undefined) return true;
+  return raw === 'true';
+};
 const getBffBaseUrl = () => import.meta.env.VITE_BFF_BASE_URL || 'http://localhost:8787';
-const isCompositionEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_COMPOSITION_ENABLED === 'true';
-const isFloorsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_FLOORS_ENABLED === 'true';
-const isEntrancesEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_ENTRANCES_ENABLED === 'true';
-const isUnitsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_UNITS_ENABLED === 'true';
-const isMopEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_MOP_ENABLED === 'true';
-const isParkingEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PARKING_ENABLED === 'true';
-const isIntegrationEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_INTEGRATION_ENABLED === 'true';
-const isCadastreEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_CADASTRE_ENABLED === 'true';
-const isProjectInitEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_INIT_ENABLED === 'true';
-const isProjectPassportEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_PASSPORT_ENABLED === 'true';
-const isBasementsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_BASEMENTS_ENABLED === 'true';
-const isVersioningEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_VERSIONING_ENABLED === 'true';
-const isFullRegistryEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_FULL_REGISTRY_ENABLED === 'true';
-const isProjectContextEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_CONTEXT_ENABLED === 'true';
-const isProjectContextDetailsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_CONTEXT_DETAILS_ENABLED === 'true';
-const isSaveMetaEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_META_ENABLED === 'true';
-const isSaveBuildingDetailsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED === 'true';
+const isCompositionEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_COMPOSITION_ENABLED !== 'false';
+const isFloorsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_FLOORS_ENABLED !== 'false';
+const isEntrancesEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_ENTRANCES_ENABLED !== 'false';
+const isUnitsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_UNITS_ENABLED !== 'false';
+const isMopEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_MOP_ENABLED !== 'false';
+const isParkingEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PARKING_ENABLED !== 'false';
+const isIntegrationEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_INTEGRATION_ENABLED !== 'false';
+const isCadastreEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_CADASTRE_ENABLED !== 'false';
+const isProjectInitEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_INIT_ENABLED !== 'false';
+const isProjectPassportEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_PASSPORT_ENABLED !== 'false';
+const isBasementsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_BASEMENTS_ENABLED !== 'false';
+const isVersioningEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_VERSIONING_ENABLED !== 'false';
+const isFullRegistryEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_FULL_REGISTRY_ENABLED !== 'false';
+const isProjectContextEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_CONTEXT_ENABLED !== 'false';
+const isProjectContextDetailsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_CONTEXT_DETAILS_ENABLED !== 'false';
+const isSaveMetaEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_META_ENABLED !== 'false';
+const isSaveBuildingDetailsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED !== 'false';
+const BFF_OPERATION_SOURCE = 'bff';
+
+const generateClientRequestId = () => {
+  if (typeof crypto?.randomUUID === 'function') {
+    return `fe-${crypto.randomUUID()}`;
+  }
+
+  return `fe-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
 
 const getAuthHeaders = (userName, userRole) => ({
   'x-user-id': encodeURIComponent(userName || 'unknown'),
@@ -49,9 +66,12 @@ class BffError extends Error {
  */
 async function request(path, options = {}) {
   const { method = 'GET', body, userName, userRole, idempotencyKey } = options;
+  const clientRequestId = generateClientRequestId();
 
   const headers = {
     'content-type': 'application/json',
+    'x-client-request-id': clientRequestId,
+    'x-operation-source': BFF_OPERATION_SOURCE,
     ...getAuthHeaders(userName, userRole),
   };
   if (idempotencyKey) headers['x-idempotency-key'] = idempotencyKey;
@@ -72,11 +92,29 @@ async function request(path, options = {}) {
     );
   }
 
+  if (import.meta.env.DEV) {
+    const requestId = res.headers.get('x-request-id') || payload?.requestId || null;
+
+    trackOperationSource({
+      source: BFF_OPERATION_SOURCE,
+      operation: `${method} ${path}`,
+      requestId,
+    });
+
+    console.info('[BFF]', method, path, {
+      operationSource: BFF_OPERATION_SOURCE,
+      clientRequestId,
+      requestId,
+      status: res.status,
+    });
+  }
+
   return payload;
 }
 
 export const BffClient = {
   isEnabled: isBffEnabled,
+  isLegacyRollbackEnabled,
   isCompositionEnabled,
   isFloorsEnabled,
   isEntrancesEnabled,

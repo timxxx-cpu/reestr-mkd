@@ -1,24 +1,11 @@
 import { createIdempotencyStore } from './idempotency-store.js';
 import { createPendingVersionsForApplication } from './versioning.js';
 import { registerProjectExtendedRoutes } from './project-extended-routes.js';
+import { requireActor } from './auth.js';
+import { allowByPolicy } from './policy.js';
 
 function sendError(reply, statusCode, code, message, details = null) {
   return reply.code(statusCode).send({ code, message, details, requestId: reply.request.id });
-}
-
-function getActor(req) {
-  const userId = req.headers['x-user-id'];
-  const userRole = req.headers['x-user-role'];
-  if (!userId || !userRole) return null;
-
-  return {
-    userId: decodeURIComponent(String(userId)),
-    userRole: String(userRole),
-  };
-}
-
-function canCreateProjectFromApplication(actorRole) {
-  return ['admin', 'branch_manager', 'technician'].includes(actorRole);
 }
 
 
@@ -194,9 +181,9 @@ async function ensureNoActiveReapplication(supabase, scope, appData) {
 export function registerProjectRoutes(app, { supabase }) {
   const idempotencyStore = createIdempotencyStore();
   app.post('/api/v1/projects/from-application', async (req, reply) => {
-    const actor = getActor(req);
-    if (!actor) return sendError(reply, 401, 'UNAUTHORIZED', 'Missing x-user-id or x-user-role');
-    if (!canCreateProjectFromApplication(actor.userRole)) {
+    const actor = requireActor(req, reply);
+    if (!actor) return;
+    if (!allowByPolicy(actor.userRole, 'projectInit', 'createFromApplication')) {
       return sendError(reply, 403, 'FORBIDDEN', 'Role cannot create project from application');
     }
 
