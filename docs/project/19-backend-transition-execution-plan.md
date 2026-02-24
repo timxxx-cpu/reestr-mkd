@@ -1,189 +1,143 @@
-# 19. Backend transition execution plan (PostgreSQL-first, Supabase DEV)
+# 19. Единый план миграции на BFF (backend-first)
 
-## Цель документа
+## Цель
 
-## 0) Статус исполнения (текущая ветка)
+Этот документ — **единый источник правды** по миграции FE→BFF:
 
-В рамках выполнения плана уже начат перенос оставшихся legacy-path:
+- текущее состояние миграции;
+- what-is-done vs what-is-left;
+- технические и процессные риски;
+- пошаговый план закрытия задач до полного cutover.
 
-- добавлены BFF feature-flags для `project passport`, `basements`, `versioning`;
-- frontend `ApiService`/`BffClient` переключают эти модули на backend при включенных флагах;
-- в backend добавлены endpoint-ы для passport/admin операций, basements и object versioning.
-- добавлен backend read-path `project full registry` и флаг `VITE_BFF_FULL_REGISTRY_ENABLED` для перевода тяжелой сводной загрузки на BFF.
-- добавлен backend read-path `project context` и флаг `VITE_BFF_PROJECT_CONTEXT_ENABLED` для переноса полной загрузки контекста проекта на BFF.
-- добавлен backend read-path `project context registry details` и флаг `VITE_BFF_PROJECT_CONTEXT_DETAILS_ENABLED` для переноса детализированных read-запросов контекста на BFF.
-- добавлен backend write-path `project context meta save` и флаг `VITE_BFF_SAVE_META_ENABLED` для переноса сохранения project/application meta в BFF-контур.
-- добавлен backend write-path `project context building-details save` и флаг `VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED` для переноса сохранения block-level конфигураций в BFF.
-- backend маршруты разнесены по модульному слою (`project-init` отдельно от extended project routes), чтобы упростить дальнейший перенос в полноценные `modules/*` и сопровождение.
-- запущен слой cutover-tracing: frontend BFF-запросы маркируются `x-operation-source=bff` и `x-client-request-id`, backend возвращает `x-request-id` и пишет structured лог источника операции.
-- во frontend DEV добавлен runtime-счетчик источников data-path с API `window.__reestrOperationSource.getSummary()/getStats()/reset()`, что позволяет быстро измерять долю `bff/legacy` в cutover rehearsal.
-- добавлен auth profile `AUTH_MODE=jwt` (Bearer JWT, HS256, `JWT_SECRET`) и сохранен `AUTH_MODE=dev` для переходного DEV режима.
-- frontend переведен на backend-first default; legacy path активируется только через аварийный `VITE_LEGACY_ROLLBACK_ENABLED=true`.
-
-Это закрывает стартовую реализацию Iteration A/B/C и формирует основу для cutover smoke в backend-only режиме.
+> Все прежние отдельные документы по BFF-миграции, статусам и roadmap объединены в этот файл.
 
 ---
 
+## 1) Текущее состояние (сверено с кодом)
 
-Этот документ фиксирует **практический план закрытия миграции на backend** в тестовом контуре, где:
+По `src/lib/bff-client.js`, `src/lib/api-service.js`, `apps/backend/src/*`:
 
-- DEV по-прежнему работает через Supabase;
-- схема данных восстанавливается из `db/reset_schema.sql`;
-- целевая модель — frontend без direct-write и backend как единая точка бизнес-мутаций.
+### 1.1 Базовый режим cutover
 
-Документ дополняет разделы `16`, `17`, `18` и переводит их в формат исполнимого плана с критериями готовности.
+- frontend работает в **backend-first** логике;
+- BFF считается включенным по default;
+- возврат на legacy-path возможен только через аварийный `VITE_LEGACY_ROLLBACK_ENABLED=true`.
 
----
+### 1.2 Что уже переведено на BFF
 
-## 1) Что уже закрыто
-
-На стороне BFF уже есть покрытие для критичных сценариев:
-
-- lock lifecycle;
-- workflow-мутации;
-- composition;
-- floors/entrances;
-- units/common areas;
-- parking sync;
+- locks lifecycle;
+- workflow-операции;
+- composition/floors/entrances/units/common areas/parking;
 - integration status + cadastre updates;
-- project init from application.
+- project init from application;
+- project passport/admin (project info, participants, documents, delete);
+- basements (read + toggle parking levels);
+- versioning (create/approve/decline/restore/snapshot/list);
+- project full registry/context/context-registry-details;
+- meta/building-details/step-block-statuses save-path;
+- buildings summary read-path.
 
-Это означает, что основной реестровый happy-path уже может работать через backend под feature-flags.
+### 1.3 Observability / auth
 
----
+- frontend отправляет `x-operation-source` и `x-client-request-id`;
+- backend возвращает `x-request-id` и пишет source-aware логи;
+- в DEV есть runtime summary источников операций;
+- поддерживаются `AUTH_MODE=dev` и `AUTH_MODE=jwt`.
 
-## 2) Что еще осталось довести для полного FE→BE перехода
+### 1.4 Что еще частично флагировано
 
-Ниже — оставшиеся направления, которые еще создают зависимость от legacy Supabase write/read path.
+Остались read-path, включаемые отдельными флагами staged rollout:
 
-## 2.1 Project passport / admin write-path (P1)
-
-Остались прямые операции, которые логически должны быть backend use-case:
-
-- обновление карточки проекта (`projects`);
-- участники проекта (`project_participants`);
-- документы проекта (`project_documents`);
-- удаление проекта;
-- тяжелая агрегированная загрузка контекста/реестра без BFF контрактов.
-
-### Что сделать
-
-1. Ввести backend endpoints для project passport и admin операций.
-2. Зафиксировать DTO-контракты и унифицировать ошибки (`code/message/details/requestId`).
-3. Переключить frontend на BFF path с модульным флагом `VITE_BFF_PROJECT_PASSPORT_ENABLED`.
-4. После стабилизации — выключить legacy write для passport-модуля.
-
-## 2.2 Basements / basement parking levels (P1)
-
-Операции по подвальным уровням пока остаются direct-write.
-
-### Что сделать
-
-1. Добавить BFF endpoints:
-   - `GET /projects/:id/basements`
-   - `PUT /basements/:id/parking-levels/:level`
-2. Добавить серверную валидацию диапазона уровней и аудит события.
-3. Включить idempotency для batch-сценариев, если появятся массовые операции.
-
-## 2.3 Object versioning API (P1/P2)
-
-Версионирование пока реализовано через frontend→Supabase path (с feature-toggle `VERSIONING_ENABLED`), что мешает полной централизации прав и аудита.
-
-### Что сделать
-
-1. Перенести CRUD и state transitions по `object_versions` в backend модуль.
-2. Свести approve/decline/restore в явные доменные endpoints.
-3. Убрать из frontend прямую запись в `object_versions`.
-4. Проверить связку с `POST /projects/from-application` и pending-version orchestration.
-
-## 2.4 Auth/RBAC hardening (P1)
-
-Текущий DEV-контекст использует `x-user-id/x-user-role`. Для устойчивого backend-only режима нужна более строгая auth-модель.
-
-### Что сделать
-
-1. Добавить auth middleware (JWT/session) как отдельный backend слой.
-2. Перенести RBAC-правила из UI-ограничений в серверные policy checks.
-3. Оставить DEV-режим заголовков только как explicit fallback profile.
-
-## 2.5 Наблюдаемость и контроль cutover (P1)
-
-Для безопасного отключения legacy-path нужны прозрачные метрики источника записи.
-
-### Что сделать
-
-1. Логировать во frontend и backend источник операции (`bff`/`legacy`) и requestId.
-2. Добавить DEV smoke-checklist в CI/ручной прогон по ключевым сценариям.
-3. Ввести «стоп-условия» релиза: если есть критичный сценарий только в legacy, direct-write не отключать.
+- `VITE_BFF_APPLICATIONS_READ_ENABLED`;
+- `VITE_BFF_CATALOGS_ENABLED`.
 
 ---
 
-## 3) Исполнимый roadmap (4 итерации)
+## 2) Оставшиеся задачи (backlog)
 
-## Iteration A — Project passport + admin API
+## 2.1 Auth/RBAC hardening (приоритет P1)
 
-**Scope:** project info, participants, documents, delete project, read aggregate (минимально необходимый).
+1. Довести policy matrix до единого server-side покрытия на всех write endpoint-ах.
+2. Зафиксировать и проверить единый формат forbidden/error ответа.
+3. Зафиксировать профиль окружений, где `AUTH_MODE=dev` запрещен.
 
-**DoD:**
+## 2.2 Финализация read-cutover (приоритет P1)
 
-- все операции passport write идут через backend при активном флаге;
-- единая ошибка backend-контракта;
-- smoke «обновить паспорт + участника + документ» проходит без Supabase write.
+1. Включить и стабилизировать BFF read-path для applications/dashboard.
+2. Включить и стабилизировать BFF read-path для catalogs/system users.
+3. После стабилизации — убрать legacy fallback по этим read-модулям.
 
-## Iteration B — Basements + parking levels
+## 2.3 Release gate и эксплуатационная готовность (приоритет P1)
 
-**Scope:** чтение/редактирование basement-модели через backend.
+1. Утвердить финальный smoke-чеклист backend-only режима.
+2. Зафиксировать stop-conditions (когда откат обязателен).
+3. Закрепить rollback-процедуру (кто, когда, как включает emergency-флаги).
 
-**DoD:**
+## 2.4 Cleanup legacy (приоритет P2)
 
-- `getBasements/toggleBasementLevel` не используют direct Supabase при активном флаге;
-- есть серверная валидация и аудит.
-
-## Iteration C — Versioning backend module
-
-**Scope:** create/approve/decline/restore/get versions snapshot через backend.
-
-**DoD:**
-
-- frontend не вызывает прямые мутации `object_versions`;
-- approve/decline/restore полностью под server-side RBAC;
-- проходит regression по workflow + versioning.
-
-## Iteration D — Cutover readiness и default backend mode
-
-**Scope:** наблюдаемость, fallback-policy, отключение legacy write по умолчанию.
-
-**DoD:**
-
-- `VITE_BFF_ENABLED=true` + модульные флаги дают полный write-path coverage;
-- legacy write выключен по умолчанию и включается только аварийно;
-- есть финальный чеклист «direct-write off».
+1. Удалить неиспользуемые direct Supabase ветки во frontend data-layer.
+2. Сократить число feature-флагов до минимального аварийного набора.
 
 ---
 
-## 4) Критерии готовности к «direct-write OFF by default»
+## 3) Единый roadmap
 
-Переключение считается безопасным, если одновременно выполняются условия:
+## Phase A — Hardening
 
-1. Для P1-модулей нет незакрытых direct-write путей.
-2. У каждого оставшегося исключения есть owner, дедлайн и rollback-план.
-3. Smoke по ключевому workflow проходит в режиме backend-only.
-4. Для ошибок есть единый backend контракт + request tracing.
-5. Документация (`13/16/18/19`) синхронизирована с фактическим кодом.
+**Scope:** RBAC/auth/error-contract.
+
+**DoD:**
+
+- write endpoints покрыты единым server-side policy-слоем;
+- зафиксирован единый формат ошибок;
+- согласованы runtime-профили auth для DEV/pre-prod/prod.
+
+## Phase B — Read cutover completion
+
+**Scope:** applications read + catalogs read.
+
+**DoD:**
+
+- staged read-флаги работают стабильно в backend-only профиле;
+- read-операции в штатном режиме идут через BFF;
+- подтверждена отсутствие критичных regressions.
+
+## Phase C — Cutover gate
+
+**Scope:** эксплуатационная приемка.
+
+**DoD:**
+
+- smoke backend-only режима проходит;
+- подтверждено отсутствие критичных legacy-path;
+- утвержден rollback runbook.
+
+## Phase D — Legacy retirement
+
+**Scope:** удаление legacy-кода.
+
+**DoD:**
+
+- удалены dead legacy ветки;
+- документация соответствует фактическому финальному коду.
 
 ---
 
-## 5) Практический рабочий режим команды до полного cutover
+## 4) Критерии готовности к `direct-write/read OFF by default`
 
-1. Новые мутации проектировать только как backend use-case.
-2. Во frontend — адаптер + feature-flag, без новой direct Supabase записи.
-3. Любую legacy ветку сопровождать задачей на удаление.
-4. После каждой итерации обновлять gap inventory и критерии отключения fallback.
+Переключение считается безопасным, если одновременно выполнено:
 
-Такой режим позволяет сохранить скорость тестового DEV-контура, но не накапливать новый технический долг в legacy write-path.
+1. Нет незакрытых P1 direct-write путей.
+2. Dashboard/catalog read-path работают через BFF в штатном профиле.
+3. Smoke backend-only проходит по ключевым пользовательским сценариям.
+4. Наблюдаемость показывает отсутствие критичных legacy операций.
+5. Error-contract и request tracing единообразны.
 
+---
 
-Актуальная единая фактология по cutover: `20-cutover-fact-sheet.md`.
+## 5) Рабочие правила команды до завершения миграции
 
-
-Для живого user-smoke после hard-switch использовать: `live-business-smoke-checklist.md`.
+1. Любая новая мутация проектируется как backend use-case.
+2. Во frontend новые direct Supabase write/read ветки не добавляются.
+3. Любая временная legacy-ветка должна иметь задачу на удаление.
+4. После каждого релизного шага обновляется **этот документ** (а не отдельные status-файлы).
