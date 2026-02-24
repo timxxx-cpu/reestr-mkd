@@ -36,6 +36,11 @@ class MockQuery {
     return this;
   }
 
+  is(column, value) {
+    this.state.filters.push({ type: 'is', column, value });
+    return this;
+  }
+
   order(column, options = {}) {
     this.state.order = { column, options };
     return this;
@@ -708,10 +713,44 @@ test('project context meta save endpoint saves project/application meta', async 
 });
 
 test('project context building-details save endpoint processes block updates', async () => {
-  const track = { blockUpdated: 0, markersReplaced: 0 };
+  const track = {
+    blockUpdated: 0,
+    markersReplaced: 0,
+    floorsSelect: 0,
+    entrancesSelect: 0,
+    matrixSelect: 0,
+    matrixDelete: 0,
+  };
   const supabase = new MockSupabase({
     buildings: {
       select: () => ({ data: [{ id: 'b1' }] }),
+    },
+    floors: {
+      select: () => {
+        track.floorsSelect += 1;
+        return { data: [] };
+      },
+      insert: () => ({ data: [] }),
+      delete: () => ({ data: [] }),
+    },
+    entrances: {
+      select: () => {
+        track.entrancesSelect += 1;
+        return { data: [] };
+      },
+      insert: () => ({ data: [] }),
+      delete: () => ({ data: [] }),
+    },
+    entrance_matrix: {
+      select: () => {
+        track.matrixSelect += 1;
+        return { data: [] };
+      },
+      upsert: () => ({ data: [] }),
+      delete: () => {
+        track.matrixDelete += 1;
+        return { data: [] };
+      },
     },
     building_blocks: {
       update: () => {
@@ -756,5 +795,8 @@ test('project context building-details save endpoint processes block updates', a
   assert.equal(res.statusCode, 200);
   assert.equal(track.blockUpdated, 1);
   assert.equal(track.markersReplaced, 1);
+  assert.equal(track.floorsSelect > 0, true);
+  assert.equal(track.entrancesSelect > 0, true);
+  assert.equal(track.matrixSelect > 0 || track.matrixDelete > 0, true);
   await app.close();
 });

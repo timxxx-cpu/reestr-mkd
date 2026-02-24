@@ -48,6 +48,175 @@ function parseFloorIdsFromQuery(raw) {
     .filter(Boolean);
 }
 
+async function fetchAllPaged(queryFactory, pageSize = 1000) {
+  let from = 0;
+  const rows = [];
+
+  while (true) {
+    const { data, error } = await queryFactory(from, from + pageSize - 1);
+    if (error) return { data: null, error };
+
+    const chunk = data || [];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { data: rows, error: null };
+}
+
+async function ensureEntranceMatrixForBlock(supabase, blockId) {
+  const [{ data: floors = [], error: floorsError }, { data: entrances = [], error: entrancesError }] =
+    await Promise.all([
+      supabase.from('floors').select('id').eq('block_id', blockId),
+      supabase.from('entrances').select('number').eq('block_id', blockId),
+    ]);
+
+  if (floorsError) return floorsError;
+  if (entrancesError) return entrancesError;
+
+  const floorIds = floors.map(row => row.id).filter(Boolean);
+  const entranceNumbers = entrances
+    .map(row => Number(row.number))
+    .filter(number => Number.isFinite(number) && number > 0);
+
+  if (floorIds.length === 0 || entranceNumbers.length === 0) {
+    const { error: clearError } = await supabase.from('entrance_matrix').delete().eq('block_id', blockId);
+    return clearError || null;
+  }
+
+  const { data: existingRows = [], error: existingError } = await supabase
+    .from('entrance_matrix')
+    .select('id, floor_id, entrance_number')
+    .eq('block_id', blockId);
+  if (existingError) return existingError;
+
+  const floorSet = new Set(floorIds);
+  const entranceSet = new Set(entranceNumbers);
+  const existingKeySet = new Set();
+  const staleIds = [];
+
+  (existingRows || []).forEach(row => {
+    const floorId = row.floor_id;
+    const entranceNumber = Number(row.entrance_number);
+    if (!floorSet.has(floorId) || !entranceSet.has(entranceNumber)) {
+      if (row.id) staleIds.push(row.id);
+      return;
+    }
+    existingKeySet.add(`${floorId}|${entranceNumber}`);
+  });
+
+  if (staleIds.length > 0) {
+    const { error: deleteError } = await supabase.from('entrance_matrix').delete().in('id', staleIds);
+    if (deleteError) return deleteError;
+  }
+
+  const missingPayload = [];
+  floorIds.forEach(floorId => {
+    entranceNumbers.forEach(entranceNumber => {
+      const key = `${floorId}|${entranceNumber}`;
+      if (existingKeySet.has(key)) return;
+      missingPayload.push({
+        block_id: blockId,
+        floor_id: floorId,
+        entrance_number: entranceNumber,
+        updated_at: new Date().toISOString(),
+      });
+    });
+  });
+
+  if (missingPayload.length > 0) {
+    const { error: upsertError } = await supabase
+      .from('entrance_matrix')
+      .upsert(missingPayload, { onConflict: 'block_id,floor_id,entrance_number' });
+    if (upsertError) return upsertError;
+  }
+
+  return null;
+}
+
+const UNIT_TYPE_PREFIXES = Object.freeze({
+  flat: 'EF',
+  duplex_up: 'EF',
+  duplex_down: 'EF',
+  office: 'EO',
+  office_inventory: 'EO',
+  non_res_block: 'EO',
+  infrastructure: 'EO',
+  parking_place: 'EP',
+});
+
+const getUnitPrefix = unitType => UNIT_TYPE_PREFIXES[unitType] || 'EF';
+
+const generateUnitCode = (prefix, sequenceNumber) => {
+  const num = parseInt(String(sequenceNumber), 10) || 0;
+  return `${prefix}${String(num).padStart(4, '0')}`;
+};
+
+const extractUnitSegment = code => {
+  if (!code) return null;
+  const str = String(code);
+  const parts = str.split('-');
+  return parts.length > 2 ? parts[parts.length - 1] : str;
+};
+
+const extractNumber = code => {
+  if (!code) return 0;
+  const match = String(code).match(/\d+$/);
+  return match ? parseInt(match[0], 10) : 0;
+};
+
+const getNextSequenceNumber = (existingCodes, prefix = null) => {
+  if (!Array.isArray(existingCodes) || existingCodes.length === 0) return 1;
+  const filtered = prefix ? existingCodes.filter(code => String(code).startsWith(prefix)) : existingCodes;
+  if (filtered.length === 0) return 1;
+  const numbers = filtered.map(extractNumber).filter(n => n > 0);
+  if (numbers.length === 0) return 1;
+  return Math.max(...numbers) + 1;
+};
+
+const resolveBuildingByFloor = async (supabase, floorId) => {
+  const { data: floor, error: floorError } = await supabase
+    .from('floors')
+    .select('block_id')
+    .eq('id', floorId)
+    .single();
+  if (floorError) return { error: floorError };
+  if (!floor?.block_id) return { buildingId: null, buildingCode: null };
+
+  const { data: block, error: blockError } = await supabase
+    .from('building_blocks')
+    .select('building_id')
+    .eq('id', floor.block_id)
+    .single();
+  if (blockError) return { error: blockError };
+  if (!block?.building_id) return { buildingId: null, buildingCode: null };
+
+  const { data: building, error: buildingError } = await supabase
+    .from('buildings')
+    .select('building_code')
+    .eq('id', block.building_id)
+    .single();
+  if (buildingError) return { error: buildingError };
+
+  return {
+    buildingId: block.building_id,
+    buildingCode: building?.building_code || null,
+  };
+};
+
+const getExistingUnitSegmentsByBuildingCode = async (supabase, buildingCode) => {
+  if (!buildingCode) return { segments: [] };
+  const { data: rows, error } = await supabase
+    .from('units')
+    .select('unit_code')
+    .ilike('unit_code', `${buildingCode}-%`);
+  if (error) return { error };
+  return {
+    segments: (rows || []).map(row => extractUnitSegment(row.unit_code)).filter(Boolean),
+  };
+};
+
 export function registerRegistryRoutes(app, { supabase }) {
   const idempotencyStore = createIdempotencyStore();
 
@@ -231,12 +400,15 @@ export function registerRegistryRoutes(app, { supabase }) {
       return acc;
     }, {});
 
-    const { data: units, error: unitsError } = await supabase
-      .from('units')
-      .select('*, rooms (*)')
-      .in('floor_id', floorIds)
-      .order('created_at', { ascending: true })
-      .order('id', { ascending: true });
+    const { data: units, error: unitsError } = await fetchAllPaged((from, to) =>
+      supabase
+        .from('units')
+        .select('*, rooms (*)')
+        .in('floor_id', floorIds)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to)
+    );
 
     if (unitsError) return sendError(reply, 500, 'DB_ERROR', unitsError.message);
     return reply.send({ units: units || [], entranceMap });
@@ -277,11 +449,28 @@ export function registerRegistryRoutes(app, { supabase }) {
       if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
       savedUnit = data;
     } else {
+      let finalUnitCode = unitData.unitCode || null;
+      if (!finalUnitCode && unitData.floorId && unitData.type) {
+        const buildingInfo = await resolveBuildingByFloor(supabase, unitData.floorId);
+        if (buildingInfo.error) return sendError(reply, 500, 'DB_ERROR', buildingInfo.error.message);
+
+        const { buildingId, buildingCode } = buildingInfo;
+        if (buildingId && unitData.type) {
+          const existingCodesRes = await getExistingUnitSegmentsByBuildingCode(supabase, buildingCode);
+          if (existingCodesRes.error) return sendError(reply, 500, 'DB_ERROR', existingCodesRes.error.message);
+
+          const prefix = getUnitPrefix(unitData.type);
+          const nextSeq = getNextSequenceNumber(existingCodesRes.segments, prefix);
+          const segment = generateUnitCode(prefix, nextSeq);
+          finalUnitCode = buildingCode ? `${buildingCode}-${segment}` : segment;
+        }
+      }
+
       const payload = {
         id: unitData.id || crypto.randomUUID(),
         floor_id: unitData.floorId,
         entrance_id: unitData.entranceId,
-        unit_code: unitData.unitCode || null,
+        unit_code: finalUnitCode,
         number: unitData.num || unitData.number,
         unit_type: unitData.type,
         has_mezzanine: !!unitData.hasMezzanine,
@@ -520,17 +709,49 @@ export function registerRegistryRoutes(app, { supabase }) {
       return reply.send(payload);
     }
 
-    const payload = unitsList.map(u => ({
-      id: u.id || crypto.randomUUID(),
-      floor_id: u.floorId,
-      entrance_id: u.entranceId,
-      number: u.num || u.number,
-      unit_type: u.type,
-      unit_code: u.unitCode || null,
-      total_area: u.area || 0,
-      status: 'free',
-      updated_at: new Date().toISOString(),
-    }));
+    const sampleUnit = unitsList[0];
+    let buildingCode = null;
+    let counters = { EF: 1, EO: 1, EP: 1 };
+
+    if (sampleUnit?.floorId) {
+      const buildingInfo = await resolveBuildingByFloor(supabase, sampleUnit.floorId);
+      if (buildingInfo.error) return sendError(reply, 500, 'DB_ERROR', buildingInfo.error.message);
+
+      buildingCode = buildingInfo.buildingCode;
+      if (buildingCode) {
+        const existingCodesRes = await getExistingUnitSegmentsByBuildingCode(supabase, buildingCode);
+        if (existingCodesRes.error) return sendError(reply, 500, 'DB_ERROR', existingCodesRes.error.message);
+
+        counters = {
+          EF: getNextSequenceNumber(existingCodesRes.segments, 'EF'),
+          EO: getNextSequenceNumber(existingCodesRes.segments, 'EO'),
+          EP: getNextSequenceNumber(existingCodesRes.segments, 'EP'),
+        };
+      }
+    }
+
+    const payload = unitsList.map(u => {
+      let finalUnitCode = u.unitCode || null;
+      if (!finalUnitCode && buildingCode && u.type) {
+        const prefix = getUnitPrefix(u.type);
+        const seq = counters[prefix] || 1;
+        const segment = generateUnitCode(prefix, seq);
+        finalUnitCode = `${buildingCode}-${segment}`;
+        counters[prefix] = seq + 1;
+      }
+
+      return {
+        id: u.id || crypto.randomUUID(),
+        floor_id: u.floorId,
+        entrance_id: u.entranceId,
+        number: u.num || u.number,
+        unit_type: u.type,
+        unit_code: finalUnitCode,
+        total_area: u.area || 0,
+        status: 'free',
+        updated_at: new Date().toISOString(),
+      };
+    });
 
     const { error } = await supabase.from('units').upsert(payload, { onConflict: 'id' });
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
@@ -738,6 +959,9 @@ export function registerRegistryRoutes(app, { supabase }) {
       if (insertErr) return sendError(reply, 500, 'DB_ERROR', insertErr.message);
     }
 
+    const matrixEnsureError = await ensureEntranceMatrixForBlock(supabase, blockId);
+    if (matrixEnsureError) return sendError(reply, 500, 'DB_ERROR', matrixEnsureError.message);
+
     const result = { ok: true, deleted: toDeleteIds.length, created: toCreateIndices.length };
     rememberIdempotentResponse(idempotencyStore, idempotencyContext, result);
     return reply.send(result);
@@ -781,12 +1005,8 @@ export function registerRegistryRoutes(app, { supabase }) {
       if (deleteErr) return sendError(reply, 500, 'DB_ERROR', deleteErr.message);
     }
 
-    const { error: matrixTrimErr } = await supabase
-      .from('entrance_matrix')
-      .delete()
-      .eq('block_id', blockId)
-      .gt('entrance_number', normalizedCount);
-    if (matrixTrimErr) return sendError(reply, 500, 'DB_ERROR', matrixTrimErr.message);
+    const matrixEnsureError = await ensureEntranceMatrixForBlock(supabase, blockId);
+    if (matrixEnsureError) return sendError(reply, 500, 'DB_ERROR', matrixEnsureError.message);
 
     const result = { ok: true, count: normalizedCount, created: toCreate.length, deleted: toDeleteIds.length };
     rememberIdempotentResponse(idempotencyStore, idempotencyContext, result);

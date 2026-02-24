@@ -1,5 +1,253 @@
 import { sendError, requirePolicyActor } from './http-helpers.js';
 
+const syncFloorsForBlock = async (supabase, blockId, details = {}, blockBasements = []) => {
+  const desiredByKey = new Map();
+  const commercialFloors = new Set((details.commercialFloors || []).map(value => String(value)));
+
+  const addFloor = floor => {
+    if (!floor?.floor_key) return;
+    desiredByKey.set(floor.floor_key, {
+      block_id: blockId,
+      floor_key: floor.floor_key,
+      index: floor.index,
+      label: floor.label,
+      floor_type: floor.floor_type,
+      parent_floor_index: floor.parent_floor_index ?? null,
+      basement_id: floor.basement_id ?? null,
+      height: floor.height ?? null,
+      area_proj: floor.area_proj ?? null,
+      is_technical: !!floor.is_technical,
+      is_commercial: !!floor.is_commercial,
+      is_stylobate: !!floor.is_stylobate,
+      is_basement: !!floor.is_basement,
+      is_attic: !!floor.is_attic,
+      is_loft: !!floor.is_loft,
+      is_roof: !!floor.is_roof,
+      updated_at: new Date().toISOString(),
+    });
+  };
+
+  const basements = Array.isArray(blockBasements) ? blockBasements : [];
+  basements.forEach((base, idx) => {
+    const depth = Math.max(1, parseInt(base?.depth, 10) || 1);
+    const baseMixed = commercialFloors.has(`basement_${base?.id}`) || commercialFloors.has('basement');
+    for (let d = depth; d >= 1; d -= 1) {
+      addFloor({
+        floor_key: `basement:${base.id}:${d}`,
+        index: -d,
+        label: basements.length > 1 ? `Подвал ${idx + 1} (этаж -${d})` : `Подвал (этаж -${d})`,
+        floor_type: 'basement',
+        basement_id: base.id,
+        is_commercial: baseMixed,
+        is_basement: true,
+      });
+    }
+  });
+
+  if (details.hasBasementFloor) {
+    addFloor({
+      floor_key: 'tsokol',
+      index: 0,
+      label: 'Цокольный этаж',
+      floor_type: 'tsokol',
+      is_commercial: commercialFloors.has('tsokol'),
+    });
+  }
+
+  const fromRaw = Number(details.floorsFrom);
+  const toRaw = Number(details.floorsTo ?? details.floorsCount);
+  const normalizedFrom = Number.isFinite(fromRaw) ? Math.max(1, Math.trunc(fromRaw)) : 1;
+  const normalizedToCandidate = Number.isFinite(toRaw) ? Math.max(1, Math.trunc(toRaw)) : normalizedFrom;
+  const normalizedTo = Math.max(normalizedFrom, normalizedToCandidate);
+
+  for (let i = normalizedFrom; i <= normalizedTo; i += 1) {
+    const floorType = commercialFloors.has(String(i)) ? 'mixed' : 'residential';
+    addFloor({
+      floor_key: `floor:${i}`,
+      index: i,
+      label: `${i} этаж`,
+      floor_type: floorType,
+      height: 3.0,
+      area_proj: 0,
+      is_commercial: floorType !== 'residential',
+    });
+  }
+
+  (details.technicalFloors || [])
+    .map(value => Number(value))
+    .filter(value => Number.isFinite(value))
+    .forEach(value => {
+      addFloor({
+        floor_key: `tech:${value}`,
+        index: value,
+        label: `${value}-Т (Технический)`,
+        floor_type: 'technical',
+        parent_floor_index: value,
+        is_technical: true,
+        is_commercial: commercialFloors.has(`${value}-Т`),
+      });
+    });
+
+  if (details.hasAttic) {
+    addFloor({
+      floor_key: 'attic',
+      index: normalizedTo + 1,
+      label: 'Мансарда',
+      floor_type: 'attic',
+      is_commercial: commercialFloors.has('attic'),
+      is_attic: true,
+    });
+  }
+
+  if (details.hasLoft) {
+    addFloor({
+      floor_key: 'loft',
+      index: normalizedTo + 2,
+      label: 'Чердак',
+      floor_type: 'loft',
+      is_commercial: commercialFloors.has('loft'),
+      is_loft: true,
+    });
+  }
+
+  if (details.hasExploitableRoof) {
+    addFloor({
+      floor_key: 'roof',
+      index: normalizedTo + 3,
+      label: 'Эксплуатируемая кровля',
+      floor_type: 'roof',
+      is_commercial: commercialFloors.has('roof'),
+      is_roof: true,
+    });
+  }
+
+  const { data: existingRows, error: existingError } = await supabase
+    .from('floors')
+    .select('id, floor_key')
+    .eq('block_id', blockId);
+  if (existingError) return existingError;
+
+  const existingByKey = new Map((existingRows || []).map(row => [row.floor_key, row.id]));
+  const desiredKeys = new Set(desiredByKey.keys());
+  const toDeleteIds = (existingRows || []).filter(row => !desiredKeys.has(row.floor_key)).map(row => row.id);
+  if (toDeleteIds.length > 0) {
+    const { error: deleteError } = await supabase.from('floors').delete().in('id', toDeleteIds);
+    if (deleteError) return deleteError;
+  }
+
+  const upsertPayload = Array.from(desiredByKey.entries()).map(([floorKey, row]) => ({
+    ...row,
+    id: existingByKey.get(floorKey) || crypto.randomUUID(),
+  }));
+  if (upsertPayload.length > 0) {
+    const { error: upsertError } = await supabase.from('floors').upsert(upsertPayload, { onConflict: 'id' });
+    if (upsertError) return upsertError;
+  }
+
+  return null;
+};
+
+const syncEntrancesForBlock = async (supabase, blockId, entrancesCount) => {
+  const normalizedCount = Math.max(0, parseInt(entrancesCount, 10) || 0);
+
+  const { data: existing, error: existingError } = await supabase
+    .from('entrances')
+    .select('id, number')
+    .eq('block_id', blockId);
+  if (existingError) return existingError;
+
+  const existingRows = existing || [];
+  const existingNumbers = new Set(existingRows.map(row => Number(row.number)));
+
+  const toInsert = [];
+  for (let i = 1; i <= normalizedCount; i += 1) {
+    if (!existingNumbers.has(i)) toInsert.push({ block_id: blockId, number: i });
+  }
+  if (toInsert.length > 0) {
+    const { error: insertError } = await supabase.from('entrances').insert(toInsert);
+    if (insertError) return insertError;
+  }
+
+  const toDeleteIds = existingRows.filter(row => Number(row.number) > normalizedCount).map(row => row.id);
+  if (toDeleteIds.length > 0) {
+    const { error: deleteError } = await supabase.from('entrances').delete().in('id', toDeleteIds);
+    if (deleteError) return deleteError;
+  }
+
+  return null;
+};
+
+const ensureEntranceMatrixForBlock = async (supabase, blockId) => {
+  const [{ data: floors = [], error: floorsError }, { data: entrances = [], error: entrancesError }] =
+    await Promise.all([
+      supabase.from('floors').select('id').eq('block_id', blockId),
+      supabase.from('entrances').select('number').eq('block_id', blockId),
+    ]);
+
+  if (floorsError) return floorsError;
+  if (entrancesError) return entrancesError;
+
+  const floorIds = floors.map(row => row.id).filter(Boolean);
+  const entranceNumbers = entrances
+    .map(row => Number(row.number))
+    .filter(number => Number.isFinite(number) && number > 0);
+
+  if (floorIds.length === 0 || entranceNumbers.length === 0) {
+    const { error: clearError } = await supabase.from('entrance_matrix').delete().eq('block_id', blockId);
+    if (clearError) return clearError;
+    return null;
+  }
+
+  const { data: existingRows = [], error: existingError } = await supabase
+    .from('entrance_matrix')
+    .select('id, floor_id, entrance_number')
+    .eq('block_id', blockId);
+  if (existingError) return existingError;
+
+  const floorIdSet = new Set(floorIds);
+  const entranceSet = new Set(entranceNumbers);
+  const existingKeySet = new Set();
+  const staleIds = [];
+
+  (existingRows || []).forEach(row => {
+    const floorId = row.floor_id;
+    const entranceNumber = Number(row.entrance_number);
+    if (!floorIdSet.has(floorId) || !entranceSet.has(entranceNumber)) {
+      if (row.id) staleIds.push(row.id);
+      return;
+    }
+    existingKeySet.add(`${floorId}|${entranceNumber}`);
+  });
+
+  if (staleIds.length > 0) {
+    const { error: staleDeleteError } = await supabase.from('entrance_matrix').delete().in('id', staleIds);
+    if (staleDeleteError) return staleDeleteError;
+  }
+
+  const missingPayload = [];
+  floorIds.forEach(floorId => {
+    entranceNumbers.forEach(entranceNumber => {
+      const key = `${floorId}|${entranceNumber}`;
+      if (existingKeySet.has(key)) return;
+      missingPayload.push({
+        block_id: blockId,
+        floor_id: floorId,
+        entrance_number: entranceNumber,
+        updated_at: new Date().toISOString(),
+      });
+    });
+  });
+
+  if (missingPayload.length > 0) {
+    const { error: upsertError } = await supabase
+      .from('entrance_matrix')
+      .upsert(missingPayload, { onConflict: 'block_id,floor_id,entrance_number' });
+    if (upsertError) return upsertError;
+  }
+
+  return null;
+};
+
 function formatByGroups(value, groups) {
   const digits = String(value || '').replace(/\D/g, '');
   const maxLen = groups.reduce((sum, n) => sum + n, 0);
@@ -123,6 +371,8 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
 
     const knownBuildingIds = new Set((buildings || []).map(b => b.id));
 
+    const basementsByBlockId = new Map();
+
     for (const [key, details] of Object.entries(buildingDetails)) {
       if (key.includes('_features')) {
         const buildingId = key.replace('_features', '');
@@ -131,6 +381,19 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
 
         for (const base of basements) {
           if (!base.id || !base.depth) continue;
+
+          const linkedBlockIds = Array.isArray(base.blocks)
+            ? base.blocks.filter(id => typeof id === 'string' && id.length === 36)
+            : [];
+          if (base.blockId && typeof base.blockId === 'string' && base.blockId.length === 36) {
+            linkedBlockIds.push(base.blockId);
+          }
+
+          linkedBlockIds.forEach(blockId => {
+            const list = basementsByBlockId.get(blockId) || [];
+            list.push({ id: base.id, depth: base.depth });
+            basementsByBlockId.set(blockId, list);
+          });
 
           const { error: basementError } = await supabase.from('basements').upsert(
             {
@@ -187,6 +450,20 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
 
       const { error: blockError } = await supabase.from('building_blocks').update(blockUpdate).eq('id', blockId);
       if (blockError) return sendError(reply, 500, 'DB_ERROR', blockError.message);
+
+      const floorSyncError = await syncFloorsForBlock(
+        supabase,
+        blockId,
+        details,
+        basementsByBlockId.get(blockId) || []
+      );
+      if (floorSyncError) return sendError(reply, 500, 'DB_ERROR', floorSyncError.message);
+
+      const entrancesSyncError = await syncEntrancesForBlock(supabase, blockId, details.entrances || details.inputs);
+      if (entrancesSyncError) return sendError(reply, 500, 'DB_ERROR', entrancesSyncError.message);
+
+      const matrixSyncError = await ensureEntranceMatrixForBlock(supabase, blockId);
+      if (matrixSyncError) return sendError(reply, 500, 'DB_ERROR', matrixSyncError.message);
 
       const markerTechSet = new Set(
         (details.technicalFloors || [])
@@ -402,6 +679,49 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
     }
 
     return reply.send({ ok: true, projectId, applicationId });
+  });
+
+  app.post('/api/v1/projects/:projectId/step-block-statuses/save', async (req, reply) => {
+    const actor = requirePolicyActor(req, reply, {
+      module: 'projectExtended',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot save step block statuses',
+    });
+    if (!actor) return;
+
+    const { projectId } = req.params;
+    const scope = String(req.body?.scope || '').trim();
+    const stepIndexRaw = Number(req.body?.stepIndex);
+    const stepIndex = Number.isFinite(stepIndexRaw) ? Math.trunc(stepIndexRaw) : null;
+    const statuses = req.body?.statuses || {};
+
+    if (!scope) return sendError(reply, 400, 'VALIDATION_ERROR', 'scope is required');
+    if (stepIndex === null || stepIndex < 0) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'stepIndex must be a non-negative number');
+    }
+
+    const { data: app, error: appErr } = await supabase
+      .from('applications')
+      .select('id')
+      .eq('scope_id', scope)
+      .eq('project_id', projectId)
+      .maybeSingle();
+    if (appErr) return sendError(reply, 500, 'DB_ERROR', appErr.message);
+    if (!app?.id) return sendError(reply, 404, 'NOT_FOUND', 'Application not found');
+
+    const payload = {
+      application_id: app.id,
+      step_index: stepIndex,
+      block_statuses: statuses,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from('application_steps')
+      .upsert(payload, { onConflict: 'application_id,step_index' });
+    if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+
+    return reply.send({ applicationId: app.id, stepIndex, blockStatuses: payload.block_statuses });
   });
 
   app.get('/api/v1/projects/:projectId/context-registry-details', async (req, reply) => {

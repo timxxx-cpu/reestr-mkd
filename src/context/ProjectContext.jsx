@@ -207,7 +207,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       if (!confirm('Удалить объект?')) return;
 
       try {
-        await ApiService.deleteBuilding(buildingId);
+        await ApiService.deleteBuilding(buildingId, actor);
         const newComposition = mergedState.composition.filter(b => b.id !== buildingId);
         setProjectMeta(prev => ({ ...prev, composition: newComposition }));
         toast.success('Объект удален');
@@ -215,7 +215,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         toast.error('Ошибка удаления');
       }
     },
-    [effectiveReadOnly, toast, mergedState.composition]
+    [effectiveReadOnly, toast, mergedState.composition, actor]
   );
 
   const updateStatus = useCallback(async (_newStatus, _newStage = null, _comment = null) => {
