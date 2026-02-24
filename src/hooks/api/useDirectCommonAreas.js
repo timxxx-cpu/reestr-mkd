@@ -67,11 +67,15 @@ export function useDirectCommonAreas(blockId, floorIds = []) {
     },
   });
 
-  const deleteMutation = useMutation({
+ const deleteMutation = useMutation({
     /**
      * @param {string} id
      */
-    mutationFn: id => ApiService.deleteCommonArea(id, actor),
+    mutationFn: async id => {
+      // Блокируем отправку временных ID на сервер
+      if (!id || String(id).startsWith('temp-')) return Promise.resolve();
+      return ApiService.deleteCommonArea(id, actor);
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
   });
 

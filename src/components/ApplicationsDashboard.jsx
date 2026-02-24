@@ -212,13 +212,13 @@ const DashboardActionModal = ({ config, onCancel, onConfirm, technicians = [] })
                   {config.label || 'Выберите вариант'}
                 </label>
                 <select
-  className="..."
+  className="w-full p-3 rounded-xl border border-slate-200 text-sm font-medium bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:border-blue-500 focus:ring-blue-100 transition-all"
   value={inputValue}
   onChange={(e) => setInputValue(e.target.value)}
 >
   {technicians.map((tech) => (
     <option key={tech.code || tech.id || tech.name} value={tech.code || tech.name}>
-      {tech.name} ({tech.code || 'техник'})
+      {tech.name} ({tech.role === ROLES.CONTROLLER ? 'контролер' : 'техник'})
     </option>
   ))}
 </select>
@@ -343,7 +343,10 @@ const ApplicationsDashboard = ({
     ApiService.getSystemUsers()
       .then(users => {
         if (!mounted) return;
-        setTechnicians((users || []).filter(u => u.role === ROLES.TECHNICIAN));
+        // Разрешаем передачу заявок техникам и контролерам
+        setTechnicians((users || []).filter(u => 
+          u.role === ROLES.TECHNICIAN || u.role === ROLES.CONTROLLER
+        ));
       })
       .catch(() => {
         if (mounted) setTechnicians([]);

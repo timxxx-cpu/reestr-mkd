@@ -142,11 +142,11 @@ export default function MopEditor({ buildingId, onBack }) {
   // Stylobate Logic
   const [linkedStylobateFloors, setLinkedStylobateFloors] = useState([]);
   
-  useEffect(() => {
+useEffect(() => {
     let cancelled = false;
     const loadLinkedStylobateFloors = async () => {
       if (!building?.blocks?.length || !currentBlock?.id || currentBlock.type !== 'residential') {
-        if (!cancelled) setLinkedStylobateFloors([]);
+        if (!cancelled) setLinkedStylobateFloors(prev => prev.length === 0 ? prev : []);
         return;
       }
       const linkedStylobateBlocks = building.blocks.filter(block => {
@@ -157,7 +157,7 @@ export default function MopEditor({ buildingId, onBack }) {
       });
 
       if (linkedStylobateBlocks.length === 0) {
-        if (!cancelled) setLinkedStylobateFloors([]);
+        if (!cancelled) setLinkedStylobateFloors(prev => prev.length === 0 ? prev : []);
         return;
       }
 
@@ -166,16 +166,22 @@ export default function MopEditor({ buildingId, onBack }) {
           linkedStylobateBlocks.map(block => ApiService.getFloors(block.id))
         );
         const stylobateFloors = floorsByBlock.flat().filter(floor => isLinkedStylobateFloor(floor));
-        if (!cancelled) setLinkedStylobateFloors(stylobateFloors);
+        if (!cancelled) {
+          // УМНОЕ ОБНОВЛЕНИЕ: обновляем только если данные реально изменились
+          setLinkedStylobateFloors(prev => {
+            const prevIds = prev.map(f => f.id).sort().join(',');
+            const nextIds = stylobateFloors.map(f => f.id).sort().join(',');
+            return prevIds === nextIds ? prev : stylobateFloors;
+          });
+        }
       } catch (e) {
         console.error('Failed to load linked stylobate floors for mop', e);
-        if (!cancelled) setLinkedStylobateFloors([]);
+        if (!cancelled) setLinkedStylobateFloors(prev => prev.length === 0 ? prev : []);
       }
     };
     loadLinkedStylobateFloors();
     return () => { cancelled = true; };
   }, [building, buildingDetails, currentBlock]);
-
   const linkedStylobateFloorIds = useMemo(
     () => linkedStylobateFloors.map(f => f.id).filter(Boolean),
     [linkedStylobateFloors]
@@ -223,8 +229,9 @@ export default function MopEditor({ buildingId, onBack }) {
   const [showWarningModal, setShowWarningModal] = useState(false);
 
   useEffect(() => {
-    setSelection(new Set());
-    setDraftRows([]);
+    // УМНОЕ ОБНОВЛЕНИЕ: не перезаписываем пустые массивы и сеты, если они уже пустые
+    setSelection(prev => prev.size === 0 ? prev : new Set());
+    setDraftRows(prev => prev.length === 0 ? prev : []);
   }, [activeBlockIndex]);
 
   // --- HELPER: GET TARGET QTY ---
@@ -412,10 +419,10 @@ export default function MopEditor({ buildingId, onBack }) {
 
   const clearSelection = () => setSelection(new Set());
 
-  // --- EDITOR LOGIC ---
   useEffect(() => {
     if (selection.size === 0) {
-        setDraftRows([]);
+        // УМНОЕ ОБНОВЛЕНИЕ
+        setDraftRows(prev => prev.length === 0 ? prev : []);
         return;
     }
 
@@ -438,7 +445,11 @@ export default function MopEditor({ buildingId, onBack }) {
         return { id: null, type: '', area: '', height: '' };
     });
 
-    setDraftRows(fixedRows);
+    // УМНОЕ ОБНОВЛЕНИЕ: глубокое сравнение, чтобы не вызывать бесконечный цикл
+    setDraftRows(prev => {
+      if (JSON.stringify(prev) === JSON.stringify(fixedRows)) return prev;
+      return fixedRows;
+    });
 
   }, [selection, mopGrid]);
 
@@ -484,7 +495,10 @@ export default function MopEditor({ buildingId, onBack }) {
       
       const existing = mopGrid[floorId]?.[entranceId] || [];
       for (const m of existing) {
-        await deleteMop(m.id);
+        // Удаляем только записи с настоящим ID из БД
+        if (m.id && !String(m.id).startsWith('temp-')) {
+          await deleteMop(m.id);
+        }
       }
 
       for (const row of draftRows) {
@@ -512,7 +526,10 @@ export default function MopEditor({ buildingId, onBack }) {
       const [floorId, entranceId] = key.split('_');
       const existing = mopGrid[floorId]?.[entranceId] || [];
       for (const m of existing) {
-        await deleteMop(m.id);
+        // Удаляем только записи с настоящим ID из БД
+        if (m.id && !String(m.id).startsWith('temp-')) {
+          await deleteMop(m.id);
+        }
       }
     });
     await Promise.all(updates);
