@@ -53,20 +53,20 @@ export function useDirectFloors(blockId) {
     },
   });
 
-  // --- GENERATE FLOORS (SYNC) ---
+ // --- GENERATE FLOORS (SYNC) ---
   const generateMutation = useMutation({
-    /**
-     * @param {{ floorsFrom: number, floorsTo: number, defaultType?: string }} params
-     */
-    mutationFn: ({ floorsFrom, floorsTo, defaultType }) =>
-      ApiService.generateFloors(blockId, floorsFrom, floorsTo, defaultType, actor),
+    // Параметры floorsFrom/floorsTo больше не нужны, бэкенд берет их из БД
+    mutationFn: () =>
+      // В ApiService.generateFloors мы можем передавать undefined/null для старых параметров, 
+      // главное передать blockId и actor.
+      ApiService.generateFloors(blockId, null, null, null, actor),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
-      toast.success('Сетка этажей обновлена');
+      toast.success('Сетка этажей синхронизирована с конфигурацией');
     },
     onError: err => {
       console.error(err);
-      toast.error('Ошибка генерации этажей');
+      toast.error('Ошибка синхронизации этажей');
     },
   });
 

@@ -1,5 +1,6 @@
 import { createIdempotencyStore } from './idempotency-store.js';
 import { sendError, requirePolicyActor } from './http-helpers.js';
+import { generateFloorsModel } from './floor-generator.js';
 import crypto from 'crypto';
 
 function buildIdempotencyContext(req, actor) {
@@ -906,7 +907,7 @@ export function registerRegistryRoutes(app, { supabase }) {
     return reply.send(data);
   });
 
-  app.post('/api/v1/blocks/:blockId/floors/reconcile', async (req, reply) => {
+ app.post('/api/v1/blocks/:blockId/floors/reconcile', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
       module: 'registry',
       action: 'mutate',
@@ -918,52 +919,82 @@ export function registerRegistryRoutes(app, { supabase }) {
     if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
 
     const { blockId } = req.params;
-    const floorsFrom = Number(req.body?.floorsFrom || 1);
-    const floorsTo = Number(req.body?.floorsTo || 1);
-    const defaultType = req.body?.defaultType || 'residential';
 
-    const normalizedFrom = Number.isFinite(floorsFrom) ? floorsFrom : 1;
-    const normalizedTo = Number.isFinite(floorsTo) ? floorsTo : 1;
+    // ШАГ 1: Сбор полного контекста из БД
+    const { data: block, error: blockErr } = await supabase
+      .from('building_blocks')
+      .select('*')
+      .eq('id', blockId)
+      .single();
+    if (blockErr || !block) return sendError(reply, 500, 'DB_ERROR', blockErr?.message || 'Block not found');
 
-    const { data: existing, error: fetchErr } = await supabase
-      .from('floors')
-      .select('id, index')
-      .eq('block_id', blockId);
-    if (fetchErr) return sendError(reply, 500, 'DB_ERROR', fetchErr.message);
+    const [
+      { data: building },
+      { data: allBlocks },
+      { data: basements },
+      { data: markers },
+      { data: existingFloors }
+    ] = await Promise.all([
+      supabase.from('buildings').select('*').eq('id', block.building_id).single(),
+      supabase.from('building_blocks').select('*').eq('building_id', block.building_id),
+      supabase.from('basements').select('*').eq('building_id', block.building_id),
+      supabase.from('block_floor_markers').select('*').eq('block_id', blockId),
+      supabase.from('floors').select('id, floor_key').eq('block_id', blockId) // Берем текущие этажи
+    ]);
 
-    const existingRows = existing || [];
-    const existingIndices = new Set(existingRows.map(e => Number(e.index)));
-    const targetIndices = new Set();
-    for (let i = normalizedFrom; i <= normalizedTo; i += 1) targetIndices.add(i);
+    // ШАГ 2: Генерация целевой модели этажей
+    const targetFloorsModel = generateFloorsModel(
+      block, 
+      building, 
+      allBlocks || [], 
+      basements || [], 
+      markers || []
+    );
 
-    const toDeleteIds = existingRows.filter(e => !targetIndices.has(Number(e.index))).map(e => e.id);
-    const toCreateIndices = Array.from(targetIndices).filter(i => !existingIndices.has(i));
+    // ШАГ 3: Diff и Синхронизация (Upsert & Delete)
+    const existingFloorsMap = new Map((existingFloors || []).map(f => [f.floor_key, f.id]));
+    const toUpsert = [];
+    const targetKeys = new Set();
 
+    targetFloorsModel.forEach(targetFloor => {
+      targetKeys.add(targetFloor.floor_key);
+      const existingId = existingFloorsMap.get(targetFloor.floor_key);
+      
+      if (existingId) {
+        // Если этаж уже есть, сохраняем его UUID, чтобы не удалились связанные Units и MOP
+        toUpsert.push({ ...targetFloor, id: existingId, updated_at: new Date().toISOString() });
+      } else {
+        // Если этажа нет, создадим новый
+        toUpsert.push({ ...targetFloor, id: crypto.randomUUID() });
+      }
+    });
+
+    // Находим этажи, которые есть в БД, но их больше нет в целевой модели
+    const toDeleteIds = (existingFloors || [])
+      .filter(f => !targetKeys.has(f.floor_key))
+      .map(f => f.id);
+
+    // Выполняем мутации
     if (toDeleteIds.length > 0) {
       const { error: deleteErr } = await supabase.from('floors').delete().in('id', toDeleteIds);
       if (deleteErr) return sendError(reply, 500, 'DB_ERROR', deleteErr.message);
     }
 
-    if (toCreateIndices.length > 0) {
-      const payload = toCreateIndices.map(i => ({
-        block_id: blockId,
-        index: i,
-        label: `${i} этаж`,
-        floor_type: defaultType,
-        floor_key: `floor:${i}`,
-        height: 3.0,
-        area_proj: 0,
-        is_commercial: defaultType === 'office',
-        is_technical: false,
-      }));
-      const { error: insertErr } = await supabase.from('floors').insert(payload);
-      if (insertErr) return sendError(reply, 500, 'DB_ERROR', insertErr.message);
+    if (toUpsert.length > 0) {
+      const { error: upsertErr } = await supabase.from('floors').upsert(toUpsert, { onConflict: 'id' });
+      if (upsertErr) return sendError(reply, 500, 'DB_ERROR', upsertErr.message);
     }
 
+    // ШАГ 4: Перестроение матрицы подъездов
     const matrixEnsureError = await ensureEntranceMatrixForBlock(supabase, blockId);
     if (matrixEnsureError) return sendError(reply, 500, 'DB_ERROR', matrixEnsureError.message);
 
-    const result = { ok: true, deleted: toDeleteIds.length, created: toCreateIndices.length };
+    const result = { 
+      ok: true, 
+      deleted: toDeleteIds.length, 
+      upserted: toUpsert.length 
+    };
+    
     rememberIdempotentResponse(idempotencyStore, idempotencyContext, result);
     return reply.send(result);
   });
