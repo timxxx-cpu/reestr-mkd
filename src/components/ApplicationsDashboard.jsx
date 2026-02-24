@@ -100,10 +100,10 @@ const DashboardActionModal = ({ config, onCancel, onConfirm, technicians = [] })
 
   // Инициализация значения для селекта (первый техник)
   useEffect(() => {
-    if (config.type === 'select' && technicians.length > 0 && !inputValue) {
-      setInputValue(technicians[0].name);
-    }
-  }, [config.type, technicians, inputValue]);
+  if (config.type === 'select' && technicians.length > 0 && !inputValue) {
+    setInputValue(technicians[0].code || technicians[0].name);
+  }
+}, [config.type, technicians, inputValue]);
 
   const handleSubmit = () => {
     const trimmed = typeof inputValue === 'string' ? inputValue.trim() : inputValue;
@@ -212,16 +212,16 @@ const DashboardActionModal = ({ config, onCancel, onConfirm, technicians = [] })
                   {config.label || 'Выберите вариант'}
                 </label>
                 <select
-                  className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                >
-                  {technicians.map((tech) => (
-                    <option key={tech.id || tech.name} value={tech.name}>
-                      {tech.name}
-                    </option>
-                  ))}
-                </select>
+  className="..."
+  value={inputValue}
+  onChange={(e) => setInputValue(e.target.value)}
+>
+  {technicians.map((tech) => (
+    <option key={tech.code || tech.id || tech.name} value={tech.code || tech.name}>
+      {tech.name} ({tech.code || 'техник'})
+    </option>
+  ))}
+</select>
              </div>
           )}
         </div>
@@ -672,9 +672,12 @@ const ApplicationsDashboard = ({
     }
 
     // 2. Фильтр по исполнителю (только в разделе задач)
-    if (scope === 'workdesk' && assigneeFilter === 'mine') {
-      filtered = filtered.filter(p => p.applicationInfo?.assigneeName === user.name);
-    }
+   if (scope === 'workdesk' && assigneeFilter === 'mine') {
+  filtered = filtered.filter(p => {
+    const assignee = p.applicationInfo?.assigneeName;
+    return assignee === user.name || assignee === user.code;
+  });
+}
 
     // 3. Глобальный поиск
     if (searchTerm) {
@@ -1083,7 +1086,7 @@ const ProjectsTable = ({
                 const currentStepIdx = app.currentStepIndex || 0;
                 const stepTitle = STEPS_CONFIG[currentStepIdx]?.title || 'Завершено';
 
-                const isAssignedToCurrentTechnician = !app.assigneeName || app.assigneeName === user.name;
+                const isAssignedToCurrentTechnician = !app.assigneeName || app.assigneeName === user.name || app.assigneeName === user.code;
                 const canEdit =
                   (user.role === ROLES.TECHNICIAN &&
                     isAssignedToCurrentTechnician &&
@@ -1277,12 +1280,12 @@ const ProjectsTable = ({
                             <Tooltip content="Взять в работу">
                               <button
                                 onClick={() => {
-                                  if (user.role === ROLES.TECHNICIAN && app.assigneeName && app.assigneeName !== user.name) {
-                                    alert(`Заявка назначена на ${app.assigneeName}`);
-                                    return;
-                                  }
-                                  onSelect(p.id, 'edit');
-                                }}
+                       if (user.role === ROLES.TECHNICIAN && app.assigneeName && app.assigneeName !== user.name && app.assigneeName !== user.code) {
+                             alert(`Заявка назначена на ${app.assigneeName}`);
+                               return;
+                                 }
+                               onSelect(p.id, 'edit');
+                                  }}
                                 className="group/btn flex items-center gap-2 pl-3 pr-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-md shadow-blue-200 hover:shadow-lg transition-all active:scale-95"
                               >
                                 <PlayCircle size={14} className="group-hover/btn:fill-white/20" /> Открыть
