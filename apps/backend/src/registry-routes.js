@@ -1,5 +1,6 @@
 import { createIdempotencyStore } from './idempotency-store.js';
 import { sendError, requirePolicyActor } from './http-helpers.js';
+import crypto from 'crypto';
 
 function buildIdempotencyContext(req, actor) {
   const rawKey = req.headers['x-idempotency-key'];
