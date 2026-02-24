@@ -1,9 +1,4 @@
-import { requireActor } from './auth.js';
-import { allowByPolicy } from './policy.js';
-
-function sendError(reply, statusCode, code, message, details = null) {
-  return reply.code(statusCode).send({ code, message, details, requestId: reply.request.id });
-}
+import { sendError, requirePolicyActor } from './http-helpers.js';
 
 function formatByGroups(value, groups) {
   const digits = String(value || '').replace(/\D/g, '');
@@ -41,11 +36,12 @@ export function registerIntegrationRoutes(app, { supabase }) {
   });
 
   app.put('/api/v1/projects/:projectId/integration-status', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'integration',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify integration data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'integration', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify integration data');
-    }
 
     const { projectId } = req.params;
     const field = req.body?.field;
@@ -78,11 +74,12 @@ export function registerIntegrationRoutes(app, { supabase }) {
   });
 
   app.put('/api/v1/buildings/:buildingId/cadastre', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'integration',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify cadastre data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'integration', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify cadastre data');
-    }
 
     const { buildingId } = req.params;
     const cadastre = formatBuildingCadastre(req.body?.cadastre);
@@ -101,11 +98,12 @@ export function registerIntegrationRoutes(app, { supabase }) {
   });
 
   app.put('/api/v1/units/:unitId/cadastre', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'integration',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify cadastre data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'integration', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify cadastre data');
-    }
 
     const { unitId } = req.params;
     const cadastre = req.body?.cadastre || null;

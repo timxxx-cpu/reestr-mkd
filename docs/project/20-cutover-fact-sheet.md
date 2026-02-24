@@ -16,11 +16,15 @@
 
 1. Workflow/locks, registry core, passport/admin, basements, versioning — имеют BFF path.
 2. Observability базового cutover-уровня внедрена.
-3. Backend import-safe и покрыт тестами observability headers + jwt auth gate.
+3. UI-операция `DECLINE` в dashboard переведена на backend-aware service path (без прямых Supabase writes в компоненте).
+4. Восстановлен smoke-script `npm run test:smoke` (статический workflow-check критичного маршрута).
+5. Buildings registry summary read-path переведен в BFF-first (`GET /api/v1/registry/buildings-summary`, флаг `VITE_BFF_REGISTRY_SUMMARY_ENABLED`).
+6. Backend import-safe и покрыт тестами observability headers + jwt auth gate.
+7. Расширена унификация backend guard-слоя: на общий helper `http-helpers` (`sendError` + `requirePolicyActor`) переведены `registry-routes`, `integration-routes`, `composition-routes`, `project-routes`, `project-extended-routes` (включая versioning/basements/passport/admin API).
 
 ## 3) Что остается до финального cutover
 
-1. Перенести route-модули backend на единый auth/policy helper без дублей проверок.
+1. Завершить перенос оставшихся route-модулей backend на единый auth/policy helper без дублей проверок (основной оставшийся блок: workflow endpoints в `server.js`).
 2. Довести RBAC policy matrix до единого server-side слоя (module-level).
 3. Прогнать бизнес smoke в живом окружении с реальными сценариями пользователей.
 4. Подтвердить отсутствие критичных legacy path в DEV summary.

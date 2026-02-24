@@ -10,6 +10,7 @@ const criticalChecks = [
   { name: 'getBasements', mustContain: "if (BffClient.isBasementsEnabled())" },
   { name: 'createVersion', mustContain: "if (BffClient.isVersioningEnabled())" },
   { name: 'getProjectFullRegistry', mustContain: "if (BffClient.isFullRegistryEnabled())" },
+  { name: 'getBuildingsRegistrySummary', mustContain: "if (BffClient.isRegistrySummaryEnabled())" },
 ];
 
 const results = criticalChecks.map(item => ({

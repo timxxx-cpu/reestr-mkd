@@ -11,7 +11,7 @@ import {
   School,
   MapPin
 } from 'lucide-react';
-import { supabase } from '@lib/supabase';
+import { ApiService } from '@lib/api-service';
 import { TableSkeleton } from '@components/ui/UIKit';
 
 const BuildingsRegistryTable = ({ onSelectBuilding }) => {
@@ -27,12 +27,7 @@ const BuildingsRegistryTable = ({ onSelectBuilding }) => {
   const fetchBuildings = async () => {
     try {
       setLoading(true);
-      const { data: buildings, error } = await supabase
-        .from('view_registry_buildings_summary')
-        .select('*')
-        .order('project_name', { ascending: true });
-
-      if (error) throw error;
+      const buildings = await ApiService.getBuildingsRegistrySummary();
       setData(buildings || []);
     } catch (err) {
       console.error('Ошибка загрузки реестра зданий:', err);

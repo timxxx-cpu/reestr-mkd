@@ -1,6 +1,6 @@
 # Cutover smoke report
 
-- generatedAt: 2026-02-23T14:29:54.809Z
+- generatedAt: 2026-02-24T04:00:01.019Z
 - mode: backend-first (all BFF flags true, legacy rollback disabled)
 - result: PASS
 
@@ -26,14 +26,15 @@
   "VITE_BFF_PROJECT_CONTEXT_ENABLED": "true",
   "VITE_BFF_PROJECT_CONTEXT_DETAILS_ENABLED": "true",
   "VITE_BFF_SAVE_META_ENABLED": "true",
-  "VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED": "true"
+  "VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED": "true",
+  "VITE_BFF_REGISTRY_SUMMARY_ENABLED": "true"
 }
 ```
 
 ## Checks
 
-- ✅ npm test --prefix apps/backend (1333ms)
-- ✅ npm run build (9472ms)
+- ✅ npm test --prefix apps/backend (1546ms)
+- ✅ npm run build (9096ms)
 
 ## Next actions
 

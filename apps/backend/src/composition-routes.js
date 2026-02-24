@@ -1,9 +1,4 @@
-import { requireActor } from './auth.js';
-import { allowByPolicy } from './policy.js';
-
-function sendError(reply, statusCode, code, message, details = null) {
-  return reply.code(statusCode).send({ code, message, details, requestId: reply.request.id });
-}
+import { sendError, requirePolicyActor } from './http-helpers.js';
 
 function mapBlockTypeToUi(dbType) {
   if (dbType === 'Ж') return 'residential';
@@ -142,11 +137,12 @@ export function registerCompositionRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/projects/:projectId/buildings', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'composition',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify composition',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'composition', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify composition');
-    }
 
     const { projectId } = req.params;
     const buildingData = req.body?.buildingData || {};
@@ -212,11 +208,12 @@ export function registerCompositionRoutes(app, { supabase }) {
   });
 
   app.put('/api/v1/buildings/:buildingId', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'composition',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify composition',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'composition', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify composition');
-    }
 
     const { buildingId } = req.params;
     const buildingData = req.body?.buildingData || {};
@@ -297,11 +294,12 @@ export function registerCompositionRoutes(app, { supabase }) {
   });
 
   app.delete('/api/v1/buildings/:buildingId', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'composition',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify composition',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'composition', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify composition');
-    }
 
     const { buildingId } = req.params;
     const { error } = await supabase.from('buildings').delete().eq('id', buildingId);

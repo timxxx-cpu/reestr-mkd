@@ -498,31 +498,22 @@ const ApplicationsDashboard = ({
 
       // 3. ОТКАЗ ОТ ЗАЯВКИ (АДМИН/МЕНЕДЖЕР)
       else if (type === 'DECLINE') {
-        const { projectId, projectAppId, projectName } = payload;
+        const { projectAppId } = payload;
         const reason = result; // result - текст причины
-        
-        const { supabase } = await import('@lib/supabase');
-        await supabase
-          .from('applications')
-          .update({
-            status: APP_STATUS.DECLINED,
-            workflow_substatus:
-              user.role === ROLES.BRANCH_MANAGER
-                ? WORKFLOW_SUBSTATUS.DECLINED_BY_MANAGER
-                : user.role === ROLES.CONTROLLER
-                  ? WORKFLOW_SUBSTATUS.DECLINED_BY_CONTROLLER
-                  : WORKFLOW_SUBSTATUS.DECLINED_BY_ADMIN,
-            updated_at: new Date(),
-          })
-          .eq('id', projectAppId);
-          
-        await supabase.from('application_history').insert({
-          application_id: projectAppId,
-          action: 'DECLINE',
-          prev_status: payload.currentStatus, // Добавим в payload при вызове
-          next_status: APP_STATUS.DECLINED,
-          user_name: user.name,
-          comment: reason,
+        const nextSubstatus =
+          user.role === ROLES.BRANCH_MANAGER
+            ? WORKFLOW_SUBSTATUS.DECLINED_BY_MANAGER
+            : user.role === ROLES.CONTROLLER
+              ? WORKFLOW_SUBSTATUS.DECLINED_BY_CONTROLLER
+              : WORKFLOW_SUBSTATUS.DECLINED_BY_ADMIN;
+
+        await ApiService.declineApplication({
+          applicationId: projectAppId,
+          nextSubstatus,
+          prevStatus: payload.currentStatus,
+          userName: user.name,
+          userRole: user.role,
+          reason,
         });
         toast.success('Заявление отклонено');
       }

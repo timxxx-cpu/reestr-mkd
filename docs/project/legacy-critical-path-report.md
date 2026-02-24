@@ -12,6 +12,7 @@
 - ✅ getBasements
 - ✅ createVersion
 - ✅ getProjectFullRegistry
+- ✅ getBuildingsRegistrySummary
 
 ## Note
 

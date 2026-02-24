@@ -25,6 +25,7 @@ const isProjectContextEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF
 const isProjectContextDetailsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_CONTEXT_DETAILS_ENABLED !== 'false';
 const isSaveMetaEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_META_ENABLED !== 'false';
 const isSaveBuildingDetailsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED !== 'false';
+const isRegistrySummaryEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_REGISTRY_SUMMARY_ENABLED !== 'false';
 const BFF_OPERATION_SOURCE = 'bff';
 
 const generateClientRequestId = () => {
@@ -132,6 +133,9 @@ export const BffClient = {
   isProjectContextDetailsEnabled,
   isSaveMetaEnabled,
   isSaveBuildingDetailsEnabled,
+  isRegistrySummaryEnabled,
+
+  getRegistryBuildingsSummary: () => request('/api/v1/registry/buildings-summary'),
 
   getBuildings: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/buildings`),
