@@ -8,12 +8,12 @@ const isBffEnabled = () => {
   return raw === 'true';
 };
 const getBffBaseUrl = () => import.meta.env.VITE_BFF_BASE_URL || 'http://localhost:8787';
-const isCompositionEnabled = () => true;
-const isFloorsEnabled = () => true;
-const isEntrancesEnabled = () => true;
-const isUnitsEnabled = () => true;
-const isMopEnabled = () => true;
-const isParkingEnabled = () => true;
+const isCompositionEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_COMPOSITION_ENABLED !== 'false';
+const isFloorsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_FLOORS_ENABLED !== 'false';
+const isEntrancesEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_ENTRANCES_ENABLED !== 'false';
+const isUnitsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_UNITS_ENABLED !== 'false';
+const isMopEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_MOP_ENABLED !== 'false';
+const isParkingEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PARKING_ENABLED !== 'false';
 const isIntegrationEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_INTEGRATION_ENABLED !== 'false';
 const isCadastreEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_CADASTRE_ENABLED !== 'false';
 const isProjectInitEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_INIT_ENABLED !== 'false';
@@ -25,7 +25,7 @@ const isProjectContextEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF
 const isProjectContextDetailsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_CONTEXT_DETAILS_ENABLED !== 'false';
 const isSaveMetaEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_META_ENABLED !== 'false';
 const isSaveBuildingDetailsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED !== 'false';
-const isRegistrySummaryEnabled = () => true;
+const isRegistrySummaryEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_REGISTRY_SUMMARY_ENABLED !== 'false';
 const BFF_OPERATION_SOURCE = 'bff';
 
 const generateClientRequestId = () => {
