@@ -158,6 +158,14 @@ export const BffClient = {
       body: { scope, complexInfo, applicationInfo },
     }),
 
+  saveStepBlockStatuses: ({ scope, projectId, stepIndex, statuses, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/step-block-statuses/save`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { scope, stepIndex, statuses },
+    }),
+
   saveProjectBuildingDetails: ({ projectId, buildingDetails, userName, userRole }) =>
     request(`/api/v1/projects/${projectId}/context-building-details/save`, {
       method: 'POST',

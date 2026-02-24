@@ -701,6 +701,18 @@ const LegacyApiService = {
   },
 
   saveStepBlockStatuses: async ({ scope, projectId, stepIndex, statuses }) => {
+    if (BffClient.isEnabled()) {
+      const resolvedActor = resolveActor({});
+      return BffClient.saveStepBlockStatuses({
+        scope,
+        projectId,
+        stepIndex,
+        statuses,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
+      });
+    }
+
     const { data: app, error: appErr } = await supabase
       .from('applications')
       .select('id')
