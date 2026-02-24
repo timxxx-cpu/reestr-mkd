@@ -8,7 +8,7 @@ import { registerIntegrationRoutes } from './integration-routes.js';
 import { registerProjectRoutes } from './project-routes.js';
 import { createIdempotencyStore } from './idempotency-store.js';
 import { installAuthMiddleware, requireActor } from './auth.js';
-import { allowByPolicy } from './policy.js';
+import { sendError, requirePolicyActor } from './http-helpers.js';
 
 const INTEGRATION_START_IDX = 12;
 const LAST_STEP_INDEX_BY_STAGE = {
@@ -125,10 +125,6 @@ function tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)
 function rememberIdempotentResponse(idempotencyStore, idempotencyContext, payload) {
   if (!idempotencyContext) return;
   idempotencyStore.set(idempotencyContext.cacheKey, idempotencyContext.fingerprint, payload);
-}
-
-function sendError(reply, statusCode, code, message, details = null) {
-  return reply.code(statusCode).send({ code, message, details, requestId: reply.request.id });
 }
 
 async function ensureActorLock(supabase, applicationId, actorUserId) {
@@ -267,7 +263,11 @@ export async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/locks/acquire', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'workflow',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot mutate workflow',
+    });
     if (!actor) return;
 
     const { applicationId } = req.params;
@@ -291,7 +291,11 @@ export async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/locks/refresh', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'workflow',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot mutate workflow',
+    });
     if (!actor) return;
 
     const { applicationId } = req.params;
@@ -314,7 +318,11 @@ export async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/locks/release', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'workflow',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot mutate workflow',
+    });
     if (!actor) return;
 
     const { applicationId } = req.params;
@@ -335,7 +343,11 @@ export async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/complete-step', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'workflow',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot mutate workflow',
+    });
     if (!actor) return;
 
     const { applicationId } = req.params;
@@ -389,7 +401,11 @@ export async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/rollback-step', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'workflow',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot mutate workflow',
+    });
     if (!actor) return;
 
     const { applicationId } = req.params;
@@ -431,7 +447,11 @@ export async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/review-approve', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'workflow',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot mutate workflow',
+    });
     if (!actor) return;
 
     const { applicationId } = req.params;
@@ -469,7 +489,11 @@ export async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/review-reject', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'workflow',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot mutate workflow',
+    });
     if (!actor) return;
 
     const { applicationId } = req.params;
@@ -508,17 +532,17 @@ export async function buildServer() {
 
 
   app.post('/api/v1/applications/:applicationId/workflow/assign-technician', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'workflow',
+      action: 'assignTechnician',
+      forbiddenMessage: 'Only admin or branch_manager can assign technician',
+    });
     if (!actor) return;
 
     const idempotencyContext = buildIdempotencyContext(req, actor);
     if (tryServeIdempotentResponse(workflowIdempotencyStore, idempotencyContext, reply)) return;
 
-    if (!allowByPolicy(actor.userRole, 'workflow', 'assignTechnician')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Only admin or branch_manager can assign technician');
-    }
-
-    const { applicationId } = req.params;
+        const { applicationId } = req.params;
     const assigneeUserId = req.body?.assigneeUserId;
     const reason = req.body?.reason || null;
 
@@ -550,11 +574,12 @@ export async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/request-decline', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'workflow',
+      action: 'requestDecline',
+      forbiddenMessage: 'Role cannot request decline',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'workflow', 'requestDecline')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot request decline');
-    }
 
     const { applicationId } = req.params;
     const reason = req.body?.reason || null;
@@ -600,11 +625,12 @@ export async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/decline', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'workflow',
+      action: 'decline',
+      forbiddenMessage: 'Role cannot decline application',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'workflow', 'decline')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot decline application');
-    }
 
     const { applicationId } = req.params;
     const reason = req.body?.reason || null;
@@ -653,11 +679,12 @@ export async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/return-from-decline', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'workflow',
+      action: 'returnFromDecline',
+      forbiddenMessage: 'Only admin or branch_manager can return from decline',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'workflow', 'assignTechnician')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Only admin or branch_manager can return from decline');
-    }
 
     const { applicationId } = req.params;
     const comment = req.body?.comment || null;
@@ -698,11 +725,12 @@ export async function buildServer() {
   });
 
   app.post('/api/v1/applications/:applicationId/workflow/restore', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'workflow',
+      action: 'restore',
+      forbiddenMessage: 'Only admin can restore application',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'workflow', 'restore')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Only admin can restore application');
-    }
 
     const { applicationId } = req.params;
     const comment = req.body?.comment || null;

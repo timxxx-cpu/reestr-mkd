@@ -27,6 +27,10 @@ export const POLICY_MATRIX = Object.freeze({
   },
   versioning: {
     mutate: ['admin', 'branch_manager', 'technician', 'controller'],
+    create: ['admin', 'branch_manager', 'technician'],
+    approve: ['admin', 'branch_manager', 'controller'],
+    decline: ['admin', 'branch_manager', 'controller'],
+    restore: ['admin', 'branch_manager'],
   },
 });
 

@@ -114,3 +114,122 @@ test('jwt auth mode accepts signed bearer token and passes auth gate', async () 
     await app.close();
   }
 });
+
+test('workflow mutate endpoint is policy-protected for unknown role', async () => {
+  process.env.AUTH_MODE = 'dev';
+  process.env.JWT_SECRET = '';
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/applications/app-1/workflow/complete-step',
+      headers: {
+        'x-user-id': 'test-user',
+        'x-user-role': 'guest',
+      },
+      payload: { stepIndex: 1 },
+    });
+
+    assert.equal(response.statusCode, 403);
+    assert.equal(response.json().code, 'FORBIDDEN');
+  } finally {
+    await app.close();
+  }
+});
+
+test('assign-technician endpoint enforces workflow action policy', async () => {
+  process.env.AUTH_MODE = 'dev';
+  process.env.JWT_SECRET = '';
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/applications/app-1/workflow/assign-technician',
+      headers: {
+        'x-user-id': 'test-user',
+        'x-user-role': 'technician',
+      },
+      payload: { assigneeUserId: 'next-tech' },
+    });
+
+    assert.equal(response.statusCode, 403);
+    assert.equal(response.json().code, 'FORBIDDEN');
+  } finally {
+    await app.close();
+  }
+});
+
+
+test('version approve endpoint denies technician by policy', async () => {
+  process.env.AUTH_MODE = 'dev';
+  process.env.JWT_SECRET = '';
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/versions/ver-1/approve',
+      headers: {
+        'x-user-id': 'test-user',
+        'x-user-role': 'technician',
+      },
+      payload: {},
+    });
+
+    assert.equal(response.statusCode, 403);
+    assert.equal(response.json().code, 'FORBIDDEN');
+  } finally {
+    await app.close();
+  }
+});
+
+test('version approve endpoint allows controller through policy gate', async () => {
+  process.env.AUTH_MODE = 'dev';
+  process.env.JWT_SECRET = '';
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/versions/ver-1/approve',
+      headers: {
+        'x-user-id': 'controller-user',
+        'x-user-role': 'controller',
+      },
+      payload: {},
+    });
+
+    assert.notEqual(response.statusCode, 403);
+  } finally {
+    await app.close();
+  }
+});
+
+test('version restore endpoint allows branch_manager through policy gate', async () => {
+  process.env.AUTH_MODE = 'dev';
+  process.env.JWT_SECRET = '';
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/versions/ver-1/restore',
+      headers: {
+        'x-user-id': 'manager-user',
+        'x-user-role': 'branch_manager',
+      },
+      payload: {},
+    });
+
+    assert.notEqual(response.statusCode, 403);
+  } finally {
+    await app.close();
+  }
+});
