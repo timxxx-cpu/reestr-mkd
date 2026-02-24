@@ -639,11 +639,14 @@ export default function App() {
     if (!selectedPersona) return;
     setIsAuthLoading(true);
     try {
-      const signedInUser = await AuthService.signInDemo(selectedPersona);
+      // Вызываем реальный логин и передаем .code (это 'timur_admin', 'abdu_manager' и т.д.)
+      const signedInUser = await AuthService.login(selectedPersona.code);
       setFirebaseUser(signedInUser);
       setActivePersona(selectedPersona);
     } catch (error) {
       console.error('Login failed', error);
+      // Опционально: можно добавить вывод ошибки пользователю
+      alert('Ошибка входа. Сервер недоступен или неверный код.');
     } finally {
       setIsAuthLoading(false);
     }

@@ -9,6 +9,7 @@ import { registerProjectRoutes } from './project-routes.js';
 import { createIdempotencyStore } from './idempotency-store.js';
 import { installAuthMiddleware, requireActor } from './auth.js';
 import { sendError, requirePolicyActor } from './http-helpers.js';
+import { registerAuthRoutes } from './auth-routes.js';
 
 const INTEGRATION_START_IDX = 12;
 const LAST_STEP_INDEX_BY_STAGE = {
@@ -238,6 +239,7 @@ export async function buildServer() {
   installAuthMiddleware(app, config);
   app.get('/health', async () => ({ ok: true }));
 
+  registerAuthRoutes(app, { supabase, config });
   registerCompositionRoutes(app, { supabase });
   registerRegistryRoutes(app, { supabase });
   registerIntegrationRoutes(app, { supabase });

@@ -17,9 +17,25 @@ const decodeBase64Url = value => {
   return Buffer.from(normalized, 'base64').toString('utf8');
 };
 
+const encodeBase64Url = (obj) => {
+  const b64 = Buffer.from(JSON.stringify(obj)).toString('base64');
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+
 const signHs256 = (headerB64, payloadB64, secret) => {
   const data = `${headerB64}.${payloadB64}`;
   return createHmac('sha256', secret).update(data).digest('base64url');
+};
+
+export const generateJwtHs256 = (payload, secret, expiresInMs = 24 * 60 * 60 * 1000) => {
+  const headerB64 = encodeBase64Url({ alg: 'HS256', typ: 'JWT' });
+  const payloadB64 = encodeBase64Url({
+    ...payload,
+    exp: Math.floor((Date.now() + expiresInMs) / 1000),
+    iat: Math.floor(Date.now() / 1000)
+  });
+  const signatureB64 = signHs256(headerB64, payloadB64, secret);
+  return `${headerB64}.${payloadB64}.${signatureB64}`;
 };
 
 const parseJwtHs256 = (token, secret) => {
@@ -64,7 +80,6 @@ export const buildAuthContext = req => {
       authType: 'headers',
     };
   }
-
   return null;
 };
 
@@ -72,7 +87,8 @@ export const installAuthMiddleware = (app, config) => {
   const authMode = config.authMode || 'dev';
 
   app.addHook('preHandler', async (req, reply) => {
-    if (!req.url.startsWith('/api/v1/')) return;
+    // Пропускаем роут логина, так как токена еще нет
+    if (!req.url.startsWith('/api/v1/') || req.url.startsWith('/api/v1/auth/login')) return;
 
     const authHeader = req.headers.authorization;
     const bearer = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
@@ -88,8 +104,7 @@ export const installAuthMiddleware = (app, config) => {
         const userRole = String(payload.role || payload.userRole || payload.user_role || '').trim();
         if (userId && userRole) {
           jwtAuth = { userId, userRole, authType: 'jwt' };
-          req.headers['x-user-id'] = encodeURIComponent(userId);
-          req.headers['x-user-role'] = userRole;
+          // Больше не прокидываем обратно в заголовки, храним только в контексте
         }
       } else if (authMode === 'jwt') {
         return reply.code(401).send({
@@ -108,7 +123,8 @@ export const installAuthMiddleware = (app, config) => {
       });
     }
 
-    const fallbackAuth = buildAuthContext(req);
+    // Если режим DEV, позволяем фоллбэк на заголовки. Иначе — строго JWT.
+    const fallbackAuth = authMode === 'dev' ? buildAuthContext(req) : null;
     const auth = jwtAuth || fallbackAuth;
 
     if (authMode === 'jwt' && !auth) {
@@ -126,19 +142,10 @@ export const installAuthMiddleware = (app, config) => {
 
 export const hasAnyRole = (role, roles = []) => roles.includes(role);
 
-
 export const getActorFromRequest = req => {
-  if (req.authContext?.userId && req.authContext?.userRole) return req.authContext;
-
-  const directUserId = req.headers['x-user-id'];
-  const directUserRole = req.headers['x-user-role'];
-  if (!directUserId || !directUserRole) return null;
-
-  return {
-    userId: decodeURIComponent(String(directUserId)),
-    userRole: String(directUserRole),
-    authType: 'headers',
-  };
+  // СТРОГАЯ БЕЗОПАСНОСТЬ: Доверяем ТОЛЬКО контексту, который сформировал middleware
+  // Никакого чтения req.headers['x-user-id'] здесь быть не должно, чтобы исключить спуфинг.
+  return req.authContext || null;
 };
 
 export const requireActor = (req, reply) => {
@@ -152,6 +159,5 @@ export const requireActor = (req, reply) => {
     });
     return null;
   }
-
   return actor;
 };

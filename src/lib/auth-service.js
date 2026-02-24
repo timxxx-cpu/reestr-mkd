@@ -1,37 +1,54 @@
-// src/lib/auth-service.js
+const getBffBaseUrl = () => import.meta.env.VITE_BFF_BASE_URL || 'http://localhost:8787';
+
+// Простой массив подписчиков для замены функционала Firebase onAuthStateChanged
+let subscribers = [];
+
 export const AuthService = {
-  // Эмуляция входа
-  signInDemo: async (persona = null) => {
-    const user = {
-      uid: persona?.id || 'test-user-id',
-      email: 'dev@reestr.uz',
-      displayName: persona?.name || 'Разработчик',
-      role: persona?.role || 'admin',
-      personaId: persona?.id || null,
-    };
-    localStorage.setItem('mock_user', JSON.stringify(user));
-    return user;
+  // Реальный логин через бэкенд
+  async login(username) {
+    const res = await fetch(`${getBffBaseUrl()}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username })
+    });
+
+    if (!res.ok) throw new Error(`Ошибка авторизации: ${res.status}`);
+    
+    const data = await res.json();
+    
+    // Сохраняем токен
+    localStorage.setItem('jwt_token', data.token);
+    localStorage.setItem('current_user', JSON.stringify(data.user));
+    
+    // Уведомляем React (App.jsx), что пользователь вошел
+    subscribers.forEach(cb => cb(data.user));
+    
+    return data.user;
   },
 
-  logout: async () => {
-    localStorage.removeItem('mock_user');
+  logout() {
+    localStorage.removeItem('jwt_token');
+    localStorage.removeItem('current_user');
+    subscribers.forEach(cb => cb(null));
     window.location.reload();
   },
 
-  // Эмуляция подписки на состояние
-  subscribe: callback => {
-    const saved = localStorage.getItem('mock_user');
-    const user = saved ? JSON.parse(saved) : null;
-
-    // Сразу возвращаем юзера (или null)
-    callback(user);
-
-    // Возвращаем пустую функцию отписки
-    return () => {};
+  getToken() {
+    return localStorage.getItem('jwt_token');
   },
 
-  getCurrentUser: () => {
-    const saved = localStorage.getItem('mock_user');
-    return saved ? JSON.parse(saved) : null;
-  },
+  // Метод, который использует App.jsx (useEffect) для прослушивания статуса
+  subscribe(cb) {
+    subscribers.push(cb);
+    // При подписке сразу отдаем текущего юзера, если он есть в кэше
+    const userStr = localStorage.getItem('current_user');
+    if (userStr) {
+      cb(JSON.parse(userStr));
+    } else {
+      cb(null);
+    }
+    return () => {
+      subscribers = subscribers.filter(fn => fn !== cb);
+    };
+  }
 };

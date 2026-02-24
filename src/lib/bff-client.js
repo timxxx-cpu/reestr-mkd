@@ -1,3 +1,4 @@
+import { AuthService } from './auth-service';
 import { trackOperationSource } from './operation-source-tracker';
 const isLegacyRollbackEnabled = () => import.meta.env.VITE_LEGACY_ROLLBACK_ENABLED === 'true';
 const isBffEnabled = () => {
@@ -36,10 +37,14 @@ const generateClientRequestId = () => {
   return `fe-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
 
-const getAuthHeaders = (userName, userRole) => ({
-  'x-user-id': encodeURIComponent(userName || 'unknown'),
-  'x-user-role': userRole || 'technician',
-});
+const getAuthHeaders = () => {
+  const token = AuthService.getToken();
+  if (!token) return {}; 
+  
+  return {
+    'Authorization': `Bearer ${token}`
+  };
+};
 
 // 1. Создаем кастомный класс ошибки, чтобы VS Code знал о полях code и details
 class BffError extends Error {
@@ -72,7 +77,7 @@ async function request(path, options = {}) {
   const headers = {
     'x-client-request-id': clientRequestId,
     'x-operation-source': BFF_OPERATION_SOURCE,
-    ...getAuthHeaders(userName, userRole),
+    ...getAuthHeaders(),
   };
   if (idempotencyKey) headers['x-idempotency-key'] = idempotencyKey;
   if (body !== undefined && body !== null) {
