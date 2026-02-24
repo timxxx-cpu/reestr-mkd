@@ -82,6 +82,7 @@
 - Добавлен backend read-endpoint `GET /projects/:id/context-registry-details` и frontend-switch под флаг `VITE_BFF_PROJECT_CONTEXT_DETAILS_ENABLED` для переноса детальных реестровых read (markers/floors/matrix/units/mop) из frontend fan-out в BFF.
 - Добавлен backend write-endpoint `POST /projects/:id/context-meta/save` и frontend-switch под флаг `VITE_BFF_SAVE_META_ENABLED` для переноса meta-save (`complexInfo/applicationInfo`) с frontend direct-write на BFF.
 - Добавлен backend write-endpoint `POST /projects/:id/context-building-details/save` и frontend-switch под флаг `VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED` для переноса сохранения `buildingDetails` (blocks/markers/basements/construction/engineering) на BFF.
+- Добавлен backend read-endpoint `GET /registry/buildings-summary` и frontend-switch под флаг `VITE_BFF_REGISTRY_SUMMARY_ENABLED` для загрузки сводной таблицы реестра зданий через BFF без direct Supabase-read из UI-компонента.
 
 
 ## Update: observability и cutover tracing (новый приоритет P1)
@@ -97,8 +98,12 @@
 - `BffClient` отправляет `x-operation-source=bff` и `x-client-request-id`;
 - в DEV frontend пишет корреляционный лог (`clientRequestId` + backend `requestId`);
 - backend принимает заголовки, возвращает `x-request-id` и логирует источник операции;
+- расширена унификация backend auth/policy проверок через общий helper (`http-helpers`): в `registry`, `integration`, `composition`, `project-init`, `project-extended` routes убраны локальные дубли guard-кода;
 - в `ApiService` добавлен DEV-tracking legacy fallback-веток для критичных операций (workflow lock/mutations, project-init fallback, cadastre fallback, versioning fallback, full-registry fallback) через `trackOperationSource`.
 - добавлен DEV helper API для среза долей `bff/legacy`: `window.__reestrOperationSource.getSummary()` / `getStats()` / `reset()`.
+- завершен перенос UI-операции `DECLINE` в `ApplicationsDashboard`: direct-Supabase update/history insert удалены, используется `ApiService.declineApplication(...)` (BFF/legacy controlled в service-слое).
+- восстановлен smoke-script `npm run test:smoke`: добавлен `tests/workflow-smoke.test.mjs` для проверки критичного маршрута DECLINE через ApiService и отсутствия direct UI-write.
+- завершен перенос read-path `BuildingsRegistryTable`: загрузка summary идет через `ApiService.getBuildingsRegistrySummary()` (BFF-first), legacy Supabase-read оставлен только как controlled fallback в service-слое.
 
 ### Что еще осталось по observability
 

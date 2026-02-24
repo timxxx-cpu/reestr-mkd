@@ -1,10 +1,5 @@
 import { createIdempotencyStore } from './idempotency-store.js';
-import { requireActor } from './auth.js';
-import { allowByPolicy } from './policy.js';
-
-function sendError(reply, statusCode, code, message, details = null) {
-  return reply.code(statusCode).send({ code, message, details, requestId: reply.request.id });
-}
+import { sendError, requirePolicyActor } from './http-helpers.js';
 
 function buildIdempotencyContext(req, actor) {
   const rawKey = req.headers['x-idempotency-key'];
@@ -56,6 +51,15 @@ function parseFloorIdsFromQuery(raw) {
 export function registerRegistryRoutes(app, { supabase }) {
   const idempotencyStore = createIdempotencyStore();
 
+  app.get('/api/v1/registry/buildings-summary', async (req, reply) => {
+    const { data, error } = await supabase
+      .from('view_registry_buildings_summary')
+      .select('*')
+      .order('project_name', { ascending: true });
+
+    if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+    return reply.send(data || []);
+  });
 
   app.get('/api/v1/projects/:projectId/parking-counts', async (req, reply) => {
     const { projectId } = req.params;
@@ -103,11 +107,12 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/floors/:floorId/parking-places/sync', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify registry data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
-    }
 
     const idempotencyContext = buildIdempotencyContext(req, actor);
     if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
@@ -238,11 +243,12 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/units/upsert', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify registry data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
-    }
 
     const unitData = req.body || {};
     const isPatch = !!unitData.id && (unitData.floorId === undefined || unitData.type === undefined);
@@ -321,11 +327,12 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/blocks/:blockId/units/reconcile', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify registry data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
-    }
 
     const idempotencyContext = buildIdempotencyContext(req, actor);
     if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
@@ -414,11 +421,12 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/blocks/:blockId/common-areas/reconcile', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify registry data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
-    }
 
     const idempotencyContext = buildIdempotencyContext(req, actor);
     if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
@@ -495,11 +503,12 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/units/batch-upsert', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify registry data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
-    }
 
     const idempotencyContext = buildIdempotencyContext(req, actor);
     if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
@@ -532,11 +541,12 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/common-areas/upsert', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify registry data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
-    }
 
     const payload = {
       id: req.body?.id,
@@ -563,11 +573,12 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.delete('/api/v1/common-areas/:id', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify registry data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
-    }
 
     const { id } = req.params;
     const { error } = await supabase.from('common_areas').delete().eq('id', id);
@@ -577,11 +588,12 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/blocks/:blockId/common-areas/clear', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify registry data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
-    }
 
     const { blockId } = req.params;
     const extraFloorIds = parseFloorIdsFromQuery(req.body?.floorIds);
@@ -641,11 +653,12 @@ export function registerRegistryRoutes(app, { supabase }) {
     return reply.send(data || []);
   });
   app.put('/api/v1/floors/:floorId', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify registry data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
-    }
 
     const { floorId } = req.params;
     const updates = req.body?.updates || {};
@@ -672,11 +685,12 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/blocks/:blockId/floors/reconcile', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify registry data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
-    }
 
     const idempotencyContext = buildIdempotencyContext(req, actor);
     if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
@@ -730,11 +744,12 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.post('/api/v1/blocks/:blockId/entrances/reconcile', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify registry data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
-    }
 
     const idempotencyContext = buildIdempotencyContext(req, actor);
     if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
@@ -779,11 +794,12 @@ export function registerRegistryRoutes(app, { supabase }) {
   });
 
   app.put('/api/v1/blocks/:blockId/entrance-matrix/cell', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot modify registry data',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'registry', 'mutate')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot modify registry data');
-    }
 
     const { blockId } = req.params;
     const floorId = req.body?.floorId;

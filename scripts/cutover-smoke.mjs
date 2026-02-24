@@ -21,6 +21,7 @@ const flags = {
   VITE_BFF_PROJECT_CONTEXT_DETAILS_ENABLED: 'true',
   VITE_BFF_SAVE_META_ENABLED: 'true',
   VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED: 'true',
+  VITE_BFF_REGISTRY_SUMMARY_ENABLED: 'true',
 };
 
 const run = (cmd, env = {}) => {

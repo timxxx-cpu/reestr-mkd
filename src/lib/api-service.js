@@ -1660,6 +1660,22 @@ const LegacyApiService = {
 
   // --- STANDARD API METHODS (Existing ones preserved) ---
 
+  getBuildingsRegistrySummary: async () => {
+    if (BffClient.isRegistrySummaryEnabled()) {
+      return BffClient.getRegistryBuildingsSummary();
+    }
+
+    trackLegacyPath('getBuildingsRegistrySummary');
+
+    const { data, error } = await supabase
+      .from('view_registry_buildings_summary')
+      .select('*')
+      .order('project_name', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  },
+
   getBuildings: async projectId => {
     if (BffClient.isCompositionEnabled()) {
       return BffClient.getBuildings({ projectId });

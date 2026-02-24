@@ -1,12 +1,7 @@
 import { createIdempotencyStore } from './idempotency-store.js';
 import { createPendingVersionsForApplication } from './versioning.js';
 import { registerProjectExtendedRoutes } from './project-extended-routes.js';
-import { requireActor } from './auth.js';
-import { allowByPolicy } from './policy.js';
-
-function sendError(reply, statusCode, code, message, details = null) {
-  return reply.code(statusCode).send({ code, message, details, requestId: reply.request.id });
-}
+import { sendError, requirePolicyActor } from './http-helpers.js';
 
 
 function buildIdempotencyContext(req, actor) {
@@ -181,11 +176,12 @@ async function ensureNoActiveReapplication(supabase, scope, appData) {
 export function registerProjectRoutes(app, { supabase }) {
   const idempotencyStore = createIdempotencyStore();
   app.post('/api/v1/projects/from-application', async (req, reply) => {
-    const actor = requireActor(req, reply);
+    const actor = requirePolicyActor(req, reply, {
+      module: 'projectInit',
+      action: 'createFromApplication',
+      forbiddenMessage: 'Role cannot create project from application',
+    });
     if (!actor) return;
-    if (!allowByPolicy(actor.userRole, 'projectInit', 'createFromApplication')) {
-      return sendError(reply, 403, 'FORBIDDEN', 'Role cannot create project from application');
-    }
 
     const idempotencyContext = buildIdempotencyContext(req, actor);
     if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
