@@ -866,8 +866,8 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   app.post('/api/v1/versions', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
       module: 'versioning',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify versions',
+      action: 'create',
+      forbiddenMessage: 'Role cannot create versions',
     });
     if (!actor) return;
 
@@ -913,8 +913,8 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   app.post('/api/v1/versions/:versionId/approve', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
       module: 'versioning',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify versions',
+      action: 'approve',
+      forbiddenMessage: 'Role cannot approve versions',
     });
     if (!actor) return;
 
@@ -957,8 +957,8 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   app.post('/api/v1/versions/:versionId/decline', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
       module: 'versioning',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify versions',
+      action: 'decline',
+      forbiddenMessage: 'Role cannot decline versions',
     });
     if (!actor) return;
 
@@ -997,8 +997,8 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
   app.post('/api/v1/versions/:versionId/restore', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
       module: 'versioning',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify versions',
+      action: 'restore',
+      forbiddenMessage: 'Role cannot restore versions',
     });
     if (!actor) return;
 

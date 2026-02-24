@@ -505,3 +505,124 @@
 
 
 Сводная фактология текущего cutover-состояния вынесена в `20-cutover-fact-sheet.md`.
+
+---
+
+## 13) Актуальный статус по фазам и план закрытия
+
+Ниже — пересборка фаз из раздела 3 с учетом фактического состояния (раздел 12 и `20-cutover-fact-sheet.md`).
+
+### 13.1 Статус фаз
+
+1. **Фаза 1 (архитектура и инвентаризация)** — **выполнена**.
+   - Карта сценариев и миграционный backlog сформированы в документах `13/18/19`.
+
+2. **Фаза 2 (каркас backend)** — **выполнена**.
+   - BFF поднят, есть health/error contract/idempotency, модульные роуты и базовая трассировка.
+
+3. **Фаза 3 (auth/roles/access)** — **частично**.
+   - `AUTH_MODE=jwt` уже есть, но полный server-side policy matrix и унификация guard-слоя на всех workflow endpoint еще не завершены.
+
+4. **Фаза 4 (workflow + locks, P0)** — **закрыта**.
+   - P0 endpoint-ы реализованы и переведены на единый guard/helper слой (`requirePolicyActor` + `sendError`) в backend workflow route-ах.
+
+5. **Фаза 5 (registry operations, P1)** — **закрыта (operational done)**.
+   - Registry read/write-path переведен в BFF-only режим; legacy fallback для реестровых операций отключен.
+
+6. **Фаза 6 (versions + integrations, P1/P2)** — **в основном выполнена (hardening продолжается)**.
+   - Основные endpoint-ы и интеграционные контуры есть; начата детализация server-side RBAC для versioning actions (`create/approve/decline/restore`) и требуется формализация релизных gate.
+
+7. **Фаза 7 (отключение direct Supabase из frontend)** — **в процессе**.
+   - Backend-first включен по умолчанию, но legacy rollback-путь еще сохранен как аварийный.
+
+8. **Фаза 8 (пост-миграционная оптимизация)** — **в процессе**.
+   - Базовая observability есть; не закрыты финальные SLO/SLI и формальные stop-conditions cutover.
+
+### 13.2 Что еще не сделано (критичный остаток)
+
+1. **Формализовать release-gate backend-only режима**:
+   - обязательный smoke-пакет;
+   - критерии блокировки релиза при наличии legacy-only сценариев.
+2. **Подтвердить в живом rehearsal отсутствие критичных legacy-path** и зафиксировать это в артефактах cutover.
+3. **Довести модульную декомпозицию backend (`modules/*`)** до единообразной структуры по workflow/registry/versioning/integration.
+
+### 13.3 План закрытия (3 ближайшие фазы, 2–4 недели)
+
+#### Фаза A (Неделя 1): Auth/RBAC hardening + workflow guard unification
+
+**Цель:** закрыть незавершенную часть Фазы 3.
+
+**Задачи:**
+- Перевести оставшиеся workflow endpoint-ы на общий `requirePolicyActor`/`sendError` helper.
+- Зафиксировать server-side policy matrix по ролям и переходам статусов.
+- Включить обязательный JWT-профиль для rehearsal окружения (DEV fallback только как explicit override).
+
+**DoD:**
+- Нет endpoint-ов workflow с ручными/дублирующими auth-проверками.
+- Все критичные переходы покрыты policy-тестами.
+
+#### Фаза B (Неделя 2): Cutover rehearsal и release-gate
+
+**Цель:** закрыть незавершенную часть Фазы 7.
+
+**Задачи:**
+- Прогнать `cutover:smoke`, backend tests и frontend build в backend-first режиме.
+- Выполнить живой user-smoke по `live-business-smoke-checklist.md`.
+- Зафиксировать release-gate документом: что блокирует отключение аварийного legacy rollback.
+
+**DoD:**
+- В smoke/report нет критичных операций, которые работают только через legacy.
+- Есть согласованный чек-лист допуска к hard-switch.
+
+#### Фаза C (Недели 3–4): Hard-switch cleanup + post-migration baseline
+
+**Цель:** завершить Фазы 7 и 8.
+
+**Задачи:**
+- Удалить/заморозить legacy write-path для критичных модулей после прохождения gate.
+- Доделать модульную декомпозицию backend и owner-ответственность по доменам.
+- Зафиксировать базовые SLI/SLO на latency/error-rate для workflow/registry операций.
+
+**DoD:**
+- Direct-write из frontend отключен (кроме явно задокументированных исключений с дедлайном удаления).
+- Обновлены fact-sheet и migration docs с финальным статусом cutover.
+
+
+### 13.4 Фаза 5 закрыта: что именно зафиксировано
+
+**Статус:** Фаза 5 переведена в *operational done*. Для registry-модуля включен BFF-only path, а legacy rollback больше не применяется к registry операциям.
+
+#### Что уже дает готовность к закрытию Фазы 5
+
+- Реестровые модульные BFF-флаги уже включены в backend-first логике (`composition/floors/entrances/units/mop/parking`).
+- Для ключевых registry-path есть BFF endpoint-ы и клиентские вызовы через `BffClient` при активных флагах.
+- В документированной фактологии cutover уже зафиксирован перевод registry core в BFF path.
+
+#### Что нужно добить, чтобы честно поставить DONE
+
+1. **Проверка полного coverage реестровых write-path**
+   - пройти чек-лист: create/update/delete building, reconcile floors, matrix sync, units/mop batch, parking sync;
+   - убедиться, что в DEV summary нет критичных legacy fallback для этих операций.
+2. **Формальный gate по Фазе 5**
+   - отдельный короткий checklist-артефакт «Phase-5 gate»;
+   - в gate включить критерий: при `VITE_BFF_ENABLED=true` и профильных `VITE_BFF_*` флагах все P1 registry write операции идут через BFF.
+3. **Зафиксировать исключения (если останутся)**
+   - только read-only/не критичные кейсы;
+   - для каждого: owner + дедлайн + rollback-план.
+
+#### Предлагаемый микроплан (5 рабочих дней)
+
+- **Day 1:** обновить и согласовать Phase-5 checklist (операции + expected source=bff).
+- **Day 2:** прогнать `cutover:smoke` + targeted registry smoke; собрать отчет по источникам `bff/legacy`.
+- **Day 3:** закрыть найденные legacy-holes в реестровых write-path.
+- **Day 4:** повторный smoke и freeze списка исключений (если есть).
+- **Day 5:** подписать Phase-5 gate и обновить статус в `13/20` как «Фаза 5 — done (operational)».
+
+#### Критерий завершения Фазы 5 (предложение)
+
+Фаза 5 считается закрытой, если одновременно выполнено:
+
+1. Реестровые write-операции P1 выполняются через BFF в backend-first режиме.
+2. Нет блокирующих legacy-only сценариев в smoke-отчете по реестрам.
+3. Исключения задокументированы и не относятся к критичным write-path.
+4. Статус синхронизирован в `13-backend-frontend-split-plan.md` и `20-cutover-fact-sheet.md`.
