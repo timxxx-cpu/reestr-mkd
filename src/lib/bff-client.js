@@ -70,17 +70,19 @@ async function request(path, options = {}) {
   const clientRequestId = generateClientRequestId();
 
   const headers = {
-    'content-type': 'application/json',
     'x-client-request-id': clientRequestId,
     'x-operation-source': BFF_OPERATION_SOURCE,
     ...getAuthHeaders(userName, userRole),
   };
   if (idempotencyKey) headers['x-idempotency-key'] = idempotencyKey;
+  if (body !== undefined && body !== null) {
+    headers['content-type'] = 'application/json';
+  }
 
   const res = await fetch(`${getBffBaseUrl()}${path}`, {
     method,
     headers,
-    body: body ? JSON.stringify(body) : undefined,
+   body: (body !== undefined && body !== null) ? JSON.stringify(body) : undefined,
   });
 
   const payload = await res.json().catch(() => ({}));
