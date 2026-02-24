@@ -1,148 +1,66 @@
 import { sendError, requirePolicyActor } from './http-helpers.js';
+import { generateFloorsModel } from './floor-generator.js';
 import crypto from 'crypto';
 
-const syncFloorsForBlock = async (supabase, blockId, details = {}, blockBasements = []) => {
-  const desiredByKey = new Map();
-  const commercialFloors = new Set((details.commercialFloors || []).map(value => String(value)));
+// Вспомогательная функция для безопасного upsert/delete этажей
+const syncFloorsForBlockWithGenerator = async (supabase, blockId) => {
+  // 1. Собираем полный контекст из БД (так же, как в registry-routes)
+  const [
+    { data: block },
+    { data: building },
+    { data: allBlocks },
+    { data: basements },
+    { data: markers },
+    { data: existingFloors }
+  ] = await Promise.all([
+    supabase.from('building_blocks').select('*').eq('id', blockId).single(),
+    supabase.from('buildings').select('*').eq('id', (await supabase.from('building_blocks').select('building_id').eq('id', blockId).single()).data?.building_id).single(),
+    supabase.from('building_blocks').select('*').eq('building_id', (await supabase.from('building_blocks').select('building_id').eq('id', blockId).single()).data?.building_id),
+    supabase.from('basements').select('*').eq('building_id', (await supabase.from('building_blocks').select('building_id').eq('id', blockId).single()).data?.building_id),
+    supabase.from('block_floor_markers').select('*').eq('block_id', blockId),
+    supabase.from('floors').select('id, floor_key').eq('block_id', blockId)
+  ]);
 
-  const addFloor = floor => {
-    if (!floor?.floor_key) return;
-    desiredByKey.set(floor.floor_key, {
-      block_id: blockId,
-      floor_key: floor.floor_key,
-      index: floor.index,
-      label: floor.label,
-      floor_type: floor.floor_type,
-      parent_floor_index: floor.parent_floor_index ?? null,
-      basement_id: floor.basement_id ?? null,
-      height: floor.height ?? null,
-      area_proj: floor.area_proj ?? null,
-      is_technical: !!floor.is_technical,
-      is_commercial: !!floor.is_commercial,
-      is_stylobate: !!floor.is_stylobate,
-      is_basement: !!floor.is_basement,
-      is_attic: !!floor.is_attic,
-      is_loft: !!floor.is_loft,
-      is_roof: !!floor.is_roof,
-      updated_at: new Date().toISOString(),
-    });
-  };
+  if (!block || !building) return null;
 
-  const basements = Array.isArray(blockBasements) ? blockBasements : [];
-  basements.forEach((base, idx) => {
-    const depth = Math.max(1, parseInt(base?.depth, 10) || 1);
-    const baseMixed = commercialFloors.has(`basement_${base?.id}`) || commercialFloors.has('basement');
-    for (let d = depth; d >= 1; d -= 1) {
-      addFloor({
-        floor_key: `basement:${base.id}:${d}`,
-        index: -d,
-        label: basements.length > 1 ? `Подвал ${idx + 1} (этаж -${d})` : `Подвал (этаж -${d})`,
-        floor_type: 'basement',
-        basement_id: base.id,
-        is_commercial: baseMixed,
-        is_basement: true,
-      });
+  // 2. Генерируем эталонную модель
+  const targetFloorsModel = generateFloorsModel(
+    block,
+    building,
+    allBlocks || [],
+    basements || [],
+    markers || []
+  );
+
+  // 3. Diff и Синхронизация
+  const existingFloorsMap = new Map((existingFloors || []).map(f => [f.floor_key, f.id]));
+  const toUpsert = [];
+  const targetKeys = new Set();
+
+  targetFloorsModel.forEach(targetFloor => {
+    targetKeys.add(targetFloor.floor_key);
+    const existingId = existingFloorsMap.get(targetFloor.floor_key);
+    
+    if (existingId) {
+      toUpsert.push({ ...targetFloor, id: existingId, updated_at: new Date().toISOString() });
+    } else {
+      toUpsert.push({ ...targetFloor, id: crypto.randomUUID() });
     }
   });
 
-  if (details.hasBasementFloor) {
-    addFloor({
-      floor_key: 'tsokol',
-      index: 0,
-      label: 'Цокольный этаж',
-      floor_type: 'tsokol',
-      is_commercial: commercialFloors.has('tsokol'),
-    });
-  }
+  // Удаляем лишние
+  const toDeleteIds = (existingFloors || [])
+    .filter(f => !targetKeys.has(f.floor_key))
+    .map(f => f.id);
 
-  const fromRaw = Number(details.floorsFrom);
-  const toRaw = Number(details.floorsTo ?? details.floorsCount);
-  const normalizedFrom = Number.isFinite(fromRaw) ? Math.max(1, Math.trunc(fromRaw)) : 1;
-  const normalizedToCandidate = Number.isFinite(toRaw) ? Math.max(1, Math.trunc(toRaw)) : normalizedFrom;
-  const normalizedTo = Math.max(normalizedFrom, normalizedToCandidate);
-
-  for (let i = normalizedFrom; i <= normalizedTo; i += 1) {
-    const floorType = commercialFloors.has(String(i)) ? 'mixed' : 'residential';
-    addFloor({
-      floor_key: `floor:${i}`,
-      index: i,
-      label: `${i} этаж`,
-      floor_type: floorType,
-      height: 3.0,
-      area_proj: 0,
-      is_commercial: floorType !== 'residential',
-    });
-  }
-
-  (details.technicalFloors || [])
-    .map(value => Number(value))
-    .filter(value => Number.isFinite(value))
-    .forEach(value => {
-      addFloor({
-        floor_key: `tech:${value}`,
-        index: value,
-        label: `${value}-Т (Технический)`,
-        floor_type: 'technical',
-        parent_floor_index: value,
-        is_technical: true,
-        is_commercial: commercialFloors.has(`${value}-Т`),
-      });
-    });
-
-  if (details.hasAttic) {
-    addFloor({
-      floor_key: 'attic',
-      index: normalizedTo + 1,
-      label: 'Мансарда',
-      floor_type: 'attic',
-      is_commercial: commercialFloors.has('attic'),
-      is_attic: true,
-    });
-  }
-
-  if (details.hasLoft) {
-    addFloor({
-      floor_key: 'loft',
-      index: normalizedTo + 2,
-      label: 'Чердак',
-      floor_type: 'loft',
-      is_commercial: commercialFloors.has('loft'),
-      is_loft: true,
-    });
-  }
-
-  if (details.hasExploitableRoof) {
-    addFloor({
-      floor_key: 'roof',
-      index: normalizedTo + 3,
-      label: 'Эксплуатируемая кровля',
-      floor_type: 'roof',
-      is_commercial: commercialFloors.has('roof'),
-      is_roof: true,
-    });
-  }
-
-  const { data: existingRows, error: existingError } = await supabase
-    .from('floors')
-    .select('id, floor_key')
-    .eq('block_id', blockId);
-  if (existingError) return existingError;
-
-  const existingByKey = new Map((existingRows || []).map(row => [row.floor_key, row.id]));
-  const desiredKeys = new Set(desiredByKey.keys());
-  const toDeleteIds = (existingRows || []).filter(row => !desiredKeys.has(row.floor_key)).map(row => row.id);
   if (toDeleteIds.length > 0) {
-    const { error: deleteError } = await supabase.from('floors').delete().in('id', toDeleteIds);
-    if (deleteError) return deleteError;
+    const { error: deleteErr } = await supabase.from('floors').delete().in('id', toDeleteIds);
+    if (deleteErr) return deleteErr;
   }
 
-  const upsertPayload = Array.from(desiredByKey.entries()).map(([floorKey, row]) => ({
-    ...row,
-    id: existingByKey.get(floorKey) || crypto.randomUUID(),
-  }));
-  if (upsertPayload.length > 0) {
-    const { error: upsertError } = await supabase.from('floors').upsert(upsertPayload, { onConflict: 'id' });
-    if (upsertError) return upsertError;
+  if (toUpsert.length > 0) {
+    const { error: upsertErr } = await supabase.from('floors').upsert(toUpsert, { onConflict: 'id' });
+    if (upsertErr) return upsertErr;
   }
 
   return null;
@@ -353,6 +271,7 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
     });
   });
 
+  // POST save context (ИСПРАВЛЕННЫЙ)
   app.post('/api/v1/projects/:projectId/context-building-details/save', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
       module: 'projectExtended',
@@ -373,11 +292,10 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
     const knownBuildingIds = new Set((buildings || []).map(b => b.id));
     const basementsByBlockId = new Map();
 
-    // Вспомогательные функции для очистки пустых строк от фронтенда
     const toIntOrNull = v => (v === '' || v === undefined || v === null || isNaN(v) ? null : parseInt(v, 10));
     const toNullIfEmpty = v => (v === '' || v === undefined ? null : v);
 
-    // ПРОХОД 1: Сначала собираем и сохраняем все подвалы (features)
+    // ПРОХОД 1: Сохраняем подвалы (basements)
     for (const [key, details] of Object.entries(buildingDetails)) {
       if (!key.includes('_features')) continue;
 
@@ -394,9 +312,8 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
         if (base.blockId && typeof base.blockId === 'string' && base.blockId.length === 36) {
           linkedBlockIds.push(base.blockId);
         }
-
         const validBlockIds = Array.from(new Set(linkedBlockIds));
-        if (validBlockIds.length === 0) continue; // Нельзя сохранить подвал без привязки к блоку (NOT NULL)
+        if (validBlockIds.length === 0) continue;
 
         validBlockIds.forEach(blockId => {
           const list = basementsByBlockId.get(blockId) || [];
@@ -408,7 +325,7 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
           {
             id: base.id,
             building_id: buildingId,
-            block_id: validBlockIds[0], // Используем первый валидный блок
+            block_id: validBlockIds[0],
             depth: parseInt(base.depth, 10),
             has_parking: !!base.hasParking,
           },
@@ -422,7 +339,6 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
             depth_level: parseInt(lvl, 10),
             is_enabled: !!enabled,
           }));
-
           if (levels.length) {
             const { error: levelsError } = await supabase
               .from('basement_parking_levels')
@@ -433,7 +349,7 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
       }
     }
 
-    // ПРОХОД 2: Теперь сохраняем сами блоки (с учетом уже найденных подвалов)
+    // ПРОХОД 2: Сохраняем блоки, маркеры и генерируем этажи
     for (const [key, details] of Object.entries(buildingDetails)) {
       if (key.includes('_features')) continue;
 
@@ -441,7 +357,7 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
       const blockId = parts[parts.length - 1];
       if (!blockId || blockId.length !== 36) continue;
 
-      // Нормализация данных: пустые строки превращаем в null для корректного маппинга PostgreSQL
+      // 1. Обновляем параметры блока
       const blockUpdate = {
         floors_count: toIntOrNull(details.floorsCount),
         entrances_count: toIntOrNull(details.entrances || details.inputs),
@@ -463,20 +379,7 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
       const { error: blockError } = await supabase.from('building_blocks').update(blockUpdate).eq('id', blockId);
       if (blockError) return sendError(reply, 500, 'DB_ERROR', blockError.message);
 
-      const floorSyncError = await syncFloorsForBlock(
-        supabase,
-        blockId,
-        details,
-        basementsByBlockId.get(blockId) || []
-      );
-      if (floorSyncError) return sendError(reply, 500, 'DB_ERROR', floorSyncError.message);
-
-      const entrancesSyncError = await syncEntrancesForBlock(supabase, blockId, details.entrances || details.inputs);
-      if (entrancesSyncError) return sendError(reply, 500, 'DB_ERROR', entrancesSyncError.message);
-
-      const matrixSyncError = await ensureEntranceMatrixForBlock(supabase, blockId);
-      if (matrixSyncError) return sendError(reply, 500, 'DB_ERROR', matrixSyncError.message);
-
+      // 2. Обновляем маркеры этажей (ВАЖНО: ДО генерации этажей)
       const markerTechSet = new Set(
         (details.technicalFloors || [])
           .map(v => Number(v))
@@ -508,9 +411,11 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
         updated_at: new Date().toISOString(),
       }));
 
+      // Сначала чистим старые маркеры
       const { error: markerDeleteError } = await supabase.from('block_floor_markers').delete().eq('block_id', blockId);
       if (markerDeleteError) return sendError(reply, 500, 'DB_ERROR', markerDeleteError.message);
 
+      // Записываем новые
       if (markerPayload.length) {
         const { error: markerUpsertError } = await supabase
           .from('block_floor_markers')
@@ -518,6 +423,19 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
         if (markerUpsertError) return sendError(reply, 500, 'DB_ERROR', markerUpsertError.message);
       }
 
+      // 3. ТЕПЕРЬ генерируем этажи (используя наш единый генератор)
+      const floorSyncError = await syncFloorsForBlockWithGenerator(supabase, blockId);
+      if (floorSyncError) return sendError(reply, 500, 'DB_ERROR', floorSyncError.message);
+
+      // 4. Синхронизируем подъезды
+      const entrancesSyncError = await syncEntrancesForBlock(supabase, blockId, details.entrances || details.inputs);
+      if (entrancesSyncError) return sendError(reply, 500, 'DB_ERROR', entrancesSyncError.message);
+
+      // 5. Перестраиваем матрицу
+      const matrixSyncError = await ensureEntranceMatrixForBlock(supabase, blockId);
+      if (matrixSyncError) return sendError(reply, 500, 'DB_ERROR', matrixSyncError.message);
+
+      // 6. Сохраняем конструктив (если есть)
       if (details.foundation || details.walls || details.slabs || details.roof || details.seismicity !== undefined) {
         const { error: constructionError } = await supabase.from('block_construction').upsert(
           {
@@ -533,6 +451,7 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
         if (constructionError) return sendError(reply, 500, 'DB_ERROR', constructionError.message);
       }
 
+      // 7. Сохраняем инженерию (если есть)
       if (details.engineering) {
         const { error: engineeringError } = await supabase.from('block_engineering').upsert(
           {
