@@ -956,16 +956,16 @@ export function registerRegistryRoutes(app, { supabase }) {
     const toUpsert = [];
     const targetKeys = new Set();
 
+   const now = new Date().toISOString();
+
     targetFloorsModel.forEach(targetFloor => {
       targetKeys.add(targetFloor.floor_key);
       const existingId = existingFloorsMap.get(targetFloor.floor_key);
       
       if (existingId) {
-        // Если этаж уже есть, сохраняем его UUID, чтобы не удалились связанные Units и MOP
-        toUpsert.push({ ...targetFloor, id: existingId, updated_at: new Date().toISOString() });
+        toUpsert.push({ ...targetFloor, id: existingId, updated_at: now });
       } else {
-        // Если этажа нет, создадим новый
-        toUpsert.push({ ...targetFloor, id: crypto.randomUUID() });
+        toUpsert.push({ ...targetFloor, id: crypto.randomUUID(), updated_at: now });
       }
     });
 
