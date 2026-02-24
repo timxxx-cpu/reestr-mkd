@@ -1439,41 +1439,24 @@ const LegacyApiService = {
     }
 
     // Подгрузка подвалов для features
+    // Подгрузка подвалов для features
     let featuresMap = {};
     if (buildingIds.length > 0) {
-      const { data: basementsData } = await supabase
-        .from('basements')
-        .select('id, building_id, block_id, depth, has_parking')
-        .in('building_id', buildingIds);
+      // Используем уже существующий метод, который направляет запрос через BFF
+      const basements = await LegacyApiService.getBasements(projectId);
 
-      const basementIds = (basementsData || []).map(b => b.id);
-      let parkingLevelsMap = {};
-
-      if (basementIds.length > 0) {
-        const { data: levelsData } = await supabase
-          .from('basement_parking_levels')
-          .select('basement_id, depth_level, is_enabled')
-          .in('basement_id', basementIds);
-
-        parkingLevelsMap = (levelsData || []).reduce((acc, level) => {
-          if (!acc[level.basement_id]) acc[level.basement_id] = {};
-          acc[level.basement_id][level.depth_level] = level.is_enabled;
-          return acc;
-        }, {});
-      }
-
-      (basementsData || []).forEach(base => {
-        if (!featuresMap[base.building_id]) {
-          featuresMap[base.building_id] = { basements: [], exploitableRoofs: [] };
+      (basements || []).forEach(base => {
+        if (!featuresMap[base.buildingId]) {
+          featuresMap[base.buildingId] = { basements: [], exploitableRoofs: [] };
         }
-        featuresMap[base.building_id].basements.push({
+        featuresMap[base.buildingId].basements.push({
           id: base.id,
           depth: base.depth,
-          hasParking: base.has_parking,
-          parkingLevels: parkingLevelsMap[base.id] || {},
-          blocks: [base.block_id],
-          buildingId: base.building_id,
-          blockId: base.block_id,
+          hasParking: base.hasParking,
+          parkingLevels: base.parkingLevels || {},
+          blocks: [base.blockId],
+          buildingId: base.buildingId,
+          blockId: base.blockId,
         });
       });
     }

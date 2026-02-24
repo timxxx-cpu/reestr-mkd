@@ -87,8 +87,17 @@ export const installAuthMiddleware = (app, config) => {
   const authMode = config.authMode || 'dev';
 
   app.addHook('preHandler', async (req, reply) => {
-    // Пропускаем роут логина, так как токена еще нет
-    if (!req.url.startsWith('/api/v1/') || req.url.startsWith('/api/v1/auth/login')) return;
+    // Получаем чистый путь без query-параметров (таких как ?activeOnly=true)
+    const path = req.url.split('?')[0];
+
+    // Пропускаем роуты, для которых токен не требуется (логин и список пользователей для формы входа)
+    if (
+      !path.startsWith('/api/v1/') || 
+      path === '/api/v1/auth/login' || 
+      path === '/api/v1/catalogs/dict_system_users'
+    ) {
+      return;
+    }
 
     const authHeader = req.headers.authorization;
     const bearer = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')

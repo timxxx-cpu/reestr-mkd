@@ -243,6 +243,10 @@ export const BffClient = {
   getBasements: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/basements`),
 
+  // Найти блок экспорта BffClient и добавить:
+  getBasementsByBuildingIds: ({ buildingIds }) =>
+    request(`/api/v1/basements?buildingIds=${encodeURIComponent(buildingIds.join(','))}`),
+
   toggleBasementLevel: ({ basementId, level, isEnabled, userName, userRole }) =>
     request(`/api/v1/basements/${basementId}/parking-levels/${level}`, {
       method: 'PUT',
@@ -475,7 +479,7 @@ export const BffClient = {
 
     resolveApplicationId: ({ projectId, scope }) =>
     request(`/api/v1/projects/${projectId}/application-id?scope=${encodeURIComponent(scope || '')}`),
-    
+
   acquireApplicationLock: ({ applicationId, userName, userRole, ttlMinutes = 20 }) =>
     request(`/api/v1/applications/${applicationId}/locks/acquire`, {
       method: 'POST',
