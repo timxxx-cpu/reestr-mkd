@@ -245,6 +245,146 @@ export async function buildServer() {
   registerIntegrationRoutes(app, { supabase });
   registerProjectRoutes(app, { supabase });
 
+  // =====================================================================
+  // НОВЫЕ МАРШРУТЫ: Чтение справочников и списка проектов (Дашборд)
+  // =====================================================================
+
+  // 1. Чтение справочников (Catalogs)
+  app.get('/api/v1/catalogs/:table', async (req, reply) => {
+    const { table } = req.params;
+    const { activeOnly } = req.query;
+
+    // Белый список таблиц для безопасности (защита от SQL-инъекций)
+    const ALLOWED_TABLES = [
+      'dict_project_statuses', 'dict_application_statuses', 'dict_external_systems',
+      'dict_foundations', 'dict_wall_materials', 'dict_slab_types', 'dict_roof_types',
+      'dict_light_structure_types', 'dict_parking_types', 'dict_parking_construction_types',
+      'dict_infra_types', 'dict_mop_types', 'dict_unit_types', 'dict_room_types','dict_system_users'
+    ];
+
+    if (!ALLOWED_TABLES.includes(table)) {
+      return reply.code(400).send({ code: 'INVALID_TABLE', message: 'Таблица не разрешена' });
+    }
+
+   let query = supabase
+      .from(table)
+      .select('*')
+      .order('sort_order', { ascending: true });
+
+    // Таблица пользователей сортируется по name, остальные по label
+    if (table === 'dict_system_users') {
+      query = query.order('name', { ascending: true });
+    } else {
+      query = query.order('label', { ascending: true });
+    }
+
+    if (activeOnly === 'true') {
+      query = query.eq('is_active', true);
+    }
+
+    const { data, error } = await query;
+    if (error) return reply.code(500).send({ code: 'DB_ERROR', message: error.message });
+
+    return data || [];
+  });
+ // 3. Получение ID заявки по ID проекта (Вспомогательный роут)
+  app.get('/api/v1/projects/:projectId/application-id', async (req, reply) => {
+    const { projectId } = req.params;
+    const { scope } = req.query;
+
+    let query = supabase
+      .from('applications')
+      .select('id')
+      .eq('project_id', projectId);
+
+    if (scope) {
+      query = query.eq('scope_id', scope);
+    }
+
+    const { data, error } = await query.maybeSingle();
+
+    if (error) return reply.code(500).send({ code: 'DB_ERROR', message: error.message });
+    if (!data) return reply.code(404).send({ code: 'NOT_FOUND', message: 'Application not found' });
+
+    return { applicationId: data.id };
+  });
+  // 2. Чтение списка проектов для Дашборда
+  app.get('/api/v1/projects', async (req, reply) => {
+    const { scope } = req.query;
+    if (!scope) return reply.code(400).send({ code: 'MISSING_SCOPE', message: 'Scope is required' });
+
+    // Выполняем те же 2 запроса, что раньше делал фронтенд напрямую
+    const [projectsRes, appsRes] = await Promise.all([
+      supabase
+        .from('projects')
+        .select('id, uj_code, cadastre_number, name, region, address, construction_status, updated_at, created_at, buildings(count)')
+        .eq('scope_id', scope)
+        .order('updated_at', { ascending: false }),
+      supabase
+        .from('applications')
+        .select('*')
+        .eq('scope_id', scope)
+        .order('updated_at', { ascending: false }),
+    ]);
+
+    if (projectsRes.error) return reply.code(500).send({ code: 'DB_ERROR', message: projectsRes.error.message });
+    if (appsRes.error) return reply.code(500).send({ code: 'DB_ERROR', message: appsRes.error.message });
+
+    const appsByProject = (appsRes.data || []).reduce((acc, app) => {
+      if (!acc[app.project_id]) acc[app.project_id] = app;
+      return acc;
+    }, {});
+
+    const normalizeProjectStatusFromDb = (status) => {
+      if (status === 'project') return 'Проектный';
+      if (status === 'construction') return 'Строящийся';
+      if (status === 'completed') return 'Сдан в эксплуатацию';
+      return status || 'Проектный';
+    };
+
+    // Маппим данные прямо на бэкенде, чтобы отдавать фронту чистый DTO
+    const mapped = (projectsRes.data || []).map(project => {
+      const app = appsByProject[project.id];
+      const buildingsCount = project.buildings?.[0]?.count || 0;
+
+      return {
+        id: project.id,
+        ujCode: project.uj_code,
+        cadastre: project.cadastre_number,
+        applicationId: app?.id || null,
+        name: project.name || 'Без названия',
+        status: normalizeProjectStatusFromDb(project.construction_status),
+        lastModified: app?.updated_at || project.updated_at,
+
+        applicationInfo: {
+          status: app?.status,
+          workflowSubstatus: app?.workflow_substatus || 'DRAFT',
+          internalNumber: app?.internal_number,
+          externalSource: app?.external_source,
+          externalId: app?.external_id,
+          applicant: app?.applicant,
+          submissionDate: app?.submission_date,
+          assigneeName: app?.assignee_name,
+          currentStage: app?.current_stage,
+          currentStepIndex: app?.current_step,
+          rejectionReason: app?.integration_data?.rejectionReason,
+          requestedDeclineReason: app?.requested_decline_reason || null,
+          requestedDeclineStep: app?.requested_decline_step ?? null,
+          requestedDeclineBy: app?.requested_decline_by || null,
+          requestedDeclineAt: app?.requested_decline_at || null,
+        },
+        complexInfo: {
+          name: project.name,
+          region: project.region,
+          street: project.address,
+        },
+        composition: Array(buildingsCount).fill(1),
+      };
+    });
+
+    return mapped;
+  });
+
   app.get('/api/v1/applications/:applicationId/locks', async (req, reply) => {
     const { applicationId } = req.params;
     const { data, error } = await supabase

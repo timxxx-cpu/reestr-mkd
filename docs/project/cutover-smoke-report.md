@@ -1,6 +1,6 @@
 # Cutover smoke report
 
-- generatedAt: 2026-02-24T04:00:01.019Z
+- generatedAt: 2026-02-24T08:52:01.694Z
 - mode: backend-first (all BFF flags true, legacy rollback disabled)
 - result: PASS
 
@@ -33,8 +33,8 @@
 
 ## Checks
 
-- ✅ npm test --prefix apps/backend (1546ms)
-- ✅ npm run build (9096ms)
+- ✅ npm test --prefix apps/backend (597ms)
+- ✅ npm run build (3950ms)
 
 ## Next actions
 

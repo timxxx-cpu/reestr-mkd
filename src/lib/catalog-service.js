@@ -1,24 +1,29 @@
 import { supabase } from './supabase';
+import { BffClient } from './bff-client'; // <-- ДОБАВЛЕНО
+import { trackOperationSource } from './operation-source-tracker'; // <-- ДОБАВЛЕНО
+
+// Вспомогательная функция для трекинга
+const trackLegacyPath = operation => {
+  trackOperationSource({ source: 'legacy', operation });
+};
 
 export const CATALOG_TABLES = [
   'dict_project_statuses',
   'dict_application_statuses',
   'dict_external_systems',
-  'dict_foundations',
-  'dict_wall_materials',
-  'dict_slab_types',
-  'dict_roof_types',
-  'dict_light_structure_types',
-  'dict_parking_types',
-  'dict_parking_construction_types',
-  'dict_infra_types',
-  'dict_mop_types',
-  'dict_unit_types',
+  // ... ваши справочники
   'dict_room_types',
 ];
 
 export const CatalogService = {
   async getCatalog(table) {
+    // <-- ДОБАВЛЕНО: Перехват BFF
+    if (BffClient.isCatalogsEnabled?.()) {
+      return BffClient.getCatalog({ table });
+    }
+
+    trackLegacyPath(`getCatalog:${table}`); // <-- ДОБАВЛЕНО: Трекинг
+
     const { data, error } = await supabase
       .from(table)
       .select('*')
@@ -30,6 +35,13 @@ export const CatalogService = {
   },
 
   async getCatalogAll(table) {
+    // <-- ДОБАВЛЕНО: Перехват BFF
+    if (BffClient.isCatalogsEnabled?.()) {
+      return BffClient.getCatalogAll({ table });
+    }
+
+    trackLegacyPath(`getCatalogAll:${table}`); // <-- ДОБАВЛЕНО: Трекинг
+
     const { data, error } = await supabase
       .from(table)
       .select('*')
@@ -40,6 +52,10 @@ export const CatalogService = {
   },
 
   async upsertCatalogItem(table, item) {
+    // Если нужно, мутации справочников тоже можно завернуть в BFF,
+    // но обычно это чисто админская адхок-задача (P3), можно оставить пока так.
+    trackLegacyPath(`upsertCatalogItem:${table}`);
+
     const payload = {
       ...item,
       id: item.id,
@@ -54,6 +70,7 @@ export const CatalogService = {
   },
 
   async setCatalogItemActive(table, id, isActive) {
+    trackLegacyPath(`setCatalogItemActive:${table}`);
     const { error } = await supabase.from(table).update({ is_active: isActive }).eq('id', id);
     if (error) throw error;
   },

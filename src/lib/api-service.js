@@ -607,6 +607,23 @@ const syncVersionStatusesByApplicationStatus = async ({ projectId, applicationId
 
 const LegacyApiService = {
   getSystemUsers: async () => {
+    // 1. Перехват BFF (используем общий флаг справочников)
+    if (BffClient.isCatalogsEnabled?.()) {
+      const data = await BffClient.getSystemUsers();
+      // Маппим данные так же, как это делал старый код
+      return (data || []).map(u => ({
+        id: u.id,
+        code: u.code,
+        name: u.name,
+        role: u.role,
+        group: u.group_name || u.name,
+        sortOrder: u.sort_order || 100,
+      }));
+    }
+
+    // 2. Трекинг Legacy
+    trackLegacyPath('getSystemUsers');
+
     const { data, error } = await supabase
       .from('dict_system_users')
       .select('id, code, name, role, group_name, is_active, sort_order')
@@ -625,6 +642,8 @@ const LegacyApiService = {
       sortOrder: u.sort_order || 100,
     }));
   },
+  
+  // ... дальше идет getProjectsList ...
 
   // --- DASHBOARD & LISTS ---
 
@@ -633,7 +652,13 @@ const LegacyApiService = {
   // [UPDATED] Получить список проектов
   getProjectsList: async scope => {
     if (!scope) return [];
+    
+    if (BffClient.isApplicationsReadEnabled?.()) {
+      return BffClient.getProjectsList({ scope });
+    }
 
+    // 2. ЛОГИРУЕМ LEGACY ПУТЬ
+    trackLegacyPath('getProjectsList');
     const [projectsRes, appsRes] = await Promise.all([
       supabase
         .from('projects')
@@ -757,25 +782,35 @@ const LegacyApiService = {
 
 
   // --- WORK LOCK (защита от одновременного редактирования) ---
-  acquireApplicationLock: async ({ scope, projectId, userName, userRole, ttlMinutes = 20 }) => {
+ acquireApplicationLock: async ({ scope, projectId, userName, userRole, ttlMinutes = 20 }) => {
+    // 1. Если BFF включен, всё делаем через него
+    if (BffClient.isEnabled()) {
+      // Сначала узнаем ID заявки через BFF
+      const res = await BffClient.resolveApplicationId({ projectId, scope });
+      if (!res?.applicationId) return { ok: false, reason: 'NOT_FOUND', message: 'Заявка не найдена' };
+
+      // Затем ставим лок
+      const response = await BffClient.acquireApplicationLock({
+        applicationId: res.applicationId,
+        userName,
+        userRole,
+        ttlMinutes,
+      });
+      return { ...response, applicationId: res.applicationId };
+    }
+
+    // 2. Legacy-путь
+    trackLegacyPath('acquireApplicationLock_resolveApp');
+
     const { data: app, error } = await supabase
       .from('applications')
       .select('id')
       .eq('scope_id', scope)
       .eq('project_id', projectId)
       .maybeSingle();
+      
     if (error) throw error;
     if (!app?.id) return { ok: false, reason: 'NOT_FOUND', message: 'Заявка не найдена' };
-
-    if (BffClient.isEnabled()) {
-      const response = await BffClient.acquireApplicationLock({
-        applicationId: app.id,
-        userName,
-        userRole,
-        ttlMinutes,
-      });
-      return { ...response, applicationId: app.id };
-    }
 
     trackLegacyPath('acquireApplicationLock');
 
@@ -1911,6 +1946,7 @@ const LegacyApiService = {
         defaultType,
         userName: resolvedActor.userName,
         userRole: resolvedActor.userRole,
+        idempotencyKey: createIdempotencyKey('reconcile-floors', [blockId]),        
       });
     }
 
@@ -2024,6 +2060,7 @@ const LegacyApiService = {
         count,
         userName: resolvedActor.userName,
         userRole: resolvedActor.userRole,
+        idempotencyKey: createIdempotencyKey('reconcile-entrances', [blockId]),
       });
     }
 
@@ -2309,6 +2346,7 @@ const LegacyApiService = {
         unitsList,
         userName: resolvedActor.userName,
         userRole: resolvedActor.userRole,
+        idempotencyKey: createIdempotencyKey('batch-upsert-units', [unitsList?.[0]?.floorId || 'unknown']),
       });
     }
     if (!unitsList || unitsList.length === 0) return;
@@ -2507,6 +2545,7 @@ const LegacyApiService = {
         blockId,
         userName: resolvedActor.userName,
         userRole: resolvedActor.userRole,
+        idempotencyKey: createIdempotencyKey('reconcile-units', [blockId]),
       });
     }
 
@@ -2595,6 +2634,7 @@ const LegacyApiService = {
         blockId,
         userName: resolvedActor.userName,
         userRole: resolvedActor.userRole,
+        idempotencyKey: createIdempotencyKey('reconcile-mops', [blockId]),
       });
     }
 
@@ -2761,6 +2801,7 @@ const LegacyApiService = {
         targetCount,
         userName: resolvedActor.userName,
         userRole: resolvedActor.userRole,
+        idempotencyKey: createIdempotencyKey('sync-parking', [floorId]),
       });
     }
 

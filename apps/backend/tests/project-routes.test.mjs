@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
+import { installAuthMiddleware } from '../src/auth.js';
 
 class MockQuery {
   constructor(client, table) {
@@ -168,6 +169,7 @@ function createBasicSupabaseMock(track = { projectInserts: 0, appInserts: 0 }) {
 async function createAppWithRoutes(supabase) {
   const { registerProjectRoutes } = await import(`../src/project-routes.js?cache=${Date.now()}`);
   const app = Fastify();
+  installAuthMiddleware(app, { authMode: 'dev' });
   registerProjectRoutes(app, { supabase });
   return app;
 }

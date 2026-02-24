@@ -27,6 +27,9 @@ const isProjectContextDetailsEnabled = () => isBffEnabled() && import.meta.env.V
 const isSaveMetaEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_META_ENABLED !== 'false';
 const isSaveBuildingDetailsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED !== 'false';
 const isRegistrySummaryEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_REGISTRY_SUMMARY_ENABLED !== 'false';
+const isApplicationsReadEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_APPLICATIONS_READ_ENABLED === 'true';
+const isCatalogsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_CATALOGS_ENABLED === 'true';
+
 const BFF_OPERATION_SOURCE = 'bff';
 
 const generateClientRequestId = () => {
@@ -141,8 +144,22 @@ export const BffClient = {
   isSaveMetaEnabled,
   isSaveBuildingDetailsEnabled,
   isRegistrySummaryEnabled,
+  isApplicationsReadEnabled, // <-- ДОБАВИТЬ ЭТО
+  isCatalogsEnabled,         // <-- ДОБАВИТЬ ЭТО
 
   getRegistryBuildingsSummary: () => request('/api/v1/registry/buildings-summary'),
+
+  getProjectsList: ({ scope }) =>
+    request(`/api/v1/projects?scope=${encodeURIComponent(scope)}`),
+
+  getCatalog: ({ table }) =>
+    request(`/api/v1/catalogs/${encodeURIComponent(table)}?activeOnly=true`),
+
+  getSystemUsers: () =>
+    request(`/api/v1/catalogs/dict_system_users?activeOnly=true`),
+
+  getCatalogAll: ({ table }) =>
+    request(`/api/v1/catalogs/${encodeURIComponent(table)}`),
 
   getBuildings: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/buildings`),
@@ -456,6 +473,9 @@ export const BffClient = {
       body: { count },
     }),
 
+    resolveApplicationId: ({ projectId, scope }) =>
+    request(`/api/v1/projects/${projectId}/application-id?scope=${encodeURIComponent(scope || '')}`),
+    
   acquireApplicationLock: ({ applicationId, userName, userRole, ttlMinutes = 20 }) =>
     request(`/api/v1/applications/${applicationId}/locks/acquire`, {
       method: 'POST',
