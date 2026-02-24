@@ -45,7 +45,8 @@ function sanitizeBuildingCategoryFields(buildingData = {}) {
 }
 
 function getBuildingPrefix(category, hasMultipleBlocks = false) {
-  if (category === 'residential' || category === 'residential_main') {
+  if (category === 'residential' || category === 'residential_multiblock') {
+    if (category === 'residential_multiblock') return 'ZM';
     return hasMultipleBlocks ? 'ZM' : 'ZR';
   }
   if (category === 'parking_separate' || category === 'parking_integrated') return 'ZP';

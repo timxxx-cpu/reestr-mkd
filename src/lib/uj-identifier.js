@@ -9,11 +9,11 @@
 
 // Маппинг категорий зданий на префиксы ZD
 export const BUILDING_TYPE_PREFIXES = {
-  residential_single: 'ZR', // Жилой дом (одноблочный)
-  residential_multi: 'ZM', // Многоблочный жилой дом
-  parking_separate: 'ZP', // Паркинг (отдельно стоящий)
-  parking_integrated: 'ZP', // Паркинг (встроенный/пристроенный)
-  infrastructure: 'ZI', // Инфраструктура
+  residential: 'ZR',
+  residential_multiblock: 'ZM',
+  parking_separate: 'ZP',
+  parking_integrated: 'ZP',
+  infrastructure: 'ZI',
 };
 
 // Маппинг типов помещений на префиксы EL
@@ -45,12 +45,11 @@ export const generateProjectCode = sequenceNumber => {
  * @returns {string} Префикс ZR, ZM, ZP или ZI
  */
 export const getBuildingPrefix = (category, hasMultipleBlocks = false) => {
-  // Для жилых зданий определяем одноблочный или многоблочный
-  if (category === 'residential' || category === 'residential_main') {
+  if (category === 'residential' || category === 'residential_multiblock') {
+    if (category === 'residential_multiblock') return 'ZM';
     return hasMultipleBlocks ? 'ZM' : 'ZR';
   }
 
-  // Для остальных используем маппинг
   return BUILDING_TYPE_PREFIXES[category] || 'ZR';
 };
 
