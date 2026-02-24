@@ -4,7 +4,7 @@ import crypto from 'crypto';
 
 // Вспомогательная функция для безопасного upsert/delete этажей
 const syncFloorsForBlockWithGenerator = async (supabase, blockId) => {
-  // 1. Собираем полный контекст из БД
+  // 1. Собираем полный контекст из БД (запрашиваем нужные поля для уникального ключа)
   const [
     { data: block },
     { data: building },
@@ -18,59 +18,62 @@ const syncFloorsForBlockWithGenerator = async (supabase, blockId) => {
     supabase.from('building_blocks').select('*').eq('building_id', (await supabase.from('building_blocks').select('building_id').eq('id', blockId).single()).data?.building_id),
     supabase.from('basements').select('*').eq('building_id', (await supabase.from('building_blocks').select('building_id').eq('id', blockId).single()).data?.building_id),
     supabase.from('block_floor_markers').select('*').eq('block_id', blockId),
-    supabase.from('floors').select('id, floor_key').eq('block_id', blockId)
+    supabase.from('floors').select('id, floor_key, index, parent_floor_index, basement_id').eq('block_id', blockId)
   ]);
 
   if (!block || !building) return null;
 
-  // 2. Генерируем эталонную модель
-  let targetFloorsModel = generateFloorsModel(
-    block,
-    building,
-    allBlocks || [],
-    basements || [],
-    markers || []
-  );
+  let targetFloorsModel = generateFloorsModel(block, building, allBlocks || [], basements || [], markers || []);
 
-  // --- ФИЛЬТР ДЕДУПЛИКАЦИИ (ЗАЩИТА ОТ UNIQUE CONSTRAINT) ---
+  // Функция расчета ключа уникальности (как в БД)
+  const getConstraintKey = (f) => {
+    const idx = Number(f.index || 0);
+    const pfi = f.parent_floor_index !== null && f.parent_floor_index !== undefined ? Number(f.parent_floor_index) : -99999;
+    const bid = f.basement_id || '00000000-0000-0000-0000-000000000000';
+    return `${idx}_${pfi}_${bid}`;
+  };
+
+  // --- ФИЛЬТР ДЕДУПЛИКАЦИИ НОВЫХ ЭТАЖЕЙ ---
   const uniqueConstraintKeys = new Set();
   const deduplicatedModel = [];
 
   targetFloorsModel.forEach(floor => {
-    const pfi = floor.parent_floor_index ?? -99999;
-    const bid = floor.basement_id ?? '00000000-0000-0000-0000-000000000000';
-    const constraintKey = `${floor.index}_${pfi}_${bid}`;
-    
-    // Если этажа с такой комбинацией ключей еще не было, добавляем его
-    if (!uniqueConstraintKeys.has(constraintKey)) {
-      uniqueConstraintKeys.add(constraintKey);
+    const cKey = getConstraintKey(floor);
+    if (!uniqueConstraintKeys.has(cKey)) {
+      uniqueConstraintKeys.add(cKey);
       deduplicatedModel.push(floor);
     }
   });
-
   targetFloorsModel = deduplicatedModel;
-  // -----------------------------------------------------------
+  // ----------------------------------------
 
-  // 3. Diff и Синхронизация
-  const existingFloorsMap = new Map((existingFloors || []).map(f => [f.floor_key, f.id]));
+  // 3. Умный Diff и Синхронизация (Сопоставляем по слотам уникальности)
+  const existingFloorsMap = new Map();
+  (existingFloors || []).forEach(f => {
+    existingFloorsMap.set(getConstraintKey(f), f);
+  });
+
   const toUpsert = [];
-  const targetKeys = new Set();
+  const usedExistingIds = new Set();
   const now = new Date().toISOString();
 
   targetFloorsModel.forEach(targetFloor => {
-    targetKeys.add(targetFloor.floor_key);
-    const existingId = existingFloorsMap.get(targetFloor.floor_key);
+    const cKey = getConstraintKey(targetFloor);
+    const existing = existingFloorsMap.get(cKey);
     
-    if (existingId) {
-      toUpsert.push({ ...targetFloor, id: existingId, updated_at: now });
+    if (existing) {
+      // Если слот занят, ОБНОВЛЯЕМ существующую запись (сохраняем её ID)
+      toUpsert.push({ ...targetFloor, id: existing.id, updated_at: now });
+      usedExistingIds.add(existing.id);
     } else {
+      // Иначе создаем новую
       toUpsert.push({ ...targetFloor, id: crypto.randomUUID(), updated_at: now });
     }
   });
 
-  // Удаляем лишние
+  // Удаляем всё, что не попало в расчет
   const toDeleteIds = (existingFloors || [])
-    .filter(f => !targetKeys.has(f.floor_key))
+    .filter(f => !usedExistingIds.has(f.id))
     .map(f => f.id);
 
   if (toDeleteIds.length > 0) {

@@ -939,7 +939,7 @@ export function registerRegistryRoutes(app, { supabase }) {
       supabase.from('building_blocks').select('*').eq('building_id', block.building_id),
       supabase.from('basements').select('*').eq('building_id', block.building_id),
       supabase.from('block_floor_markers').select('*').eq('block_id', blockId),
-      supabase.from('floors').select('id, floor_key').eq('block_id', blockId)
+      supabase.from('floors').select('id, floor_key, index, parent_floor_index, basement_id').eq('block_id', blockId)
     ]);
 
     // ШАГ 2: Генерация целевой модели этажей
@@ -951,50 +951,58 @@ export function registerRegistryRoutes(app, { supabase }) {
       markers || []
     );
 
-    // --- ФИЛЬТР ДЕДУПЛИКАЦИИ ---
+    const getConstraintKey = (f) => {
+      const idx = Number(f.index || 0);
+      const pfi = f.parent_floor_index !== null && f.parent_floor_index !== undefined ? Number(f.parent_floor_index) : -99999;
+      const bid = f.basement_id || '00000000-0000-0000-0000-000000000000';
+      return `${idx}_${pfi}_${bid}`;
+    };
+
     const uniqueConstraintKeys = new Set();
     const deduplicatedModel = [];
 
     targetFloorsModel.forEach(floor => {
-      const pfi = floor.parent_floor_index ?? -99999;
-      const bid = floor.basement_id ?? '00000000-0000-0000-0000-000000000000';
-      const constraintKey = `${floor.index}_${pfi}_${bid}`;
-      
-      if (!uniqueConstraintKeys.has(constraintKey)) {
-        uniqueConstraintKeys.add(constraintKey);
+      const cKey = getConstraintKey(floor);
+      if (!uniqueConstraintKeys.has(cKey)) {
+        uniqueConstraintKeys.add(cKey);
         deduplicatedModel.push(floor);
       }
     });
-
     targetFloorsModel = deduplicatedModel;
-    // ---------------------------
 
-    // ШАГ 3: Diff и Синхронизация (Upsert & Delete)
-    const existingFloorsMap = new Map((existingFloors || []).map(f => [f.floor_key, f.id]));
+    // ШАГ 3: Diff и Синхронизация (По слотам уникальности)
+    const existingFloorsMap = new Map();
+    (existingFloors || []).forEach(f => {
+      existingFloorsMap.set(getConstraintKey(f), f);
+    });
+
     const toUpsert = [];
-    const targetKeys = new Set();
+    const usedExistingIds = new Set();
     const now = new Date().toISOString();
 
     targetFloorsModel.forEach(targetFloor => {
-      targetKeys.add(targetFloor.floor_key);
-      const existingId = existingFloorsMap.get(targetFloor.floor_key);
+      const cKey = getConstraintKey(targetFloor);
+      const existing = existingFloorsMap.get(cKey);
       
-      if (existingId) {
-        toUpsert.push({ ...targetFloor, id: existingId, updated_at: now });
+      if (existing) {
+        toUpsert.push({ ...targetFloor, id: existing.id, updated_at: now });
+        usedExistingIds.add(existing.id);
       } else {
         toUpsert.push({ ...targetFloor, id: crypto.randomUUID(), updated_at: now });
       }
     });
 
     const toDeleteIds = (existingFloors || [])
-      .filter(f => !targetKeys.has(f.floor_key))
+      .filter(f => !usedExistingIds.has(f.id))
       .map(f => f.id);
 
+    // Сначала удаляем
     if (toDeleteIds.length > 0) {
       const { error: deleteErr } = await supabase.from('floors').delete().in('id', toDeleteIds);
       if (deleteErr) return sendError(reply, 500, 'DB_ERROR', deleteErr.message);
     }
 
+    // Потом вставляем/обновляем
     if (toUpsert.length > 0) {
       const { error: upsertErr } = await supabase.from('floors').upsert(toUpsert, { onConflict: 'id' });
       if (upsertErr) return sendError(reply, 500, 'DB_ERROR', upsertErr.message);
@@ -1004,7 +1012,12 @@ export function registerRegistryRoutes(app, { supabase }) {
     const matrixEnsureError = await ensureEntranceMatrixForBlock(supabase, blockId);
     if (matrixEnsureError) return sendError(reply, 500, 'DB_ERROR', matrixEnsureError.message);
 
-    const result = { ok: true, deleted: toDeleteIds.length, upserted: toUpsert.length };
+    const result = { 
+      ok: true, 
+      deleted: toDeleteIds.length, 
+      upserted: toUpsert.length 
+    };
+    
     rememberIdempotentResponse(idempotencyStore, idempotencyContext, result);
     return reply.send(result);
   });

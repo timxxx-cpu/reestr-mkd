@@ -193,7 +193,7 @@ export function generateFloorsModel(block, building, allBlocks, basements, marke
 function createFloorObj(blockId, overrides) {
   return {
     block_id: blockId,
-    height: 3.0,
+    height: null,
     area_proj: 0,
     is_technical: false,
     is_commercial: false,
