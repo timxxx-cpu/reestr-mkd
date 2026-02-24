@@ -939,11 +939,11 @@ export function registerRegistryRoutes(app, { supabase }) {
       supabase.from('building_blocks').select('*').eq('building_id', block.building_id),
       supabase.from('basements').select('*').eq('building_id', block.building_id),
       supabase.from('block_floor_markers').select('*').eq('block_id', blockId),
-      supabase.from('floors').select('id, floor_key').eq('block_id', blockId) // Берем текущие этажи
+      supabase.from('floors').select('id, floor_key').eq('block_id', blockId)
     ]);
 
     // ШАГ 2: Генерация целевой модели этажей
-    const targetFloorsModel = generateFloorsModel(
+    let targetFloorsModel = generateFloorsModel(
       block, 
       building, 
       allBlocks || [], 
@@ -951,12 +951,29 @@ export function registerRegistryRoutes(app, { supabase }) {
       markers || []
     );
 
+    // --- ФИЛЬТР ДЕДУПЛИКАЦИИ ---
+    const uniqueConstraintKeys = new Set();
+    const deduplicatedModel = [];
+
+    targetFloorsModel.forEach(floor => {
+      const pfi = floor.parent_floor_index ?? -99999;
+      const bid = floor.basement_id ?? '00000000-0000-0000-0000-000000000000';
+      const constraintKey = `${floor.index}_${pfi}_${bid}`;
+      
+      if (!uniqueConstraintKeys.has(constraintKey)) {
+        uniqueConstraintKeys.add(constraintKey);
+        deduplicatedModel.push(floor);
+      }
+    });
+
+    targetFloorsModel = deduplicatedModel;
+    // ---------------------------
+
     // ШАГ 3: Diff и Синхронизация (Upsert & Delete)
     const existingFloorsMap = new Map((existingFloors || []).map(f => [f.floor_key, f.id]));
     const toUpsert = [];
     const targetKeys = new Set();
-
-   const now = new Date().toISOString();
+    const now = new Date().toISOString();
 
     targetFloorsModel.forEach(targetFloor => {
       targetKeys.add(targetFloor.floor_key);
@@ -969,12 +986,10 @@ export function registerRegistryRoutes(app, { supabase }) {
       }
     });
 
-    // Находим этажи, которые есть в БД, но их больше нет в целевой модели
     const toDeleteIds = (existingFloors || [])
       .filter(f => !targetKeys.has(f.floor_key))
       .map(f => f.id);
 
-    // Выполняем мутации
     if (toDeleteIds.length > 0) {
       const { error: deleteErr } = await supabase.from('floors').delete().in('id', toDeleteIds);
       if (deleteErr) return sendError(reply, 500, 'DB_ERROR', deleteErr.message);
@@ -989,12 +1004,7 @@ export function registerRegistryRoutes(app, { supabase }) {
     const matrixEnsureError = await ensureEntranceMatrixForBlock(supabase, blockId);
     if (matrixEnsureError) return sendError(reply, 500, 'DB_ERROR', matrixEnsureError.message);
 
-    const result = { 
-      ok: true, 
-      deleted: toDeleteIds.length, 
-      upserted: toUpsert.length 
-    };
-    
+    const result = { ok: true, deleted: toDeleteIds.length, upserted: toUpsert.length };
     rememberIdempotentResponse(idempotencyStore, idempotencyContext, result);
     return reply.send(result);
   });

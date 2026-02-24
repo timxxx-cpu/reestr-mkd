@@ -4,7 +4,7 @@ import crypto from 'crypto';
 
 // Вспомогательная функция для безопасного upsert/delete этажей
 const syncFloorsForBlockWithGenerator = async (supabase, blockId) => {
-  // 1. Собираем полный контекст из БД (так же, как в registry-routes)
+  // 1. Собираем полный контекст из БД
   const [
     { data: block },
     { data: building },
@@ -24,7 +24,7 @@ const syncFloorsForBlockWithGenerator = async (supabase, blockId) => {
   if (!block || !building) return null;
 
   // 2. Генерируем эталонную модель
-  const targetFloorsModel = generateFloorsModel(
+  let targetFloorsModel = generateFloorsModel(
     block,
     building,
     allBlocks || [],
@@ -32,13 +32,31 @@ const syncFloorsForBlockWithGenerator = async (supabase, blockId) => {
     markers || []
   );
 
+  // --- ФИЛЬТР ДЕДУПЛИКАЦИИ (ЗАЩИТА ОТ UNIQUE CONSTRAINT) ---
+  const uniqueConstraintKeys = new Set();
+  const deduplicatedModel = [];
+
+  targetFloorsModel.forEach(floor => {
+    const pfi = floor.parent_floor_index ?? -99999;
+    const bid = floor.basement_id ?? '00000000-0000-0000-0000-000000000000';
+    const constraintKey = `${floor.index}_${pfi}_${bid}`;
+    
+    // Если этажа с такой комбинацией ключей еще не было, добавляем его
+    if (!uniqueConstraintKeys.has(constraintKey)) {
+      uniqueConstraintKeys.add(constraintKey);
+      deduplicatedModel.push(floor);
+    }
+  });
+
+  targetFloorsModel = deduplicatedModel;
+  // -----------------------------------------------------------
+
   // 3. Diff и Синхронизация
   const existingFloorsMap = new Map((existingFloors || []).map(f => [f.floor_key, f.id]));
   const toUpsert = [];
   const targetKeys = new Set();
+  const now = new Date().toISOString();
 
- const now = new Date().toISOString();
-  
   targetFloorsModel.forEach(targetFloor => {
     targetKeys.add(targetFloor.floor_key);
     const existingId = existingFloorsMap.get(targetFloor.floor_key);
