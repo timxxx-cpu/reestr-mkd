@@ -91,43 +91,11 @@
     - Наблюдения по workflow и ограничениям
     - Ключевые риски и точки контроля качества
 
-13. [План разделения на Backend и Frontend](./13-backend-frontend-split-plan.md) ✨ **НОВОЕ**
-    - Целевая архитектура разделения
-    - Поэтапный план миграции
-    - Риски и меры снижения
-    - Roadmap релизов
-
-14. [Iteration 1 — внедрение BFF (locks + complete-step)](./14-iteration1-implementation.md) ✨ **НОВОЕ**
-    - Что уже внедрено
-    - Feature-flag и безопасный rollout
-    - Ограничения итерации и шаги Iteration 2
-
-15. [Аудит текущего состояния проекта (snapshot)](./15-project-audit-snapshot.md) ✨ **НОВОЕ**
-    - Краткая карта текущей архитектуры и миграции
-    - Что стабильно, что в переходе, и что делать дальше
-
-
-16. [План следующего этапа миграции на Backend](./16-backend-migration-next-plan.md) ✨ **НОВОЕ**
-    - Приоритеты P1 и итерационный roadmap
-    - Чеклисты, DoD, риски и критерии отключения direct-write
-
-17. [Transition briefing (PostgreSQL + Supabase DEV + FE/BE split)](./17-transition-briefing.md) ✨ **НОВОЕ**
-    - Краткая фиксация переходного состояния и рабочего фокуса
-
-18. [FE/BE migration gap inventory (что осталось перенести)](./18-migration-gap-inventory.md) ✨ **НОВОЕ**
-    - Оценка прогресса и список оставшихся write-path
-
-19. [Backend transition execution plan](./19-backend-transition-execution-plan.md) ✨ **НОВОЕ**
-    - Исполнимый roadmap по закрытию оставшихся migration-gap
-    - Критерии отключения direct-write по умолчанию
-
-20. [FE/BE cutover fact sheet](./20-cutover-fact-sheet.md) ✨ **НОВОЕ**
-    - Единая фактология по auth/cutover/hard-switch
-    - Текущий статус готовности к direct-write OFF
-
-21. [Live business smoke checklist](./live-business-smoke-checklist.md) ✨ **НОВОЕ**
-    - Реальные пользовательские сценарии для backend-first cutover
-
+13. [Единый план миграции на BFF (backend-first)](./19-backend-transition-execution-plan.md) ✨ **АКТУАЛЬНО**
+    - Текущее состояние миграции
+    - Оставшиеся задачи и риски
+    - Единый roadmap и DoD по фазам
+    - Критерии финального cutover и отключения legacy-path
 
 ## Ключевые особенности документации
 
