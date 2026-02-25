@@ -1,5 +1,10 @@
 export const createProjectApi = legacyApi => ({
   getSystemUsers: legacyApi.getSystemUsers,
+  
+  // 👇 ДОБАВИТЬ ЭТИ ДВЕ СТРОЧКИ 👇
+  getProjectsPage: legacyApi.getProjectsPage,
+  getProjectsSummaryCounts: legacyApi.getProjectsSummaryCounts,
+  
   getProjectsList: legacyApi.getProjectsList,
   getExternalApplications: legacyApi.getExternalApplications,
   createProjectFromApplication: legacyApi.createProjectFromApplication,

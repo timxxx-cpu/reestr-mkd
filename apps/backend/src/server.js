@@ -236,6 +236,7 @@ function buildProjectAvailableActions(actorRole, projectDto, actorUserId) {
   const app = projectDto?.applicationInfo || {};
   const status = app.status;
   const substatus = app.workflowSubstatus;
+  
   const isCompleted = status === 'COMPLETED';
   const isDeclined = status === 'DECLINED';
   const isPendingDecline = substatus === 'PENDING_DECLINE';
@@ -246,7 +247,9 @@ function buildProjectAvailableActions(actorRole, projectDto, actorUserId) {
   const isBranchManager = actorRole === 'branch_manager';
   const isTechnician = actorRole === 'technician';
   const isController = actorRole === 'controller';
-  const isAssigned = !app.assigneeName || app.assigneeName === actorUserId;
+  
+  // Возвращаем строгую проверку: задача либо не назначена, либо назначена на текущего юзера
+  const isAssigned = !app.assigneeName || app.assigneeName === actorUserId; 
 
   if (!isCompleted && !isDeclined && (isAdmin || isBranchManager)) {
     actions.push('reassign');
@@ -265,7 +268,8 @@ function buildProjectAvailableActions(actorRole, projectDto, actorUserId) {
   const canTechnicianEdit = isTechnician && isAssigned && ['DRAFT', 'REVISION', 'RETURNED_BY_MANAGER', 'INTEGRATION'].includes(substatus);
   const canControllerEdit = isController && substatus === 'REVIEW';
 
-  if (!isCompleted && !isDeclined && (canTechnicianEdit || canControllerEdit)) {
+  // ВАЖНО: Админ может заходить всегда, Техник/Контролер - только если прошли проверки выше
+  if (!isCompleted && !isDeclined && (canTechnicianEdit || canControllerEdit || isAdmin)) {
     actions.push('edit');
   }
 

@@ -395,6 +395,7 @@ const ApplicationsDashboard = ({
     totalPages: projectsTotalPages,
     isLoading: isLoadingProjects,
     isFetching: isFetchingProjects,
+    refetch,
   } = useDashboardProjects({
     scope: dbScope,
     activeTab,
@@ -580,7 +581,7 @@ const ApplicationsDashboard = ({
         });
         toast.success('Заявление возвращено технику на доработку');
       }
-
+      refetch();
     } catch (e) {
       console.error(e);
       toast.error('Ошибка при выполнении операции');
@@ -1064,11 +1065,13 @@ const ProjectsTable = ({
                     ].includes(substatus)) ||
                   (user.role === ROLES.CONTROLLER && substatus === WORKFLOW_SUBSTATUS.REVIEW);
 
-                const canEdit = availableActions ? hasAction('edit') : fallbackCanEdit;
-                const canDecline = availableActions ? hasAction('decline') : false;
-                const canReturnFromDecline = availableActions ? hasAction('return_from_decline') : false;
-                const canReassign = availableActions ? hasAction('reassign') : false;
-                const canDelete = availableActions ? hasAction('delete') : user.role === ROLES.ADMIN;
+                // Жестко блокируем редактирование, если юзер - техник, а задача чужая
+                const canEdit = (availableActions?.includes('edit') || fallbackCanEdit) && 
+                (user.role !== ROLES.TECHNICIAN || isAssignedToCurrentTechnician);
+                const canDecline = (availableActions?.includes('decline') || false) && [ROLES.ADMIN, ROLES.BRANCH_MANAGER, ROLES.CONTROLLER].includes(user.role);
+                const canReturnFromDecline = (availableActions?.includes('return_from_decline') || false) && [ROLES.ADMIN, ROLES.BRANCH_MANAGER].includes(user.role);
+                const canReassign = (availableActions?.includes('reassign') || false) && [ROLES.ADMIN, ROLES.BRANCH_MANAGER].includes(user.role);
+                const canDelete = (availableActions?.includes('delete') || false) && user.role === ROLES.ADMIN;
 
                 return (
                   <tr
