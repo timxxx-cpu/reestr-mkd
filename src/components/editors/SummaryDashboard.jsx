@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import {
   Building2,
   Home,
@@ -27,7 +27,6 @@ import {
 import { useProject } from '@context/ProjectContext';
 import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
 import { Card, SectionTitle, Badge } from '@components/ui/UIKit';
-import { calculateProgress } from '@lib/utils';
 
 // --- ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ ---
 
@@ -113,71 +112,20 @@ const SummaryDashboard = () => {
   const { projectId, complexInfo } = useProject();
 
   // [NEW] Загружаем данные из БД
-  const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
+  const { tepSummary, loadingRegistry } = useDirectIntegration(projectId);
 
-  // --- АГРЕГАЦИЯ ---
-  const stats = useMemo(() => {
-    const result = {
-      totalAreaProj: 0,
-      totalAreaFact: 0,
-      living: { area: 0, count: 0 },
-      commercial: { area: 0, count: 0 },
-      infrastructure: { area: 0, count: 0 },
-      parking: { area: 0, count: 0 },
-      mop: { area: 0 },
-      cadastreReadyCount: 0,
-      totalObjectsCount: 0,
-      avgProgress: 0,
-    };
-
-    if (!fullRegistry || !fullRegistry.buildings) return result;
-
-    const { buildings, floors, units } = fullRegistry;
-
-    // 1. Прогресс и Площади этажей (Общая)
-    let totalProgressSum = 0;
-    buildings.forEach(b => {
-      totalProgressSum += calculateProgress(b.date_start, b.date_end); // DB fields snake_case
-    });
-    if (buildings.length > 0) result.avgProgress = totalProgressSum / buildings.length;
-
-    floors.forEach(f => {
-      result.totalAreaProj += parseFloat(f.areaProj || 0);
-      result.totalAreaFact += parseFloat(f.areaFact || 0);
-    });
-
-    // 2. Юниты (Распределение)
-    units.forEach(u => {
-      const area = parseFloat(u.area || 0);
-      result.totalObjectsCount++;
-      if (u.cadastreNumber) result.cadastreReadyCount++;
-
-      if (['flat', 'duplex_up', 'duplex_down'].includes(u.type)) {
-        result.living.area += area;
-        result.living.count++;
-      } else if (['office', 'office_inventory', 'non_res_block'].includes(u.type)) {
-        result.commercial.area += area;
-        result.commercial.count++;
-      } else if (u.type === 'infrastructure') {
-        result.infrastructure.area += area;
-        result.infrastructure.count++;
-      } else if (u.type === 'parking_place') {
-        result.parking.area += area;
-        result.parking.count++;
-      }
-    });
-
-    // 3. МОП
-    // Считаем полезную площадь (все юниты) и вычитаем из общей
-    const usefulArea =
-      result.living.area +
-      result.commercial.area +
-      result.infrastructure.area +
-      result.parking.area;
-    result.mop.area = Math.max(0, result.totalAreaProj - usefulArea);
-
-    return result;
-  }, [fullRegistry]);
+  const stats = tepSummary || {
+    totalAreaProj: 0,
+    totalAreaFact: 0,
+    living: { area: 0, count: 0 },
+    commercial: { area: 0, count: 0 },
+    infrastructure: { area: 0, count: 0 },
+    parking: { area: 0, count: 0 },
+    mop: { area: 0 },
+    cadastreReadyCount: 0,
+    totalObjectsCount: 0,
+    avgProgress: 0,
+  };
 
   if (loadingRegistry)
     return (

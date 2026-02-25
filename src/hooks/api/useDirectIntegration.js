@@ -8,6 +8,7 @@ export function useDirectIntegration(projectId) {
   const keys = {
     status: ['integration-status', projectId],
     registry: ['project-registry', projectId],
+    tep: ['project-tep-summary', projectId],
   };
 
   // --- READ ---
@@ -20,6 +21,12 @@ export function useDirectIntegration(projectId) {
   const { data: fullRegistry, isLoading: loadingRegistry } = useQuery({
     queryKey: keys.registry,
     queryFn: () => ApiService.getProjectFullRegistry(projectId),
+    enabled: !!projectId,
+  });
+
+  const { data: tepSummary = null, isLoading: loadingTep } = useQuery({
+    queryKey: keys.tep,
+    queryFn: () => ApiService.getProjectTepSummary(projectId),
     enabled: !!projectId,
   });
 
@@ -54,7 +61,8 @@ export function useDirectIntegration(projectId) {
   return {
     integrationStatus,
     fullRegistry,
-    loadingRegistry,
+    tepSummary,
+    loadingRegistry: loadingRegistry || loadingTep,
     setIntegrationStatus: updateStatusMutation.mutateAsync,
     setBuildingCadastre: updateBuildingCadastreMutation.mutateAsync,
     setUnitCadastre: updateUnitCadastreMutation.mutateAsync,

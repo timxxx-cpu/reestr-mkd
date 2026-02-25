@@ -26,6 +26,7 @@ import { getStepStage, isPendingDecline } from '@lib/workflow-utils';
 import { canRequestDecline, canReviewDeclineRequest } from '@lib/workflow-state-machine';
 import { IdentifierBadge } from '@components/ui/IdentifierBadge';
 import { useKeyboardShortcuts } from '@hooks/useKeyboardShortcuts';
+import { ApiService } from '@lib/api-service';
 
 // Шаги, на которых сохранение выполняется через локальные формы (блокируем верхние кнопки)
 const STEPS_WITH_CUSTOM_SAVE = [
@@ -39,9 +40,6 @@ const STEPS_WITH_CUSTOM_SAVE = [
   'registry_commercial', // Реестр нежилых помещений (локальное сохранение шага)
   'registry_parking',    // Реестр машиномест (локальное сохранение шага)
 ];
-
-// Импорт валидатора
-import { validateStepCompletion } from '@lib/step-validators';
 
 // --- МОДАЛКА ДЛЯ ВВОДА КОММЕНТАРИЯ/ПРИЧИНЫ (ВЗАМЕН PROMPT) ---
 const ActionCommentModal = ({ config, onCancel, onConfirm, isLoading }) => {
@@ -476,6 +474,8 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
     hasUnsavedChanges,
     getValidationSnapshot,
     refetch,
+    projectId,
+    dbScope,
   } = projectContext;
 
   const toast = useToast();
@@ -667,10 +667,31 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
       }
 
       const currentStepId = STEPS_CONFIG[currentStep]?.id;
-      const fallbackSnapshot =
-        typeof getValidationSnapshot === 'function' ? getValidationSnapshot() : projectContext;
-      const validationData = dbSnapshot || fallbackSnapshot;
-      const errors = validateStepCompletion(currentStepId, validationData);
+      let errors = null;
+
+      try {
+        const validationResponse = await ApiService.validateStepCompletionViaBff({
+          scope: dbScope,
+          projectId,
+          stepId: currentStepId,
+        });
+
+        const backendErrors = Array.isArray(validationResponse?.errors)
+          ? validationResponse.errors
+          : [];
+
+        errors = backendErrors.map((err, idx) => ({
+          id: `${err.code || 'VALIDATION'}-${idx}`,
+          title: err.code || 'VALIDATION_ERROR',
+          description: err.message || 'Ошибка проверки данных',
+          source: 'backend',
+        }));
+      } catch (validationError) {
+        console.error('Backend validation failed', validationError);
+        setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
+        toast.error('Не удалось выполнить серверную валидацию. Попробуйте позже.');
+        return;
+      }
 
       setSaveNotice({ open: false, status: 'saving', message: '', onOk: null });
 

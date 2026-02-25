@@ -994,6 +994,137 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
     return reply.send({ ok: true });
   });
 
+
+  app.get('/api/v1/projects/:projectId/tep-summary', async (req, reply) => {
+    const { projectId } = req.params;
+
+    const { data: buildings, error: buildingsError } = await supabase
+      .from('buildings')
+      .select('id, date_start, date_end')
+      .eq('project_id', projectId);
+    if (buildingsError) return sendError(reply, 500, 'DB_ERROR', buildingsError.message);
+
+    const buildingIds = (buildings || []).map(item => item.id);
+    if (!buildingIds.length) {
+      return reply.send({
+        totalAreaProj: 0,
+        totalAreaFact: 0,
+        living: { area: 0, count: 0 },
+        commercial: { area: 0, count: 0 },
+        infrastructure: { area: 0, count: 0 },
+        parking: { area: 0, count: 0 },
+        mop: { area: 0 },
+        cadastreReadyCount: 0,
+        totalObjectsCount: 0,
+        avgProgress: 0,
+      });
+    }
+
+    const { data: blocks, error: blocksError } = await supabase
+      .from('building_blocks')
+      .select('id, building_id')
+      .in('building_id', buildingIds);
+    if (blocksError) return sendError(reply, 500, 'DB_ERROR', blocksError.message);
+
+    const blockIds = (blocks || []).map(item => item.id);
+    if (!blockIds.length) {
+      return reply.send({
+        totalAreaProj: 0,
+        totalAreaFact: 0,
+        living: { area: 0, count: 0 },
+        commercial: { area: 0, count: 0 },
+        infrastructure: { area: 0, count: 0 },
+        parking: { area: 0, count: 0 },
+        mop: { area: 0 },
+        cadastreReadyCount: 0,
+        totalObjectsCount: 0,
+        avgProgress: 0,
+      });
+    }
+
+    const { data: floors, error: floorsError } = await supabase
+      .from('floors')
+      .select('id, area_proj, area_fact')
+      .in('block_id', blockIds);
+    if (floorsError) return sendError(reply, 500, 'DB_ERROR', floorsError.message);
+
+    const floorIds = (floors || []).map(item => item.id);
+
+    let units = [];
+    if (floorIds.length) {
+      const { data: unitsData, error: unitsError } = await supabase
+        .from('units')
+        .select('id, unit_type, total_area, cadastre_number')
+        .in('floor_id', floorIds);
+      if (unitsError) return sendError(reply, 500, 'DB_ERROR', unitsError.message);
+      units = unitsData || [];
+    }
+
+    const calcProgress = (dateStart, dateEnd) => {
+      if (!dateStart || !dateEnd) return 0;
+      const start = new Date(dateStart).getTime();
+      const end = new Date(dateEnd).getTime();
+      const now = Date.now();
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
+      if (now <= start) return 0;
+      if (now >= end) return 100;
+      return ((now - start) / (end - start)) * 100;
+    };
+
+    const summary = {
+      totalAreaProj: 0,
+      totalAreaFact: 0,
+      living: { area: 0, count: 0 },
+      commercial: { area: 0, count: 0 },
+      infrastructure: { area: 0, count: 0 },
+      parking: { area: 0, count: 0 },
+      mop: { area: 0 },
+      cadastreReadyCount: 0,
+      totalObjectsCount: 0,
+      avgProgress: 0,
+    };
+
+    let progressSum = 0;
+    (buildings || []).forEach(item => {
+      progressSum += calcProgress(item.date_start, item.date_end);
+    });
+    summary.avgProgress = (buildings || []).length ? progressSum / buildings.length : 0;
+
+    (floors || []).forEach(item => {
+      summary.totalAreaProj += Number(item.area_proj || 0);
+      summary.totalAreaFact += Number(item.area_fact || 0);
+    });
+
+    (units || []).forEach(item => {
+      const area = Number(item.total_area || 0);
+      summary.totalObjectsCount += 1;
+      if (item.cadastre_number) summary.cadastreReadyCount += 1;
+
+      if (['flat', 'duplex_up', 'duplex_down'].includes(item.unit_type)) {
+        summary.living.area += area;
+        summary.living.count += 1;
+      } else if (['office', 'office_inventory', 'non_res_block'].includes(item.unit_type)) {
+        summary.commercial.area += area;
+        summary.commercial.count += 1;
+      } else if (item.unit_type === 'infrastructure') {
+        summary.infrastructure.area += area;
+        summary.infrastructure.count += 1;
+      } else if (item.unit_type === 'parking_place') {
+        summary.parking.area += area;
+        summary.parking.count += 1;
+      }
+    });
+
+    const usefulArea =
+      summary.living.area +
+      summary.commercial.area +
+      summary.infrastructure.area +
+      summary.parking.area;
+    summary.mop.area = Math.max(0, summary.totalAreaProj - usefulArea);
+
+    return reply.send(summary);
+  });
+
   app.get('/api/v1/projects/:projectId/full-registry', async (req, reply) => {
     const { projectId } = req.params;
 

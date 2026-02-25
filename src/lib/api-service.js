@@ -12,7 +12,6 @@ import { createRegistryApi } from './api/registry-api';
 import { createVersionsApi } from './api/versions-api-factory';
 import { BffClient } from './bff-client';
 import { AuthService } from './auth-service';
-import { createVirtualComplexCadastre } from './cadastre';
 
 const resolveActor = (actor = {}) => {
   const currentUser = AuthService.getCurrentUser?.() || null;
@@ -132,25 +131,23 @@ const LegacyApiService = {
     });
   },
 
-  // [NEW] Mock внешних заявок
-  getExternalApplications: async () => {
-    // Имитация задержки
-    await new Promise(r => setTimeout(r, 500));
-    return [
-      {
-        id: 'EXT-' + Math.floor(Math.random() * 10000),
-        source: 'EPIGU',
-        externalId: 'EP-2026-9912',
-        applicant: 'ООО "Golden House"',
-        submissionDate: new Date().toISOString(),
-        cadastre: createVirtualComplexCadastre(),
-        address: 'г. Ташкент, Шайхантахурский р-н, ул. Навои, 12',
-        status: 'NEW',
-      },
-    ];
+  validateStepCompletionViaBff: async ({ scope, projectId, stepId }) => {
+    requireBffEnabled('project.validateStepCompletion');
+
+    const resolvedActor = resolveActor({});
+    return BffClient.validateProjectStep({
+      scope,
+      projectId,
+      stepId,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
-
+  getExternalApplications: async scope => {
+    requireBffEnabled('project.getExternalApplications');
+    return BffClient.getExternalApplications({ scope });
+  },
 
   // --- WORK LOCK (защита от одновременного редактирования) ---
  acquireApplicationLock: async ({ scope, projectId, userName, userRole, ttlMinutes = 20 }) => {
@@ -939,6 +936,11 @@ const LegacyApiService = {
   getProjectFullRegistry: async projectId => {
     requireBffEnabled('project.getProjectFullRegistry');
     return BffClient.getProjectFullRegistry({ projectId });
+  },
+
+  getProjectTepSummary: async projectId => {
+    requireBffEnabled('project.getProjectTepSummary');
+    return BffClient.getProjectTepSummary({ projectId });
   },
 
   // --- META SAVE (ГЛОБАЛЬНОЕ СОХРАНЕНИЕ ИЗ КОНТЕКСТА) ---

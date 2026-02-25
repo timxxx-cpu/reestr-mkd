@@ -1,0 +1,371 @@
+{
+  "generatedAt": "2026-02-25T13:43:32.909Z",
+  "routeCount": 73,
+  "routes": [
+    {
+      "method": "DELETE",
+      "path": "/api/v1/buildings/:buildingId",
+      "source": "src/composition-routes.js"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/common-areas/:id",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/project-documents/:documentId",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/projects/:projectId",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/:applicationId/locks",
+      "source": "src/server.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/blocks/:blockId/common-areas",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/blocks/:blockId/entrance-matrix",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/blocks/:blockId/entrances",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/blocks/:blockId/floors",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/blocks/:blockId/units",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/catalogs/:table",
+      "source": "src/server.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/external-applications",
+      "source": "src/server.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects",
+      "source": "src/server.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/application-id",
+      "source": "src/server.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/basements",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/buildings",
+      "source": "src/composition-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/context",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/context-registry-details",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/full-registry",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/integration-status",
+      "source": "src/integration-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/parking-counts",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/passport",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/tep-summary",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/summary-counts",
+      "source": "src/server.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/registry/buildings-summary",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/units/:unitId/explication",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/versions",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/versions/:versionId/snapshot",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/:applicationId/locks/acquire",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/:applicationId/locks/refresh",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/:applicationId/locks/release",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/:applicationId/workflow/assign-technician",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/:applicationId/workflow/complete-step",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/:applicationId/workflow/decline",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/:applicationId/workflow/request-decline",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/:applicationId/workflow/restore",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/:applicationId/workflow/return-from-decline",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/:applicationId/workflow/review-approve",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/:applicationId/workflow/review-reject",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/:applicationId/workflow/rollback-step",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "source": "src/auth-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/blocks/:blockId/common-areas/clear",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/blocks/:blockId/common-areas/reconcile",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/blocks/:blockId/entrances/reconcile",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/blocks/:blockId/floors/reconcile",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/blocks/:blockId/units/reconcile",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/catalogs/:table/upsert",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/common-areas/upsert",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/floors/:floorId/parking-places/sync",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:projectId/buildings",
+      "source": "src/composition-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:projectId/context-building-details/save",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:projectId/context-meta/save",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:projectId/documents",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:projectId/step-block-statuses/save",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:projectId/validation/step",
+      "source": "src/server.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/from-application",
+      "source": "src/project-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/units/batch-upsert",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/units/upsert",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/versions",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/versions/:versionId/approve",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/versions/:versionId/decline",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/versions/:versionId/restore",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/basements/:basementId/parking-levels/:level",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/blocks/:blockId/entrance-matrix/cell",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/buildings/:buildingId",
+      "source": "src/composition-routes.js"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/buildings/:buildingId/cadastre",
+      "source": "src/integration-routes.js"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/catalogs/:table/:id/active",
+      "source": "src/server.js"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/floors/:floorId",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/projects/:projectId/integration-status",
+      "source": "src/integration-routes.js"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/projects/:projectId/participants/:role",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/projects/:projectId/passport",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/units/:unitId/cadastre",
+      "source": "src/integration-routes.js"
+    }
+  ]
+}

@@ -7,7 +7,7 @@ import { registerRegistryRoutes } from './registry-routes.js';
 import { registerIntegrationRoutes } from './integration-routes.js';
 import { registerProjectRoutes } from './project-routes.js';
 import { createIdempotencyStore } from './idempotency-store.js';
-import { installAuthMiddleware, requireActor } from './auth.js';
+import { installAuthMiddleware } from './auth.js';
 import { sendError, requirePolicyActor } from './http-helpers.js';
 import { registerAuthRoutes } from './auth-routes.js';
 
@@ -105,6 +105,18 @@ function buildReviewTransition(current, action) {
   }
 
   return { isApprove, nextStatus, nextSubstatus, nextStepIndex, nextStage };
+}
+
+export function getStageStepRange(stage) {
+  const normalizedStage = Number(stage || 1);
+  const rangeEnd = LAST_STEP_INDEX_BY_STAGE[normalizedStage];
+  if (!Number.isInteger(rangeEnd) || rangeEnd < 0) return null;
+
+  const prevStage = normalizedStage - 1;
+  const prevEnd = prevStage >= 1 ? LAST_STEP_INDEX_BY_STAGE[prevStage] : -1;
+  const rangeStart = Number.isInteger(prevEnd) ? prevEnd + 1 : 0;
+
+  return { start: rangeStart, end: rangeEnd };
 }
 
 function buildIdempotencyContext(req, actor) {
@@ -215,7 +227,159 @@ async function updateApplicationState(supabase, applicationId, transition) {
   return { ok: true, updatedApp: data };
 }
 
+export async function updateStepCompletion(supabase, { applicationId, stepIndex, isCompleted }) {
+  const payload = {
+    application_id: applicationId,
+    step_index: Number(stepIndex),
+    is_completed: Boolean(isCompleted),
+  };
 
+  const { error } = await supabase
+    .from('application_steps')
+    .upsert(payload, { onConflict: 'application_id,step_index' });
+
+  if (error) return { ok: false, status: 500, code: 'DB_ERROR', message: error.message };
+  return { ok: true };
+}
+
+export async function updateStageVerification(supabase, { applicationId, stage, isVerified }) {
+  const range = getStageStepRange(stage);
+  if (!range) {
+    return { ok: false, status: 400, code: 'INVALID_STAGE', message: `Cannot resolve step range for stage ${stage}` };
+  }
+
+  const payload = [];
+  for (let stepIdx = range.start; stepIdx <= range.end; stepIdx += 1) {
+    payload.push({
+      application_id: applicationId,
+      step_index: stepIdx,
+      is_verified: Boolean(isVerified),
+    });
+  }
+
+  const { error } = await supabase
+    .from('application_steps')
+    .upsert(payload, { onConflict: 'application_id,step_index' });
+
+  if (error) return { ok: false, status: 500, code: 'DB_ERROR', message: error.message };
+  return { ok: true };
+}
+
+
+
+
+function buildValidationError(code, message, meta = {}) {
+  return { code, message, meta };
+}
+
+async function buildStepValidationResult(supabase, { projectId, stepId }) {
+  const normalizedStepId = String(stepId || '').trim();
+
+  const { data: buildings, error: buildingsError } = await supabase
+    .from('buildings')
+    .select('id, category, building_blocks(id, type, floors_from, floors_to, entrances_count)')
+    .eq('project_id', projectId);
+
+  if (buildingsError) {
+    return { ok: false, status: 500, code: 'DB_ERROR', message: buildingsError.message };
+  }
+
+  const allBuildings = buildings || [];
+  const allBlocks = allBuildings.flatMap(b => b.building_blocks || []);
+  const residentialBlocks = allBlocks.filter(block => block.type === 'Ж');
+  const errors = [];
+
+  if (normalizedStepId === 'composition' && allBuildings.length === 0) {
+    errors.push(buildValidationError('NO_BUILDINGS', 'Не добавлено ни одного здания в проект'));
+  }
+
+  if (normalizedStepId === 'registry_res') {
+    if (residentialBlocks.length === 0) {
+      errors.push(buildValidationError('NO_RESIDENTIAL_BLOCKS', 'Отсутствуют жилые блоки для заполнения'));
+    }
+
+    residentialBlocks.forEach(block => {
+      if (!Number(block.floors_from) || !Number(block.floors_to)) {
+        errors.push(buildValidationError('BLOCK_CONFIG_INCOMPLETE', 'Для жилого блока не заполнена этажность', {
+          blockId: block.id,
+        }));
+      }
+    });
+  }
+
+  if (normalizedStepId === 'floors') {
+    if (allBlocks.length === 0) {
+      errors.push(buildValidationError('NO_BLOCKS', 'В проекте отсутствуют блоки для шага этажей'));
+    } else {
+      const blockIds = allBlocks.map(block => block.id);
+      const { data: floors, error: floorsError } = await supabase
+        .from('floors')
+        .select('id, block_id')
+        .in('block_id', blockIds);
+      if (floorsError) return { ok: false, status: 500, code: 'DB_ERROR', message: floorsError.message };
+
+      const floorCountByBlock = (floors || []).reduce((acc, floor) => {
+        acc[floor.block_id] = (acc[floor.block_id] || 0) + 1;
+        return acc;
+      }, {});
+
+      allBlocks.forEach(block => {
+        if (!floorCountByBlock[block.id]) {
+          errors.push(buildValidationError('FLOORS_REQUIRED', 'Для блока отсутствуют этажи', { blockId: block.id }));
+        }
+      });
+    }
+  }
+
+  if (normalizedStepId === 'entrances') {
+    residentialBlocks.forEach(block => {
+      if (!Number(block.entrances_count)) {
+        errors.push(buildValidationError('ENTRANCES_REQUIRED', 'Для жилого блока отсутствуют подъезды', {
+          blockId: block.id,
+        }));
+      }
+    });
+  }
+
+  if (normalizedStepId === 'apartments' || normalizedStepId === 'mop') {
+    const targetBlocks = residentialBlocks;
+    if (targetBlocks.length > 0) {
+      const blockIds = targetBlocks.map(block => block.id);
+      const { data: floors, error: floorsError } = await supabase
+        .from('floors')
+        .select('id, block_id')
+        .in('block_id', blockIds);
+      if (floorsError) return { ok: false, status: 500, code: 'DB_ERROR', message: floorsError.message };
+
+      const floorIds = (floors || []).map(floor => floor.id);
+      if (floorIds.length === 0) {
+        errors.push(buildValidationError('FLOORS_REQUIRED', 'Сначала заполните этажи для жилых блоков'));
+      } else if (normalizedStepId === 'apartments') {
+        const { data: units, error: unitsError } = await supabase
+          .from('units')
+          .select('id')
+          .in('floor_id', floorIds)
+          .limit(1);
+        if (unitsError) return { ok: false, status: 500, code: 'DB_ERROR', message: unitsError.message };
+        if (!(units || []).length) {
+          errors.push(buildValidationError('UNITS_REQUIRED', 'Не заполнены помещения на шаге "Квартиры"'));
+        }
+      } else {
+        const { data: mops, error: mopError } = await supabase
+          .from('common_areas')
+          .select('id')
+          .in('floor_id', floorIds)
+          .limit(1);
+        if (mopError) return { ok: false, status: 500, code: 'DB_ERROR', message: mopError.message };
+        if (!(mops || []).length) {
+          errors.push(buildValidationError('COMMON_AREAS_REQUIRED', 'Не заполнены МОП/технические помещения'));
+        }
+      }
+    }
+  }
+
+  return { ok: true, errors };
+}
 
 function parseCsvParam(value) {
   if (!value) return [];
@@ -440,6 +604,65 @@ export async function buildServer() {
 
     return { applicationId: data.id };
   });
+  app.post('/api/v1/projects/:projectId/validation/step', async (req, reply) => {
+    const actor = requirePolicyActor(req, reply, {
+      module: 'validation',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot validate project step',
+    });
+    if (!actor) return;
+
+    const { projectId } = req.params;
+    const scope = String(req.body?.scope || '').trim();
+    const stepId = String(req.body?.stepId || '').trim();
+
+    if (!scope) return sendError(reply, 400, 'VALIDATION_ERROR', 'scope is required');
+    if (!stepId) return sendError(reply, 400, 'VALIDATION_ERROR', 'stepId is required');
+
+    const { data: appRow, error: appError } = await supabase
+      .from('applications')
+      .select('id')
+      .eq('project_id', projectId)
+      .eq('scope_id', scope)
+      .maybeSingle();
+
+    if (appError) return sendError(reply, 500, 'DB_ERROR', appError.message);
+    if (!appRow?.id) return sendError(reply, 404, 'NOT_FOUND', 'Application not found');
+
+    const validationRes = await buildStepValidationResult(supabase, { projectId, stepId });
+    if (!validationRes.ok) {
+      return sendError(reply, validationRes.status, validationRes.code, validationRes.message);
+    }
+
+    return reply.send({
+      ok: validationRes.errors.length === 0,
+      stepId,
+      errors: validationRes.errors,
+    });
+  });
+
+  app.get('/api/v1/external-applications', async (req, reply) => {
+    const actor = req.authContext || null;
+    if (!actor?.userId) return sendError(reply, 401, 'UNAUTHORIZED', 'Auth context required');
+
+    const scope = String(req.query?.scope || '').trim();
+    if (!scope) return sendError(reply, 400, 'MISSING_SCOPE', 'Scope is required');
+
+    return reply.send([
+      {
+        id: 'EXT-10001',
+        source: 'EPIGU',
+        externalId: 'EP-2026-9912',
+        applicant: 'ООО "Golden House"',
+        submissionDate: new Date().toISOString(),
+        cadastre: '10:10:10:10:10:0001',
+        address: 'г. Ташкент, Шайхантахурский р-н, ул. Навои, 12',
+        status: 'NEW',
+        scope,
+      },
+    ]);
+  });
+
   // 2. Чтение списка проектов для Дашборда (с серверной фильтрацией + пагинацией)
   app.get('/api/v1/projects', async (req, reply) => {
     const { scope } = req.query;
@@ -763,6 +986,13 @@ export async function buildServer() {
     const updateRes = await updateApplicationState(supabase, applicationId, transition);
     if (!updateRes.ok) return sendError(reply, updateRes.status, updateRes.code, updateRes.message);
 
+    const completedRes = await updateStepCompletion(supabase, {
+      applicationId,
+      stepIndex,
+      isCompleted: true,
+    });
+    if (!completedRes.ok) return sendError(reply, completedRes.status, completedRes.code, completedRes.message);
+
     const historyRes = await addHistory(supabase, {
       applicationId,
       action: 'COMPLETE_STEP',
@@ -809,6 +1039,15 @@ export async function buildServer() {
     const updateRes = await updateApplicationState(supabase, applicationId, transition);
     if (!updateRes.ok) return sendError(reply, updateRes.status, updateRes.code, updateRes.message);
 
+    const rollbackCompletionRes = await updateStepCompletion(supabase, {
+      applicationId,
+      stepIndex: Number(appRow.current_step || 0),
+      isCompleted: false,
+    });
+    if (!rollbackCompletionRes.ok) {
+      return sendError(reply, rollbackCompletionRes.status, rollbackCompletionRes.code, rollbackCompletionRes.message);
+    }
+
     const historyRes = await addHistory(supabase, {
       applicationId,
       action: 'ROLLBACK_STEP',
@@ -851,6 +1090,14 @@ export async function buildServer() {
     const updateRes = await updateApplicationState(supabase, applicationId, transition);
     if (!updateRes.ok) return sendError(reply, updateRes.status, updateRes.code, updateRes.message);
 
+    const reviewedStage = Math.max(1, Number(appRes.appRow.current_stage || 1) - 1);
+    const verifiedRes = await updateStageVerification(supabase, {
+      applicationId,
+      stage: reviewedStage,
+      isVerified: true,
+    });
+    if (!verifiedRes.ok) return sendError(reply, verifiedRes.status, verifiedRes.code, verifiedRes.message);
+
     const historyRes = await addHistory(supabase, {
       applicationId,
       action: 'REVIEW_APPROVE',
@@ -892,6 +1139,14 @@ export async function buildServer() {
     const transition = buildReviewTransition(appRes.appRow, 'REJECT');
     const updateRes = await updateApplicationState(supabase, applicationId, transition);
     if (!updateRes.ok) return sendError(reply, updateRes.status, updateRes.code, updateRes.message);
+
+    const reviewedStage = Math.max(1, Number(appRes.appRow.current_stage || 1) - 1);
+    const unverifyRes = await updateStageVerification(supabase, {
+      applicationId,
+      stage: reviewedStage,
+      isVerified: false,
+    });
+    if (!unverifyRes.ok) return sendError(reply, unverifyRes.status, unverifyRes.code, unverifyRes.message);
 
     const historyRes = await addHistory(supabase, {
       applicationId,
