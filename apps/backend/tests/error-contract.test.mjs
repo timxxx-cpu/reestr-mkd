@@ -92,3 +92,48 @@ test('unauthorized response follows unified error contract in jwt mode', async (
     await app.close();
   }
 });
+
+
+test('step-validation endpoint follows unified unauthorized contract in jwt mode', async () => {
+  process.env.AUTH_MODE = 'jwt';
+  process.env.JWT_SECRET = 'test-secret';
+
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/project-1/validation/step',
+      payload: { scope: 'shared_dev_env', stepId: 'composition' },
+    });
+
+    assertErrorContract(response, 'UNAUTHORIZED', 401);
+  } finally {
+    await app.close();
+  }
+});
+
+
+test('external-applications endpoint validates missing scope with unified error contract', async () => {
+  process.env.AUTH_MODE = 'dev';
+  process.env.JWT_SECRET = '';
+
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/external-applications',
+      headers: {
+        'x-user-id': 'user-1',
+        'x-user-role': 'technician',
+      },
+    });
+
+    assertErrorContract(response, 'MISSING_SCOPE', 400);
+  } finally {
+    await app.close();
+  }
+});

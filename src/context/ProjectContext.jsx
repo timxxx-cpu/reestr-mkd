@@ -323,6 +323,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
 
   const value = {
     projectId,
+    dbScope,
     ...mergedState,
     isReadOnly: effectiveReadOnly,
     userProfile,

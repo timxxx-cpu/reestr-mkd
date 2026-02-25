@@ -1,9 +1,6 @@
 import { AuthService } from './auth-service';
 import { trackOperationSource } from './operation-source-tracker';
-const isLegacyRollbackEnabled = () => import.meta.env.VITE_LEGACY_ROLLBACK_ENABLED === 'true';
 const isBffEnabled = () => {
-  if (isLegacyRollbackEnabled()) return false;
-
   const raw = import.meta.env.VITE_BFF_ENABLED;
   if (raw === undefined) return true;
   return raw === 'true';
@@ -113,7 +110,6 @@ async function request(path, options = {}) {
 
 export const BffClient = {
   isEnabled: isBffEnabled,
-  isLegacyRollbackEnabled,
 
   getRegistryBuildingsSummary: () => request('/api/v1/registry/buildings-summary'),
 
@@ -134,6 +130,12 @@ export const BffClient = {
     if (scope) params.set('scope', scope);
     if (assignee) params.set('assignee', assignee);
     return request(`/api/v1/projects/summary-counts?${params.toString()}`);
+  },
+
+  getExternalApplications: ({ scope } = {}) => {
+    const params = new URLSearchParams();
+    if (scope) params.set('scope', scope);
+    return request(`/api/v1/external-applications?${params.toString()}`);
   },
 
   getCatalog: ({ table }) =>
@@ -168,11 +170,22 @@ export const BffClient = {
   getProjectFullRegistry: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/full-registry`),
 
+  getProjectTepSummary: ({ projectId }) =>
+    request(`/api/v1/projects/${projectId}/tep-summary`),
+
   getProjectContext: ({ scope, projectId }) =>
     request(`/api/v1/projects/${projectId}/context?scope=${encodeURIComponent(scope)}`),
 
   getProjectContextRegistryDetails: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/context-registry-details`),
+
+  validateProjectStep: ({ projectId, scope, stepId, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/validation/step`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { scope, stepId },
+    }),
 
   saveProjectContextMeta: ({ scope, projectId, complexInfo, applicationInfo, userName, userRole }) =>
     request(`/api/v1/projects/${projectId}/context-meta/save`, {

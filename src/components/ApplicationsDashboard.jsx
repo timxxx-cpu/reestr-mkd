@@ -371,7 +371,7 @@ const ApplicationsDashboard = ({
   const loadInbox = useCallback(async () => {
     setIsLoadingApps(true);
     try {
-      const data = await ApiService.getExternalApplications();
+      const data = await ApiService.getExternalApplications(dbScope);
       setIncomingApps(data);
     } catch (e) {
       console.error(e);
@@ -379,7 +379,7 @@ const ApplicationsDashboard = ({
     } finally {
       setIsLoadingApps(false);
     }
-  }, [toast]);
+  }, [toast, dbScope]);
 
   // Загрузка входящих
   useEffect(() => {
