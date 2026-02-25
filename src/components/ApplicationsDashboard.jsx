@@ -388,6 +388,33 @@ const ApplicationsDashboard = ({
     }
   }, [activeTab, canViewInbox, loadInbox]);
 
+  // 👇 --- ВСТАВЛЯЕШЬ ВЫРЕЗАННЫЙ КОД СЮДА --- 👇
+  const {
+    projects: dashboardProjects,
+    total: projectsTotal,
+    totalPages: projectsTotalPages,
+    isLoading: isLoadingProjects,
+    isFetching: isFetchingProjects,
+  } = useDashboardProjects({
+    scope: dbScope,
+    activeTab,
+    taskFilter,
+    registryFilter,
+    assigneeFilter,
+    search: debouncedSearchTerm,
+    page: projectsPage,
+    limit: projectsPageSize,
+  });
+
+  const { counts } = useDashboardCounts({
+    scope: dbScope,
+    assignee: assigneeFilter,
+  });
+
+  const currentList = activeTab === 'inbox' ? incomingApps : dashboardProjects;
+  // 👆 ------------------------------------- 👆
+
+  // Теперь эта функция будет видеть dashboardProjects!
   const resolveProjectById = useCallback(
     projectId =>
       (dashboardProjects || []).find(p => p.id === projectId) ||
@@ -396,7 +423,7 @@ const ApplicationsDashboard = ({
     [dashboardProjects, projects]
   );
 
-  const handleEmulateIncoming = () => {
+    const handleEmulateIncoming = () => {
     setIsLoadingApps(true);
     setTimeout(() => {
       const randomId = Math.floor(1000 + Math.random() * 9000);
@@ -647,30 +674,7 @@ const ApplicationsDashboard = ({
     });
   };
 
-  const {
-    projects: dashboardProjects,
-    total: projectsTotal,
-    totalPages: projectsTotalPages,
-    isLoading: isLoadingProjects,
-    isFetching: isFetchingProjects,
-  } = useDashboardProjects({
-    scope: dbScope,
-    activeTab,
-    taskFilter,
-    registryFilter,
-    assigneeFilter,
-    search: debouncedSearchTerm,
-    page: projectsPage,
-    limit: projectsPageSize,
-  });
-
-  const currentList = activeTab === 'inbox' ? incomingApps : dashboardProjects;
-
-  const { counts } = useDashboardCounts({
-    scope: dbScope,
-    assignee: assigneeFilter,
-  });
-
+  
 
   return (
     <div className="w-full bg-white h-screen flex flex-col overflow-hidden">
