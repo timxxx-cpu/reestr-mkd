@@ -59,4 +59,13 @@ export default defineConfig([
       'jsx-a11y/no-static-element-interactions': 'warn',
     },
   },
+
+  {
+    files: ['apps/backend/**/*.{js,mjs}'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
 ])

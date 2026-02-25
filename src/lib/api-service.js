@@ -1,4 +1,3 @@
-import { supabase } from './supabase';
 import {
   mapProjectAggregate,
   mapBuildingFromDB,
@@ -7,89 +6,28 @@ import {
   mapUnitFromDB,
   mapMopFromDB,
 } from './db-mappers';
-import { buildFloorList } from './floor-utils';
-import { getBlocksList } from './utils';
-import { floorKeyToVirtualId, SPECIAL_FLOOR_IDS } from './model-keys';
 import { createProjectApi } from './api/project-api';
 import { createWorkflowApi } from './api/workflow-api';
 import { createRegistryApi } from './api/registry-api';
 import { createVersionsApi } from './api/versions-api-factory';
 import { BffClient } from './bff-client';
 import { AuthService } from './auth-service';
-import { trackOperationSource } from './operation-source-tracker';
-import { normalizeProjectStatusFromDb, normalizeProjectStatusToDb } from './project-status';
-import {
-  createVirtualComplexCadastre,
-  formatBuildingCadastre,
-  formatComplexCadastre,
-} from './cadastre';
-import {
-  generateProjectCode,
-  generateBuildingCode,
-  generateUnitCode,
-  getBuildingPrefix,
-  getUnitPrefix,
-  getNextSequenceNumber,
-} from './uj-identifier';
-
-// ... (Оставляем существующие функции mapBuildingToDb, mapBlockToDb, mapBlockTypeToDb, mapDbTypeToUi без изменений) ...
-
-// Вспомогательная функция для маппинга типов блоков
-function mapBlockTypeToDB(uiType) {
-  if (uiType === 'residential') return 'Ж';
-  if (uiType === 'non_residential') return 'Н';
-  if (uiType === 'parking') return 'Parking';
-  if (uiType === 'infrastructure') return 'Infra';
-  return uiType;
-}
-
-function mapDbTypeToUi(dbType) {
-  if (dbType === 'Ж') return 'residential';
-  if (dbType === 'Н') return 'non_residential';
-  if (dbType === 'Parking') return 'parking';
-  if (dbType === 'Infra') return 'infrastructure';
-  return dbType;
-}
-
-function normalizeParkingTypeFromDb(parkingType) {
-  if (parkingType === 'aboveground') return 'ground';
-  return parkingType;
-}
-
-function normalizeParkingTypeToDb(parkingType) {
-  if (parkingType === 'ground') return 'aboveground';
-  return parkingType;
-}
-
-function normalizeParkingConstructionFromDb(constructionType) {
-  if (constructionType === 'separate' || constructionType === 'integrated') return 'capital';
-  return constructionType;
-}
-
-function sanitizeBuildingCategoryFields(buildingData = {}) {
-  const isParking = buildingData.category === 'parking_separate';
-  const isInfrastructure = buildingData.category === 'infrastructure';
-
-  return {
-    constructionType: isParking
-      ? normalizeParkingConstructionFromDb(buildingData.constructionType || null)
-      : null,
-    parkingType: isParking ? normalizeParkingTypeToDb(buildingData.parkingType || null) : null,
-    infraType: isInfrastructure ? buildingData.infraType || null : null,
-  };
-}
+import { createVirtualComplexCadastre } from './cadastre';
 
 const resolveActor = (actor = {}) => {
   const currentUser = AuthService.getCurrentUser?.() || null;
 
   return {
-    userName: actor.userName || currentUser?.displayName || currentUser?.email || 'unknown',
+    userName: actor.userName || currentUser?.name || currentUser?.displayName || currentUser?.email || currentUser?.id || 'unknown',
     userRole: actor.userRole || currentUser?.role || 'technician',
   };
 };
 
-const trackLegacyPath = operation => {
-  trackOperationSource({ source: 'legacy', operation });
+
+const requireBffEnabled = operation => {
+  if (!BffClient.isEnabled()) {
+    throw new Error(`BFF backend is required for operation: ${operation}`);
+  }
 };
 
 const createIdempotencyKey = (operation, scopeParts = []) => {
@@ -105,533 +43,9 @@ const createIdempotencyKey = (operation, scopeParts = []) => {
   return normalizedScope ? `${operation}:${normalizedScope}:${suffix}` : `${operation}:${suffix}`;
 };
 
-const normalizeDateInput = value => {
-  if (value === '' || value === undefined) return null;
-  return value;
-};
-
-const fetchAllPaged = async (queryFactory, pageSize = 1000) => {
-  let from = 0;
-  const rows = [];
-
-  while (true) {
-        const { data, error } = await queryFactory(from, from + pageSize - 1);
-    if (error) throw error;
-
-    const chunk = data || [];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return rows;
-};
-
-// === UJ IDENTIFIER GENERATION ===
-
-/**
- * Генерация UJ-кода для нового проекта
- * @param {string} scope - Scope ID
- * @returns {Promise<string>} UJ-код формата UJ000000
- */
-const generateNextProjectCode = async scope => {
-  const { data, error } = await supabase
-    .from('projects')
-    .select('uj_code')
-    .eq('scope_id', scope)
-    .not('uj_code', 'is', null)
-    .order('uj_code', { ascending: false });
-
-  if (error) throw error;
-
-  const existingCodes = (data || []).map(p => p.uj_code).filter(Boolean);
-  const nextNumber = getNextSequenceNumber(existingCodes, 'UJ');
-
-  return generateProjectCode(nextNumber);
-};
-
-const extractBuildingSegment = code => {
-  if (!code) return null;
-  const str = String(code);
-  const parts = str.split('-');
-  return parts.length > 1 ? parts[parts.length - 1] : str;
-};
-
-const extractUnitSegment = code => {
-  if (!code) return null;
-  const str = String(code);
-  const parts = str.split('-');
-  return parts.length > 2 ? parts[parts.length - 1] : str;
-};
-
-/**
- * Генерация кода здания внутри проекта (сегмент ZD00)
- * @param {string} projectId - ID проекта (оставлен для совместимости вызова)
- * @param {string} category - Категория здания
- * @param {number} blocksCount - Количество блоков (для определения ZR/ZM)
- * @returns {Promise<string>} Код-сегмент формата ZD00
- */
-  const generateNextBuildingCode = async (projectId, category, blocksCount = 0) => {
-  const hasMultipleBlocks = blocksCount > 1;
-  const prefix = getBuildingPrefix(category, hasMultipleBlocks);
-
-  const { data, error } = await supabase
-    .from('buildings')
-    .select('building_code')
-    .eq('project_id', projectId)
-    .not('building_code', 'is', null);
-
-  if (error) throw error;
-
- const existingCodes = (data || [])
-    .map(b => extractBuildingSegment(b.building_code))
-    .filter(Boolean);
-  const nextNumber = getNextSequenceNumber(existingCodes, prefix);
-
-  return generateBuildingCode(prefix, nextNumber);
-};
-
-const isBuildingCodeConflict = error =>
-  error?.code === '23505' && String(error?.message || '').includes('idx_buildings_code');
-
-/**
- * Генерация кода помещения внутри здания (сегмент EL000)
- * @param {string} buildingId - ID здания
- * @param {string} unitType - Тип помещения
- * @returns {Promise<string>} Код-сегмент формата EL000
- */
-const generateNextUnitCode = async (buildingId, unitType) => {
-  const prefix = getUnitPrefix(unitType);
-
-  const { data: blocks, error: blocksErr } = await supabase
-    .from('building_blocks')
-    .select('id')
-    .eq('building_id', buildingId);
-
-  if (blocksErr) throw blocksErr;
-
-  const blockIds = (blocks || []).map(b => b.id);
-  if (blockIds.length === 0) return generateUnitCode(prefix, 1);
-
-  const { data: floors, error: floorsErr } = await supabase
-    .from('floors')
-    .select('id')
-    .in('block_id', blockIds);
-
-  if (floorsErr) throw floorsErr;
-
-  const floorIds = (floors || []).map(f => f.id);
-  if (floorIds.length === 0) return generateUnitCode(prefix, 1);
-
-  const { data: units, error: unitsErr } = await supabase
-    .from('units')
-    .select('unit_code')
-    .in('floor_id', floorIds)
-    .not('unit_code', 'is', null);
-
-  if (unitsErr) throw unitsErr;
-
-  const existingCodes = (units || [])
-    .map(u => extractUnitSegment(u.unit_code))
-    .filter(Boolean);
-  const nextNumber = getNextSequenceNumber(existingCodes, prefix);
-
-  return generateUnitCode(prefix, nextNumber);
-};
-
-const isUnitCodeConflict = error =>
-  error?.code === '23505' && String(error?.message || '').includes('idx_units_code');
-
-export const UPSERT_ON_CONFLICT = Object.freeze({
-  projects: 'id',
-  project_participants: 'id',
-  project_documents: 'id',
-  floors: 'id',
-  entrance_matrix: 'block_id,floor_id,entrance_number',
-  units: 'id',
-  common_areas: 'id',
-  basements: 'id',
-  basement_parking_levels: 'basement_id,depth_level',
-  application_steps: 'application_id,step_index',
-  block_floor_markers: 'block_id,marker_key',
-  block_construction: 'block_id',
-  block_engineering: 'block_id',
-});
-
-const upsertWithConflict = (table, payload, options = {}) => {
-  const conflict = UPSERT_ON_CONFLICT[table];
-  if (!conflict) {
-    throw new Error(`Missing onConflict mapping for table: ${table}`);
-  }
-
-  const { select, single } = options;
-  const baseQuery = supabase.from(table).upsert(payload, { onConflict: conflict });
-
-  if (single) {
-    const selectedQuery = select ? baseQuery.select(select) : baseQuery.select();
-    return selectedQuery.single();
-  }
-
-  if (select) {
-    return baseQuery.select(select);
-  }
-
-  return baseQuery;
-};
-
-const syncFloorsForBlockFromDetails = async (building, currentBlock, buildingDetails) => {
-  if (!building?.id || !currentBlock?.id) return;
-
-  const desiredFloors = buildFloorList(building, currentBlock, buildingDetails);
-  const desiredByKey = new Map();
-
-  desiredFloors.forEach(f => {
-    if (!f?.floorKey) return;
-    desiredByKey.set(f.floorKey, {
-      block_id: currentBlock.id,
-      floor_key: f.floorKey,
-      index: Number(f.index ?? 0),
-      label: f.label || null,
-      floor_type: f.type || 'residential',
-      parent_floor_index: f.parentFloorIndex ?? null,
-      basement_id: f.basementId ?? null,
-      is_technical: !!f.flags?.isTechnical,
-      is_commercial: !!f.flags?.isCommercial,
-      is_stylobate: !!f.flags?.isStylobate,
-      is_basement: !!f.flags?.isBasement,
-      is_attic: !!f.flags?.isAttic,
-      is_loft: !!f.flags?.isLoft,
-      is_roof: !!f.flags?.isRoof,
-      updated_at: new Date(),
-    });
-  });
-
-  const { data: existingRows, error: existingErr } = await supabase
-    .from('floors')
-    .select('id, floor_key')
-    .eq('block_id', currentBlock.id);
-
-  if (existingErr) throw existingErr;
-
-  const existingMap = new Map((existingRows || []).map(r => [r.floor_key, r]));
-  const desiredKeys = new Set(desiredByKey.keys());
-  const toDeleteIds = (existingRows || [])
-    .filter(r => !desiredKeys.has(r.floor_key))
-    .map(r => r.id);
-
-  if (toDeleteIds.length) {
-    const { error: delErr } = await supabase.from('floors').delete().in('id', toDeleteIds);
-    if (delErr) throw delErr;
-  }
-
-  const upsertPayload = Array.from(desiredByKey.entries()).map(([floorKey, row]) => ({
-    ...row,
-    id: existingMap.get(floorKey)?.id || crypto.randomUUID(),
-  }));
-
-  if (upsertPayload.length) {
-    const { error: upsertErr } = await upsertWithConflict('floors', upsertPayload);
-    if (upsertErr) throw upsertErr;
-  }
-};
-
-const ensureEntranceMatrixForBlock = async blockId => {
-  if (!blockId) return;
-
-  const [{ data: floors = [], error: floorsErr }, { data: entrances = [], error: entrancesErr }] =
-    await Promise.all([
-      supabase.from('floors').select('id').eq('block_id', blockId),
-      supabase.from('entrances').select('number').eq('block_id', blockId),
-    ]);
-
-  if (floorsErr) throw floorsErr;
-  if (entrancesErr) throw entrancesErr;
-
-  const floorIds = floors.map(row => row.id).filter(Boolean);
-  const entranceNumbers = entrances
-    .map(row => Number(row.number))
-    .filter(number => Number.isFinite(number) && number > 0);
-
-  if (floorIds.length === 0 || entranceNumbers.length === 0) {
-    const { error: clearErr } = await supabase.from('entrance_matrix').delete().eq('block_id', blockId);
-    if (clearErr) throw clearErr;
-    return;
-  }
-
-  const { data: existingRows = [], error: existingErr } = await supabase
-    .from('entrance_matrix')
-    .select('id, floor_id, entrance_number')
-    .eq('block_id', blockId);
-
-  if (existingErr) throw existingErr;
-
-  const floorIdSet = new Set(floorIds);
-  const entranceSet = new Set(entranceNumbers);
-  const existingKeySet = new Set();
-  const staleIds = [];
-
-  (existingRows || []).forEach(row => {
-    const floorId = row.floor_id;
-    const entranceNumber = Number(row.entrance_number);
-
-    if (!floorIdSet.has(floorId) || !entranceSet.has(entranceNumber)) {
-      if (row.id) staleIds.push(row.id);
-      return;
-    }
-
-    existingKeySet.add(`${floorId}|${entranceNumber}`);
-  });
-
-  if (staleIds.length > 0) {
-    const { error: deleteErr } = await supabase.from('entrance_matrix').delete().in('id', staleIds);
-    if (deleteErr) throw deleteErr;
-  }
-
-  const missingPayload = [];
-  floorIds.forEach(floorId => {
-    entranceNumbers.forEach(entranceNumber => {
-      const key = `${floorId}|${entranceNumber}`;
-      if (!existingKeySet.has(key)) {
-        missingPayload.push({
-          block_id: blockId,
-          floor_id: floorId,
-          entrance_number: entranceNumber,
-          updated_at: new Date(),
-        });
-      }
-    });
-  });
-
-  if (missingPayload.length > 0) {
-    const { error: upsertErr } = await supabase
-      .from('entrance_matrix')
-      .upsert(missingPayload, { onConflict: UPSERT_ON_CONFLICT.entrance_matrix });
-    if (upsertErr) throw upsertErr;
-  }
-};
-
-
-const VERSION_STATUS_FLOW = {
-  PENDING: 'PENDING',
-  CURRENT: 'CURRENT',
-  REJECTED: 'REJECTED',
-  PREVIOUS: 'PREVIOUS',
-};
-
-const VERSIONING_ENABLED = false;
-
-const resolveTargetVersionStatus = appStatus => {
-  if (appStatus === 'COMPLETED') return VERSION_STATUS_FLOW.CURRENT;
-  if (appStatus === 'DECLINED') return VERSION_STATUS_FLOW.REJECTED;
-  return VERSION_STATUS_FLOW.PENDING;
-};
-
-const collectProjectVersionEntities = async projectId => {
-  const entities = [];
-
-  const { data: projectRow } = await supabase.from('projects').select('*').eq('id', projectId).maybeSingle();
-  if (projectRow) {
-    entities.push({ entityType: 'project', entityId: projectRow.id, snapshotData: projectRow });
-  }
-
-  const { data: buildings = [] } = await supabase.from('buildings').select('*').eq('project_id', projectId);
-  for (const row of buildings) {
-    entities.push({ entityType: 'building', entityId: row.id, snapshotData: row });
-  }
-  const buildingIds = buildings.map(b => b.id);
-  if (buildingIds.length === 0) return entities;
-
-  const { data: blocks = [] } = await supabase.from('building_blocks').select('*').in('building_id', buildingIds);
-  for (const row of blocks) {
-    entities.push({ entityType: 'building_block', entityId: row.id, snapshotData: row });
-  }
-
-  const blockIds = blocks.map(b => b.id);
-  if (blockIds.length === 0) return entities;
-
-  const [
-    { data: basements = [] },
-    { data: floors = [] },
-    { data: entrances = [] },
-    { data: blockConstruction = [] },
-    { data: blockEngineering = [] },
-    { data: blockMarkers = [] },
-    { data: entranceMatrix = [] },
-  ] = await Promise.all([
-    supabase.from('basements').select('*').in('building_id', buildingIds),
-    supabase.from('floors').select('*').in('block_id', blockIds),
-    supabase.from('entrances').select('*').in('block_id', blockIds),
-    supabase.from('block_construction').select('*').in('block_id', blockIds),
-    supabase.from('block_engineering').select('*').in('block_id', blockIds),
-    supabase.from('block_floor_markers').select('*').in('block_id', blockIds),
-    supabase.from('entrance_matrix').select('*').in('block_id', blockIds),
-  ]);
-
-  for (const row of basements) entities.push({ entityType: 'basement', entityId: row.id, snapshotData: row });
-  for (const row of floors) entities.push({ entityType: 'floor', entityId: row.id, snapshotData: row });
-  for (const row of entrances)
-    entities.push({ entityType: 'entrance', entityId: row.id, snapshotData: row });
-  for (const row of blockConstruction)
-    entities.push({ entityType: 'block_construction', entityId: row.id, snapshotData: row });
-  for (const row of blockEngineering)
-    entities.push({ entityType: 'block_engineering', entityId: row.id, snapshotData: row });
-  for (const row of blockMarkers)
-    entities.push({ entityType: 'block_floor_marker', entityId: row.id, snapshotData: row });
-  for (const row of entranceMatrix)
-    entities.push({ entityType: 'entrance_matrix', entityId: row.id, snapshotData: row });
-
-  const basementIds = basements.map(r => r.id);
-  const floorIds = floors.map(r => r.id);
-
-  const [
-    { data: basementParkingLevels = [] },
-    { data: units = [] },
-    { data: commonAreas = [] },
-  ] = await Promise.all([
-    basementIds.length
-      ? supabase.from('basement_parking_levels').select('*').in('basement_id', basementIds)
-      : Promise.resolve({ data: [] }),
-    floorIds.length ? supabase.from('units').select('*').in('floor_id', floorIds) : Promise.resolve({ data: [] }),
-    floorIds.length
-      ? supabase.from('common_areas').select('*').in('floor_id', floorIds)
-      : Promise.resolve({ data: [] }),
-  ]);
-
-  for (const row of basementParkingLevels)
-    entities.push({ entityType: 'basement_parking_level', entityId: row.id, snapshotData: row });
-  for (const row of units) entities.push({ entityType: 'unit', entityId: row.id, snapshotData: row });
-  for (const row of commonAreas)
-    entities.push({ entityType: 'common_area', entityId: row.id, snapshotData: row });
-
-  const unitIds = units.map(r => r.id);
-  if (unitIds.length) {
-    const { data: rooms = [] } = await supabase.from('rooms').select('*').in('unit_id', unitIds);
-    for (const row of rooms) entities.push({ entityType: 'room', entityId: row.id, snapshotData: row });
-  }
-
-  return entities;
-};
-
-const createPendingVersionsForApplication = async ({ projectId, applicationId, createdBy = null }) => {
-  if (!VERSIONING_ENABLED) return;
-
-  const entities = await collectProjectVersionEntities(projectId);
-
-  for (const entity of entities) {
-        const { data: versions, error: versionsErr } = await supabase
-      .from('object_versions')
-      .select('id, version_number, version_status, snapshot_data')
-      .eq('entity_type', entity.entityType)
-      .eq('entity_id', entity.entityId)
-      .order('version_number', { ascending: false });
-    if (versionsErr) throw versionsErr;
-
-    const existing = versions || [];
-    const hasPending = existing.some(v => v.version_status === VERSION_STATUS_FLOW.PENDING);
-    if (hasPending) continue;
-
-    const latestCurrent = existing.find(v => v.version_status === VERSION_STATUS_FLOW.CURRENT);
-
-        const { error: insertErr } = await supabase.from('object_versions').insert({
-      entity_type: entity.entityType,
-      entity_id: entity.entityId,
-      version_number: (existing[0]?.version_number || 0) + 1,
-      version_status: VERSION_STATUS_FLOW.PENDING,
-      snapshot_data: latestCurrent?.snapshot_data || entity.snapshotData || {},
-      created_by: createdBy,
-      application_id: applicationId,
-      updated_at: new Date().toISOString(),
-    });
-    if (insertErr) throw insertErr;
-  }
-};
-
-const syncVersionStatusesByApplicationStatus = async ({ projectId, applicationId, appStatus }) => {
-  if (!VERSIONING_ENABLED) return;
-
-  const targetStatus = resolveTargetVersionStatus(appStatus);
-
-  if (targetStatus === VERSION_STATUS_FLOW.PENDING) {
-    await createPendingVersionsForApplication({ projectId, applicationId });
-    return;
-  }
-
-  const entities = await collectProjectVersionEntities(projectId);
-
-  for (const entity of entities) {
-        const { data: versions, error: versionsErr } = await supabase
-      .from('object_versions')
-      .select('id, version_number, version_status')
-      .eq('entity_type', entity.entityType)
-      .eq('entity_id', entity.entityId)
-      .order('version_number', { ascending: false });
-    if (versionsErr) throw versionsErr;
-
-    const list = versions || [];
-    const pending = list.find(v => v.version_status === VERSION_STATUS_FLOW.PENDING);
-
-    if (targetStatus === VERSION_STATUS_FLOW.CURRENT) {
-            const { error: prevErr } = await supabase
-        .from('object_versions')
-        .update({ version_status: VERSION_STATUS_FLOW.PREVIOUS, updated_at: new Date().toISOString() })
-        .eq('entity_type', entity.entityType)
-        .eq('entity_id', entity.entityId)
-        .eq('version_status', VERSION_STATUS_FLOW.CURRENT);
-      if (prevErr) throw prevErr;
-
-      if (pending) {
-                const { error: currentErr } = await supabase
-          .from('object_versions')
-          .update({
-            version_status: VERSION_STATUS_FLOW.CURRENT,
-            decline_reason: null,
-            declined_by: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', pending.id);
-        if (currentErr) throw currentErr;
-      }
-      continue;
-    }
-
-    if (targetStatus === VERSION_STATUS_FLOW.REJECTED && pending) {
-            const { error: rejectErr } = await supabase
-        .from('object_versions')
-        .update({ version_status: VERSION_STATUS_FLOW.REJECTED, updated_at: new Date().toISOString() })
-        .eq('id', pending.id);
-      if (rejectErr) throw rejectErr;
-    }
-  }
-};
-
 const LegacyApiService = {
   getSystemUsers: async () => {
-    // 1. Перехват BFF (используем общий флаг справочников)
-    if (BffClient.isCatalogsEnabled?.()) {
-      const data = await BffClient.getSystemUsers();
-      // Маппим данные так же, как это делал старый код
-      return (data || []).map(u => ({
-        id: u.id,
-        code: u.code,
-        name: u.name,
-        role: u.role,
-        group: u.group_name || u.name,
-        sortOrder: u.sort_order || 100,
-      }));
-    }
-
-    // 2. Трекинг Legacy
-    trackLegacyPath('getSystemUsers');
-
-    const { data, error } = await supabase
-      .from('dict_system_users')
-      .select('id, code, name, role, group_name, is_active, sort_order')
-      .eq('is_active', true)
-      .order('sort_order', { ascending: true })
-      .order('name', { ascending: true });
-
-    if (error) throw error;
+    const data = await BffClient.getSystemUsers();
 
     return (data || []).map(u => ({
       id: u.id,
@@ -642,7 +56,7 @@ const LegacyApiService = {
       sortOrder: u.sort_order || 100,
     }));
   },
-  
+
   // ... дальше идет getProjectsList ...
 
   // --- DASHBOARD & LISTS ---
@@ -650,115 +64,72 @@ const LegacyApiService = {
   // src/lib/api-service.js
 
   // [UPDATED] Получить список проектов
-  getProjectsList: async scope => {
-    if (!scope) return [];
-    
-    if (BffClient.isApplicationsReadEnabled?.()) {
-      return BffClient.getProjectsList({ scope });
+  getProjectsPage: async (scope, options = {}) => {
+    if (!scope) {
+      return {
+        items: [],
+        page: Number(options?.page || 1),
+        limit: Number(options?.limit || 50),
+        total: 0,
+        totalPages: 0,
+      };
     }
 
-    // 2. ЛОГИРУЕМ LEGACY ПУТЬ
-    trackLegacyPath('getProjectsList');
-    const [projectsRes, appsRes] = await Promise.all([
-      supabase
-        .from('projects')
-        // ДОБАВИЛИ: buildings(count) — это быстрый запрос количества без самих данных
-        .select('id, uj_code, cadastre_number, name, region, address, construction_status, updated_at, created_at, buildings(count)')
-        .eq('scope_id', scope)
-        .order('updated_at', { ascending: false }),
-      supabase
-        .from('applications')
-        .select('*')
-        .eq('scope_id', scope)
-        .order('updated_at', { ascending: false }),
-    ]);
-
-    if (projectsRes.error) throw projectsRes.error;
-    if (appsRes.error) throw appsRes.error;
-
-    const appsByProject = (appsRes.data || []).reduce((acc, app) => {
-      if (!acc[app.project_id]) acc[app.project_id] = app;
-      return acc;
-    }, {});
-
-    return (projectsRes.data || []).map(project => {
-      const app = appsByProject[project.id];
-      // Извлекаем количество зданий из ответа Supabase
-      // project.buildings вернет массив [{ count: N }]
-      const buildingsCount = project.buildings?.[0]?.count || 0;
-
+    const response = await BffClient.getProjectsList({ scope, ...options });
+    if (Array.isArray(response)) {
+      const page = Number(options?.page || 1);
+      const limit = Number(options?.limit || response.length || 1);
       return {
-        id: project.id,
-        ujCode: project.uj_code,
-        cadastre: project.cadastre_number,
-        applicationId: app?.id || null,
-        name: project.name || 'Без названия',
-        status: normalizeProjectStatusFromDb(project.construction_status),
-        lastModified: app?.updated_at || project.updated_at,
-
-        applicationInfo: {
-          status: app?.status,
-          workflowSubstatus: app?.workflow_substatus || 'DRAFT',
-          internalNumber: app?.internal_number,
-          externalSource: app?.external_source,
-          externalId: app?.external_id,
-          applicant: app?.applicant,
-          submissionDate: app?.submission_date,
-          assigneeName: app?.assignee_name,
-          currentStage: app?.current_stage,
-          currentStepIndex: app?.current_step,
-          rejectionReason: app?.integration_data?.rejectionReason,
-          requestedDeclineReason: app?.requested_decline_reason || null,
-          requestedDeclineStep: app?.requested_decline_step ?? null,
-          requestedDeclineBy: app?.requested_decline_by || null,
-          requestedDeclineAt: app?.requested_decline_at || null,
-        },
-        complexInfo: {
-          name: project.name,
-          region: project.region,
-          street: project.address,
-        },
-        // СОЗДАЕМ "ВИРТУАЛЬНЫЙ" МАССИВ НУЖНОЙ ДЛИНЫ
-        // UI компонент просто смотрит .length, ему не нужны реальные данные внутри
-        composition: Array(buildingsCount).fill(1),
+        items: response,
+        page,
+        limit,
+        total: response.length,
+        totalPages: response.length > 0 ? Math.ceil(response.length / Math.max(limit, 1)) : 0,
       };
-    });
+    }
+
+    return {
+      items: Array.isArray(response?.items) ? response.items : [],
+      page: Number(response?.page || options?.page || 1),
+      limit: Number(response?.limit || options?.limit || 50),
+      total: Number(response?.total || 0),
+      totalPages: Number(response?.totalPages || 0),
+    };
+  },
+
+  getProjectsList: async (scope, options = {}) => {
+    const pageData = await LegacyApiService.getProjectsPage(scope, options);
+    return pageData.items;
+  },
+
+  getProjectsSummaryCounts: async ({ scope, assignee } = {}) => {
+    if (!scope) {
+      return {
+        work: 0,
+        review: 0,
+        integration: 0,
+        pendingDecline: 0,
+        declined: 0,
+        registryApplications: 0,
+        registryComplexes: 0,
+      };
+    }
+
+    return BffClient.getProjectsSummaryCounts({ scope, assignee });
   },
 
   saveStepBlockStatuses: async ({ scope, projectId, stepIndex, statuses }) => {
-    if (BffClient.isEnabled()) {
-      const resolvedActor = resolveActor({});
-      return BffClient.saveStepBlockStatuses({
-        scope,
-        projectId,
-        stepIndex,
-        statuses,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
+    requireBffEnabled('project.saveStepBlockStatuses');
 
-    const { data: app, error: appErr } = await supabase
-      .from('applications')
-      .select('id')
-      .eq('scope_id', scope)
-      .eq('project_id', projectId)
-      .maybeSingle();
-
-    if (appErr) throw appErr;
-    if (!app?.id) throw new Error('Заявка не найдена');
-
-    const payload = {
-      application_id: app.id,
-      step_index: stepIndex,
-      block_statuses: statuses || {},
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error } = await upsertWithConflict('application_steps', payload);
-    if (error) throw error;
-
-    return { applicationId: app.id, stepIndex, blockStatuses: payload.block_statuses };
+    const resolvedActor = resolveActor({});
+    return BffClient.saveStepBlockStatuses({
+      scope,
+      projectId,
+      stepIndex,
+      statuses,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
   // [NEW] Mock внешних заявок
@@ -783,100 +154,34 @@ const LegacyApiService = {
 
   // --- WORK LOCK (защита от одновременного редактирования) ---
  acquireApplicationLock: async ({ scope, projectId, userName, userRole, ttlMinutes = 20 }) => {
-    // 1. Если BFF включен, всё делаем через него
-    if (BffClient.isEnabled()) {
-      // Сначала узнаем ID заявки через BFF
-      const res = await BffClient.resolveApplicationId({ projectId, scope });
-      if (!res?.applicationId) return { ok: false, reason: 'NOT_FOUND', message: 'Заявка не найдена' };
+    requireBffEnabled('locks.acquireApplicationLock');
 
-      // Затем ставим лок
-      const response = await BffClient.acquireApplicationLock({
-        applicationId: res.applicationId,
-        userName,
-        userRole,
-        ttlMinutes,
-      });
-      return { ...response, applicationId: res.applicationId };
-    }
+    const res = await BffClient.resolveApplicationId({ projectId, scope });
+    if (!res?.applicationId) return { ok: false, reason: 'NOT_FOUND', message: 'Заявка не найдена' };
 
-    // 2. Legacy-путь
-    trackLegacyPath('acquireApplicationLock_resolveApp');
-
-    const { data: app, error } = await supabase
-      .from('applications')
-      .select('id')
-      .eq('scope_id', scope)
-      .eq('project_id', projectId)
-      .maybeSingle();
-      
-    if (error) throw error;
-    if (!app?.id) return { ok: false, reason: 'NOT_FOUND', message: 'Заявка не найдена' };
-
-    trackLegacyPath('acquireApplicationLock');
-
-    const { data, error: rpcErr } = await supabase.rpc('acquire_application_lock', {
-      p_application_id: app.id,
-      p_owner_user_id: userName,
-      p_owner_role: userRole,
-      p_ttl_seconds: Math.max(60, Math.floor(ttlMinutes * 60)),
+    const response = await BffClient.acquireApplicationLock({
+      applicationId: res.applicationId,
+      userName,
+      userRole,
+      ttlMinutes,
     });
-    if (rpcErr) throw rpcErr;
-
-    const row = Array.isArray(data) ? data[0] : data;
-    return {
-      ok: !!row?.ok,
-      reason: row?.reason || null,
-      message: row?.message || null,
-      expiresAt: row?.expires_at || null,
-      applicationId: app.id,
-    };
+    return { ...response, applicationId: res.applicationId };
   },
+
 
   refreshApplicationLock: async ({ applicationId, userName, userRole = 'technician', ttlMinutes = 20 }) => {
-    if (BffClient.isEnabled()) {
-      return BffClient.refreshApplicationLock({ applicationId, userName, userRole, ttlMinutes });
-    }
-
-    trackLegacyPath('refreshApplicationLock');
-
-    const { data, error } = await supabase.rpc('refresh_application_lock', {
-      p_application_id: applicationId,
-      p_owner_user_id: userName,
-      p_ttl_seconds: Math.max(60, Math.floor(ttlMinutes * 60)),
-    });
-    if (error) throw error;
-
-    const row = Array.isArray(data) ? data[0] : data;
-    return {
-      ok: !!row?.ok,
-      reason: row?.reason || null,
-      message: row?.message || null,
-      expiresAt: row?.expires_at || null,
-    };
+    requireBffEnabled('locks.refreshApplicationLock');
+    return BffClient.refreshApplicationLock({ applicationId, userName, userRole, ttlMinutes });
   },
+
 
   releaseApplicationLock: async ({ applicationId, userName, userRole = 'technician' }) => {
     if (!applicationId) return { ok: false };
 
-    if (BffClient.isEnabled()) {
-      return BffClient.releaseApplicationLock({ applicationId, userName, userRole });
-    }
-
-    trackLegacyPath('releaseApplicationLock');
-
-    const { data, error } = await supabase.rpc('release_application_lock', {
-      p_application_id: applicationId,
-      p_owner_user_id: userName,
-    });
-    if (error) throw error;
-
-    const row = Array.isArray(data) ? data[0] : data;
-    return {
-      ok: !!row?.ok,
-      reason: row?.reason || null,
-      message: row?.message || null,
-    };
+    requireBffEnabled('locks.releaseApplicationLock');
+    return BffClient.releaseApplicationLock({ applicationId, userName, userRole });
   },
+
 
   completeWorkflowStepViaBff: async ({ applicationId, stepIndex, comment, userName, userRole, idempotencyKey }) => {
     if (!BffClient.isEnabled()) return null;
@@ -973,132 +278,36 @@ const LegacyApiService = {
   // [UPDATED] Создание проекта из заявки (Транзакция)
   createProjectFromApplication: async (scope, appData, user) => {
     if (!scope) throw new Error('No scope provided');
+    requireBffEnabled('project.createProjectFromApplication');
 
-    if (BffClient.isProjectInitEnabled()) {
-      const resolvedActor = resolveActor({
-        userName: user?.name,
-        userRole: user?.role,
-      });
-
-      const response = await BffClient.createProjectFromApplication({
-        scope,
-        appData,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-        idempotencyKey: createIdempotencyKey('project-init-from-application', [scope, appData?.externalId || appData?.id || appData?.cadastre]),
-      });
-
-      return response?.projectId;
-    }
-
-    trackLegacyPath('createProjectFromApplication');
-
-    // Бизнес-правило повторной подачи: если по ЖК уже есть активная заявка в работе,
-    // новую повторную заявку принимать нельзя.
-    if (appData?.reapplicationForProjectId || appData?.cadastre) {
-      const normalizedCadastre = appData?.cadastre ? formatComplexCadastre(appData.cadastre) : null;
-
-      let activeAppsQuery = supabase
-        .from('applications')
-        .select('id, project_id, status, projects!inner(id, name, cadastre_number)')
-        .eq('scope_id', scope)
-        .eq('status', 'IN_PROGRESS')
-        .limit(1);
-
-      if (appData?.reapplicationForProjectId) {
-        activeAppsQuery = activeAppsQuery.eq('project_id', appData.reapplicationForProjectId);
-      } else if (normalizedCadastre) {
-        activeAppsQuery = activeAppsQuery.eq('projects.cadastre_number', normalizedCadastre);
-      }
-
-      const { data: activeApps, error: activeAppsErr } = await activeAppsQuery;
-      if (activeAppsErr) throw activeAppsErr;
-
-      if ((activeApps || []).length > 0) {
-        const active = activeApps[0];
-        const activeProject = Array.isArray(active?.projects) ? active.projects[0] : active?.projects;
-        const projectName = activeProject?.name || 'ЖК';
-        throw new Error(
-          `Отказ в принятии: по ${projectName} уже есть активное заявление в работе. Повторная подача отклонена.`
-        );
-      }
-    }
-
-    // Генерируем UJ-код для проекта
-    const ujCode = await generateNextProjectCode(scope);
-
-    // 1. Создаем проект
-    const { data: project, error: pErr } = await supabase
-      .from('projects')
-      .insert({
-        scope_id: scope,
-        uj_code: ujCode,
-        name: appData.applicant ? `ЖК от ${appData.applicant}` : 'Новый проект',
-        address: appData.address,
-        cadastre_number: formatComplexCadastre(appData.cadastre),
-        construction_status: normalizeProjectStatusToDb('Проектный'),
-      })
-      .select()
-      .single();
-
-    if (pErr) throw pErr;
-
-    // 2. Создаем заявку (связываем с проектом)
-    const { data: createdApp, error: aErr } = await supabase
-      .from('applications')
-      .insert({
-        project_id: project.id,
-        scope_id: scope,
-        internal_number: `INT-${Date.now().toString().slice(-6)}`,
-        external_source: appData.source,
-        external_id: appData.externalId,
-        applicant: appData.applicant,
-        submission_date: appData.submissionDate || new Date(),
-        assignee_name: user.name,
-        status: 'IN_PROGRESS', // Внешний статус
-        workflow_substatus: 'DRAFT', // Подстатус — сразу в работу
-        current_step: 0,
-        current_stage: 1,
-      })
-      .select('id')
-      .single();
-
-    if (aErr) {
-      // Rollback (удаляем проект, если заявка не создалась)
-      await supabase.from('projects').delete().eq('id', project.id);
-      throw aErr;
-    }
-
-    await createPendingVersionsForApplication({
-      projectId: project.id,
-      applicationId: createdApp?.id || null,
-      createdBy: user?.name || null,
+    const resolvedActor = resolveActor({
+      userName: user?.name,
+      userRole: user?.role,
     });
 
-    return project.id;
+    const response = await BffClient.createProjectFromApplication({
+      scope,
+      appData,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+      idempotencyKey: createIdempotencyKey('project-init-from-application', [scope, appData?.externalId || appData?.id || appData?.cadastre]),
+    });
+
+    return response?.projectId;
   },
 
   // Удаление проекта (Каскадное удаление настроено в БД, но для надежности можно и тут)
   deleteProject: async (scope, projectId, actor = {}) => {
     if (!scope) return;
+    requireBffEnabled('project.deleteProject');
 
-    if (BffClient.isProjectPassportEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.deleteProject({
-        scope,
-        projectId,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
-
-    // Удаляем проект, заявка удалится каскадно (ON DELETE CASCADE)
-    const { error } = await supabase
-      .from('projects')
-      .delete()
-      .eq('id', projectId)
-      .eq('scope_id', scope);
-    if (error) throw error;
+    const resolvedActor = resolveActor(actor);
+    return BffClient.deleteProject({
+      scope,
+      projectId,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
   // --- LOAD FULL CONTEXT ---
@@ -1106,73 +315,19 @@ const LegacyApiService = {
   // [NEW] Полная загрузка контекста проекта (Замена RegistryService.getProjectMeta)
   getProjectFullData: async (scope, projectId) => {
     if (!scope || !projectId) return null;
+    requireBffEnabled('project.getProjectFullData');
 
-    let app = null;
-    let pRes;
-    let partsRes;
-    let docsRes;
-    let buildingsRes;
-    let historyRes;
-    let stepsRes;
-
-    if (BffClient.isProjectContextEnabled()) {
-      const context = await BffClient.getProjectContext({ scope, projectId });
-      app = context.application || null;
-      pRes = { data: context.project, error: null };
-      partsRes = { data: context.participants || [], error: null };
-      docsRes = { data: context.documents || [], error: null };
-      buildingsRes = { data: context.buildings || [], error: null };
-      historyRes = { data: context.history || [], error: null };
-      stepsRes = { data: context.steps || [], error: null };
-    } else {
-      // 1. Загружаем заявку
-      const appRes = await supabase
-        .from('applications')
-        .select('*')
-        .eq('project_id', projectId)
-        .eq('scope_id', scope)
-        .maybeSingle();
-
-      app = appRes.data;
-      if (appRes.error) {
-        throw appRes.error;
-      }
-
-      // 2. Параллельная загрузка таблиц
-      [pRes, partsRes, docsRes, buildingsRes, historyRes, stepsRes] = await Promise.all([
-        supabase.from('projects').select('*').eq('id', projectId).single(),
-        supabase.from('project_participants').select('*').eq('project_id', projectId),
-        supabase.from('project_documents').select('*').eq('project_id', projectId),
-        supabase
-          .from('buildings')
-          .select(
-            `
-                      *,
-                      building_blocks (
-                          *,
-                          block_construction (*),
-                          block_engineering (*)
-                      )
-                  `
-          )
-          .eq('project_id', projectId)
-          .order('created_at', { ascending: true }),
-        app?.id
-          ? supabase
-              .from('application_history')
-              .select('*')
-              .eq('application_id', app.id)
-              .order('created_at', { ascending: false })
-          : Promise.resolve({ data: [], error: null }),
-        app?.id
-          ? supabase.from('application_steps').select('*').eq('application_id', app.id)
-          : Promise.resolve({ data: [], error: null }),
-      ]);
-    }
+    const context = await BffClient.getProjectContext({ scope, projectId });
+    const app = context.application || null;
+    const pRes = { data: context.project, error: null };
+    const partsRes = { data: context.participants || [], error: null };
+    const docsRes = { data: context.documents || [], error: null };
+    const buildingsRes = { data: context.buildings || [], error: null };
+    const historyRes = { data: context.history || [], error: null };
+    const stepsRes = { data: context.steps || [], error: null };
 
     if (pRes.error) throw pRes.error;
 
-    // 3. Агрегация через маппер
     const fallbackApp = app || {
       id: null,
       updated_at: pRes.data.updated_at,
@@ -1201,360 +356,36 @@ const LegacyApiService = {
       docsRes.data || []
     );
 
-    // 4. Сборка composition и buildingDetails (нужно для UI конфигуратора)
     const composition = [];
     const buildingDetails = {};
 
-    // Вспомогательные данные для маппинга деталей (нужно подтянуть этажи для определения коммерции/тех)
-    // Это тяжелый запрос, но он нужен для инициализации buildingDetails в формате UI
-    const buildingIds = (buildingsRes.data || []).map(b => b.id);
-    const blockIds = (buildingsRes.data || []).flatMap(b =>
-      (b.building_blocks || []).map(block => block.id)
-    );
-
-    const technicalFloorsMap = {};
-    const commercialFloorsMap = {};
-    const floorData = {};
-    const entrancesData = {};
-    const flatMatrix = {};
-    const mopData = {};
-    const parkingPlaces = {};
-
-    let contextRegistryDetails = null;
-    if (blockIds.length > 0 && BffClient.isProjectContextDetailsEnabled()) {
-      contextRegistryDetails = await BffClient.getProjectContextRegistryDetails({ projectId });
-    }
-
-    if (blockIds.length > 0) {
-      const markerRows = contextRegistryDetails?.markerRows || (await supabase
-        .from('block_floor_markers')
-        .select('block_id, marker_key, is_technical, is_commercial')
-        .in('block_id', blockIds)).data;
-
-      (markerRows || []).forEach(row => {
-        if (row.is_technical) {
-          if (!technicalFloorsMap[row.block_id]) technicalFloorsMap[row.block_id] = new Set();
-          const parsed = parseInt(String(row.marker_key).replace('-Т', ''), 10);
-          if (Number.isFinite(parsed)) technicalFloorsMap[row.block_id].add(parsed);
-        }
-
-        if (row.is_commercial) {
-          if (!commercialFloorsMap[row.block_id]) commercialFloorsMap[row.block_id] = new Set();
-          commercialFloorsMap[row.block_id].add(String(row.marker_key));
-        }
-      });
-    }
-
-    if (blockIds.length > 0) {
-      // Оптимизация: берем только нужные поля
-      const floorsData = contextRegistryDetails?.floors || (await supabase
-        .from('floors')
-        .select(
-          'id, block_id, floor_key, label, index, floor_type, height, area_proj, area_fact, is_duplex, parent_floor_index, is_commercial, is_technical, is_stylobate, is_basement, is_attic, is_loft, is_roof, basement_id'
-        )
-        .in('block_id', blockIds)).data;
-
-      const blockToBuilding = (buildingsRes.data || []).reduce((acc, building) => {
-        (building.building_blocks || []).forEach(block => {
-          acc[block.id] = building.id;
-        });
-        return acc;
-      }, {});
-      const floorContextById = {};
-
-      (floorsData || []).forEach(row => {
-        const buildingId = blockToBuilding[row.block_id];
-        const virtualId = floorKeyToVirtualId(row.floor_key || `floor:${row.index}`) || row.id;
-        if (buildingId) {
-          const key = `${buildingId}_${row.block_id}_${virtualId}`;
-          floorData[key] = {
-            id: row.id,
-            buildingId,
-            blockId: row.block_id,
-            floorKey: row.floor_key,
-            label: row.label,
-            index: row.index,
-            sortOrder: row.index,
-            type: row.floor_type,
-            height: row.height,
-            areaProj: row.area_proj,
-            areaFact: row.area_fact,
-            isDuplex: row.is_duplex,
-            parentFloorIndex: row.parent_floor_index,
-            basementId: row.basement_id,
-            flags: {
-              isTechnical: !!row.is_technical,
-              isCommercial: !!row.is_commercial,
-              isStylobate: !!row.is_stylobate,
-              isBasement: !!row.is_basement,
-              isAttic: !!row.is_attic,
-              isLoft: !!row.is_loft,
-              isRoof: !!row.is_roof,
-            },
-          };
-          floorContextById[row.id] = { buildingId, blockId: row.block_id, virtualId };
-          if (virtualId.startsWith('base_')) {
-            parkingPlaces[`${buildingId}_${row.block_id}_${virtualId}_meta`] = { count: 0 };
-          }
-        }
-
-        if (row.is_technical && row.parent_floor_index !== null) {
-          if (!technicalFloorsMap[row.block_id]) technicalFloorsMap[row.block_id] = new Set();
-          technicalFloorsMap[row.block_id].add(row.parent_floor_index);
-        }
-
-        if (row.is_commercial) {
-          if (!commercialFloorsMap[row.block_id]) commercialFloorsMap[row.block_id] = new Set();
-
-          let key = String(row.index);
-          if (row.floor_type === 'basement' && row.basement_id) key = `basement_${row.basement_id}`;
-          else if (row.floor_type === 'tsokol') key = 'tsokol';
-          else if (row.is_attic) key = 'attic';
-          else if (row.is_loft) key = 'loft';
-          else if (row.is_roof) key = 'roof';
-          else if (row.is_technical && row.parent_floor_index) key = `${row.parent_floor_index}-Т`;
-
-          commercialFloorsMap[row.block_id].add(key);
-        }
-      });
-
-      const [entrancesRows, matrixRows, unitsRows, mopsRows] = contextRegistryDetails
-        ? [
-            contextRegistryDetails.entrances || [],
-            contextRegistryDetails.matrix || [],
-            contextRegistryDetails.units || [],
-            contextRegistryDetails.mops || [],
-          ]
-        : await (async () => {
-            const [entrancesRes, matrixRes, unitsRes, mopsRes] = await Promise.all([
-              supabase.from('entrances').select('id, block_id, number').in('block_id', blockIds),
-              supabase
-                .from('entrance_matrix')
-                .select('floor_id, entrance_number, flats_count, commercial_count, mop_count')
-                .in('block_id', blockIds),
-              (async () => {
-                const floorIds = (floorsData || []).map(f => f.id);
-                if (!floorIds.length) return { data: [], error: null };
-
-                const data = await fetchAllPaged((from, to) =>
-                  supabase
-                    .from('units')
-                    .select(
-                      'id, floor_id, entrance_id, number, unit_type, has_mezzanine, mezzanine_type, total_area, living_area, useful_area, rooms_count, status, cadastre_number'
-                    )
-                    .in('floor_id', floorIds)
-                    .order('id', { ascending: true })
-                    .range(from, to)
-                );
-
-                return { data, error: null };
-              })(),
-              supabase
-                .from('common_areas')
-                .select('id, floor_id, entrance_id, type, area, height')
-                .in(
-                  'floor_id',
-                  (floorsData || []).map(f => f.id)
-                ),
-            ]);
-
-            if (entrancesRes.error) throw entrancesRes.error;
-            if (matrixRes.error) throw matrixRes.error;
-            if (unitsRes.error) throw unitsRes.error;
-            if (mopsRes.error) throw mopsRes.error;
-
-            return [entrancesRes.data || [], matrixRes.data || [], unitsRes.data || [], mopsRes.data || []];
-          })();
-
-      const entranceNumberById = (entrancesRows || []).reduce((acc, row) => {
-        acc[row.id] = row.number;
-        return acc;
-      }, {});
-
-      (matrixRows || []).forEach(row => {
-        const floorCtx = floorContextById[row.floor_id];
-        if (!floorCtx) return;
-        const key = `${floorCtx.buildingId}_${floorCtx.blockId}_ent${row.entrance_number}_${floorCtx.virtualId}`;
-        entrancesData[key] = {
-          apts: row.flats_count ?? 0,
-          units: row.commercial_count ?? 0,
-          mopQty: row.mop_count ?? 0,
-        };
-      });
-
-      (unitsRows || []).forEach(row => {
-        const floorCtx = floorContextById[row.floor_id];
-        if (!floorCtx) return;
-
-        if (row.unit_type === 'parking_place') {
-          const parkingKey = `${floorCtx.buildingId}_${floorCtx.blockId}_place_${row.id}`;
-          parkingPlaces[parkingKey] = {
-            id: row.id,
-            floorId: row.floor_id,
-            number: row.number,
-            area: row.total_area,
-          };
-          const metaKey = `${floorCtx.buildingId}_${floorCtx.blockId}_${floorCtx.virtualId}_meta`;
-          const current = parseInt(parkingPlaces[metaKey]?.count || 0, 10);
-          parkingPlaces[metaKey] = { count: current + 1 };
-          return;
-        }
-
-        flatMatrix[`${floorCtx.buildingId}_${floorCtx.blockId}_${row.id}`] = {
-          id: row.id,
-          blockId: floorCtx.blockId,
-          buildingId: floorCtx.buildingId,
-          floorId: row.floor_id,
-          entranceId: row.entrance_id || null,
-          entranceIndex: entranceNumberById[row.entrance_id] || null,
-          num: row.number,
-          number: row.number,
-          type: row.unit_type,
-          hasMezzanine: !!row.has_mezzanine,
-          mezzanineType: row.mezzanine_type || null,
-          area: row.total_area,
-          livingArea: row.living_area,
-          usefulArea: row.useful_area,
-          rooms: row.rooms_count,
-          isSold: row.status === 'sold',
-          cadastreNumber: row.cadastre_number,
-        };
-      });
-
-      (mopsRows || []).forEach(row => {
-        const floorCtx = floorContextById[row.floor_id];
-        if (!floorCtx) return;
-        const entranceNum = entranceNumberById[row.entrance_id] || 1;
-        const key = `${floorCtx.buildingId}_${floorCtx.blockId}_e${entranceNum}_f${floorCtx.virtualId}_mops`;
-        if (!mopData[key]) mopData[key] = [];
-        mopData[key].push({
-          id: row.id,
-          floorId: row.floor_id,
-          entranceId: row.entrance_id,
-          type: row.type,
-          area: row.area,
-          height: row.height,
-        });
-      });
-    }
-
-    // Подгрузка подвалов для features
-    // Подгрузка подвалов для features
-    let featuresMap = {};
-    if (buildingIds.length > 0) {
-      // Используем уже существующий метод, который направляет запрос через BFF
-      const basements = await LegacyApiService.getBasements(projectId);
-
-      (basements || []).forEach(base => {
-        if (!featuresMap[base.buildingId]) {
-          featuresMap[base.buildingId] = { basements: [], exploitableRoofs: [] };
-        }
-        featuresMap[base.buildingId].basements.push({
-          id: base.id,
-          depth: base.depth,
-          hasParking: base.hasParking,
-          parkingLevels: base.parkingLevels || {},
-          blocks: [base.blockId],
-          buildingId: base.buildingId,
-          blockId: base.blockId,
-        });
-      });
-    }
-
-    // Сборка финальной структуры
     (buildingsRes.data || []).forEach(b => {
       composition.push(mapBuildingFromDB(b, b.building_blocks));
 
       b.building_blocks.forEach(block => {
         const uiKey = `${b.id}_${block.id}`;
         const mapped = mapBlockDetailsFromDB(b, block);
-        const derivedTechnicalFloors = Array.from(technicalFloorsMap[block.id] || []);
-        const derivedCommercialFloors = Array.from(commercialFloorsMap[block.id] || []);
-        mapped.technicalFloors = mapped.technicalFloors?.length
-          ? mapped.technicalFloors
-          : derivedTechnicalFloors;
-        mapped.commercialFloors = mapped.commercialFloors?.length
-          ? mapped.commercialFloors
-          : derivedCommercialFloors;
         buildingDetails[uiKey] = mapped;
       });
-
-      if (featuresMap[b.id]) {
-        buildingDetails[`${b.id}_features`] = featuresMap[b.id];
-      }
     });
 
     return {
       ...projectData,
       composition,
       buildingDetails,
-      floorData,
-      entrancesData,
-      flatMatrix,
-      mopData,
-      parkingPlaces,
+      floorData: {},
+      entrancesData: {},
+      flatMatrix: {},
+      mopData: {},
+      parkingPlaces: {},
     };
   },
 
   // --- PROJECT PASSPORT ---
   getProjectDetails: async projectId => {
     if (!projectId) return null;
-
-    if (BffClient.isProjectPassportEnabled()) {
-      return BffClient.getProjectPassport({ projectId });
-    }
-
-    const [projectRes, partsRes, docsRes] = await Promise.all([
-      supabase.from('projects').select('*').eq('id', projectId).single(),
-      supabase.from('project_participants').select('*').eq('project_id', projectId),
-      supabase
-        .from('project_documents')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('doc_date', { ascending: false }),
-    ]);
-
-    if (projectRes.error) throw projectRes.error;
-    if (partsRes.error) throw partsRes.error;
-    if (docsRes.error) throw docsRes.error;
-
-    const project = projectRes.data;
-
-    return {
-      complexInfo: {
-        name: project.name,
-        ujCode: project.uj_code,
-        status: normalizeProjectStatusFromDb(project.construction_status),
-        region: project.region,
-        district: project.district,
-        street: project.address,
-        landmark: project.landmark,
-        dateStartProject: project.date_start_project,
-        dateEndProject: project.date_end_project,
-        dateStartFact: project.date_start_fact,
-        dateEndFact: project.date_end_fact,
-      },
-      cadastre: {
-        number: project.cadastre_number,
-      },
-      participants: (partsRes.data || []).reduce((acc, part) => {
-        acc[part.role] = {
-          id: part.id,
-          name: part.name,
-          inn: part.inn,
-          role: part.role,
-        };
-        return acc;
-      }, {}),
-      documents: (docsRes.data || []).map(d => ({
-        id: d.id,
-        name: d.name,
-        type: d.doc_type,
-        date: d.doc_date,
-        number: d.doc_number,
-        url: d.file_url,
-      })),
-    };
+    requireBffEnabled('project.getProjectDetails');
+    return BffClient.getProjectPassport({ projectId });
   },
 
   createProject: async (name, street = '', scope = 'shared_dev_env') => {
@@ -1573,424 +404,149 @@ const LegacyApiService = {
 
   updateProjectInfo: async (projectId, info = {}, cadastreData = {}, actor = {}) => {
     if (!projectId) return null;
+    requireBffEnabled('project.updateProjectInfo');
 
-    if (BffClient.isProjectPassportEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.updateProjectPassport({
-        projectId,
-        info,
-        cadastreData,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
-
-    const payload = {
-      name: info.name,
-      construction_status: normalizeProjectStatusToDb(info.status),
-      region: info.region,
-      district: info.district,
-      address: info.street,
-      landmark: info.landmark,
-      date_start_project: normalizeDateInput(info.dateStartProject),
-      date_end_project: normalizeDateInput(info.dateEndProject),
-      date_start_fact: normalizeDateInput(info.dateStartFact),
-      date_end_fact: normalizeDateInput(info.dateEndFact),
-      cadastre_number: formatComplexCadastre(cadastreData.number),
-      updated_at: new Date(),
-    };
-
-    const { data, error } = await supabase
-      .from('projects')
-      .update(payload)
-      .eq('id', projectId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
+    const resolvedActor = resolveActor(actor);
+    return BffClient.updateProjectPassport({
+      projectId,
+      info,
+      cadastreData,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
   upsertParticipant: async (projectId, role, data = {}, actor = {}) => {
-    if (BffClient.isProjectPassportEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.upsertProjectParticipant({
-        projectId,
-        role,
-        data,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
+    requireBffEnabled('project.upsertParticipant');
 
-    const payload = {
-      id: data.id || crypto.randomUUID(),
-      project_id: projectId,
+    const resolvedActor = resolveActor(actor);
+    return BffClient.upsertProjectParticipant({
+      projectId,
       role,
-      name: data.name || '',
-      inn: data.inn || '',
-    };
-
-    const { data: result, error } = await supabase
-      .from('project_participants')
-      .upsert(payload, { onConflict: UPSERT_ON_CONFLICT.project_participants })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return result;
+      data,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
   upsertDocument: async (projectId, doc = {}, actor = {}) => {
-    if (BffClient.isProjectPassportEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.upsertProjectDocument({
-        projectId,
-        doc,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
+    requireBffEnabled('project.upsertDocument');
 
-    const payload = {
-      id: doc.id || crypto.randomUUID(),
-      project_id: projectId,
-      name: doc.name || '',
-      doc_type: doc.type || '',
-      doc_date: doc.date || null,
-      doc_number: doc.number || '',
-      file_url: doc.url || null,
-    };
-
-    const { data, error } = await supabase
-      .from('project_documents')
-      .upsert(payload, { onConflict: UPSERT_ON_CONFLICT.project_documents })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
+    const resolvedActor = resolveActor(actor);
+    return BffClient.upsertProjectDocument({
+      projectId,
+      doc,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
   deleteDocument: async (id, actor = {}) => {
     if (!id) return;
+    requireBffEnabled('project.deleteDocument');
 
-    if (BffClient.isProjectPassportEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.deleteProjectDocument({
-        documentId: id,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
-
-    const { error } = await supabase.from('project_documents').delete().eq('id', id);
-    if (error) throw error;
+    const resolvedActor = resolveActor(actor);
+    return BffClient.deleteProjectDocument({
+      documentId: id,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
   // --- STANDARD API METHODS (Existing ones preserved) ---
 
   getBuildingsRegistrySummary: async () => {
-    if (BffClient.isRegistrySummaryEnabled()) {
-      return BffClient.getRegistryBuildingsSummary();
-    }
-
-    trackLegacyPath('getBuildingsRegistrySummary');
-
-    const { data, error } = await supabase
-      .from('view_registry_buildings_summary')
-      .select('*')
-      .order('project_name', { ascending: true });
-
-    if (error) throw error;
-    return data || [];
+    requireBffEnabled('registry.getBuildingsRegistrySummary');
+    return BffClient.getRegistryBuildingsSummary();
   },
 
   getBuildings: async projectId => {
-    if (BffClient.isCompositionEnabled()) {
-      return BffClient.getBuildings({ projectId });
-    }
-
-    const { data, error } = await supabase
-      .from('buildings')
-      .select(`*, building_blocks (*)`)
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: true });
-
-    if (error) throw error;
-
-    return data.map(b => ({
-      id: b.id,
-      buildingCode: b.building_code,
-      label: b.label,
-      houseNumber: b.house_number,
-      category: b.category,
-      stage: b.stage || 'Проектный',
-      dateStart: b.date_start || null,
-      dateEnd: b.date_end || null,
-      type: b.category,
-      constructionType: normalizeParkingConstructionFromDb(b.construction_type),
-      parkingType: normalizeParkingTypeFromDb(b.parking_type),
-      infraType: b.infra_type,
-      hasNonResPart: b.has_non_res_part,
-      cadastreNumber: b.cadastre_number,
-      resBlocks: b.building_blocks.filter(x => x.type === 'Ж').length,
-      nonResBlocks: b.building_blocks.filter(x => x.type === 'Н').length,
-      blocks: b.building_blocks
-        .map(bl => ({
-          id: bl.id,
-          label: bl.label,
-          type: mapDbTypeToUi(bl.type),
-          originalType: bl.type,
-          floorsCount: bl.floors_count,
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    }));
+    requireBffEnabled('project.getBuildings');
+    return BffClient.getBuildings({ projectId });
   },
 
    createBuilding: async (projectId, buildingData, blocksData, actor = {}) => {
-    if (BffClient.isCompositionEnabled()) {
-      return BffClient.createBuilding({
-        projectId,
-        buildingData,
-        blocksData,
-        userName: actor.userName,
-        userRole: actor.userRole,
-      });
-    }
+    requireBffEnabled('project.createBuilding');
 
-    const normalizedFields = sanitizeBuildingCategoryFields(buildingData);
-    const blocksCount = Array.isArray(blocksData) ? blocksData.length : 0;
-     const maxCodeRetries = 3;
-
-    const { data: projectRow, error: projectErr } = await supabase
-      .from('projects')
-      .select('uj_code')
-      .eq('id', projectId)
-      .single();
-
-    if (projectErr) throw projectErr;
-
-    let building = null;
-    let bError = null;
-
-    for (let attempt = 1; attempt <= maxCodeRetries; attempt += 1) {
-      const buildingSegment = await generateNextBuildingCode(
-        projectId,
-        buildingData.category,
-        blocksCount
-      );
-      const buildingCode = projectRow?.uj_code
-        ? `${projectRow.uj_code}-${buildingSegment}`
-        : buildingSegment;
-
-      const insertResult = await supabase
-        .from('buildings')
-        .insert({
-          project_id: projectId,
-          building_code: buildingCode,
-          label: buildingData.label,
-          house_number: buildingData.houseNumber,
-          category: buildingData.category,
-          construction_type: normalizedFields.constructionType,
-          parking_type: normalizedFields.parkingType,
-          infra_type: normalizedFields.infraType,
-          has_non_res_part: buildingData.hasNonResPart || false,
-        })
-        .select()
-        .single();
-
-      building = insertResult.data;
-      bError = insertResult.error;
-
-      if (!bError) break;
-      if (!isBuildingCodeConflict(bError) || attempt === maxCodeRetries) {
-        throw bError;
-      }
-    }
-   
-    if (blocksData && blocksData.length > 0) {
-      const blocksPayload = blocksData.map(b => ({
-        id: b.id,
-        building_id: building.id,
-        label: b.label,
-        type: mapBlockTypeToDB(b.type),
-        floors_count: b.floorsCount || 0,
-        floors_from: 1,
-        floors_to: b.floorsCount || 1,
-      }));
-
-      const { error: blError } = await supabase.from('building_blocks').insert(blocksPayload);
-
-      if (blError) throw blError;
-    }
-    return building;
+    const resolvedActor = resolveActor(actor);
+    return BffClient.createBuilding({
+      projectId,
+      buildingData,
+      blocksData,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
   updateBuilding: async (buildingId, buildingData, actor = {}, blocksData = null) => {
-    if (BffClient.isCompositionEnabled()) {
-      return BffClient.updateBuilding({
-        buildingId,
-        buildingData,
-        blocksData,
-        userName: actor.userName,
-        userRole: actor.userRole,
-      });
-    }
+    requireBffEnabled('project.updateBuilding');
 
-    const normalizedFields = sanitizeBuildingCategoryFields(buildingData);
-
-    const { data, error } = await supabase
-      .from('buildings')
-      .update({
-        label: buildingData.label,
-        house_number: buildingData.houseNumber,
-        construction_type: normalizedFields.constructionType,
-        parking_type: normalizedFields.parkingType,
-        infra_type: normalizedFields.infraType,
-        has_non_res_part: buildingData.hasNonResPart,
-      })
-      .eq('id', buildingId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
+    const resolvedActor = resolveActor(actor);
+    return BffClient.updateBuilding({
+      buildingId,
+      buildingData,
+      blocksData,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
   deleteBuilding: async (buildingId, actor = {}) => {
-    if (BffClient.isCompositionEnabled()) {
-      return BffClient.deleteBuilding({
-        buildingId,
-        userName: actor.userName,
-        userRole: actor.userRole,
-      });
-    }
+    requireBffEnabled('project.deleteBuilding');
 
-    const { error } = await supabase.from('buildings').delete().eq('id', buildingId);
-    if (error) throw error;
+    const resolvedActor = resolveActor(actor);
+    return BffClient.deleteBuilding({
+      buildingId,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
   // --- FLOORS ---
   getFloors: async blockId => {
-    if (BffClient.isFloorsEnabled()) {
-      const data = await BffClient.getFloors({ blockId });
-      return (data || []).map(f => mapFloorFromDB(f, null, blockId));
-    }
-
-    const { data, error } = await supabase
-      .from('floors')
-      .select('*')
-      .eq('block_id', blockId)
-      .order('index', { ascending: true });
-    if (error) throw error;
-    return data.map(f => mapFloorFromDB(f, null, blockId));
+    requireBffEnabled('composition.getFloors');
+    const data = await BffClient.getFloors({ blockId });
+    return (data || []).map(f => mapFloorFromDB(f, null, blockId));
   },
 
   updateFloor: async (floorId, updates, actor = {}) => {
-    if (BffClient.isFloorsEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.updateFloor({
-        floorId,
-        updates,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
+    requireBffEnabled('composition.updateFloor');
 
-    const payload = {};
-    // Map UI keys to DB columns
-    if (updates.height !== undefined) payload.height = updates.height;
-    if (updates.areaProj !== undefined) payload.area_proj = updates.areaProj;
-    if (updates.areaFact !== undefined) payload.area_fact = updates.areaFact;
-    if (updates.isDuplex !== undefined) payload.is_duplex = updates.isDuplex;
-    if (updates.label !== undefined) payload.label = updates.label;
-    if (updates.type !== undefined) payload.floor_type = updates.type;
-    if (updates.isTechnical !== undefined) payload.is_technical = updates.isTechnical;
-    if (updates.isCommercial !== undefined) payload.is_commercial = updates.isCommercial;
-
-    const { data, error } = await supabase
-      .from('floors')
-      .update(payload)
-      .eq('id', floorId)
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
+    const resolvedActor = resolveActor(actor);
+    return BffClient.updateFloor({
+      floorId,
+      updates,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
   generateFloors: async (blockId, floorsFrom, floorsTo, defaultType = 'residential', actor = {}) => {
-    if (BffClient.isFloorsEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.reconcileFloors({
-        blockId,
-        floorsFrom,
-        floorsTo,
-        defaultType,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-        idempotencyKey: createIdempotencyKey('reconcile-floors', [blockId]),        
-      });
-    }
+    requireBffEnabled('composition.generateFloors');
 
-    // ... (Без изменений, логика уже есть в вашем файле, просто оставляем)
-    const { data: existing, error: fetchErr } = await supabase
-      .from('floors')
-      .select('id, index')
-      .eq('block_id', blockId);
-    if (fetchErr) throw fetchErr;
-    const existingIndices = new Set(existing.map(e => e.index));
-    const targetIndices = new Set();
-    for (let i = floorsFrom; i <= floorsTo; i++) targetIndices.add(i);
-    const toDeleteIds = existing.filter(e => !targetIndices.has(e.index)).map(e => e.id);
-    const toCreateIndices = Array.from(targetIndices).filter(i => !existingIndices.has(i));
-
-    if (toDeleteIds.length > 0) await supabase.from('floors').delete().in('id', toDeleteIds);
-    if (toCreateIndices.length > 0) {
-      const payload = toCreateIndices.map(i => ({
-        block_id: blockId,
-        index: i,
-        label: `${i} этаж`,
-        floor_type: defaultType,
-        floor_key: `floor:${i}`,
-        height: 3.0,
-        area_proj: 0,
-        is_commercial: defaultType === 'office',
-        is_technical: false,
-      }));
-      await supabase.from('floors').insert(payload);
-    }
+    const resolvedActor = resolveActor(actor);
+    return BffClient.reconcileFloors({
+      blockId,
+      floorsFrom,
+      floorsTo,
+      defaultType,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+      idempotencyKey: createIdempotencyKey('reconcile-floors', [blockId]),
+    });
   },
 
   // --- MATRIX ---
   getEntrances: async blockId => {
-    if (BffClient.isEntrancesEnabled()) {
-      return BffClient.getEntrances({ blockId });
-    }
-
-    const { data, error } = await supabase
-      .from('entrances')
-      .select('*')
-      .eq('block_id', blockId)
-      .order('number');
-    if (error) throw error;
-    return data;
+    requireBffEnabled('matrix.getEntrances');
+    return BffClient.getEntrances({ blockId });
   },
 
+
   getMatrix: async blockId => {
-    let data;
+    requireBffEnabled('matrix.getMatrix');
 
-    if (BffClient.isEntrancesEnabled()) {
-      data = await BffClient.getEntranceMatrix({ blockId });
-    } else {
-      const { data: matrixRows, error } = await supabase
-        .from('entrance_matrix')
-        .select('*')
-        .eq('block_id', blockId);
-      if (error) throw error;
-      data = matrixRows;
-    }
-
+    const data = await BffClient.getEntranceMatrix({ blockId });
     const map = {};
     (data || []).forEach(row => {
       map[`${row.floor_id}_${row.entrance_number}`] = {
@@ -2003,99 +559,41 @@ const LegacyApiService = {
     return map;
   },
 
+
   upsertMatrixCell: async (blockId, floorId, entranceNumber, values, actor = {}) => {
-    if (BffClient.isEntrancesEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.upsertMatrixCell({
-        blockId,
-        floorId,
-        entranceNumber,
-        values,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
+    requireBffEnabled('matrix.upsertMatrixCell');
 
-    const payload = {
-      block_id: blockId,
-      floor_id: floorId,
-      entrance_number: entranceNumber,
-      updated_at: new Date(),
-    };
-    if (values.apts !== undefined) payload.flats_count = values.apts;
-    if (values.units !== undefined) payload.commercial_count = values.units;
-    if (values.mopQty !== undefined) payload.mop_count = values.mopQty;
-
-    const { data, error } = await supabase
-      .from('entrance_matrix')
-      .upsert(payload, { onConflict: UPSERT_ON_CONFLICT.entrance_matrix })
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
+    const resolvedActor = resolveActor(actor);
+    return BffClient.upsertMatrixCell({
+      blockId,
+      floorId,
+      entranceNumber,
+      values,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
+
   syncEntrances: async (blockId, count, actor = {}) => {
-    if (BffClient.isEntrancesEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.reconcileEntrances({
-        blockId,
-        count,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-        idempotencyKey: createIdempotencyKey('reconcile-entrances', [blockId]),
-      });
-    }
+    requireBffEnabled('matrix.syncEntrances');
 
-    const normalizedCount = Math.max(0, parseInt(count, 10) || 0);
-    const { data: existing, error: existingErr } = await supabase
-      .from('entrances')
-      .select('id, number')
-      .eq('block_id', blockId);
-    if (existingErr) throw existingErr;
-
-    const existingRows = existing || [];
-    const existingNums = new Set(existingRows.map(e => e.number));
-    const toCreate = [];
-    for (let i = 1; i <= normalizedCount; i++) {
-      if (!existingNums.has(i)) toCreate.push({ block_id: blockId, number: i });
-    }
-    if (toCreate.length > 0) {
-      const { error: insertErr } = await supabase.from('entrances').insert(toCreate);
-      if (insertErr) throw insertErr;
-    }
-
-    const toDeleteIds = existingRows.filter(e => e.number > normalizedCount).map(e => e.id);
-    if (toDeleteIds.length > 0) {
-      const { error: deleteErr } = await supabase.from('entrances').delete().in('id', toDeleteIds);
-      if (deleteErr) throw deleteErr;
-    }
-
-    const { error: matrixTrimErr } = await supabase
-      .from('entrance_matrix')
-      .delete()
-      .eq('block_id', blockId)
-      .gt('entrance_number', normalizedCount);
-    if (matrixTrimErr) throw matrixTrimErr;
+    const resolvedActor = resolveActor(actor);
+    return BffClient.reconcileEntrances({
+      blockId,
+      count,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+      idempotencyKey: createIdempotencyKey('reconcile-entrances', [blockId]),
+    });
   },
 
   // --- UNITS ---
 
   getUnitExplicationById: async unitId => {
-    let data;
+    requireBffEnabled('units.getUnitExplicationById');
 
-    if (BffClient.isUnitsEnabled()) {
-      data = await BffClient.getUnitExplicationById({ unitId });
-    } else {
-      const { data: unitData, error } = await supabase
-        .from('units')
-        .select('*, rooms (*)')
-        .eq('id', unitId)
-        .maybeSingle();
-      if (error) throw error;
-      data = unitData;
-    }
-
+    const data = await BffClient.getUnitExplicationById({ unitId });
     if (!data) return null;
 
     return {
@@ -2124,50 +622,14 @@ const LegacyApiService = {
     };
   },
 
+
   getUnits: async (blockId, options = {}) => {
+    requireBffEnabled('units.getUnits');
+
     const extraFloorIds = Array.isArray(options?.floorIds) ? options.floorIds.filter(Boolean) : [];
-
-    if (BffClient.isUnitsEnabled()) {
-      const payload = await BffClient.getUnits({ blockId, floorIds: extraFloorIds });
-      const units = payload?.units || [];
-      const entranceMap = payload?.entranceMap || {};
-
-      return units.map(u => ({
-        ...mapUnitFromDB(u, u.rooms, entranceMap, null, blockId),
-        entranceIndex: u.entrance_id ? entranceMap[u.entrance_id] || 1 : u.entrance_index || 1,
-      }));
-    }
-
-    const { data: blockFloors, error: floorsError } = await supabase
-      .from('floors')
-      .select('id')
-      .eq('block_id', blockId);
-
-    if (floorsError) throw floorsError;
-
-    const floorIds = Array.from(new Set([...(blockFloors || []).map(f => f.id), ...extraFloorIds]));
-    if (floorIds.length === 0) return [];
-
-    const { data: entrances, error: entrancesError } = await supabase
-      .from('entrances')
-      .select('id, number')
-      .eq('block_id', blockId);
-    if (entrancesError) throw entrancesError;
-
-    const entranceMap = (entrances || []).reduce((acc, item) => {
-      acc[item.id] = item.number;
-      return acc;
-    }, {});
-
-    const units = await fetchAllPaged((from, to) =>
-      supabase
-        .from('units')
-        .select('*, rooms (*)')
-        .in('floor_id', floorIds)
-        .order('created_at', { ascending: true })
-        .order('id', { ascending: true })
-        .range(from, to)
-    );
+    const payload = await BffClient.getUnits({ blockId, floorIds: extraFloorIds });
+    const units = payload?.units || [];
+    const entranceMap = payload?.entranceMap || {};
 
     return units.map(u => ({
       ...mapUnitFromDB(u, u.rooms, entranceMap, null, blockId),
@@ -2175,281 +637,25 @@ const LegacyApiService = {
     }));
   },
 
+
   upsertUnit: async (unitData, actor = {}) => {
-    if (BffClient.isUnitsEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.upsertUnit({
-        unitData,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
-    // 1. ОПРЕДЕЛЯЕМ РЕЖИМ РАБОТЫ (Partial Update vs Full Upsert)
-    // Если есть ID, но нет критически важных полей для создания (floorId, type), считаем это PATCH-запросом.
-    const isPatch = !!unitData.id && (unitData.floorId === undefined || unitData.type === undefined);
+    requireBffEnabled('units.upsertUnit');
 
-    let savedUnit = null;
-
-    if (isPatch) {
-      // --- РЕЖИМ ЧАСТИЧНОГО ОБНОВЛЕНИЯ (PATCH) ---
-      const patchPayload = { updated_at: new Date() };
-
-      // Маппинг полей (обновляем только то, что пришло)
-      if (unitData.num !== undefined) patchPayload.number = unitData.num;
-      if (unitData.number !== undefined) patchPayload.number = unitData.number;
-      if (unitData.type !== undefined) patchPayload.unit_type = unitData.type;
-      
-      if (unitData.area !== undefined) patchPayload.total_area = unitData.area;
-      if (unitData.livingArea !== undefined) patchPayload.living_area = unitData.livingArea;
-      if (unitData.usefulArea !== undefined) patchPayload.useful_area = unitData.usefulArea;
-      if (unitData.rooms !== undefined) patchPayload.rooms_count = unitData.rooms;
-
-      if (unitData.isSold !== undefined) patchPayload.status = unitData.isSold ? 'sold' : 'free';
-
-      if (unitData.hasMezzanine !== undefined) patchPayload.has_mezzanine = !!unitData.hasMezzanine;
-      if (unitData.mezzanineType !== undefined) patchPayload.mezzanine_type = unitData.mezzanineType || null;
-
-      // unitCode обновляем только если он явно передан
-      if (unitData.unitCode !== undefined) patchPayload.unit_code = unitData.unitCode;
-      
-      const { data, error } = await supabase
-        .from('units')
-        .update(patchPayload)
-        .eq('id', unitData.id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      savedUnit = data;
-
-    } else {
-      // --- РЕЖИМ ПОЛНОГО СОЗДАНИЯ / ПЕРЕЗАПИСИ (UPSERT) ---
-      // (Старая логика с генерацией кодов)
-
-      let buildingId = null;
-      let buildingCode = null;
-
-      if (!unitData.unitCode && unitData.floorId && unitData.type) {
-        const { data: floor } = await supabase
-          .from('floors')
-          .select('block_id')
-          .eq('id', unitData.floorId)
-          .single();
-
-        if (floor?.block_id) {
-          const { data: block } = await supabase
-            .from('building_blocks')
-            .select('building_id')
-            .eq('id', floor.block_id)
-            .single();
-
-          if (block?.building_id) {
-           buildingId = block.building_id;
-            const { data: building } = await supabase
-              .from('buildings')
-              .select('building_code')
-              .eq('id', block.building_id)
-              .single();
-            buildingCode = building?.building_code || null;
-          }
-        }
-      }
-
-      const unitId = unitData.id || crypto.randomUUID();
-      const maxCodeRetries = 3;
-
-      for (let attempt = 1; attempt <= maxCodeRetries; attempt += 1) {
-        const unitSegment =
-          unitData.unitCode ||
-          (buildingId && unitData.type ? await generateNextUnitCode(buildingId, unitData.type) : null);
-
-        const unitCode =
-          unitData.unitCode ||
-          (buildingCode && unitSegment ? `${buildingCode}-${extractUnitSegment(unitSegment)}` : unitSegment);
-
-        const unitPayload = {
-          id: unitId,
-          floor_id: unitData.floorId,
-          entrance_id: unitData.entranceId,
-          unit_code: unitCode,
-          number: unitData.num || unitData.number,
-          unit_type: unitData.type,
-          has_mezzanine: !!unitData.hasMezzanine,
-          mezzanine_type: unitData.hasMezzanine ? (unitData.mezzanineType || null) : null,
-          total_area: unitData.area,
-          living_area: unitData.livingArea || 0,
-          useful_area: unitData.usefulArea || 0,
-          rooms_count: unitData.rooms || 0,
-          status: unitData.isSold ? 'sold' : 'free',
-          updated_at: new Date(),
-        };
-
-        const upsertResult = await upsertWithConflict('units', unitPayload, {
-          single: true,
-        });
-
-        savedUnit = upsertResult.data;
-        const error = upsertResult.error;
-
-        if (!error) break;
-
-        const canRetryCode = !unitData.unitCode && buildingId && isUnitCodeConflict(error);
-        if (!canRetryCode || attempt === maxCodeRetries) {
-          throw error;
-        }
-      }
-    }
-
-    if (!savedUnit) throw new Error('Unit upsert returned empty payload');
-
-    // Sync rooms (Explication) - работает для обоих режимов
-    if (unitData.explication && Array.isArray(unitData.explication)) {
-      await supabase.from('rooms').delete().eq('unit_id', savedUnit.id);
-      if (unitData.explication.length > 0) {
-        const roomsPayload = unitData.explication.map(r => ({
-          id: r.id || crypto.randomUUID(),
-          unit_id: savedUnit.id,
-          room_type: r.type,
-          area: r.area || 0,
-          room_height: r.height === '' || r.height === undefined ? null : r.height,
-          level: r.level || 1,
-          is_mezzanine: !!r.isMezzanine,
-          name: r.label || '',
-        }));
-        await supabase.from('rooms').insert(roomsPayload);
-      }
-    }
-    return savedUnit;
-  },
-
-  batchUpsertUnits: async (unitsList, actor = {}) => {
-    if (BffClient.isUnitsEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.batchUpsertUnits({
-        unitsList,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-        idempotencyKey: createIdempotencyKey('batch-upsert-units', [unitsList?.[0]?.floorId || 'unknown']),
-      });
-    }
-    if (!unitsList || unitsList.length === 0) return;
-
-    // 1. Подготовка: Находим ID и код здания (берем floorId из первого элемента)
-    // Нам нужно знать здание, чтобы сформировать префикс (ZD...) и проверить существующие номера
-    const sampleUnit = unitsList[0];
-    let buildingCode = null;
-    let existingCodes = [];
-
-    if (sampleUnit.floorId) {
-      // Цепочка: Floor -> Block -> Building
-      const { data: floor } = await supabase
-        .from('floors')
-        .select(`
-          block_id,
-          building_blocks (
-            building_id,
-            buildings (building_code)
-          )
-        `)
-        .eq('id', sampleUnit.floorId)
-        .single();
-
-      if (floor?.building_blocks) {
-        // [FIX] Безопасное извлечение блока и здания (Supabase может вернуть массив или объект)
-        const block = Array.isArray(floor.building_blocks) 
-            ? floor.building_blocks[0] 
-            : floor.building_blocks;
-
-        if (block) {
-            // building_id находится в таблице building_blocks
-            const buildingId = block.building_id;
-
-            // buildings (связанная таблица) тоже может прийти как массив
-            const buildingData = Array.isArray(block.buildings) 
-                ? block.buildings[0] 
-                : block.buildings;
-
-            if (buildingData) {
-                buildingCode = buildingData.building_code;
-
-                // 2. Получаем существующие коды
-                if (buildingCode) {
-                    const { data: codes } = await supabase
-                        .from('units')
-                        .select('unit_code')
-                        .ilike('unit_code', `${buildingCode}-%`);
-                    
-                    existingCodes = (codes || [])
-                        .map(r => extractUnitSegment(r.unit_code))
-                        .filter(Boolean);
-                }
-            }
-        }
-    }
-    }
-
-    // 3. Инициализация локальных счетчиков для разных типов помещений в пачке
-    // Мы не можем использовать generateNextUnitCode в цикле, так как он делает запрос в БД.
-    // Считаем в памяти.
-    const counters = {
-      EF: getNextSequenceNumber(existingCodes, 'EF'),
-      EO: getNextSequenceNumber(existingCodes, 'EO'),
-      EP: getNextSequenceNumber(existingCodes, 'EP'),
-    };
-
-    // 4. Формирование Payload с кодами
-    const payload = unitsList.map(u => {
-      let finalUnitCode = u.unitCode || null;
-
-      // Если кода нет, и мы знаем код здания — генерируем
-      if (!finalUnitCode && buildingCode && u.type) {
-        const prefix = getUnitPrefix(u.type); // Например 'EF' или 'EO'
-        const currentSeq = counters[prefix] || 1;
-        
-        // Генерируем сегмент (например EF015)
-        const segment = generateUnitCode(prefix, currentSeq);
-        finalUnitCode = `${buildingCode}-${segment}`;
-
-        // Инкрементируем счетчик для этого типа
-        counters[prefix]++;
-      }
-
-      return {
-        id: u.id || crypto.randomUUID(),
-        floor_id: u.floorId,
-        entrance_id: u.entranceId,
-        number: u.num || u.number,
-        unit_type: u.type,
-        unit_code: finalUnitCode, // <-- ДОБАВЛЕНО ПОЛЕ
-        total_area: u.area || 0,
-        status: 'free',
-        updated_at: new Date(),
-      };
+    const resolvedActor = resolveActor(actor);
+    return BffClient.upsertUnit({
+      unitData,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
     });
-
-    // 5. Сохранение
-    const { error } = await upsertWithConflict('units', payload);
-    if (error) throw error;
   },
 
   // --- COMMON AREAS ---
   getCommonAreas: async (blockId, options = {}) => {
+    requireBffEnabled('commonAreas.getCommonAreas');
+
     const extraFloorIds = Array.isArray(options?.floorIds) ? options.floorIds.filter(Boolean) : [];
-
-    if (BffClient.isMopEnabled()) {
-      const data = await BffClient.getCommonAreas({ blockId, floorIds: extraFloorIds });
-      return (data || []).map(m => mapMopFromDB(m, {}, null, blockId));
-    }
-
-    const { data: floors } = await supabase.from('floors').select('id').eq('block_id', blockId);
-    const floorIds = Array.from(new Set([...(floors || []).map(f => f.id), ...extraFloorIds]));
-    if (floorIds.length === 0) return [];
-    const { data, error } = await supabase
-      .from('common_areas')
-      .select('*')
-      .in('floor_id', floorIds);
-    if (error) throw error;
-    return data.map(m => mapMopFromDB(m, {}, null, blockId));
+    const data = await BffClient.getCommonAreas({ blockId, floorIds: extraFloorIds });
+    return (data || []).map(m => mapMopFromDB(m, {}, null, blockId));
   },
 
   /**
@@ -2463,932 +669,290 @@ const LegacyApiService = {
    * }} data
    */
   upsertCommonArea: async (data, actor = {}) => {
-    if (BffClient.isMopEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.upsertCommonArea({
-        data,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
+    requireBffEnabled('commonAreas.upsertCommonArea');
 
-    const payload = {
-      id: data.id || crypto.randomUUID(),
-      floor_id: data.floorId,
-      entrance_id: data.entranceId,
-      type: data.type,
-      area: data.area,
-      height: data.height === "" || data.height === undefined ? null : data.height,
-    };
-    const { data: res, error } = await upsertWithConflict('common_areas', payload, {
-      single: true,
+    const resolvedActor = resolveActor(actor);
+    return BffClient.upsertCommonArea({
+      data,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
     });
-    if (error) throw error;
-    return res;
   },
+
 
   deleteCommonArea: async (id, actor = {}) => {
-    if (BffClient.isMopEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.deleteCommonArea({
-        id,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
+    requireBffEnabled('commonAreas.deleteCommonArea');
 
-    const { error } = await supabase.from('common_areas').delete().eq('id', id);
-    if (error) throw error;
+    const resolvedActor = resolveActor(actor);
+    return BffClient.deleteCommonArea({
+      id,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
+
 
   clearCommonAreas: async (blockId, options = {}, actor = {}) => {
+    requireBffEnabled('commonAreas.clearCommonAreas');
+
     const extraFloorIds = Array.isArray(options?.floorIds) ? options.floorIds.filter(Boolean) : [];
-
-    if (BffClient.isMopEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.clearCommonAreas({
-        blockId,
-        floorIds: extraFloorIds,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
-
-    const { data: floors } = await supabase.from('floors').select('id').eq('block_id', blockId);
-    const floorIds = Array.from(new Set([...(floors || []).map(f => f.id), ...extraFloorIds]));
-    if (floorIds.length > 0) {
-      await supabase.from('common_areas').delete().in('floor_id', floorIds);
-    }
+    const resolvedActor = resolveActor(actor);
+    return BffClient.clearCommonAreas({
+      blockId,
+      floorIds: extraFloorIds,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
+
 
   reconcileUnitsForBlock: async (blockId, actor = {}) => {
-    if (BffClient.isUnitsEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.reconcileUnitsForBlock({
-        blockId,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-        idempotencyKey: createIdempotencyKey('reconcile-units', [blockId]),
-      });
-    }
+    requireBffEnabled('units.reconcileUnitsForBlock');
 
-    const result = { removed: 0, checkedCells: 0 };
-
-    const { data: floors, error: floorsErr } = await supabase
-      .from('floors')
-      .select('id')
-      .eq('block_id', blockId);
-    if (floorsErr) throw floorsErr;
-
-    const floorIds = (floors || []).map(f => f.id);
-    if (floorIds.length === 0) return result;
-
-    const { data: entrances, error: entErr } = await supabase
-      .from('entrances')
-      .select('id, number')
-      .eq('block_id', blockId);
-    if (entErr) throw entErr;
-
-    const entranceByNumber = new Map((entrances || []).map(e => [Number(e.number), e.id]));
-
-    const { data: matrixRows, error: matrixErr } = await supabase
-      .from('entrance_matrix')
-      .select('floor_id, entrance_number, flats_count, commercial_count')
-      .eq('block_id', blockId);
-    if (matrixErr) throw matrixErr;
-
-    const desiredMap = new Map();
-    (matrixRows || []).forEach(row => {
-      const entranceId = entranceByNumber.get(Number(row.entrance_number));
-      if (!entranceId) return;
-      desiredMap.set(`${row.floor_id}_${entranceId}`, {
-        flats: Math.max(0, parseInt(row.flats_count || 0, 10) || 0),
-        commercial: Math.max(0, parseInt(row.commercial_count || 0, 10) || 0),
-      });
+    const resolvedActor = resolveActor(actor);
+    return BffClient.reconcileUnitsForBlock({
+      blockId,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+      idempotencyKey: createIdempotencyKey('reconcile-units', [blockId]),
     });
-
-    const { data: units, error: unitsErr } = await supabase
-      .from('units')
-      .select('id, floor_id, entrance_id, unit_type, created_at')
-      .in('floor_id', floorIds);
-    if (unitsErr) throw unitsErr;
-
-    const isFlatType = type => ['flat', 'duplex_up', 'duplex_down'].includes(type);
-    const isCommercialType = type => ['office', 'office_inventory', 'non_res_block', 'infrastructure'].includes(type);
-
-    const grouped = new Map();
-    (units || []).forEach(u => {
-      const key = `${u.floor_id}_${u.entrance_id}`;
-      if (!grouped.has(key)) grouped.set(key, { flats: [], commercial: [] });
-      if (isFlatType(u.unit_type)) grouped.get(key).flats.push(u);
-      else if (isCommercialType(u.unit_type)) grouped.get(key).commercial.push(u);
-    });
-
-    const toDelete = [];
-    grouped.forEach((bucket, key) => {
-      const desired = desiredMap.get(key) || { flats: 0, commercial: 0 };
-      result.checkedCells += 1;
-
-      const sortByAge = (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
-      const flatsSorted = [...bucket.flats].sort(sortByAge);
-      const commSorted = [...bucket.commercial].sort(sortByAge);
-
-      if (flatsSorted.length > desired.flats) {
-        toDelete.push(...flatsSorted.slice(desired.flats).map(u => u.id));
-      }
-      if (commSorted.length > desired.commercial) {
-        toDelete.push(...commSorted.slice(desired.commercial).map(u => u.id));
-      }
-    });
-
-    if (toDelete.length > 0) {
-      const { error: delErr } = await supabase.from('units').delete().in('id', toDelete);
-      if (delErr) throw delErr;
-      result.removed = toDelete.length;
-    }
-
-    return result;
   },
 
+
   reconcileCommonAreasForBlock: async (blockId, actor = {}) => {
-    if (BffClient.isMopEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.reconcileCommonAreasForBlock({
-        blockId,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-        idempotencyKey: createIdempotencyKey('reconcile-mops', [blockId]),
-      });
-    }
+    requireBffEnabled('commonAreas.reconcileCommonAreasForBlock');
 
-    const result = { removed: 0, checkedCells: 0 };
-
-    const { data: floors, error: floorsErr } = await supabase
-      .from('floors')
-      .select('id')
-      .eq('block_id', blockId);
-    if (floorsErr) throw floorsErr;
-
-    const floorIds = (floors || []).map(f => f.id);
-    if (floorIds.length === 0) return result;
-
-    const { data: entrances, error: entErr } = await supabase
-      .from('entrances')
-      .select('id, number')
-      .eq('block_id', blockId);
-    if (entErr) throw entErr;
-
-    const entranceByNumber = new Map((entrances || []).map(e => [Number(e.number), e.id]));
-
-    const { data: matrixRows, error: matrixErr } = await supabase
-      .from('entrance_matrix')
-      .select('floor_id, entrance_number, mop_count')
-      .eq('block_id', blockId);
-    if (matrixErr) throw matrixErr;
-
-    const desiredMap = new Map();
-    (matrixRows || []).forEach(row => {
-      const entranceId = entranceByNumber.get(Number(row.entrance_number));
-      if (!entranceId) return;
-      desiredMap.set(`${row.floor_id}_${entranceId}`, Math.max(0, parseInt(row.mop_count || 0, 10) || 0));
+    const resolvedActor = resolveActor(actor);
+    return BffClient.reconcileCommonAreasForBlock({
+      blockId,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+      idempotencyKey: createIdempotencyKey('reconcile-mops', [blockId]),
     });
-
-    const { data: areas, error: areasErr } = await supabase
-      .from('common_areas')
-      .select('id, floor_id, entrance_id, created_at')
-      .in('floor_id', floorIds);
-    if (areasErr) throw areasErr;
-
-    const grouped = new Map();
-    (areas || []).forEach(a => {
-      const key = `${a.floor_id}_${a.entrance_id}`;
-      if (!grouped.has(key)) grouped.set(key, []);
-      grouped.get(key).push(a);
-    });
-
-    const toDelete = [];
-    grouped.forEach((list, key) => {
-      result.checkedCells += 1;
-      const desired = desiredMap.get(key) || 0;
-      if (list.length <= desired) return;
-      const sorted = [...list].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
-      toDelete.push(...sorted.slice(desired).map(a => a.id));
-    });
-
-    if (toDelete.length > 0) {
-      const { error: delErr } = await supabase.from('common_areas').delete().in('id', toDelete);
-      if (delErr) throw delErr;
-      result.removed = toDelete.length;
-    }
-
-    return result;
   },
 
   // --- PARKING & BASEMENTS ---
   getBasements: async projectId => {
-    if (BffClient.isBasementsEnabled()) {
-      return BffClient.getBasements({ projectId });
-    }
-
-    const { data: buildings } = await supabase
-      .from('buildings')
-      .select('id')
-      .eq('project_id', projectId);
-    const buildingIds = buildings.map(b => b.id);
-    if (buildingIds.length === 0) return [];
-    const { data, error } = await supabase
-      .from('basements')
-      .select(`*, basement_parking_levels (depth_level, is_enabled)`)
-      .in('building_id', buildingIds);
-    if (error) throw error;
-    return data.map(b => ({
-      id: b.id,
-      buildingId: b.building_id,
-      blockId: b.block_id,
-      depth: b.depth,
-      hasParking: b.has_parking,
-      parkingLevels: (b.basement_parking_levels || []).reduce((acc, l) => {
-        acc[l.depth_level] = l.is_enabled;
-        return acc;
-      }, {}),
-    }));
+    requireBffEnabled('basements.getBasements');
+    return BffClient.getBasements({ projectId });
   },
 
   toggleBasementLevel: async (basementId, level, isEnabled, actor = {}) => {
-    if (BffClient.isBasementsEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.toggleBasementLevel({
-        basementId,
-        level,
-        isEnabled,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
+    requireBffEnabled('basements.toggleBasementLevel');
 
-    const { error } = await supabase
-      .from('basement_parking_levels')
-      .upsert(
-        { basement_id: basementId, depth_level: level, is_enabled: isEnabled },
-        { onConflict: UPSERT_ON_CONFLICT.basement_parking_levels }
-      );
-    if (error) throw error;
+    const resolvedActor = resolveActor(actor);
+    return BffClient.toggleBasementLevel({
+      basementId,
+      level,
+      isEnabled,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
   getParkingCounts: async projectId => {
-    if (BffClient.isParkingEnabled()) {
-      return BffClient.getParkingCounts({ projectId });
-    }
-
-    // Получаем все здания проекта
-    const { data: buildings } = await supabase
-      .from('buildings')
-      .select('id')
-      .eq('project_id', projectId);
-    const buildingIds = buildings.map(b => b.id);
-    if (!buildingIds.length) return {};
-
-    // Получаем все блоки
-    const { data: blocks } = await supabase
-      .from('building_blocks')
-      .select('id')
-      .in('building_id', buildingIds);
-    const blockIds = blocks.map(b => b.id);
-    if (!blockIds.length) return {};
-
-    // Получаем этажи
-    const { data: floors } = await supabase.from('floors').select('id').in('block_id', blockIds);
-    const floorIds = floors.map(f => f.id);
-    if (!floorIds.length) return {};
-
-    // Считаем парковочные места
-    const { data: units, error } = await supabase
-      .from('units')
-      .select('floor_id')
-      .eq('unit_type', 'parking_place')
-      .in('floor_id', floorIds);
-    if (error) throw error;
-
-    const counts = {};
-    units.forEach(u => {
-      counts[u.floor_id] = (counts[u.floor_id] || 0) + 1;
-    });
-    return counts;
+    requireBffEnabled('basements.getParkingCounts');
+    return BffClient.getParkingCounts({ projectId });
   },
 
   syncParkingPlaces: async (floorId, targetCount, _buildingId, actor = {}) => {
-    if (BffClient.isParkingEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.syncParkingPlaces({
-        floorId,
-        targetCount,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-        idempotencyKey: createIdempotencyKey('sync-parking', [floorId]),
-      });
-    }
+    requireBffEnabled('basements.syncParkingPlaces');
 
-    const { data: existing } = await supabase
-      .from('units')
-      .select('id, number')
-      .eq('floor_id', floorId)
-      .eq('unit_type', 'parking_place');
-
-    const currentCount = existing.length;
-    if (currentCount === targetCount) return;
-
-    if (targetCount > currentCount) {
-      const toAdd = targetCount - currentCount;
-      const newUnits = [];
-      for (let i = 1; i <= toAdd; i++) {
-        newUnits.push({
-          id: crypto.randomUUID(),
-          floor_id: floorId,
-          unit_type: 'parking_place',
-          number: null,
-          total_area: null,
-          status: 'free',
-        });
-      }
-      await supabase.from('units').insert(newUnits);
-    } else {
-      const sorted = existing.sort((a, b) => parseInt(b.number) - parseInt(a.number));
-      const toDelete = sorted.slice(0, currentCount - targetCount).map(u => u.id);
-      await supabase.from('units').delete().in('id', toDelete);
-    }
+    const resolvedActor = resolveActor(actor);
+    return BffClient.syncParkingPlaces({
+      floorId,
+      targetCount,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+      idempotencyKey: createIdempotencyKey('sync-parking', [floorId]),
+    });
   },
 
   // --- META & INTEGRATION ---
   getIntegrationStatus: async projectId => {
-    if (BffClient.isIntegrationEnabled()) {
-      return BffClient.getIntegrationStatus({ projectId });
-    }
-
-    const { data } = await supabase
-      .from('applications')
-      .select('integration_data')
-      .eq('project_id', projectId)
-      .single();
-    return data?.integration_data || {};
+    requireBffEnabled('integration.getIntegrationStatus');
+    return BffClient.getIntegrationStatus({ projectId });
   },
 
   updateIntegrationStatus: async (projectId, field, status, actor = {}) => {
-    if (BffClient.isIntegrationEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.updateIntegrationStatus({
-        projectId,
-        field,
-        status,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
+    requireBffEnabled('integration.updateIntegrationStatus');
 
-    const { data: app } = await supabase
-      .from('applications')
-      .select('id, integration_data')
-      .eq('project_id', projectId)
-      .single();
-    if (!app) return;
-    const newData = { ...(app.integration_data || {}), [field]: status };
-    await supabase.from('applications').update({ integration_data: newData }).eq('id', app.id);
+    const resolvedActor = resolveActor(actor);
+    return BffClient.updateIntegrationStatus({
+      projectId,
+      field,
+      status,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
   updateBuildingCadastre: async (id, cadastre, actor = {}) => {
     if (!id) return;
+    requireBffEnabled('integration.updateBuildingCadastre');
 
-    if (BffClient.isCadastreEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.updateBuildingCadastre({
-        buildingId: id,
-        cadastre,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
-
-    trackLegacyPath('updateBuildingCadastre');
-
-    const { error } = await supabase
-      .from('buildings')
-      .update({ cadastre_number: formatBuildingCadastre(cadastre) })
-      .eq('id', id);
-    if (error) throw error;
+    const resolvedActor = resolveActor(actor);
+    return BffClient.updateBuildingCadastre({
+      buildingId: id,
+      cadastre,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
   updateUnitCadastre: async (id, cadastre, actor = {}) => {
-    if (BffClient.isCadastreEnabled()) {
-      const resolvedActor = resolveActor(actor);
-      return BffClient.updateUnitCadastre({
-        unitId: id,
-        cadastre,
-        userName: resolvedActor.userName,
-        userRole: resolvedActor.userRole,
-      });
-    }
+    requireBffEnabled('integration.updateUnitCadastre');
 
-    trackLegacyPath('updateUnitCadastre');
-
-    await supabase.from('units').update({ cadastre_number: cadastre }).eq('id', id);
+    const resolvedActor = resolveActor(actor);
+    return BffClient.updateUnitCadastre({
+      unitId: id,
+      cadastre,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
   },
 
 
+  declineApplication: async ({ applicationId, userName, reason, userRole = 'branch_manager' }) => {
+    requireBffEnabled('workflow.declineApplication');
 
-  declineApplication: async ({ applicationId, nextSubstatus, prevStatus, userName, reason, userRole = 'branch_manager' }) => {
-    if (BffClient.isEnabled()) {
-      return BffClient.declineApplication({
-        applicationId,
-        reason,
-        userName,
-        userRole,
-        idempotencyKey: createIdempotencyKey('workflow-decline', [applicationId]),
-      });
-    }
-
-    trackLegacyPath('declineApplication');
-
-    const { error: appErr } = await supabase
-      .from('applications')
-      .update({
-        status: 'DECLINED',
-        workflow_substatus: nextSubstatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', applicationId);
-    if (appErr) throw appErr;
-
-    const { error: histErr } = await supabase.from('application_history').insert({
-      application_id: applicationId,
-      action: 'DECLINE',
-      prev_status: prevStatus,
-      next_status: 'DECLINED',
-      user_name: userName,
-      comment: reason,
+    return BffClient.declineApplication({
+      applicationId,
+      reason,
+      userName,
+      userRole,
+      idempotencyKey: createIdempotencyKey('workflow-decline', [applicationId]),
     });
-    if (histErr) throw histErr;
   },
 
   requestDecline: async ({ applicationId, reason, stepIndex, requestedBy, userRole = 'technician' }) => {
-    if (BffClient.isEnabled()) {
-      return BffClient.requestDecline({
-        applicationId,
-        reason,
-        stepIndex,
-        userName: requestedBy,
-        userRole,
-        idempotencyKey: createIdempotencyKey('workflow-request-decline', [applicationId, stepIndex]),
-      });
-    }
+    requireBffEnabled('workflow.requestDecline');
 
-    trackLegacyPath('requestDecline');
-
-    const { error } = await supabase
-      .from('applications')
-      .update({
-        workflow_substatus: 'PENDING_DECLINE',
-        requested_decline_reason: reason,
-        requested_decline_step: stepIndex,
-        requested_decline_by: requestedBy,
-        requested_decline_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', applicationId);
-    if (error) throw error;
+    return BffClient.requestDecline({
+      applicationId,
+      reason,
+      stepIndex,
+      userName: requestedBy,
+      userRole,
+      idempotencyKey: createIdempotencyKey('workflow-request-decline', [applicationId, stepIndex]),
+    });
   },
 
   returnFromDecline: async ({ applicationId, userName, userRole = 'branch_manager', comment }) => {
-    if (BffClient.isEnabled()) {
-      return BffClient.returnFromDecline({
-        applicationId,
-        comment,
-        userName,
-        userRole,
-        idempotencyKey: createIdempotencyKey('workflow-return-from-decline', [applicationId]),
-      });
-    }
+    requireBffEnabled('workflow.returnFromDecline');
 
-    trackLegacyPath('returnFromDecline');
-
-    const { error: appErr } = await supabase
-      .from('applications')
-      .update({
-        status: 'IN_PROGRESS',
-        workflow_substatus: 'RETURNED_BY_MANAGER',
-        requested_decline_reason: null,
-        requested_decline_step: null,
-        requested_decline_by: null,
-        requested_decline_at: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', applicationId);
-    if (appErr) throw appErr;
-
-    const { error: histErr } = await supabase.from('application_history').insert({
-      application_id: applicationId,
-      action: 'RETURN_FROM_DECLINE',
-      prev_status: 'IN_PROGRESS',
-      next_status: 'IN_PROGRESS',
-      user_name: userName,
-      comment: comment || 'Возврат на доработку после запроса на отказ',
+    return BffClient.returnFromDecline({
+      applicationId,
+      comment,
+      userName,
+      userRole,
+      idempotencyKey: createIdempotencyKey('workflow-return-from-decline', [applicationId]),
     });
-    if (histErr) throw histErr;
   },
 
   assignTechnician: async ({ applicationId, assigneeName, userName = 'system', userRole = 'branch_manager', reason = null }) => {
-    if (BffClient.isEnabled()) {
-      return BffClient.assignTechnician({
-        applicationId,
-        assigneeUserId: assigneeName,
-        reason,
-        userName,
-        userRole,
-        idempotencyKey: createIdempotencyKey('workflow-assign-technician', [applicationId, assigneeName]),
-      });
-    }
+    requireBffEnabled('workflow.assignTechnician');
 
-    trackLegacyPath('assignTechnician');
-
-    const { error } = await supabase
-      .from('applications')
-      .update({ assignee_name: assigneeName, updated_at: new Date().toISOString() })
-      .eq('id', applicationId);
-    if (error) throw error;
+    return BffClient.assignTechnician({
+      applicationId,
+      assigneeUserId: assigneeName,
+      reason,
+      userName,
+      userRole,
+      idempotencyKey: createIdempotencyKey('workflow-assign-technician', [applicationId, assigneeName]),
+    });
   },
 
   restoreApplication: async ({ applicationId, userName, userRole = 'admin', comment }) => {
-    if (BffClient.isEnabled()) {
-      return BffClient.restoreApplication({
-        applicationId,
-        comment,
-        userName,
-        userRole,
-        idempotencyKey: createIdempotencyKey('workflow-restore', [applicationId]),
-      });
-    }
+    requireBffEnabled('workflow.restoreApplication');
 
-    trackLegacyPath('restoreApplication');
-
-    const { error: appErr } = await supabase
-      .from('applications')
-      .update({
-        status: 'IN_PROGRESS',
-        workflow_substatus: 'DRAFT',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', applicationId);
-    if (appErr) throw appErr;
-
-    const { error: histErr } = await supabase.from('application_history').insert({
-      application_id: applicationId,
-      action: 'RESTORE',
-      prev_status: 'DECLINED',
-      next_status: 'IN_PROGRESS',
-      user_name: userName,
-      comment: comment || 'Восстановление заявления',
+    return BffClient.restoreApplication({
+      applicationId,
+      comment,
+      userName,
+      userRole,
+      idempotencyKey: createIdempotencyKey('workflow-restore', [applicationId]),
     });
-    if (histErr) throw histErr;
   },
 
   getVersions: async (entityType, entityId) => {
-    if (BffClient.isVersioningEnabled()) {
-      return BffClient.getVersions({ entityType, entityId });
-    }
-
-    trackLegacyPath('getVersions');
-
-    if (!VERSIONING_ENABLED) return [];
-
-    const { data, error } = await supabase
-      .from('object_versions')
-      .select('*')
-      .eq('entity_type', entityType)
-      .eq('entity_id', entityId)
-      .order('version_number', { ascending: false });
-    if (error) throw error;
-    return data || [];
+    requireBffEnabled('versions.getVersions');
+    return BffClient.getVersions({ entityType, entityId });
   },
 
   createVersion: async ({ entityType, entityId, snapshotData, createdBy, applicationId }) => {
-    if (BffClient.isVersioningEnabled()) {
-      const actor = resolveActor({ userName: createdBy });
-      return BffClient.createVersion({
-        entityType,
-        entityId,
-        snapshotData,
-        createdBy,
-        applicationId,
-        userName: actor.userName,
-        userRole: actor.userRole,
-      });
-    }
+    requireBffEnabled('versions.createVersion');
 
-    trackLegacyPath('createVersion');
-
-    if (!VERSIONING_ENABLED) return null;
-
-    const { data: latest, error: latestErr } = await supabase
-      .from('object_versions')
-      .select('version_number')
-      .eq('entity_type', entityType)
-      .eq('entity_id', entityId)
-      .order('version_number', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (latestErr) throw latestErr;
-
-    const { error: archiveInWorkError } = await supabase
-      .from('object_versions')
-      .update({ version_status: 'PREVIOUS', updated_at: new Date().toISOString() })
-      .eq('entity_type', entityType)
-      .eq('entity_id', entityId)
-      .eq('version_status', 'PENDING');
-    if (archiveInWorkError) throw archiveInWorkError;
-
-    const { data, error } = await supabase
-      .from('object_versions')
-      .insert({
-        entity_type: entityType,
-        entity_id: entityId,
-        version_number: (latest?.version_number || 0) + 1,
-        version_status: 'PENDING',
-        snapshot_data: snapshotData || {},
-        created_by: createdBy || null,
-        application_id: applicationId || null,
-      })
-      .select('*')
-      .single();
-    if (error) throw error;
-    return data;
+    const actor = resolveActor({ userName: createdBy });
+    return BffClient.createVersion({
+      entityType,
+      entityId,
+      snapshotData,
+      createdBy,
+      applicationId,
+      userName: actor.userName,
+      userRole: actor.userRole,
+    });
   },
 
   approveVersion: async ({ versionId, approvedBy }) => {
-    if (BffClient.isVersioningEnabled()) {
-      const actor = resolveActor({ userName: approvedBy });
-      return BffClient.approveVersion({
-        versionId,
-        approvedBy,
-        userName: actor.userName,
-        userRole: actor.userRole,
-      });
-    }
+    requireBffEnabled('versions.approveVersion');
 
-    trackLegacyPath('approveVersion');
-
-    if (!VERSIONING_ENABLED) return null;
-
-    const { data: current, error: currentErr } = await supabase
-      .from('object_versions')
-      .select('id, entity_type, entity_id')
-      .eq('id', versionId)
-      .single();
-    if (currentErr) throw currentErr;
-
-    const { error: archiveErr } = await supabase
-      .from('object_versions')
-      .update({ version_status: 'PREVIOUS', updated_at: new Date().toISOString() })
-      .eq('entity_type', current.entity_type)
-      .eq('entity_id', current.entity_id)
-      .eq('version_status', 'CURRENT')
-      .neq('id', versionId);
-    if (archiveErr) throw archiveErr;
-
-    const { data, error } = await supabase
-      .from('object_versions')
-      .update({
-        version_status: 'CURRENT',
-        approved_by: approvedBy || null,
-        declined_by: null,
-        decline_reason: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', versionId)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return data;
+    const actor = resolveActor({ userName: approvedBy });
+    return BffClient.approveVersion({
+      versionId,
+      approvedBy,
+      userName: actor.userName,
+      userRole: actor.userRole,
+    });
   },
 
   declineVersion: async ({ versionId, reason, declinedBy }) => {
-    if (BffClient.isVersioningEnabled()) {
-      const actor = resolveActor({ userName: declinedBy });
-      return BffClient.declineVersion({
-        versionId,
-        reason,
-        declinedBy,
-        userName: actor.userName,
-        userRole: actor.userRole,
-      });
-    }
+    requireBffEnabled('versions.declineVersion');
 
-    trackLegacyPath('declineVersion');
-
-    if (!VERSIONING_ENABLED) return null;
-
-    const { data, error } = await supabase
-      .from('object_versions')
-      .update({
-        version_status: 'REJECTED',
-        decline_reason: reason || null,
-        declined_by: declinedBy || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', versionId)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return data;
+    const actor = resolveActor({ userName: declinedBy });
+    return BffClient.declineVersion({
+      versionId,
+      reason,
+      declinedBy,
+      userName: actor.userName,
+      userRole: actor.userRole,
+    });
   },
 
   getVersionSnapshot: async versionId => {
-    if (BffClient.isVersioningEnabled()) {
-      return BffClient.getVersionSnapshot({ versionId });
-    }
-
-    trackLegacyPath('getVersionSnapshot');
-
-    if (!VERSIONING_ENABLED) return {};
-
-    const { data, error } = await supabase
-      .from('object_versions')
-      .select('snapshot_data')
-      .eq('id', versionId)
-      .single();
-    if (error) throw error;
-    return data?.snapshot_data || {};
+    requireBffEnabled('versions.getVersionSnapshot');
+    return BffClient.getVersionSnapshot({ versionId });
   },
 
   restoreVersion: async ({ versionId }) => {
-    if (BffClient.isVersioningEnabled()) {
-      const actor = resolveActor({});
-      return BffClient.restoreVersion({
-        versionId,
-        userName: actor.userName,
-        userRole: actor.userRole,
-      });
-    }
+    requireBffEnabled('versions.restoreVersion');
 
-    trackLegacyPath('restoreVersion');
-
-    if (!VERSIONING_ENABLED) return null;
-
-    const { data: current, error: currentErr } = await supabase
-      .from('object_versions')
-      .select('id, entity_type, entity_id')
-      .eq('id', versionId)
-      .single();
-    if (currentErr) throw currentErr;
-
-    const { error: archiveInWorkError } = await supabase
-      .from('object_versions')
-      .update({ version_status: 'PREVIOUS', updated_at: new Date().toISOString() })
-      .eq('entity_type', current.entity_type)
-      .eq('entity_id', current.entity_id)
-      .eq('version_status', 'PENDING')
-      .neq('id', versionId);
-    if (archiveInWorkError) throw archiveInWorkError;
-
-    const { data, error } = await supabase
-      .from('object_versions')
-      .update({ version_status: 'PENDING', updated_at: new Date().toISOString() })
-      .eq('id', versionId)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return data;
+    const actor = resolveActor({});
+    return BffClient.restoreVersion({
+      versionId,
+      userName: actor.userName,
+      userRole: actor.userRole,
+    });
   },
 
   getProjectFullRegistry: async projectId => {
-    if (BffClient.isFullRegistryEnabled()) {
-      return BffClient.getProjectFullRegistry({ projectId });
-    }
-
-    trackLegacyPath('getProjectFullRegistry');
-
-    // Тяжелый запрос для сводной.
-    // Можно оптимизировать RPC, но пока так:
-    const { data: buildings } = await supabase
-      .from('buildings')
-      .select('*')
-      .eq('project_id', projectId);
-    if (!buildings || !buildings.length) return { buildings: [], units: [] };
-
-    const bIds = buildings.map(b => b.id);
-    const { data: blocks } = await supabase
-      .from('building_blocks')
-      .select('*')
-      .in('building_id', bIds);
-    const blIds = blocks.map(b => b.id);
-
-    const { data: floors } = await supabase.from('floors').select('*').in('block_id', blIds);
-    const fIds = (floors || []).map(f => f.id);
-
-    const { data: entrances } = await supabase
-      .from('entrances')
-      .select('id, block_id, number')
-      .in('block_id', blIds);
-
-    const units = await fetchAllPaged((from, to) =>
-      supabase
-        .from('units')
-        .select('*, rooms (*)')
-        .in('floor_id', fIds)
-        .order('id', { ascending: true })
-        .range(from, to)
-    );
-
-    // Создаем маппинг для быстрого доступа к buildingCode через floor -> block -> building
-    const floorToBlockMap = {};
-    const blockToBuildingMap = {};
-    const buildingCodeMap = {};
-
-    (floors || []).forEach(f => {
-      floorToBlockMap[f.id] = f.block_id;
-    });
-
-    (blocks || []).forEach(b => {
-      blockToBuildingMap[b.id] = b.building_id;
-    });
-
-    (buildings || []).forEach(b => {
-      buildingCodeMap[b.id] = b.building_code;
-    });
-
-    return {
-      buildings: (buildings || []).map(b => ({
-        ...b,
-        label: b.label,
-        houseNumber: b.house_number,
-        buildingCode: b.building_code,
-      })),
-      blocks: (blocks || []).map(b => ({
-        ...b,
-        tabLabel: b.label,
-        buildingId: b.building_id,
-      })),
-      floors: (floors || []).map(f => ({
-        ...f,
-        blockId: f.block_id,
-        areaProj: f.area_proj,
-        areaFact: f.area_fact,
-      })),
-      entrances: (entrances || []).map(e => ({
-        id: e.id,
-        blockId: e.block_id,
-        number: e.number,
-      })),
-      units: (units || []).map(u => {
-        // Получаем buildingId и buildingCode через цепочку floor -> block -> building
-        const blockId = floorToBlockMap[u.floor_id];
-        const buildingId = blockToBuildingMap[blockId];
-        const buildingCode = buildingCodeMap[buildingId];
-
-        return {
-          id: u.id,
-          unitCode: u.unit_code,
-          number: u.number,
-          num: u.number,
-          type: u.unit_type,
-          hasMezzanine: !!u.has_mezzanine,
-          mezzanineType: u.mezzanine_type || null,
-          area: u.total_area,
-          livingArea: u.living_area,
-          usefulArea: u.useful_area,
-          rooms: u.rooms_count,
-          floorId: u.floor_id,
-          entranceId: u.entrance_id,
-          buildingId: buildingId,
-          buildingCode: buildingCode,
-          cadastreNumber: u.cadastre_number,
-          explication: (u.rooms || []).map(r => ({
-            id: r.id,
-            type: r.room_type,
-            label: r.name,
-            area: r.area,
-            height: r.room_height,
-            level: r.level,
-            isMezzanine: !!r.is_mezzanine,
-          })),
-        };
-      }),
-    };
+    requireBffEnabled('project.getProjectFullRegistry');
+    return BffClient.getProjectFullRegistry({ projectId });
   },
 
   // --- META SAVE (ГЛОБАЛЬНОЕ СОХРАНЕНИЕ ИЗ КОНТЕКСТА) ---
   // Это аналог старого saveData из registry-service, адаптированный под Context
   // Он умеет сохранять "всё подряд", разбирая payload
   saveData: async (scope, projectId, payload) => {
+    requireBffEnabled('project.saveData');
     if (!scope) return;
-    const { buildingSpecificData, ...generalData } = payload;
-    const promises = [];
-    const floorSyncTargets = [];
-    const entranceSyncTargets = [];
-    const matrixSyncTargets = [];
-    let versioningSyncInfo = null;
-    const useBffMetaSave = BffClient.isSaveMetaEnabled() && (generalData.complexInfo || generalData.applicationInfo);
-    const useBffBuildingDetailsSave = BffClient.isSaveBuildingDetailsEnabled() && generalData.buildingDetails;
 
-    if (useBffMetaSave) {
-      const resolvedActor = resolveActor({});
+    const { buildingSpecificData, ...generalData } = payload || {};
+    const resolvedActor = resolveActor({});
+    let applicationId = null;
+
+    if (generalData.complexInfo || generalData.applicationInfo) {
       const metaResponse = await BffClient.saveProjectContextMeta({
         scope,
         projectId,
@@ -3398,146 +962,10 @@ const LegacyApiService = {
         userRole: resolvedActor.userRole,
       });
 
-      if (metaResponse?.applicationId && generalData.applicationInfo) {
-        versioningSyncInfo = {
-          applicationId: metaResponse.applicationId,
-          appStatus: generalData.applicationInfo.status,
-          userName: generalData.applicationInfo.history?.[0]?.user || resolvedActor.userName,
-        };
-      }
+      applicationId = metaResponse?.applicationId || null;
     }
 
-    // 1. Обновление Project/App Info
-    if (!useBffMetaSave && generalData.complexInfo) {
-      const ci = generalData.complexInfo;
-      promises.push(
-        supabase
-          .from('projects')
-          .update({
-            name: ci.name,
-            construction_status: normalizeProjectStatusToDb(ci.status),
-            region: ci.region,
-            district: ci.district,
-            address: ci.street,
-            date_start_project: normalizeDateInput(ci.dateStartProject),
-            date_end_project: normalizeDateInput(ci.dateEndProject),
-            date_start_fact: normalizeDateInput(ci.dateStartFact),
-            date_end_fact: normalizeDateInput(ci.dateEndFact),
-            updated_at: new Date(),
-          })
-          .eq('id', projectId)
-      );
-    }
-
-    if (!useBffMetaSave && generalData.applicationInfo) {
-      const ai = generalData.applicationInfo;
-
-      // Находим заявку; если ее нет (частый кейс при миграции), создаем техническую запись,
-      // чтобы Workflow (статус/шаги/история) продолжал корректно работать.
-      const { data: appFound } = await supabase
-        .from('applications')
-        .select('id')
-        .eq('project_id', projectId)
-        .maybeSingle();
-
-      let applicationId = appFound?.id || null;
-
-      if (!applicationId) {
-        const { data: createdApp, error: createAppError } = await supabase
-          .from('applications')
-          .insert({
-            project_id: projectId,
-            scope_id: scope,
-            internal_number: `AUTO-${Date.now().toString().slice(-6)}`,
-            external_source: 'MIGRATION_FIX',
-            external_id: null,
-            applicant: null,
-            submission_date: new Date(),
-            assignee_name: null,
-            status: ai.status || 'IN_PROGRESS',
-            workflow_substatus: ai.workflowSubstatus || 'DRAFT',
-            current_step: ai.currentStepIndex ?? 0,
-            current_stage: ai.currentStage ?? 1,
-          })
-          .select('id')
-          .single();
-
-        if (createAppError) throw createAppError;
-        applicationId = createdApp?.id;
-      }
-
-      if (applicationId) {
-        const appUpdate = {
-          status: ai.status,
-          current_step: ai.currentStepIndex,
-          current_stage: ai.currentStage,
-          updated_at: new Date(),
-        };
-        if (ai.workflowSubstatus !== undefined) {
-          appUpdate.workflow_substatus = ai.workflowSubstatus;
-        }
-        if (ai.requestedDeclineReason !== undefined) {
-          appUpdate.requested_decline_reason = ai.requestedDeclineReason;
-        }
-        if (ai.requestedDeclineStep !== undefined) {
-          appUpdate.requested_decline_step = ai.requestedDeclineStep;
-        }
-        if (ai.requestedDeclineBy !== undefined) {
-          appUpdate.requested_decline_by = ai.requestedDeclineBy;
-        }
-        if (ai.requestedDeclineAt !== undefined) {
-          appUpdate.requested_decline_at = ai.requestedDeclineAt;
-        }
-        promises.push(
-          supabase
-            .from('applications')
-            .update(appUpdate)
-            .eq('id', applicationId)
-        );
-
-        // History & Steps
-        if (ai.history && ai.history.length > 0) {
-          const last = ai.history[0];
-          const isFresh = new Date().getTime() - new Date(last.date).getTime() < 5000;
-          if (isFresh) {
-            promises.push(
-              supabase.from('application_history').insert({
-                application_id: applicationId,
-                action: last.action,
-                prev_status: last.prevStatus,
-                next_status: last.nextStatus || ai.status,
-                user_name: last.user,
-                comment: last.comment,
-                created_at: last.date,
-              })
-            );
-          }
-        }
-
-        versioningSyncInfo = {
-          applicationId,
-          appStatus: ai.status,
-          userName: ai.history?.[0]?.user || null,
-        };
-
-        if (ai.completedSteps) {
-          const stepsPayload = ai.completedSteps.map(idx => ({
-            application_id: applicationId,
-            step_index: idx,
-            is_completed: true,
-          }));
-          if (stepsPayload.length)
-            promises.push(
-              supabase
-                .from('application_steps')
-                .upsert(stepsPayload, { onConflict: UPSERT_ON_CONFLICT.application_steps })
-            );
-        }
-      }
-    }
-
-    if (useBffBuildingDetailsSave) {
-      const resolvedActor = resolveActor({});
+    if (generalData.buildingDetails) {
       await BffClient.saveProjectBuildingDetails({
         projectId,
         buildingDetails: generalData.buildingDetails,
@@ -3546,365 +974,20 @@ const LegacyApiService = {
       });
     }
 
-    // 2. Building Details (Configs)
-    // В новой схеме конфиги блоков живут в building_blocks и смежных таблицах.
-    // Payload из контекста приходит в виде "buildingDetails": { "bId_blId": {...} }
-    if (!useBffBuildingDetailsSave && generalData.buildingDetails) {
-      for (const [key, details] of Object.entries(generalData.buildingDetails)) {
-        if (key.includes('_features')) {
-          // Обработка подвалов (basements)
-          const buildingId = key.replace('_features', '');
-          const basements = details.basements || [];
-          for (const base of basements) {
-            if (base.id && base.depth) {
-              promises.push(
-                supabase.from('basements').upsert(
-                  {
-                    id: base.id,
-                    building_id: buildingId,
-                    block_id: base.blockId || (base.blocks ? base.blocks[0] : null), // Привязка к блоку
-                    depth: parseInt(base.depth),
-                    has_parking: !!base.hasParking,
-                  },
-                  { onConflict: UPSERT_ON_CONFLICT.basements }
-                )
-              );
-              // Уровни паркинга
-              if (base.parkingLevels) {
-                const levels = Object.entries(base.parkingLevels).map(([lvl, enabled]) => ({
-                  basement_id: base.id,
-                  depth_level: parseInt(lvl),
-                  is_enabled: enabled,
-                }));
-                if (levels.length)
-                  promises.push(
-                    supabase
-                      .from('basement_parking_levels')
-                      .upsert(levels, { onConflict: UPSERT_ON_CONFLICT.basement_parking_levels })
-                  );
-              }
-            }
-          }
-          continue;
-        }
-
-        // key = "buildingId_blockId"
-        const parts = key.split('_');
-        const blockId = parts[parts.length - 1]; // UUID is last
-        // Проверка на валидный UUID
-        if (blockId && blockId.length === 36) {
-          const buildingId = parts[0];
-          const blockUpdate = {
-            floors_count: details.floorsCount,
-            entrances_count: details.entrances || details.inputs,
-            elevators_count: details.elevators,
-            vehicle_entries: details.vehicleEntries,
-            levels_depth: details.levelsDepth,
-            light_structure_type: details.lightStructureType,
-            parent_blocks: details.parentBlocks || [],
-            floors_from: details.floorsFrom,
-            floors_to: details.floorsTo,
-            has_basement: details.hasBasementFloor,
-            has_attic: details.hasAttic,
-            has_loft: details.hasLoft,
-            has_roof_expl: details.hasExploitableRoof,
-            has_custom_address: details.hasCustomAddress,
-            custom_house_number: details.customHouseNumber,
-          };
-          promises.push(supabase.from('building_blocks').update(blockUpdate).eq('id', blockId));
-          floorSyncTargets.push({ buildingId, blockId });
-          matrixSyncTargets.push(blockId);
-
-          const desiredEntrancesRaw = details.entrances ?? details.inputs;
-          const desiredEntrances = parseInt(desiredEntrancesRaw, 10);
-          if (Number.isFinite(desiredEntrances) && desiredEntrances > 0) {
-            entranceSyncTargets.push({ blockId, count: desiredEntrances });
-          }
-
-          const markerTechSet = new Set(
-            (details.technicalFloors || [])
-              .map(v => Number(v))
-              .filter(v => Number.isFinite(v))
-              .map(v => String(v))
-          );
-          const markerCommSet = new Set((details.commercialFloors || []).map(v => String(v)));
-
-          const markerPayload = Array.from(new Set([...markerTechSet, ...markerCommSet])).map(
-            markerKey => ({
-              block_id: blockId,
-              marker_key: markerKey,
-              marker_type: markerKey.startsWith('basement_')
-                ? 'basement'
-                : markerKey.includes('-Т')
-                  ? 'technical'
-                  : SPECIAL_FLOOR_IDS.includes(markerKey)
-                    ? 'special'
-                    : 'floor',
-              floor_index: markerKey.includes('-Т')
-                ? parseInt(markerKey.replace('-Т', ''), 10)
-                : /^-?\d+$/.test(markerKey)
-                  ? parseInt(markerKey, 10)
-                  : null,
-              parent_floor_index: markerKey.includes('-Т')
-                ? parseInt(markerKey.replace('-Т', ''), 10)
-                : null,
-              is_technical: markerTechSet.has(markerKey),
-              is_commercial: markerCommSet.has(markerKey),
-              updated_at: new Date(),
-            })
-          );
-
-          promises.push(supabase.from('block_floor_markers').delete().eq('block_id', blockId));
-          if (markerPayload.length) {
-            promises.push(
-              supabase
-                .from('block_floor_markers')
-                .upsert(markerPayload, { onConflict: UPSERT_ON_CONFLICT.block_floor_markers })
-            );
-          }
-
-          if (details.foundation || details.walls) {
-            promises.push(
-              supabase.from('block_construction').upsert(
-                {
-                  block_id: blockId,
-                  foundation: details.foundation,
-                  walls: details.walls,
-                  slabs: details.slabs,
-                  roof: details.roof,
-                  seismicity: details.seismicity,
-                },
-                { onConflict: UPSERT_ON_CONFLICT.block_engineering }
-              )
-            );
-          }
-          if (details.engineering) {
-            promises.push(
-              supabase.from('block_engineering').upsert(
-                {
-                  block_id: blockId,
-                  has_electricity: details.engineering.electricity,
-                  has_water: details.engineering.hvs,
-                  has_hot_water: details.engineering.gvs,       // ГВС
-                  has_ventilation: details.engineering.ventilation, // Вентиляция
-                  has_firefighting: details.engineering.firefighting, // Пожаротушение
-                  has_lowcurrent: details.engineering.lowcurrent,     // Слаботочка
-                  has_sewerage: details.engineering.sewerage,
-                  has_gas: details.engineering.gas,
-                  has_heating: details.engineering.heating,
-                  // ... map others
-                },
-                { onConflict: UPSERT_ON_CONFLICT.block_engineering }
-              )
-            );
-          }
-        }
-      }
-    }
-
-    // 3. Building Specific Data (Matrices saved via separate keys)
-    // В новой архитектуре мы стараемся сохранять матрицы сразу (debounce),
-    // но если Context накопил изменения, они придут сюда.
-    if (buildingSpecificData) {
-      const matrixPromises = [];
-
-      const parseFloorKey = key => {
-        // Формат: {buildingId}_{blockId}_{virtualFloorId}
-        const parts = String(key || '').split('_');
-        if (parts.length < 3) return null;
-        return {
-          buildingId: parts[0],
-          blockId: parts[1],
-          virtualId: parts.slice(2).join('_'),
-        };
-      };
-
-      const parseEntranceKey = key => {
-        // Формат: {buildingId}_{blockId}_ent{n}_{virtualFloorId}
-        const match = String(key || '').match(/^([^_]+)_([^_]+)_ent(\d+)_(.+)$/);
-        if (!match) return null;
-        return {
-          buildingId: match[1],
-          blockId: match[2],
-          entranceNumber: parseInt(match[3], 10),
-          virtualId: match[4],
-        };
-      };
-
-      for (const [buildingId, buildingPayload] of Object.entries(buildingSpecificData)) {
-        const floorData = buildingPayload?.floorData || {};
-        const entrancesData = buildingPayload?.entrancesData || {};
-
-        const floorEntries = Object.entries(floorData).filter(([key]) =>
-          key.startsWith(`${buildingId}_`)
-        );
-        const entranceEntries = Object.entries(entrancesData).filter(([key]) =>
-          key.startsWith(`${buildingId}_`)
-        );
-
-        if (floorEntries.length === 0 && entranceEntries.length === 0) continue;
-
-        const relatedBlockIds = new Set();
-        floorEntries.forEach(([key]) => {
-          const parsed = parseFloorKey(key);
-          if (parsed?.blockId) relatedBlockIds.add(parsed.blockId);
-        });
-        entranceEntries.forEach(([key]) => {
-          const parsed = parseEntranceKey(key);
-          if (parsed?.blockId) relatedBlockIds.add(parsed.blockId);
-        });
-
-        if (relatedBlockIds.size === 0) continue;
-
-        const { data: floorsRows, error: floorsErr } = await supabase
-          .from('floors')
-          .select('id, block_id, floor_key, index')
-          .in('block_id', Array.from(relatedBlockIds));
-        if (floorsErr) throw floorsErr;
-
-        const floorIdByVirtual = new Map();
-        (floorsRows || []).forEach(row => {
-          const virtualId = floorKeyToVirtualId(row.floor_key || `floor:${row.index}`) || row.id;
-          floorIdByVirtual.set(`${row.block_id}|${virtualId}`, row.id);
-        });
-
-        floorEntries.forEach(([key, floor]) => {
-          const parsed = parseFloorKey(key);
-          if (!parsed) return;
-          const floorId = floorIdByVirtual.get(`${parsed.blockId}|${parsed.virtualId}`);
-          if (!floorId) return;
-
-          const updatePayload = {};
-          if (floor?.height !== undefined) updatePayload.height = floor.height;
-          if (floor?.areaProj !== undefined) updatePayload.area_proj = floor.areaProj;
-          if (floor?.areaFact !== undefined) updatePayload.area_fact = floor.areaFact;
-          if (floor?.isDuplex !== undefined) updatePayload.is_duplex = !!floor.isDuplex;
-          if (floor?.label !== undefined) updatePayload.label = floor.label;
-          if (floor?.type !== undefined) updatePayload.floor_type = floor.type;
-          if (floor?.flags?.isTechnical !== undefined)
-            updatePayload.is_technical = !!floor.flags.isTechnical;
-          if (floor?.flags?.isCommercial !== undefined)
-            updatePayload.is_commercial = !!floor.flags.isCommercial;
-          if (floor?.flags?.isStylobate !== undefined)
-            updatePayload.is_stylobate = !!floor.flags.isStylobate;
-          if (floor?.flags?.isBasement !== undefined)
-            updatePayload.is_basement = !!floor.flags.isBasement;
-          if (floor?.flags?.isAttic !== undefined) updatePayload.is_attic = !!floor.flags.isAttic;
-          if (floor?.flags?.isLoft !== undefined) updatePayload.is_loft = !!floor.flags.isLoft;
-          if (floor?.flags?.isRoof !== undefined) updatePayload.is_roof = !!floor.flags.isRoof;
-
-          if (Object.keys(updatePayload).length > 0) {
-            matrixPromises.push(supabase.from('floors').update(updatePayload).eq('id', floorId));
-          }
-        });
-
-        entranceEntries.forEach(([key, entry]) => {
-          const parsed = parseEntranceKey(key);
-          if (!parsed || !Number.isFinite(parsed.entranceNumber)) return;
-
-          const floorId = floorIdByVirtual.get(`${parsed.blockId}|${parsed.virtualId}`);
-          if (!floorId) return;
-
-          matrixPromises.push(
-            supabase.from('entrance_matrix').upsert(
-              {
-                block_id: parsed.blockId,
-                floor_id: floorId,
-                entrance_number: parsed.entranceNumber,
-                flats_count: parseInt(entry?.apts || 0, 10) || 0,
-                commercial_count: parseInt(entry?.units || 0, 10) || 0,
-                mop_count: parseInt(entry?.mopQty || 0, 10) || 0,
-                updated_at: new Date(),
-              },
-              { onConflict: UPSERT_ON_CONFLICT.entrance_matrix }
-            )
-          );
-        });
-      }
-
-      if (matrixPromises.length > 0) {
-        const matrixResults = await Promise.all(matrixPromises);
-        const matrixError = matrixResults.find(r => r?.error)?.error;
-        if (matrixError) throw matrixError;
-      }
-    }
-
-    await Promise.all(promises);
-
-    if (entranceSyncTargets.length > 0) {
-      const uniqueEntranceTargets = Array.from(
-        new Map(entranceSyncTargets.map(item => [item.blockId, item])).values()
-      );
-      for (const target of uniqueEntranceTargets) {
-        await ApiService.syncEntrances(target.blockId, target.count);
-      }
-    }
-
-    if (floorSyncTargets.length > 0 && generalData.buildingDetails) {
-      const uniqueBuildingIds = Array.from(new Set(floorSyncTargets.map(t => t.buildingId)));
-
-      const { data: buildingsRows, error: buildingsErr } = await supabase
-        .from('buildings')
-        .select('id, category, house_number, parking_type, construction_type')
-        .in('id', uniqueBuildingIds);
-      if (buildingsErr) throw buildingsErr;
-
-      const { data: blocksRows, error: blocksErr } = await supabase
-        .from('building_blocks')
-        .select('id, building_id, label, type')
-        .in('building_id', uniqueBuildingIds);
-      if (blocksErr) throw blocksErr;
-
-      const blocksByBuilding = (blocksRows || []).reduce((acc, row) => {
-        if (!acc[row.building_id]) acc[row.building_id] = [];
-        acc[row.building_id].push({
-          id: row.id,
-          label: row.label,
-          type: mapDbTypeToUi(row.type),
-        });
-        return acc;
-      }, {});
-
-      const buildingMap = (buildingsRows || []).reduce((acc, row) => {
-        acc[row.id] = {
-          id: row.id,
-          category: row.category,
-          houseNumber: row.house_number,
-          parkingType: normalizeParkingTypeFromDb(row.parking_type),
-          constructionType: normalizeParkingConstructionFromDb(row.construction_type),
-          blocks: blocksByBuilding[row.id] || [],
-        };
-        return acc;
-      }, {});
-
-      for (const target of floorSyncTargets) {
-        const building = buildingMap[target.buildingId];
-        if (!building) continue;
-        const blocksList = getBlocksList(building, generalData.buildingDetails || {});
-        const currentBlock = blocksList.find(b => b.id === target.blockId);
-        if (!currentBlock) continue;
-        await syncFloorsForBlockFromDetails(
-          building,
-          currentBlock,
-          generalData.buildingDetails || {}
-        );
-      }
-    }
-
-    if (matrixSyncTargets.length > 0) {
-      const uniqueMatrixTargets = Array.from(new Set(matrixSyncTargets.filter(Boolean)));
-      for (const blockId of uniqueMatrixTargets) {
-        await ensureEntranceMatrixForBlock(blockId);
-      }
-    }
-
-    if (versioningSyncInfo?.applicationId && versioningSyncInfo?.appStatus) {
-      await syncVersionStatusesByApplicationStatus({
+    if (generalData.stepBlockStatuses && generalData.stepIndex !== undefined) {
+      await BffClient.saveStepBlockStatuses({
+        scope,
         projectId,
-        applicationId: versioningSyncInfo.applicationId,
-        appStatus: versioningSyncInfo.appStatus,
+        stepIndex: generalData.stepIndex,
+        statuses: generalData.stepBlockStatuses,
+        userName: resolvedActor.userName,
+        userRole: resolvedActor.userRole,
       });
     }
+
+    void buildingSpecificData;
+
+    return { ok: true, applicationId };
   },
 };
 

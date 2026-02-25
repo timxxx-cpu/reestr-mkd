@@ -1,30 +1,43 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const source = readFileSync('src/lib/api-service.js', 'utf8');
 
-const criticalChecks = [
-  { name: 'acquireApplicationLock', mustContain: "if (BffClient.isEnabled())" },
-  { name: 'completeWorkflowStepViaBff', mustContain: "if (!BffClient.isEnabled()) return null;" },
-  { name: 'createProjectFromApplication', mustContain: "if (BffClient.isProjectInitEnabled())" },
-  { name: 'updateProjectPassport', mustContain: "if (BffClient.isProjectPassportEnabled())" },
-  { name: 'getBasements', mustContain: "if (BffClient.isBasementsEnabled())" },
-  { name: 'createVersion', mustContain: "if (BffClient.isVersioningEnabled())" },
-  { name: 'getProjectFullRegistry', mustContain: "if (BffClient.isFullRegistryEnabled())" },
-  { name: 'getBuildingsRegistrySummary', mustContain: "if (BffClient.isRegistrySummaryEnabled())" },
+const checks = [
+  {
+    name: 'globalBffGuardHelperPresent',
+    ok: /const\s+requireBffEnabled\s*=\s*operation\s*=>/.test(source),
+  },
+  {
+    name: 'bffGuardUsedInApiServiceMethods',
+    ok: source.includes("requireBffEnabled('"),
+  },
+  {
+    name: 'legacyConditionalGateRemoved',
+    ok: !source.includes('if (BffClient.isEnabled())'),
+  },
+  {
+    name: 'legacyTrackCallsRemoved',
+    ok: !source.includes('trackLegacyPath('),
+  },
 ];
 
-const results = criticalChecks.map(item => ({
-  ...item,
-  ok: source.includes(item.mustContain),
-}));
+const allOk = checks.every(item => item.ok);
 
-const allOk = results.every(item => item.ok);
+const report = `# Critical legacy-path static check
 
-const report = `# Critical legacy-path static check\n\n- result: ${allOk ? 'PASS' : 'FAIL'}\n- assumption: backend-first default and emergency-only legacy rollback (` +
-  '`VITE_LEGACY_ROLLBACK_ENABLED=true` only)\n\n## Checks\n\n' +
-  results.map(r => `- ${r.ok ? '✅' : '❌'} ${r.name}`).join('\n') +
-  '\n\n## Note\n\nThis is a static safety check. Runtime confirmation for real users is tracked via DEV summary: `window.__reestrOperationSource.getSummary()`.\n';
+- result: ${allOk ? 'PASS' : 'FAIL'}
+- assumption: backend-first default and emergency-only legacy rollback (\`VITE_LEGACY_ROLLBACK_ENABLED=true\` only)
 
-writeFileSync('docs/project/legacy-critical-path-report.md', report, 'utf8');
+## Checks
+
+${checks.map(r => `- ${r.ok ? '✅' : '❌'} ${r.name}`).join('\n')}
+
+## Note
+
+This is a static safety check for post-cleanup state.
+`;
+
+mkdirSync('tmp/reports', { recursive: true });
+writeFileSync('tmp/reports/legacy-critical-path-report.md', report, 'utf8');
 
 if (!allOk) process.exitCode = 1;

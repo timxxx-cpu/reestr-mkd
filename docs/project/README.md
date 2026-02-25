@@ -91,11 +91,11 @@
     - Наблюдения по workflow и ограничениям
     - Ключевые риски и точки контроля качества
 
-13. [Единый план миграции на BFF (backend-first)](./19-backend-transition-execution-plan.md) ✨ **АКТУАЛЬНО**
-    - Текущее состояние миграции
-    - Оставшиеся задачи и риски
-    - Единый roadmap и DoD по фазам
-    - Критерии финального cutover и отключения legacy-path
+13. [Статус миграции на backend-first (BFF)](./13-backend-migration-status.md) ✨ **АКТУАЛЬНО**
+    - Единая сводка текущего состояния миграции
+    - Security/observability и release-gate критерии
+    - Остаточный rollback-контур
+    - Критерии завершения backend-first cutover
 
 ## Ключевые особенности документации
 
