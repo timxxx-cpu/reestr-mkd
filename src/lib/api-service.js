@@ -101,6 +101,11 @@ const LegacyApiService = {
     return pageData.items;
   },
 
+/**
+   * @param {Object} [params]
+   * @param {string} [params.scope]
+   * @param {string} [params.assignee]
+   */
   getProjectsSummaryCounts: async ({ scope, assignee } = {}) => {
     if (!scope) {
       return {
@@ -1001,4 +1006,5 @@ export const ApiService = {
   saveData: LegacyApiService.saveData,
   saveStepBlockStatuses: LegacyApiService.saveStepBlockStatuses,
   getUnitExplicationById: LegacyApiService.getUnitExplicationById,
+  validateStepCompletionViaBff: LegacyApiService.validateStepCompletionViaBff,
 };
