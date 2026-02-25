@@ -233,3 +233,159 @@ test('version restore endpoint allows branch_manager through policy gate', async
     await app.close();
   }
 });
+
+
+test('catalog upsert endpoint enforces catalogs mutate policy', async () => {
+  process.env.AUTH_MODE = 'dev';
+  process.env.JWT_SECRET = '';
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/catalogs/dict_room_types/upsert',
+      headers: {
+        'x-user-id': 'tech-user',
+        'x-user-role': 'technician',
+      },
+      payload: { item: { id: '1', label: 'Test' } },
+    });
+
+    assert.equal(response.statusCode, 403);
+    assert.equal(response.json().code, 'FORBIDDEN');
+  } finally {
+    await app.close();
+  }
+});
+
+test('catalog upsert endpoint allows branch_manager through policy gate', async () => {
+  process.env.AUTH_MODE = 'dev';
+  process.env.JWT_SECRET = '';
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/catalogs/dict_room_types/upsert',
+      headers: {
+        'x-user-id': 'manager-user',
+        'x-user-role': 'branch_manager',
+      },
+      payload: { item: { id: '1', label: 'Test' } },
+    });
+
+    assert.notEqual(response.statusCode, 403);
+  } finally {
+    await app.close();
+  }
+});
+
+
+test('catalog active endpoint validates boolean payload with unified error contract', async () => {
+  process.env.AUTH_MODE = 'dev';
+  process.env.JWT_SECRET = '';
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/catalogs/dict_room_types/1/active',
+      headers: {
+        'x-user-id': 'manager-user',
+        'x-user-role': 'branch_manager',
+      },
+      payload: { isActive: 'true' },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.json().code, 'VALIDATION_ERROR');
+    assert.ok(response.json().requestId);
+  } finally {
+    await app.close();
+  }
+});
+
+test('catalog read invalid table follows unified error contract', async () => {
+  process.env.AUTH_MODE = 'dev';
+  process.env.JWT_SECRET = '';
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/catalogs/not_allowed_table',
+      headers: {
+        'x-user-id': 'manager-user',
+        'x-user-role': 'branch_manager',
+      },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.json().code, 'INVALID_TABLE');
+    assert.ok(response.json().requestId);
+  } finally {
+    await app.close();
+  }
+});
+
+
+test('projects list endpoint validates missing scope with unified error', async () => {
+  process.env.AUTH_MODE = 'dev';
+  process.env.JWT_SECRET = '';
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects',
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.json().code, 'MISSING_SCOPE');
+  } finally {
+    await app.close();
+  }
+});
+
+test('projects list assignee=mine requires auth context', async () => {
+  process.env.AUTH_MODE = 'dev';
+  process.env.JWT_SECRET = '';
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects?scope=shared_dev_env&assignee=mine',
+    });
+
+    assert.equal(response.statusCode, 401);
+    assert.equal(response.json().code, 'UNAUTHORIZED');
+  } finally {
+    await app.close();
+  }
+});
+
+test('projects summary counts assignee=mine requires auth context', async () => {
+  process.env.AUTH_MODE = 'dev';
+  process.env.JWT_SECRET = '';
+  const buildServer = await importServer();
+  const { app } = await buildServer();
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/summary-counts?scope=shared_dev_env&assignee=mine',
+    });
+
+    assert.equal(response.statusCode, 401);
+    assert.equal(response.json().code, 'UNAUTHORIZED');
+  } finally {
+    await app.close();
+  }
+});

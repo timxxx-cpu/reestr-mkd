@@ -21,6 +21,9 @@ export const POLICY_MATRIX = Object.freeze({
   integration: {
     mutate: ['admin', 'branch_manager', 'technician'],
   },
+  catalogs: {
+    mutate: ['admin', 'branch_manager'],
+  },
   projectExtended: {
     mutate: ['admin', 'branch_manager', 'technician'],
     deleteProject: ['admin', 'branch_manager'],

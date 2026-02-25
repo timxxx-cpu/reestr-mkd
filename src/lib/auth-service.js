@@ -3,6 +3,18 @@ const getBffBaseUrl = () => import.meta.env.VITE_BFF_BASE_URL || 'http://localho
 // Простой массив подписчиков для замены функционала Firebase onAuthStateChanged
 let subscribers = [];
 
+
+const readCachedUser = () => {
+  const userStr = localStorage.getItem('current_user');
+  if (!userStr) return null;
+
+  try {
+    return JSON.parse(userStr);
+  } catch {
+    return null;
+  }
+};
+
 export const AuthService = {
   // Реальный логин через бэкенд
   async login(username) {
@@ -37,16 +49,15 @@ export const AuthService = {
     return localStorage.getItem('jwt_token');
   },
 
+  getCurrentUser() {
+    return readCachedUser();
+  },
+
   // Метод, который использует App.jsx (useEffect) для прослушивания статуса
   subscribe(cb) {
     subscribers.push(cb);
     // При подписке сразу отдаем текущего юзера, если он есть в кэше
-    const userStr = localStorage.getItem('current_user');
-    if (userStr) {
-      cb(JSON.parse(userStr));
-    } else {
-      cb(null);
-    }
+    cb(readCachedUser());
     return () => {
       subscribers = subscribers.filter(fn => fn !== cb);
     };

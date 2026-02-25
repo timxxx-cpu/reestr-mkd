@@ -20,6 +20,24 @@ const LAST_STEP_INDEX_BY_STAGE = {
 };
 const TOTAL_STEPS = 17;
 
+const ALLOWED_CATALOG_TABLES = [
+  'dict_project_statuses',
+  'dict_application_statuses',
+  'dict_external_systems',
+  'dict_foundations',
+  'dict_wall_materials',
+  'dict_slab_types',
+  'dict_roof_types',
+  'dict_light_structure_types',
+  'dict_parking_types',
+  'dict_parking_construction_types',
+  'dict_infra_types',
+  'dict_mop_types',
+  'dict_unit_types',
+  'dict_room_types',
+  'dict_system_users',
+];
+
 function buildCompletionTransition(current) {
   const currentStep = Number(current.current_step || 0);
   const currentStage = Number(current.current_stage || 1);
@@ -197,6 +215,63 @@ async function updateApplicationState(supabase, applicationId, transition) {
   return { ok: true, updatedApp: data };
 }
 
+
+
+function parseCsvParam(value) {
+  if (!value) return [];
+  return String(value)
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+function normalizeProjectStatusFromDb(status) {
+  if (status === 'project') return 'Проектный';
+  if (status === 'construction') return 'Строящийся';
+  if (status === 'completed') return 'Сдан в эксплуатацию';
+  return status || 'Проектный';
+}
+
+function buildProjectAvailableActions(actorRole, projectDto, actorUserId) {
+  const app = projectDto?.applicationInfo || {};
+  const status = app.status;
+  const substatus = app.workflowSubstatus;
+  const isCompleted = status === 'COMPLETED';
+  const isDeclined = status === 'DECLINED';
+  const isPendingDecline = substatus === 'PENDING_DECLINE';
+
+  const actions = ['view'];
+
+  const isAdmin = actorRole === 'admin';
+  const isBranchManager = actorRole === 'branch_manager';
+  const isTechnician = actorRole === 'technician';
+  const isController = actorRole === 'controller';
+  const isAssigned = !app.assigneeName || app.assigneeName === actorUserId;
+
+  if (!isCompleted && !isDeclined && (isAdmin || isBranchManager)) {
+    actions.push('reassign');
+  }
+
+  if (isAdmin) actions.push('delete');
+
+  if ((isAdmin || isBranchManager || isController) && !isCompleted) {
+    actions.push('decline');
+  }
+
+  if (isPendingDecline && (isAdmin || isBranchManager)) {
+    actions.push('return_from_decline');
+  }
+
+  const canTechnicianEdit = isTechnician && isAssigned && ['DRAFT', 'REVISION', 'RETURNED_BY_MANAGER', 'INTEGRATION'].includes(substatus);
+  const canControllerEdit = isController && substatus === 'REVIEW';
+
+  if (!isCompleted && !isDeclined && (canTechnicianEdit || canControllerEdit)) {
+    actions.push('edit');
+  }
+
+  return Array.from(new Set(actions));
+}
+
 export async function buildServer() {
   const config = getConfig();
   const supabase = createSupabaseAdminClient(config);
@@ -254,16 +329,8 @@ export async function buildServer() {
     const { table } = req.params;
     const { activeOnly } = req.query;
 
-    // Белый список таблиц для безопасности (защита от SQL-инъекций)
-    const ALLOWED_TABLES = [
-      'dict_project_statuses', 'dict_application_statuses', 'dict_external_systems',
-      'dict_foundations', 'dict_wall_materials', 'dict_slab_types', 'dict_roof_types',
-      'dict_light_structure_types', 'dict_parking_types', 'dict_parking_construction_types',
-      'dict_infra_types', 'dict_mop_types', 'dict_unit_types', 'dict_room_types','dict_system_users'
-    ];
-
-    if (!ALLOWED_TABLES.includes(table)) {
-      return reply.code(400).send({ code: 'INVALID_TABLE', message: 'Таблица не разрешена' });
+    if (!ALLOWED_CATALOG_TABLES.includes(table)) {
+      return sendError(reply, 400, 'INVALID_TABLE', 'Таблица не разрешена');
     }
 
    let query = supabase
@@ -283,9 +350,70 @@ export async function buildServer() {
     }
 
     const { data, error } = await query;
-    if (error) return reply.code(500).send({ code: 'DB_ERROR', message: error.message });
+    if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
 
     return data || [];
+  });
+
+
+  app.post('/api/v1/catalogs/:table/upsert', async (req, reply) => {
+    if (!requirePolicyActor(req, reply, {
+      module: 'catalogs',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot mutate catalogs',
+    })) return;
+
+    const { table } = req.params;
+    if (!ALLOWED_CATALOG_TABLES.includes(table)) {
+      return sendError(reply, 400, 'INVALID_TABLE', 'Таблица не разрешена');
+    }
+
+    const item = req.body?.item || {};
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'Body must include an item object');
+    }
+
+    const itemId = item.id == null ? null : String(item.id).trim();
+    if (!itemId) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'item.id is required');
+    }
+
+    const payload = {
+      ...item,
+      id: itemId,
+      code: item.code,
+      label: item.label,
+      sort_order: Number(item.sort_order || item.sortOrder || 100),
+      is_active: item.is_active ?? item.isActive ?? true,
+    };
+
+    const { error } = await supabase.from(table).upsert(payload);
+    if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+
+    return { ok: true };
+  });
+
+  app.put('/api/v1/catalogs/:table/:id/active', async (req, reply) => {
+    if (!requirePolicyActor(req, reply, {
+      module: 'catalogs',
+      action: 'mutate',
+      forbiddenMessage: 'Role cannot mutate catalogs',
+    })) return;
+
+    const { table, id } = req.params;
+    if (!ALLOWED_CATALOG_TABLES.includes(table)) {
+      return sendError(reply, 400, 'INVALID_TABLE', 'Таблица не разрешена');
+    }
+
+    if (typeof req.body?.isActive !== 'boolean') {
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'isActive must be a boolean');
+    }
+
+    const isActive = req.body.isActive;
+    const { error } = await supabase.from(table).update({ is_active: isActive }).eq('id', id);
+    if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+
+    return { ok: true };
   });
  // 3. Получение ID заявки по ID проекта (Вспомогательный роут)
   app.get('/api/v1/projects/:projectId/application-id', async (req, reply) => {
@@ -308,46 +436,77 @@ export async function buildServer() {
 
     return { applicationId: data.id };
   });
-  // 2. Чтение списка проектов для Дашборда
+  // 2. Чтение списка проектов для Дашборда (с серверной фильтрацией + пагинацией)
   app.get('/api/v1/projects', async (req, reply) => {
     const { scope } = req.query;
-    if (!scope) return reply.code(400).send({ code: 'MISSING_SCOPE', message: 'Scope is required' });
+    if (!scope) return sendError(reply, 400, 'MISSING_SCOPE', 'Scope is required');
 
-    // Выполняем те же 2 запроса, что раньше делал фронтенд напрямую
-    const [projectsRes, appsRes] = await Promise.all([
-      supabase
-        .from('projects')
-        .select('id, uj_code, cadastre_number, name, region, address, construction_status, updated_at, created_at, buildings(count)')
-        .eq('scope_id', scope)
-        .order('updated_at', { ascending: false }),
-      supabase
-        .from('applications')
-        .select('*')
-        .eq('scope_id', scope)
-        .order('updated_at', { ascending: false }),
-    ]);
+    const statusValues = parseCsvParam(req.query.status);
+    const workflowSubstatusValues = parseCsvParam(req.query.workflowSubstatus);
+    const assignee = req.query.assignee ? String(req.query.assignee) : null;
+    const search = req.query.search ? String(req.query.search).trim() : null;
+    const page = Math.max(1, Number(req.query.page || 1));
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit || 1000)));
 
-    if (projectsRes.error) return reply.code(500).send({ code: 'DB_ERROR', message: projectsRes.error.message });
-    if (appsRes.error) return reply.code(500).send({ code: 'DB_ERROR', message: appsRes.error.message });
+    const actor = req.authContext || null;
 
-    const appsByProject = (appsRes.data || []).reduce((acc, app) => {
+    let appsQuery = supabase
+      .from('applications')
+      .select('*')
+      .eq('scope_id', scope)
+      .order('updated_at', { ascending: false });
+
+    if (statusValues.length === 1) appsQuery = appsQuery.eq('status', statusValues[0]);
+    else if (statusValues.length > 1) appsQuery = appsQuery.in('status', statusValues);
+
+    if (workflowSubstatusValues.length === 1) appsQuery = appsQuery.eq('workflow_substatus', workflowSubstatusValues[0]);
+    else if (workflowSubstatusValues.length > 1) appsQuery = appsQuery.in('workflow_substatus', workflowSubstatusValues);
+    if (assignee === 'mine') {
+      if (!actor?.userId) return sendError(reply, 401, 'UNAUTHORIZED', 'Auth context required for assignee=mine');
+      appsQuery = appsQuery.eq('assignee_name', actor.userId);
+    } else if (assignee && assignee !== 'all') {
+      appsQuery = appsQuery.eq('assignee_name', assignee);
+    }
+
+    const { data: appsData, error: appsError } = await appsQuery;
+    if (appsError) return sendError(reply, 500, 'DB_ERROR', appsError.message);
+
+    let filteredApps = appsData || [];
+
+    if (search) {
+      const lower = search.toLowerCase();
+      filteredApps = filteredApps.filter(app =>
+        String(app.internal_number || '').toLowerCase().includes(lower) ||
+        String(app.external_id || '').toLowerCase().includes(lower) ||
+        String(app.applicant || '').toLowerCase().includes(lower) ||
+        String(app.assignee_name || '').toLowerCase().includes(lower)
+      );
+    }
+
+    const projectIds = Array.from(new Set(filteredApps.map(app => app.project_id).filter(Boolean)));
+    if (projectIds.length === 0) {
+      return reply.send({ items: [], page, limit, total: 0, totalPages: 0 });
+    }
+
+    const { data: projectsData, error: projectsError } = await supabase
+      .from('projects')
+      .select('id, uj_code, cadastre_number, name, region, address, construction_status, updated_at, created_at, buildings(count)')
+      .eq('scope_id', scope)
+      .in('id', projectIds)
+      .order('updated_at', { ascending: false });
+
+    if (projectsError) return sendError(reply, 500, 'DB_ERROR', projectsError.message);
+
+    const appsByProject = filteredApps.reduce((acc, app) => {
       if (!acc[app.project_id]) acc[app.project_id] = app;
       return acc;
     }, {});
 
-    const normalizeProjectStatusFromDb = (status) => {
-      if (status === 'project') return 'Проектный';
-      if (status === 'construction') return 'Строящийся';
-      if (status === 'completed') return 'Сдан в эксплуатацию';
-      return status || 'Проектный';
-    };
-
-    // Маппим данные прямо на бэкенде, чтобы отдавать фронту чистый DTO
-    const mapped = (projectsRes.data || []).map(project => {
+    let mapped = (projectsData || []).map(project => {
       const app = appsByProject[project.id];
       const buildingsCount = project.buildings?.[0]?.count || 0;
 
-      return {
+      const dto = {
         id: project.id,
         ujCode: project.uj_code,
         cadastre: project.cadastre_number,
@@ -355,7 +514,6 @@ export async function buildServer() {
         name: project.name || 'Без названия',
         status: normalizeProjectStatusFromDb(project.construction_status),
         lastModified: app?.updated_at || project.updated_at,
-
         applicationInfo: {
           status: app?.status,
           workflowSubstatus: app?.workflow_substatus || 'DRAFT',
@@ -380,9 +538,89 @@ export async function buildServer() {
         },
         composition: Array(buildingsCount).fill(1),
       };
+
+      return {
+        ...dto,
+        availableActions: buildProjectAvailableActions(actor?.userRole, dto, actor?.userId),
+      };
     });
 
-    return mapped;
+    if (search) {
+      const lower = search.toLowerCase();
+      mapped = mapped.filter(p =>
+        String(p.name || '').toLowerCase().includes(lower) ||
+        String(p.ujCode || '').toLowerCase().includes(lower) ||
+        String(p.applicationInfo?.internalNumber || '').toLowerCase().includes(lower) ||
+        String(p.applicationInfo?.externalId || '').toLowerCase().includes(lower) ||
+        String(p.complexInfo?.street || '').toLowerCase().includes(lower) ||
+        String(p.applicationInfo?.assigneeName || '').toLowerCase().includes(lower)
+      );
+    }
+
+    mapped.sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime());
+
+    const total = mapped.length;
+    const from = (page - 1) * limit;
+    const to = from + limit;
+
+    return reply.send({
+      items: mapped.slice(from, to),
+      page,
+      limit,
+      total,
+      totalPages: total > 0 ? Math.ceil(total / limit) : 0,
+    });
+  });
+
+  app.get('/api/v1/projects/summary-counts', async (req, reply) => {
+    const { scope } = req.query;
+    if (!scope) return sendError(reply, 400, 'MISSING_SCOPE', 'Scope is required');
+
+    const actor = req.authContext || null;
+    const assignee = req.query.assignee ? String(req.query.assignee) : null;
+
+    let query = supabase
+      .from('applications')
+      .select('status, workflow_substatus, assignee_name')
+      .eq('scope_id', scope);
+
+    if (assignee === 'mine') {
+      if (!actor?.userId) return sendError(reply, 401, 'UNAUTHORIZED', 'Auth context required for assignee=mine');
+      query = query.eq('assignee_name', actor.userId);
+    } else if (assignee && assignee !== 'all') {
+      query = query.eq('assignee_name', assignee);
+    }
+
+    const { data, error } = await query;
+    if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+
+    const rows = data || [];
+    const workSubstatuses = new Set(['DRAFT', 'REVISION', 'RETURNED_BY_MANAGER']);
+
+    const counts = {
+      work: 0,
+      review: 0,
+      integration: 0,
+      pendingDecline: 0,
+      declined: 0,
+      registryApplications: 0,
+      registryComplexes: 0,
+    };
+
+    rows.forEach(row => {
+      const status = row.status;
+      const sub = row.workflow_substatus;
+
+      if (status === 'IN_PROGRESS' && workSubstatuses.has(sub)) counts.work += 1;
+      if (sub === 'REVIEW') counts.review += 1;
+      if (sub === 'INTEGRATION') counts.integration += 1;
+      if (sub === 'PENDING_DECLINE') counts.pendingDecline += 1;
+      if (status === 'DECLINED') counts.declined += 1;
+      if (status === 'COMPLETED' || status === 'DECLINED') counts.registryApplications += 1;
+      if (status === 'COMPLETED') counts.registryComplexes += 1;
+    });
+
+    return reply.send(counts);
   });
 
   app.get('/api/v1/applications/:applicationId/locks', async (req, reply) => {

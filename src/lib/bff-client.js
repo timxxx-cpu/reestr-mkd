@@ -9,26 +9,6 @@ const isBffEnabled = () => {
   return raw === 'true';
 };
 const getBffBaseUrl = () => import.meta.env.VITE_BFF_BASE_URL || 'http://localhost:8787';
-const isCompositionEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_COMPOSITION_ENABLED !== 'false';
-const isFloorsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_FLOORS_ENABLED !== 'false';
-const isEntrancesEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_ENTRANCES_ENABLED !== 'false';
-const isUnitsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_UNITS_ENABLED !== 'false';
-const isMopEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_MOP_ENABLED !== 'false';
-const isParkingEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PARKING_ENABLED !== 'false';
-const isIntegrationEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_INTEGRATION_ENABLED !== 'false';
-const isCadastreEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_CADASTRE_ENABLED !== 'false';
-const isProjectInitEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_INIT_ENABLED !== 'false';
-const isProjectPassportEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_PASSPORT_ENABLED !== 'false';
-const isBasementsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_BASEMENTS_ENABLED !== 'false';
-const isVersioningEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_VERSIONING_ENABLED !== 'false';
-const isFullRegistryEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_FULL_REGISTRY_ENABLED !== 'false';
-const isProjectContextEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_CONTEXT_ENABLED !== 'false';
-const isProjectContextDetailsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_PROJECT_CONTEXT_DETAILS_ENABLED !== 'false';
-const isSaveMetaEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_META_ENABLED !== 'false';
-const isSaveBuildingDetailsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_SAVE_BUILDING_DETAILS_ENABLED !== 'false';
-const isRegistrySummaryEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_REGISTRY_SUMMARY_ENABLED !== 'false';
-const isApplicationsReadEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_APPLICATIONS_READ_ENABLED === 'true';
-const isCatalogsEnabled = () => isBffEnabled() && import.meta.env.VITE_BFF_CATALOGS_ENABLED === 'true';
 
 const BFF_OPERATION_SOURCE = 'bff';
 
@@ -64,6 +44,7 @@ class BffError extends Error {
  * @typedef {Object} RequestOptions
  * @property {string} [method]
  * @property {any} [body]
+ * @property {string} [userId]
  * @property {string} [userName]
  * @property {string} [userRole]
  * @property {string} [idempotencyKey]
@@ -74,7 +55,7 @@ class BffError extends Error {
  * @param {RequestOptions} [options]
  */
 async function request(path, options = {}) {
-  const { method = 'GET', body, userName, userRole, idempotencyKey } = options;
+  const { method = 'GET', body, userId, userName, userRole, idempotencyKey } = options;
   const clientRequestId = generateClientRequestId();
 
   const headers = {
@@ -82,6 +63,13 @@ async function request(path, options = {}) {
     'x-operation-source': BFF_OPERATION_SOURCE,
     ...getAuthHeaders(),
   };
+
+  const currentUser = AuthService.getCurrentUser?.() || null;
+  const resolvedUserId = userId || currentUser?.id || userName;
+  const resolvedUserRole = userRole || currentUser?.role;
+
+  if (resolvedUserId) headers['x-user-id'] = encodeURIComponent(String(resolvedUserId));
+  if (resolvedUserRole) headers['x-user-role'] = String(resolvedUserRole);
   if (idempotencyKey) headers['x-idempotency-key'] = idempotencyKey;
   if (body !== undefined && body !== null) {
     headers['content-type'] = 'application/json';
@@ -126,31 +114,27 @@ async function request(path, options = {}) {
 export const BffClient = {
   isEnabled: isBffEnabled,
   isLegacyRollbackEnabled,
-  isCompositionEnabled,
-  isFloorsEnabled,
-  isEntrancesEnabled,
-  isUnitsEnabled,
-  isMopEnabled,
-  isParkingEnabled,
-  isIntegrationEnabled,
-  isCadastreEnabled,
-  isProjectInitEnabled,
-  isProjectPassportEnabled,
-  isBasementsEnabled,
-  isVersioningEnabled,
-  isFullRegistryEnabled,
-  isProjectContextEnabled,
-  isProjectContextDetailsEnabled,
-  isSaveMetaEnabled,
-  isSaveBuildingDetailsEnabled,
-  isRegistrySummaryEnabled,
-  isApplicationsReadEnabled, // <-- ДОБАВИТЬ ЭТО
-  isCatalogsEnabled,         // <-- ДОБАВИТЬ ЭТО
 
   getRegistryBuildingsSummary: () => request('/api/v1/registry/buildings-summary'),
 
-  getProjectsList: ({ scope }) =>
-    request(`/api/v1/projects?scope=${encodeURIComponent(scope)}`),
+  getProjectsList: ({ scope, status, workflowSubstatus, assignee, search, page, limit } = {}) => {
+    const params = new URLSearchParams();
+    if (scope) params.set('scope', scope);
+    if (status) params.set('status', status);
+    if (workflowSubstatus) params.set('workflowSubstatus', workflowSubstatus);
+    if (assignee) params.set('assignee', assignee);
+    if (search) params.set('search', search);
+    if (page) params.set('page', String(page));
+    if (limit) params.set('limit', String(limit));
+    return request(`/api/v1/projects?${params.toString()}`);
+  },
+
+  getProjectsSummaryCounts: ({ scope, assignee } = {}) => {
+    const params = new URLSearchParams();
+    if (scope) params.set('scope', scope);
+    if (assignee) params.set('assignee', assignee);
+    return request(`/api/v1/projects/summary-counts?${params.toString()}`);
+  },
 
   getCatalog: ({ table }) =>
     request(`/api/v1/catalogs/${encodeURIComponent(table)}?activeOnly=true`),
@@ -160,6 +144,22 @@ export const BffClient = {
 
   getCatalogAll: ({ table }) =>
     request(`/api/v1/catalogs/${encodeURIComponent(table)}`),
+
+  upsertCatalogItem: ({ table, item, userName, userRole }) =>
+    request(`/api/v1/catalogs/${encodeURIComponent(table)}/upsert`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { item },
+    }),
+
+  setCatalogItemActive: ({ table, id, isActive, userName, userRole }) =>
+    request(`/api/v1/catalogs/${encodeURIComponent(table)}/${encodeURIComponent(id)}/active`, {
+      method: 'PUT',
+      userName,
+      userRole,
+      body: { isActive },
+    }),
 
   getBuildings: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/buildings`),
@@ -243,7 +243,6 @@ export const BffClient = {
   getBasements: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/basements`),
 
-  // Найти блок экспорта BffClient и добавить:
   getBasementsByBuildingIds: ({ buildingIds }) =>
     request(`/api/v1/basements?buildingIds=${encodeURIComponent(buildingIds.join(','))}`),
 

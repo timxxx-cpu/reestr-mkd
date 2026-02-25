@@ -28,7 +28,7 @@ test('DECLINE action in ApplicationsDashboard is routed through ApiService', () 
 test('ApiService decline path remains backend-aware with BFF gate', () => {
   assert.match(
     apiServiceSource,
-    /declineApplication:\s*async\s*\([^)]*\)\s*=>\s*\{[\s\S]*if\s*\(BffClient\.isEnabled\(\)\)[\s\S]*BffClient\.declineApplication\(/,
-    'ApiService declineApplication should be routed via BffClient when BFF is enabled'
+    /declineApplication:\s*async\s*\([^)]*\)\s*=>\s*\{[\s\S]*requireBffEnabled\('workflow\.declineApplication'\)[\s\S]*BffClient\.declineApplication\(/,
+    'ApiService declineApplication should enforce BFF guard and route through BffClient.declineApplication'
   );
 });
