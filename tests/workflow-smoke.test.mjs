@@ -3,13 +3,23 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const dashboardSource = readFileSync('src/components/ApplicationsDashboard.jsx', 'utf8');
+const moderationActionsSource = readFileSync(
+  'src/components/applications-dashboard/useProjectModerationActions.js',
+  'utf8'
+);
 const apiServiceSource = readFileSync('src/lib/api-service.js', 'utf8');
 
 test('DECLINE action in ApplicationsDashboard is routed through ApiService', () => {
   assert.match(
-    dashboardSource,
-    /ApiService\.declineApplication\s*\(\{[\s\S]*applicationId:[\s\S]*reason,[\s\S]*\}\)/,
+    moderationActionsSource,
+    /ApiService\.declineApplication\s*\(\{[\s\S]*applicationId:[\s\S]*nextSubstatus:[\s\S]*reason:[\s\S]*\}\)/,
     'DECLINE flow must call ApiService.declineApplication with expected payload'
+  );
+
+  assert.match(
+    moderationActionsSource,
+    /getDeclineSubstatusByRole\(user\.role\)/,
+    'DECLINE flow must derive nextSubstatus from role rule helper'
   );
 
   assert.doesNotMatch(
