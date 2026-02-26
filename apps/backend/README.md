@@ -30,13 +30,35 @@ npm test
 
 ## Структура route-модулей
 
-- `src/server.js` — core-routes, workflow/locks, catalogs, dashboard-проекции.
+### Route-файлы (регистрируют HTTP-маршруты)
+
+- `src/server.js` — точка входа: инициализация Fastify, регистрация middleware и всех route-модулей; содержит dashboard-проекции (`/api/v1/projects`, `summary-counts`) и вспомогательные маршруты.
 - `src/auth-routes.js` — аутентификация (`/api/v1/auth/login`).
-- `src/composition-routes.js` — composition (buildings/blocks).
+- `src/catalog-routes.js` — CRUD справочников (`/api/v1/catalogs/*`).
+- `src/locks-routes.js` — управление блокировками заявок (`/api/v1/applications/:id/locks/*`).
+- `src/workflow-routes.js` — переходы состояний workflow (`/api/v1/applications/:id/workflow/*`).
+- `src/composition-routes.js` — buildings/blocks (состав объектов).
 - `src/registry-routes.js` — floors/entrances/units/common-areas + реестровые агрегаты.
 - `src/integration-routes.js` — integration-status + cadastre-updates.
 - `src/project-routes.js` — project-init-from-application.
 - `src/project-extended-routes.js` — context/admin, passport, basements, versioning, full-registry.
+
+### Утилиты и слои (не регистрируют маршруты)
+
+- `src/idempotency-helpers.js` — `buildIdempotencyContext`, `tryServeIdempotentResponse`, `rememberIdempotentResponse` (общие для workflow, registry, project-routes).
+- `src/workflow-transitions.js` — чистая бизнес-логика переходов состояний (`buildCompletionTransition`, `buildRollbackTransition`, `buildReviewTransition`, `getStageStepRange`). Не зависит от HTTP/Supabase.
+- `src/application-repository.js` — DB-слой для `applications`, `application_history`, `application_steps`, `application_locks`.
+- `src/format-utils.js` — `formatByGroups`, `formatComplexCadastre`, `formatBuildingCadastre`, `getNextSequenceNumber`.
+- `src/validation.js` — `buildStepValidationResult` (валидация шагов workflow).
+- `src/project-helpers.js` — `parseCsvParam`, `normalizeProjectStatusFromDb`, `buildProjectAvailableActions` (dashboard-проекции).
+- `src/auth.js` — auth middleware (`AUTH_MODE=dev|jwt`) и actor-context.
+- `src/policy.js` — единая RBAC policy matrix по доменам/действиям.
+- `src/http-helpers.js` — `sendError`, `requirePolicyActor`.
+- `src/idempotency-store.js` — in-memory кэш idempotency-ключей с TTL.
+- `src/floor-generator.js` — генератор модели этажей (чистая функция).
+- `src/versioning.js` — `createPendingVersionsForApplication`, `collectProjectVersionEntities`.
+- `src/config.js` — валидация и нормализация переменных окружения.
+- `src/supabase.js` — фабрика Supabase-клиента.
 
 ## API (актуальный route-map)
 

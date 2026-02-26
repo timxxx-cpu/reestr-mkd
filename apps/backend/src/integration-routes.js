@@ -1,25 +1,5 @@
 import { sendError, requirePolicyActor } from './http-helpers.js';
-
-function formatByGroups(value, groups) {
-  const digits = String(value || '').replace(/\D/g, '');
-  const maxLen = groups.reduce((sum, item) => sum + item, 0);
-  const trimmed = digits.slice(0, maxLen);
-
-  const parts = [];
-  let offset = 0;
-  for (const groupLen of groups) {
-    const part = trimmed.slice(offset, offset + groupLen);
-    if (!part) break;
-    parts.push(part);
-    offset += groupLen;
-  }
-
-  return parts.join(':');
-}
-
-function formatBuildingCadastre(value) {
-  return formatByGroups(value, [2, 2, 2, 2, 2, 5]);
-}
+import { formatBuildingCadastre } from './format-utils.js';
 
 export function registerIntegrationRoutes(app, { supabase }) {
   app.get('/api/v1/projects/:projectId/integration-status', async (req, reply) => {
@@ -58,10 +38,7 @@ export function registerIntegrationRoutes(app, { supabase }) {
     if (appError) return sendError(reply, 500, 'DB_ERROR', appError.message);
     if (!appData) return sendError(reply, 404, 'NOT_FOUND', 'Application not found');
 
-    const integrationData = {
-      ...(appData.integration_data || {}),
-      [field]: status,
-    };
+    const integrationData = { ...(appData.integration_data || {}), [field]: status };
 
     const { error: updateError } = await supabase
       .from('applications')
@@ -69,7 +46,6 @@ export function registerIntegrationRoutes(app, { supabase }) {
       .eq('id', appData.id);
 
     if (updateError) return sendError(reply, 500, 'DB_ERROR', updateError.message);
-
     return reply.send({ ok: true, integrationData });
   });
 
@@ -93,7 +69,6 @@ export function registerIntegrationRoutes(app, { supabase }) {
 
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     if (!data) return sendError(reply, 404, 'NOT_FOUND', 'Building not found');
-
     return reply.send({ ok: true, id: data.id, cadastre: data.cadastre_number });
   });
 
@@ -117,7 +92,6 @@ export function registerIntegrationRoutes(app, { supabase }) {
 
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     if (!data) return sendError(reply, 404, 'NOT_FOUND', 'Unit not found');
-
     return reply.send({ ok: true, id: data.id, cadastre: data.cadastre_number });
   });
 }

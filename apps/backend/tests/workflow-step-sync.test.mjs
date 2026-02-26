@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getStageStepRange, updateStepCompletion, updateStageVerification } from '../src/server.js';
+import { getStageStepRange } from '../src/workflow-transitions.js';
+import { updateStepCompletion, updateStageVerification } from '../src/application-repository.js';
 
 class MockSupabaseForUpsert {
   constructor() {

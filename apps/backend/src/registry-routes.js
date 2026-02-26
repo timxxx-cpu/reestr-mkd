@@ -1,53 +1,17 @@
 import { createIdempotencyStore } from './idempotency-store.js';
 import { sendError, requirePolicyActor } from './http-helpers.js';
 import { generateFloorsModel } from './floor-generator.js';
+import {
+  buildIdempotencyContext,
+  tryServeIdempotentResponse,
+  rememberIdempotentResponse,
+} from './idempotency-helpers.js';
+import { getNextSequenceNumber } from './format-utils.js';
 import crypto from 'crypto';
-
-function buildIdempotencyContext(req, actor) {
-  const rawKey = req.headers['x-idempotency-key'];
-  if (!rawKey) return null;
-
-  const idempotencyKey = String(rawKey).trim();
-  if (!idempotencyKey) return null;
-
-  const scope = req.routeOptions?.url || req.url || 'unknown';
-  const actorScope = actor?.userId || 'anonymous';
-  const bodyFingerprint = JSON.stringify(req.body ?? null);
-
-  return {
-    cacheKey: `${scope}:${actorScope}:${idempotencyKey}`,
-    fingerprint: `${req.method}:${scope}:${bodyFingerprint}`,
-  };
-}
-
-function tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply) {
-  if (!idempotencyContext) return false;
-
-  const state = idempotencyStore.get(idempotencyContext.cacheKey, idempotencyContext.fingerprint);
-  if (state.status === 'hit') {
-    reply.send(state.value);
-    return true;
-  }
-
-  if (state.status === 'conflict') {
-    sendError(reply, 409, 'IDEMPOTENCY_CONFLICT', 'Idempotency key was already used with a different payload');
-    return true;
-  }
-
-  return false;
-}
-
-function rememberIdempotentResponse(idempotencyStore, idempotencyContext, payload) {
-  if (!idempotencyContext) return;
-  idempotencyStore.set(idempotencyContext.cacheKey, idempotencyContext.fingerprint, payload);
-}
 
 function parseFloorIdsFromQuery(raw) {
   if (!raw) return [];
-  return String(raw)
-    .split(',')
-    .map(x => x.trim())
-    .filter(Boolean);
+  return String(raw).split(',').map(x => x.trim()).filter(Boolean);
 }
 
 async function fetchAllPaged(queryFactory, pageSize = 1000) {
@@ -57,7 +21,6 @@ async function fetchAllPaged(queryFactory, pageSize = 1000) {
   while (true) {
     const { data, error } = await queryFactory(from, from + pageSize - 1);
     if (error) return { data: null, error };
-
     const chunk = data || [];
     rows.push(...chunk);
     if (chunk.length < pageSize) break;
@@ -168,7 +131,7 @@ const extractNumber = code => {
   return match ? parseInt(match[0], 10) : 0;
 };
 
-const getNextSequenceNumber = (existingCodes, prefix = null) => {
+const getNextUnitSequenceNumber = (existingCodes, prefix = null) => {
   if (!Array.isArray(existingCodes) || existingCodes.length === 0) return 1;
   const filtered = prefix ? existingCodes.filter(code => String(code).startsWith(prefix)) : existingCodes;
   if (filtered.length === 0) return 1;
@@ -236,52 +199,38 @@ export function registerRegistryRoutes(app, { supabase }) {
     const { projectId } = req.params;
 
     const { data: buildings, error: buildErr } = await supabase
-      .from('buildings')
-      .select('id')
-      .eq('project_id', projectId);
+      .from('buildings').select('id').eq('project_id', projectId);
     if (buildErr) return sendError(reply, 500, 'DB_ERROR', buildErr.message);
 
     const buildingIds = (buildings || []).map(b => b.id);
     if (!buildingIds.length) return reply.send({});
 
     const { data: blocks, error: blockErr } = await supabase
-      .from('building_blocks')
-      .select('id')
-      .in('building_id', buildingIds);
+      .from('building_blocks').select('id').in('building_id', buildingIds);
     if (blockErr) return sendError(reply, 500, 'DB_ERROR', blockErr.message);
 
     const blockIds = (blocks || []).map(b => b.id);
     if (!blockIds.length) return reply.send({});
 
     const { data: floors, error: floorsErr } = await supabase
-      .from('floors')
-      .select('id')
-      .in('block_id', blockIds);
+      .from('floors').select('id').in('block_id', blockIds);
     if (floorsErr) return sendError(reply, 500, 'DB_ERROR', floorsErr.message);
 
     const floorIds = (floors || []).map(f => f.id);
     if (!floorIds.length) return reply.send({});
 
     const { data: units, error } = await supabase
-      .from('units')
-      .select('floor_id')
-      .eq('unit_type', 'parking_place')
-      .in('floor_id', floorIds);
+      .from('units').select('floor_id').eq('unit_type', 'parking_place').in('floor_id', floorIds);
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
 
     const counts = {};
-    (units || []).forEach(u => {
-      counts[u.floor_id] = (counts[u.floor_id] || 0) + 1;
-    });
-
+    (units || []).forEach(u => { counts[u.floor_id] = (counts[u.floor_id] || 0) + 1; });
     return reply.send(counts);
   });
 
   app.post('/api/v1/floors/:floorId/parking-places/sync', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
-      module: 'registry',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify registry data',
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
     });
     if (!actor) return;
 
@@ -292,10 +241,7 @@ export function registerRegistryRoutes(app, { supabase }) {
     const targetCount = Math.max(0, parseInt(req.body?.targetCount, 10) || 0);
 
     const { data: existing, error: fetchErr } = await supabase
-      .from('units')
-      .select('id, number')
-      .eq('floor_id', floorId)
-      .eq('unit_type', 'parking_place');
+      .from('units').select('id, number').eq('floor_id', floorId).eq('unit_type', 'parking_place');
     if (fetchErr) return sendError(reply, 500, 'DB_ERROR', fetchErr.message);
 
     const currentCount = (existing || []).length;
@@ -307,17 +253,14 @@ export function registerRegistryRoutes(app, { supabase }) {
 
     if (targetCount > currentCount) {
       const toAdd = targetCount - currentCount;
-      const newUnits = [];
-      for (let i = 1; i <= toAdd; i += 1) {
-        newUnits.push({
-          id: crypto.randomUUID(),
-          floor_id: floorId,
-          unit_type: 'parking_place',
-          number: null,
-          total_area: null,
-          status: 'free',
-        });
-      }
+      const newUnits = Array.from({ length: toAdd }, () => ({
+        id: crypto.randomUUID(),
+        floor_id: floorId,
+        unit_type: 'parking_place',
+        number: null,
+        total_area: null,
+        status: 'free',
+      }));
       const { error: insErr } = await supabase.from('units').insert(newUnits);
       if (insErr) return sendError(reply, 500, 'DB_ERROR', insErr.message);
       const payload = { ok: true, added: toAdd, removed: 0 };
@@ -339,77 +282,43 @@ export function registerRegistryRoutes(app, { supabase }) {
 
   app.get('/api/v1/blocks/:blockId/floors', async (req, reply) => {
     const { blockId } = req.params;
-
-    const { data, error } = await supabase
-      .from('floors')
-      .select('*')
-      .eq('block_id', blockId)
-      .order('index', { ascending: true });
-
+    const { data, error } = await supabase.from('floors').select('*').eq('block_id', blockId).order('index', { ascending: true });
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     return reply.send(data || []);
   });
 
   app.get('/api/v1/blocks/:blockId/entrances', async (req, reply) => {
     const { blockId } = req.params;
-
-    const { data, error } = await supabase
-      .from('entrances')
-      .select('*')
-      .eq('block_id', blockId)
-      .order('number', { ascending: true });
-
+    const { data, error } = await supabase.from('entrances').select('*').eq('block_id', blockId).order('number', { ascending: true });
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     return reply.send(data || []);
   });
 
   app.get('/api/v1/units/:unitId/explication', async (req, reply) => {
     const { unitId } = req.params;
-
-    const { data, error } = await supabase
-      .from('units')
-      .select('*, rooms (*)')
-      .eq('id', unitId)
-      .maybeSingle();
-
+    const { data, error } = await supabase.from('units').select('*, rooms (*)').eq('id', unitId).maybeSingle();
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
-    if (!data) return reply.send(null);
-
-    return reply.send(data);
+    return reply.send(data || null);
   });
 
   app.get('/api/v1/blocks/:blockId/units', async (req, reply) => {
     const { blockId } = req.params;
     const extraFloorIds = parseFloorIdsFromQuery(req.query?.floorIds);
 
-    const { data: floors, error: floorsError } = await supabase
-      .from('floors')
-      .select('id')
-      .eq('block_id', blockId);
+    const { data: floors, error: floorsError } = await supabase.from('floors').select('id').eq('block_id', blockId);
     if (floorsError) return sendError(reply, 500, 'DB_ERROR', floorsError.message);
 
     const floorIds = Array.from(new Set([...(floors || []).map(f => f.id), ...extraFloorIds]));
     if (floorIds.length === 0) return reply.send({ units: [], entranceMap: {} });
 
-    const { data: entrances, error: entrancesError } = await supabase
-      .from('entrances')
-      .select('id, number')
-      .eq('block_id', blockId);
+    const { data: entrances, error: entrancesError } = await supabase.from('entrances').select('id, number').eq('block_id', blockId);
     if (entrancesError) return sendError(reply, 500, 'DB_ERROR', entrancesError.message);
 
-    const entranceMap = (entrances || []).reduce((acc, item) => {
-      acc[item.id] = item.number;
-      return acc;
-    }, {});
+    const entranceMap = (entrances || []).reduce((acc, item) => { acc[item.id] = item.number; return acc; }, {});
 
     const { data: units, error: unitsError } = await fetchAllPaged((from, to) =>
-      supabase
-        .from('units')
-        .select('*, rooms (*)')
-        .in('floor_id', floorIds)
-        .order('created_at', { ascending: true })
-        .order('id', { ascending: true })
-        .range(from, to)
+      supabase.from('units').select('*, rooms (*)').in('floor_id', floorIds)
+        .order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to)
     );
 
     if (unitsError) return sendError(reply, 500, 'DB_ERROR', unitsError.message);
@@ -418,9 +327,7 @@ export function registerRegistryRoutes(app, { supabase }) {
 
   app.post('/api/v1/units/upsert', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
-      module: 'registry',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify registry data',
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
     });
     if (!actor) return;
 
@@ -442,12 +349,7 @@ export function registerRegistryRoutes(app, { supabase }) {
       if (unitData.mezzanineType !== undefined) patchPayload.mezzanine_type = unitData.mezzanineType || null;
       if (unitData.unitCode !== undefined) patchPayload.unit_code = unitData.unitCode;
 
-      const { data, error } = await supabase
-        .from('units')
-        .update(patchPayload)
-        .eq('id', unitData.id)
-        .select('*')
-        .single();
+      const { data, error } = await supabase.from('units').update(patchPayload).eq('id', unitData.id).select('*').single();
       if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
       savedUnit = data;
     } else {
@@ -462,7 +364,7 @@ export function registerRegistryRoutes(app, { supabase }) {
           if (existingCodesRes.error) return sendError(reply, 500, 'DB_ERROR', existingCodesRes.error.message);
 
           const prefix = getUnitPrefix(unitData.type);
-          const nextSeq = getNextSequenceNumber(existingCodesRes.segments, prefix);
+          const nextSeq = getNextUnitSequenceNumber(existingCodesRes.segments, prefix);
           const segment = generateUnitCode(prefix, nextSeq);
           finalUnitCode = buildingCode ? `${buildingCode}-${segment}` : segment;
         }
@@ -485,11 +387,7 @@ export function registerRegistryRoutes(app, { supabase }) {
         updated_at: new Date().toISOString(),
       };
 
-      const { data, error } = await supabase
-        .from('units')
-        .upsert(payload, { onConflict: 'id' })
-        .select('*')
-        .single();
+      const { data, error } = await supabase.from('units').upsert(payload, { onConflict: 'id' }).select('*').single();
       if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
       savedUnit = data;
     }
@@ -519,9 +417,7 @@ export function registerRegistryRoutes(app, { supabase }) {
 
   app.post('/api/v1/blocks/:blockId/units/reconcile', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
-      module: 'registry',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify registry data',
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
     });
     if (!actor) return;
 
@@ -531,10 +427,7 @@ export function registerRegistryRoutes(app, { supabase }) {
     const { blockId } = req.params;
     const result = { removed: 0, checkedCells: 0 };
 
-    const { data: floors, error: floorsErr } = await supabase
-      .from('floors')
-      .select('id')
-      .eq('block_id', blockId);
+    const { data: floors, error: floorsErr } = await supabase.from('floors').select('id').eq('block_id', blockId);
     if (floorsErr) return sendError(reply, 500, 'DB_ERROR', floorsErr.message);
 
     const floorIds = (floors || []).map(f => f.id);
@@ -543,18 +436,13 @@ export function registerRegistryRoutes(app, { supabase }) {
       return reply.send(result);
     }
 
-    const { data: entrances, error: entErr } = await supabase
-      .from('entrances')
-      .select('id, number')
-      .eq('block_id', blockId);
+    const { data: entrances, error: entErr } = await supabase.from('entrances').select('id, number').eq('block_id', blockId);
     if (entErr) return sendError(reply, 500, 'DB_ERROR', entErr.message);
 
     const entranceByNumber = new Map((entrances || []).map(e => [Number(e.number), e.id]));
 
     const { data: matrixRows, error: matrixErr } = await supabase
-      .from('entrance_matrix')
-      .select('floor_id, entrance_number, flats_count, commercial_count')
-      .eq('block_id', blockId);
+      .from('entrance_matrix').select('floor_id, entrance_number, flats_count, commercial_count').eq('block_id', blockId);
     if (matrixErr) return sendError(reply, 500, 'DB_ERROR', matrixErr.message);
 
     const desiredMap = new Map();
@@ -568,9 +456,7 @@ export function registerRegistryRoutes(app, { supabase }) {
     });
 
     const { data: units, error: unitsErr } = await supabase
-      .from('units')
-      .select('id, floor_id, entrance_id, unit_type, created_at')
-      .in('floor_id', floorIds);
+      .from('units').select('id, floor_id, entrance_id, unit_type, created_at').in('floor_id', floorIds);
     if (unitsErr) return sendError(reply, 500, 'DB_ERROR', unitsErr.message);
 
     const isFlatType = type => ['flat', 'duplex_up', 'duplex_down'].includes(type);
@@ -588,17 +474,11 @@ export function registerRegistryRoutes(app, { supabase }) {
     grouped.forEach((bucket, key) => {
       const desired = desiredMap.get(key) || { flats: 0, commercial: 0 };
       result.checkedCells += 1;
-
       const sortByAge = (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
       const flatsSorted = [...bucket.flats].sort(sortByAge);
       const commSorted = [...bucket.commercial].sort(sortByAge);
-
-      if (flatsSorted.length > desired.flats) {
-        toDelete.push(...flatsSorted.slice(desired.flats).map(u => u.id));
-      }
-      if (commSorted.length > desired.commercial) {
-        toDelete.push(...commSorted.slice(desired.commercial).map(u => u.id));
-      }
+      if (flatsSorted.length > desired.flats) toDelete.push(...flatsSorted.slice(desired.flats).map(u => u.id));
+      if (commSorted.length > desired.commercial) toDelete.push(...commSorted.slice(desired.commercial).map(u => u.id));
     });
 
     if (toDelete.length > 0) {
@@ -613,9 +493,7 @@ export function registerRegistryRoutes(app, { supabase }) {
 
   app.post('/api/v1/blocks/:blockId/common-areas/reconcile', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
-      module: 'registry',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify registry data',
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
     });
     if (!actor) return;
 
@@ -625,10 +503,7 @@ export function registerRegistryRoutes(app, { supabase }) {
     const { blockId } = req.params;
     const result = { removed: 0, checkedCells: 0 };
 
-    const { data: floors, error: floorsErr } = await supabase
-      .from('floors')
-      .select('id')
-      .eq('block_id', blockId);
+    const { data: floors, error: floorsErr } = await supabase.from('floors').select('id').eq('block_id', blockId);
     if (floorsErr) return sendError(reply, 500, 'DB_ERROR', floorsErr.message);
 
     const floorIds = (floors || []).map(f => f.id);
@@ -637,18 +512,13 @@ export function registerRegistryRoutes(app, { supabase }) {
       return reply.send(result);
     }
 
-    const { data: entrances, error: entErr } = await supabase
-      .from('entrances')
-      .select('id, number')
-      .eq('block_id', blockId);
+    const { data: entrances, error: entErr } = await supabase.from('entrances').select('id, number').eq('block_id', blockId);
     if (entErr) return sendError(reply, 500, 'DB_ERROR', entErr.message);
 
     const entranceByNumber = new Map((entrances || []).map(e => [Number(e.number), e.id]));
 
     const { data: matrixRows, error: matrixErr } = await supabase
-      .from('entrance_matrix')
-      .select('floor_id, entrance_number, mop_count')
-      .eq('block_id', blockId);
+      .from('entrance_matrix').select('floor_id, entrance_number, mop_count').eq('block_id', blockId);
     if (matrixErr) return sendError(reply, 500, 'DB_ERROR', matrixErr.message);
 
     const desiredMap = new Map();
@@ -658,10 +528,7 @@ export function registerRegistryRoutes(app, { supabase }) {
       desiredMap.set(`${row.floor_id}_${entranceId}`, Math.max(0, parseInt(row.mop_count || 0, 10) || 0));
     });
 
-    const { data: areas, error: areasErr } = await supabase
-      .from('common_areas')
-      .select('id, floor_id, entrance_id, created_at')
-      .in('floor_id', floorIds);
+    const { data: areas, error: areasErr } = await supabase.from('common_areas').select('id, floor_id, entrance_id, created_at').in('floor_id', floorIds);
     if (areasErr) return sendError(reply, 500, 'DB_ERROR', areasErr.message);
 
     const grouped = new Map();
@@ -675,12 +542,8 @@ export function registerRegistryRoutes(app, { supabase }) {
     grouped.forEach((list, key) => {
       const desired = desiredMap.get(key) || 0;
       result.checkedCells += 1;
-      const sorted = [...list].sort(
-        (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
-      );
-      if (sorted.length > desired) {
-        toDelete.push(...sorted.slice(desired).map(item => item.id));
-      }
+      const sorted = [...list].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+      if (sorted.length > desired) toDelete.push(...sorted.slice(desired).map(item => item.id));
     });
 
     if (toDelete.length > 0) {
@@ -695,9 +558,7 @@ export function registerRegistryRoutes(app, { supabase }) {
 
   app.post('/api/v1/units/batch-upsert', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
-      module: 'registry',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify registry data',
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
     });
     if (!actor) return;
 
@@ -725,9 +586,9 @@ export function registerRegistryRoutes(app, { supabase }) {
         if (existingCodesRes.error) return sendError(reply, 500, 'DB_ERROR', existingCodesRes.error.message);
 
         counters = {
-          EF: getNextSequenceNumber(existingCodesRes.segments, 'EF'),
-          EO: getNextSequenceNumber(existingCodesRes.segments, 'EO'),
-          EP: getNextSequenceNumber(existingCodesRes.segments, 'EP'),
+          EF: getNextUnitSequenceNumber(existingCodesRes.segments, 'EF'),
+          EO: getNextUnitSequenceNumber(existingCodesRes.segments, 'EO'),
+          EP: getNextUnitSequenceNumber(existingCodesRes.segments, 'EP'),
         };
       }
     }
@@ -737,8 +598,7 @@ export function registerRegistryRoutes(app, { supabase }) {
       if (!finalUnitCode && buildingCode && u.type) {
         const prefix = getUnitPrefix(u.type);
         const seq = counters[prefix] || 1;
-        const segment = generateUnitCode(prefix, seq);
-        finalUnitCode = `${buildingCode}-${segment}`;
+        finalUnitCode = `${buildingCode}-${generateUnitCode(prefix, seq)}`;
         counters[prefix] = seq + 1;
       }
 
@@ -765,9 +625,7 @@ export function registerRegistryRoutes(app, { supabase }) {
 
   app.post('/api/v1/common-areas/upsert', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
-      module: 'registry',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify registry data',
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
     });
     if (!actor) return;
 
@@ -785,60 +643,42 @@ export function registerRegistryRoutes(app, { supabase }) {
       return sendError(reply, 400, 'VALIDATION_ERROR', 'floorId and type are required');
     }
 
-    const { data, error } = await supabase
-      .from('common_areas')
-      .upsert(payload, { onConflict: 'id' })
-      .select('*')
-      .single();
-
+    const { data, error } = await supabase.from('common_areas').upsert(payload, { onConflict: 'id' }).select('*').single();
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     return reply.send(data);
   });
 
   app.delete('/api/v1/common-areas/:id', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
-      module: 'registry',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify registry data',
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
     });
     if (!actor) return;
 
-    const { id } = req.params;
-    const { error } = await supabase.from('common_areas').delete().eq('id', id);
+    const { error } = await supabase.from('common_areas').delete().eq('id', req.params.id);
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
-
     return reply.send({ ok: true });
   });
 
   app.post('/api/v1/blocks/:blockId/common-areas/clear', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
-      module: 'registry',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify registry data',
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
     });
     if (!actor) return;
 
     const { blockId } = req.params;
     const extraFloorIds = parseFloorIdsFromQuery(req.body?.floorIds);
 
-    const { data: floors, error: floorsError } = await supabase
-      .from('floors')
-      .select('id')
-      .eq('block_id', blockId);
+    const { data: floors, error: floorsError } = await supabase.from('floors').select('id').eq('block_id', blockId);
     if (floorsError) return sendError(reply, 500, 'DB_ERROR', floorsError.message);
 
     const floorIds = Array.from(new Set([...(floors || []).map(f => f.id), ...extraFloorIds]));
     if (floorIds.length === 0) return reply.send({ ok: true, deleted: 0 });
 
-    const { data: rowsToDelete, error: countError } = await supabase
-      .from('common_areas')
-      .select('id')
-      .in('floor_id', floorIds);
+    const { data: rowsToDelete, error: countError } = await supabase.from('common_areas').select('id').in('floor_id', floorIds);
     if (countError) return sendError(reply, 500, 'DB_ERROR', countError.message);
 
     const { error } = await supabase.from('common_areas').delete().in('floor_id', floorIds);
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
-
     return reply.send({ ok: true, deleted: (rowsToDelete || []).length });
   });
 
@@ -846,40 +686,27 @@ export function registerRegistryRoutes(app, { supabase }) {
     const { blockId } = req.params;
     const extraFloorIds = parseFloorIdsFromQuery(req.query?.floorIds);
 
-    const { data: floors, error: floorsError } = await supabase
-      .from('floors')
-      .select('id')
-      .eq('block_id', blockId);
+    const { data: floors, error: floorsError } = await supabase.from('floors').select('id').eq('block_id', blockId);
     if (floorsError) return sendError(reply, 500, 'DB_ERROR', floorsError.message);
 
     const floorIds = Array.from(new Set([...(floors || []).map(f => f.id), ...extraFloorIds]));
     if (floorIds.length === 0) return reply.send([]);
 
-    const { data, error } = await supabase
-      .from('common_areas')
-      .select('*')
-      .in('floor_id', floorIds);
-
+    const { data, error } = await supabase.from('common_areas').select('*').in('floor_id', floorIds);
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     return reply.send(data || []);
   });
 
   app.get('/api/v1/blocks/:blockId/entrance-matrix', async (req, reply) => {
     const { blockId } = req.params;
-
-    const { data, error } = await supabase
-      .from('entrance_matrix')
-      .select('*')
-      .eq('block_id', blockId);
-
+    const { data, error } = await supabase.from('entrance_matrix').select('*').eq('block_id', blockId);
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     return reply.send(data || []);
   });
+
   app.put('/api/v1/floors/:floorId', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
-      module: 'registry',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify registry data',
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
     });
     if (!actor) return;
 
@@ -896,22 +723,14 @@ export function registerRegistryRoutes(app, { supabase }) {
     if (updates.isTechnical !== undefined) payload.is_technical = updates.isTechnical;
     if (updates.isCommercial !== undefined) payload.is_commercial = updates.isCommercial;
 
-    const { data, error } = await supabase
-      .from('floors')
-      .update(payload)
-      .eq('id', floorId)
-      .select('*')
-      .single();
-
+    const { data, error } = await supabase.from('floors').update(payload).eq('id', floorId).select('*').single();
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     return reply.send(data);
   });
 
- app.post('/api/v1/blocks/:blockId/floors/reconcile', async (req, reply) => {
+  app.post('/api/v1/blocks/:blockId/floors/reconcile', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
-      module: 'registry',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify registry data',
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
     });
     if (!actor) return;
 
@@ -920,12 +739,7 @@ export function registerRegistryRoutes(app, { supabase }) {
 
     const { blockId } = req.params;
 
-    // ШАГ 1: Сбор полного контекста из БД
-    const { data: block, error: blockErr } = await supabase
-      .from('building_blocks')
-      .select('*')
-      .eq('id', blockId)
-      .single();
+    const { data: block, error: blockErr } = await supabase.from('building_blocks').select('*').eq('id', blockId).single();
     if (blockErr || !block) return sendError(reply, 500, 'DB_ERROR', blockErr?.message || 'Block not found');
 
     const [
@@ -933,49 +747,33 @@ export function registerRegistryRoutes(app, { supabase }) {
       { data: allBlocks },
       { data: basements },
       { data: markers },
-      { data: existingFloors }
+      { data: existingFloors },
     ] = await Promise.all([
       supabase.from('buildings').select('*').eq('id', block.building_id).single(),
       supabase.from('building_blocks').select('*').eq('building_id', block.building_id),
       supabase.from('basements').select('*').eq('building_id', block.building_id),
       supabase.from('block_floor_markers').select('*').eq('block_id', blockId),
-      supabase.from('floors').select('id, floor_key, index, parent_floor_index, basement_id').eq('block_id', blockId)
+      supabase.from('floors').select('id, floor_key, index, parent_floor_index, basement_id').eq('block_id', blockId),
     ]);
 
-    // ШАГ 2: Генерация целевой модели этажей
-    let targetFloorsModel = generateFloorsModel(
-      block, 
-      building, 
-      allBlocks || [], 
-      basements || [], 
-      markers || []
-    );
+    let targetFloorsModel = generateFloorsModel(block, building, allBlocks || [], basements || [], markers || []);
 
-    const getConstraintKey = (f) => {
+    const getConstraintKey = f => {
       const idx = Number(f.index || 0);
       const pfi = f.parent_floor_index !== null && f.parent_floor_index !== undefined ? Number(f.parent_floor_index) : -99999;
       const bid = f.basement_id || '00000000-0000-0000-0000-000000000000';
       return `${idx}_${pfi}_${bid}`;
     };
 
-    const uniqueConstraintKeys = new Set();
-    const deduplicatedModel = [];
-
-    targetFloorsModel.forEach(floor => {
+    const uniqueKeys = new Set();
+    targetFloorsModel = targetFloorsModel.filter(floor => {
       const cKey = getConstraintKey(floor);
-      if (!uniqueConstraintKeys.has(cKey)) {
-        uniqueConstraintKeys.add(cKey);
-        deduplicatedModel.push(floor);
-      }
-    });
-    targetFloorsModel = deduplicatedModel;
-
-    // ШАГ 3: Diff и Синхронизация (По слотам уникальности)
-    const existingFloorsMap = new Map();
-    (existingFloors || []).forEach(f => {
-      existingFloorsMap.set(getConstraintKey(f), f);
+      if (uniqueKeys.has(cKey)) return false;
+      uniqueKeys.add(cKey);
+      return true;
     });
 
+    const existingFloorsMap = new Map((existingFloors || []).map(f => [getConstraintKey(f), f]));
     const toUpsert = [];
     const usedExistingIds = new Set();
     const now = new Date().toISOString();
@@ -983,7 +781,6 @@ export function registerRegistryRoutes(app, { supabase }) {
     targetFloorsModel.forEach(targetFloor => {
       const cKey = getConstraintKey(targetFloor);
       const existing = existingFloorsMap.get(cKey);
-      
       if (existing) {
         toUpsert.push({ ...targetFloor, id: existing.id, updated_at: now });
         usedExistingIds.add(existing.id);
@@ -992,41 +789,29 @@ export function registerRegistryRoutes(app, { supabase }) {
       }
     });
 
-    const toDeleteIds = (existingFloors || [])
-      .filter(f => !usedExistingIds.has(f.id))
-      .map(f => f.id);
+    const toDeleteIds = (existingFloors || []).filter(f => !usedExistingIds.has(f.id)).map(f => f.id);
 
-    // Сначала удаляем
     if (toDeleteIds.length > 0) {
       const { error: deleteErr } = await supabase.from('floors').delete().in('id', toDeleteIds);
       if (deleteErr) return sendError(reply, 500, 'DB_ERROR', deleteErr.message);
     }
 
-    // Потом вставляем/обновляем
     if (toUpsert.length > 0) {
       const { error: upsertErr } = await supabase.from('floors').upsert(toUpsert, { onConflict: 'id' });
       if (upsertErr) return sendError(reply, 500, 'DB_ERROR', upsertErr.message);
     }
 
-    // ШАГ 4: Перестроение матрицы подъездов
     const matrixEnsureError = await ensureEntranceMatrixForBlock(supabase, blockId);
     if (matrixEnsureError) return sendError(reply, 500, 'DB_ERROR', matrixEnsureError.message);
 
-    const result = { 
-      ok: true, 
-      deleted: toDeleteIds.length, 
-      upserted: toUpsert.length 
-    };
-    
+    const result = { ok: true, deleted: toDeleteIds.length, upserted: toUpsert.length };
     rememberIdempotentResponse(idempotencyStore, idempotencyContext, result);
     return reply.send(result);
   });
 
   app.post('/api/v1/blocks/:blockId/entrances/reconcile', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
-      module: 'registry',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify registry data',
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
     });
     if (!actor) return;
 
@@ -1036,10 +821,7 @@ export function registerRegistryRoutes(app, { supabase }) {
     const { blockId } = req.params;
     const normalizedCount = Math.max(0, parseInt(req.body?.count, 10) || 0);
 
-    const { data: existing, error: existingErr } = await supabase
-      .from('entrances')
-      .select('id, number')
-      .eq('block_id', blockId);
+    const { data: existing, error: existingErr } = await supabase.from('entrances').select('id, number').eq('block_id', blockId);
     if (existingErr) return sendError(reply, 500, 'DB_ERROR', existingErr.message);
 
     const existingRows = existing || [];
@@ -1070,9 +852,7 @@ export function registerRegistryRoutes(app, { supabase }) {
 
   app.put('/api/v1/blocks/:blockId/entrance-matrix/cell', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
-      module: 'registry',
-      action: 'mutate',
-      forbiddenMessage: 'Role cannot modify registry data',
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
     });
     if (!actor) return;
 

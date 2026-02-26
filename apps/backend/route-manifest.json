@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-02-25T13:43:32.909Z",
+  "generatedAt": "2026-02-26T00:00:00.000Z",
   "routeCount": 73,
   "routes": [
     {
@@ -25,7 +25,7 @@
     {
       "method": "GET",
       "path": "/api/v1/applications/:applicationId/locks",
-      "source": "src/server.js"
+      "source": "src/locks-routes.js"
     },
     {
       "method": "GET",
@@ -55,7 +55,7 @@
     {
       "method": "GET",
       "path": "/api/v1/catalogs/:table",
-      "source": "src/server.js"
+      "source": "src/catalog-routes.js"
     },
     {
       "method": "GET",
@@ -150,62 +150,62 @@
     {
       "method": "POST",
       "path": "/api/v1/applications/:applicationId/locks/acquire",
-      "source": "src/server.js"
+      "source": "src/locks-routes.js"
     },
     {
       "method": "POST",
       "path": "/api/v1/applications/:applicationId/locks/refresh",
-      "source": "src/server.js"
+      "source": "src/locks-routes.js"
     },
     {
       "method": "POST",
       "path": "/api/v1/applications/:applicationId/locks/release",
-      "source": "src/server.js"
+      "source": "src/locks-routes.js"
     },
     {
       "method": "POST",
       "path": "/api/v1/applications/:applicationId/workflow/assign-technician",
-      "source": "src/server.js"
+      "source": "src/workflow-routes.js"
     },
     {
       "method": "POST",
       "path": "/api/v1/applications/:applicationId/workflow/complete-step",
-      "source": "src/server.js"
+      "source": "src/workflow-routes.js"
     },
     {
       "method": "POST",
       "path": "/api/v1/applications/:applicationId/workflow/decline",
-      "source": "src/server.js"
+      "source": "src/workflow-routes.js"
     },
     {
       "method": "POST",
       "path": "/api/v1/applications/:applicationId/workflow/request-decline",
-      "source": "src/server.js"
+      "source": "src/workflow-routes.js"
     },
     {
       "method": "POST",
       "path": "/api/v1/applications/:applicationId/workflow/restore",
-      "source": "src/server.js"
+      "source": "src/workflow-routes.js"
     },
     {
       "method": "POST",
       "path": "/api/v1/applications/:applicationId/workflow/return-from-decline",
-      "source": "src/server.js"
+      "source": "src/workflow-routes.js"
     },
     {
       "method": "POST",
       "path": "/api/v1/applications/:applicationId/workflow/review-approve",
-      "source": "src/server.js"
+      "source": "src/workflow-routes.js"
     },
     {
       "method": "POST",
       "path": "/api/v1/applications/:applicationId/workflow/review-reject",
-      "source": "src/server.js"
+      "source": "src/workflow-routes.js"
     },
     {
       "method": "POST",
       "path": "/api/v1/applications/:applicationId/workflow/rollback-step",
-      "source": "src/server.js"
+      "source": "src/workflow-routes.js"
     },
     {
       "method": "POST",
@@ -240,7 +240,7 @@
     {
       "method": "POST",
       "path": "/api/v1/catalogs/:table/upsert",
-      "source": "src/server.js"
+      "source": "src/catalog-routes.js"
     },
     {
       "method": "POST",
@@ -340,7 +340,7 @@
     {
       "method": "PUT",
       "path": "/api/v1/catalogs/:table/:id/active",
-      "source": "src/server.js"
+      "source": "src/catalog-routes.js"
     },
     {
       "method": "PUT",

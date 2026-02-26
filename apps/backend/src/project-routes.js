@@ -2,47 +2,12 @@ import { createIdempotencyStore } from './idempotency-store.js';
 import { createPendingVersionsForApplication } from './versioning.js';
 import { registerProjectExtendedRoutes } from './project-extended-routes.js';
 import { sendError, requirePolicyActor } from './http-helpers.js';
-
-
-function buildIdempotencyContext(req, actor) {
-  const rawKey = req.headers['x-idempotency-key'];
-  if (!rawKey) return null;
-
-  const idempotencyKey = String(rawKey).trim();
-  if (!idempotencyKey) return null;
-
-  const scope = req.routeOptions?.url || req.url || 'unknown';
-  const actorScope = actor?.userId || 'anonymous';
-  const bodyFingerprint = JSON.stringify(req.body ?? null);
-
-  return {
-    cacheKey: `${scope}:${actorScope}:${idempotencyKey}`,
-    fingerprint: `${req.method}:${scope}:${bodyFingerprint}`,
-  };
-}
-
-function tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply) {
-  if (!idempotencyContext) return false;
-
-  const state = idempotencyStore.get(idempotencyContext.cacheKey, idempotencyContext.fingerprint);
-  if (state.status === 'hit') {
-    reply.send(state.value);
-    return true;
-  }
-
-  if (state.status === 'conflict') {
-    sendError(reply, 409, 'IDEMPOTENCY_CONFLICT', 'Idempotency key was already used with a different payload');
-    return true;
-  }
-
-  return false;
-}
-
-function rememberIdempotentResponse(idempotencyStore, idempotencyContext, payload) {
-  if (!idempotencyContext) return;
-  idempotencyStore.set(idempotencyContext.cacheKey, idempotencyContext.fingerprint, payload);
-}
-
+import {
+  buildIdempotencyContext,
+  tryServeIdempotentResponse,
+  rememberIdempotentResponse,
+} from './idempotency-helpers.js';
+import { formatComplexCadastre, getNextSequenceNumber } from './format-utils.js';
 
 function isProjectInitRpcEnabled() {
   return process.env.PROJECT_INIT_RPC_ENABLED === 'true';
@@ -85,43 +50,9 @@ async function createProjectViaRpc(supabase, { scope, appData, actorUserId }) {
   };
 }
 
-function formatByGroups(value, groups) {
-  const digits = String(value || '').replace(/\D/g, '');
-  const maxLen = groups.reduce((sum, n) => sum + n, 0);
-  const normalized = digits.slice(0, maxLen);
-
-  const parts = [];
-  let offset = 0;
-  for (const len of groups) {
-    const part = normalized.slice(offset, offset + len);
-    if (!part) break;
-    parts.push(part);
-    offset += len;
-  }
-
-  return parts.join(':');
-}
-
-function formatComplexCadastre(value) {
-  return formatByGroups(value, [2, 2, 2, 2, 2, 4]);
-}
-
-function getNextSequenceNumber(existingCodes, prefix) {
-  let max = 0;
-
-  existingCodes.forEach(code => {
-    if (!code || !String(code).startsWith(prefix)) return;
-    const num = Number(String(code).slice(prefix.length));
-    if (Number.isFinite(num) && num > max) max = num;
-  });
-
-  return max + 1;
-}
-
 function generateProjectCode(sequenceNumber) {
   return `UJ${String(Number(sequenceNumber) || 0).padStart(6, '0')}`;
 }
-
 
 async function generateNextProjectCode(supabase, scope) {
   const { data, error } = await supabase
@@ -158,7 +89,6 @@ async function ensureNoActiveReapplication(supabase, scope, appData) {
 
   const { data, error } = await activeAppsQuery;
   if (error) return { ok: false, status: 500, code: 'DB_ERROR', message: error.message };
-
   if ((data || []).length === 0) return { ok: true };
 
   const active = data[0];
@@ -175,6 +105,7 @@ async function ensureNoActiveReapplication(supabase, scope, appData) {
 
 export function registerProjectRoutes(app, { supabase }) {
   const idempotencyStore = createIdempotencyStore();
+
   app.post('/api/v1/projects/from-application', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
       module: 'projectInit',
@@ -193,30 +124,20 @@ export function registerProjectRoutes(app, { supabase }) {
 
     const reapplicationCheck = await ensureNoActiveReapplication(supabase, scope, appData);
     if (!reapplicationCheck.ok) {
-      return sendError(
-        reply,
-        reapplicationCheck.status,
-        reapplicationCheck.code,
-        reapplicationCheck.message
-      );
+      return sendError(reply, reapplicationCheck.status, reapplicationCheck.code, reapplicationCheck.message);
     }
 
     let createResult;
 
     if (isProjectInitRpcEnabled()) {
       try {
-        const rpcResult = await createProjectViaRpc(supabase, {
-          scope,
-          appData,
-          actorUserId: actor.userId,
-        });
+        const rpcResult = await createProjectViaRpc(supabase, { scope, appData, actorUserId: actor.userId });
 
         if (rpcResult.ok) {
           createResult = rpcResult.value;
         } else if (rpcResult.reason === 'REAPPLICATION_BLOCKED') {
           return sendError(reply, 409, 'REAPPLICATION_BLOCKED', rpcResult.error.message);
         } else {
-          // fallback на non-RPC путь, если функция еще не выкачена в окружение
           req.log?.warn?.({ err: rpcResult.error }, 'init_project_from_application RPC failed, fallback to direct path');
         }
       } catch (rpcUnexpectedError) {
@@ -303,5 +224,6 @@ export function registerProjectRoutes(app, { supabase }) {
     rememberIdempotentResponse(idempotencyStore, idempotencyContext, response);
     return reply.send(response);
   });
+
   registerProjectExtendedRoutes(app, { supabase });
 }
