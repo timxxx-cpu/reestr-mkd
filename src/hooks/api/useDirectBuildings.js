@@ -22,7 +22,7 @@ export function useDirectBuildings(projectId) {
   // --- CREATE ---
   const createMutation = useMutation({
     /**
-     * @param {{ buildingData: any, blocksData: any[] }} params
+     * @param {{ buildingData: any, blocksData: any[], actor?: any }} params
      */
     mutationFn: ({ buildingData, blocksData, actor }) =>
       ApiService.createBuilding(projectId, buildingData, blocksData, actor),
@@ -39,7 +39,7 @@ export function useDirectBuildings(projectId) {
   // --- UPDATE ---
   const updateMutation = useMutation({
     /**
-     * @param {{ id: string, data: any }} params
+     * @param {{ id: string, data: any, actor?: any, blocksData?: any[] }} params
      */
     mutationFn: ({ id, data, actor, blocksData }) =>
       ApiService.updateBuilding(id, data, actor, blocksData),
@@ -56,7 +56,7 @@ export function useDirectBuildings(projectId) {
   // --- DELETE ---
   const deleteMutation = useMutation({
     /**
-     * @param {string} id
+     * @param {{ id: string, actor?: any }} params
      */
     mutationFn: ({ id, actor }) => ApiService.deleteBuilding(id, actor),
     onSuccess: () => {
@@ -68,7 +68,7 @@ export function useDirectBuildings(projectId) {
       toast.error('Ошибка при удалении');
     },
   });
-
+  
   return {
     buildings,
     isLoading,

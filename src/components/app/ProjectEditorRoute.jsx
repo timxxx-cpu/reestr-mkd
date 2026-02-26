@@ -140,20 +140,7 @@ export default function ProjectEditorRoute({ user }) {
             </div>
           )}
 
-          <div className="bg-slate-100/80 backdrop-blur-sm border-b border-slate-200 px-8 py-3 flex items-center justify-between">
-            <Breadcrumbs currentStep={currentStep} stepConfig={stepConfig} />
-            <button
-              onClick={() => handleBackToDashboard(false)}
-              className="text-xs text-slate-600 hover:text-slate-900 flex items-center gap-2"
-            >
-              <LogOut size={14} /> К рабочему столу
-            </button>
-          </div>
-
-          <div className="px-8 py-4">
-            <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-1">
-              Этап {WORKFLOW_STAGES[stepConfig?.stage]?.title || '—'}
-            </div>
+            <div className="px-8 py-4">
             <h1 className="text-2xl font-black tracking-tight text-slate-800">{stepConfig?.title}</h1>
             <p className="text-sm text-slate-500 mt-1">{stepConfig?.description}</p>
           </div>

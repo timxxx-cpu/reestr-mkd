@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Home,
   Car,
@@ -274,7 +275,7 @@ const BuildingModal = ({
       </span>
     ) : null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden ring-1 ring-white/20 animate-in zoom-in-95 duration-200">
         <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
@@ -589,13 +590,14 @@ const BuildingModal = ({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, isDeleting }) => {
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden ring-1 ring-slate-900/5 animate-in zoom-in-95 duration-200">
         <div className="p-6 text-center">
@@ -635,7 +637,8 @@ const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, isDeleting }) => 
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
@@ -687,6 +690,7 @@ const CompositionEditor = () => {
     parkingType: 'ground',
     parkingConstruction: 'light',
     infraType: 'Котельная',
+    blocksData: [],
   });
 
   const hasResidential = useMemo(
@@ -744,6 +748,7 @@ const CompositionEditor = () => {
       parkingConstruction: 'light',
       infraType: defaultInfraType,
       editingId: null,
+      blocksData: [],
     });
   };
 
@@ -997,11 +1002,10 @@ const CompositionEditor = () => {
                   <div className="col-span-1 text-center">#</div>
                   <div className="col-span-1 text-center">Дом №</div>
                   <div className="col-span-2">Код</div>
-                  <div className="col-span-3">Наименование</div>
+                  <div className="col-span-4">Наименование</div> {/* Увеличили с 3 до 4 */}
                   <div className="col-span-2">Характеристики</div>
                   <div className="col-span-1">Статус</div>
-                  <div className="col-span-1 text-right">Ред.</div>
-                  <div className="col-span-1 text-right">Действия</div>
+                  <div className="col-span-1 text-right">Действия</div> {/* Удалили "Ред." */}
                 </div>
 
                 <div className="divide-y divide-slate-100">
@@ -1046,78 +1050,69 @@ const CompositionEditor = () => {
                           )}
                         </div>
 
-                        <div className="col-span-3 pr-4">
-                          <div className="flex items-start gap-2">
-                            <div className="flex-1">
-                              <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">
-                                {item.label}
-                              </div>
-                              <div className="text-[10px] text-slate-400 mt-0.5">
-                                {TYPE_NAMES[item.category] || item.category}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div className="col-span-2 pr-4 flex flex-col justify-center gap-1.5">
-                          <div className="flex flex-wrap gap-1">
-                            {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
-                              <span className="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-[10px] font-bold text-slate-600">
-                                {item.resBlocks} жил. / {item.nonResBlocks} нежил.
-                              </span>
-                            )}
-                            {item.hasNonResPart && (
-                              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">
-                                +Нежилые объекты на жилых этажах
-                              </span>
-                            )}
-                            {item.category === 'infrastructure' && (
-                              <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold">
-                                {item.infraType}
-                              </span>
-                            )}
-                            {detailsBadge && (
-                              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold">
-                                {detailsBadge}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="col-span-1 pr-4">
-                          <span
-                            className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}
-                          >
-                            {item.stage || 'Проект'}
-                          </span>
-                        </div>
-                        <div className="col-span-1 flex justify-end">
-                          <button
-                            onClick={() => openEditing(item)}
-                            title={isReadOnly ? 'Просмотр' : 'Редактировать'}
-                            className="inline-flex items-center gap-1 h-8 px-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold shadow-sm hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-all"
-                          >
-                            {isReadOnly ? <Eye size={14} /> : <Pencil size={14} />}
-                            <span>{isReadOnly ? 'Просм.' : 'Ред.'}</span>
-                          </button>
-                        </div>
-                        <div className="col-span-1 flex justify-end gap-1">
-                          <button
-                            onClick={() => openEditing(item)}
-                            title="Открыть"
-                            className="w-8 h-8 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm flex items-center justify-center hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all"
-                          >
-                            <ArrowRight size={14} />
-                          </button>
-                          {!isReadOnly && (
-                            <button
-                              onClick={() => handleDeleteClick(item.id)}
-                              title="Удалить"
-                              className="w-8 h-8 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm flex items-center justify-center hover:bg-red-600 hover:text-white hover:border-red-600 transition-all"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          )}
-                        </div>
+                        <div className="col-span-4 pr-4"> 
+  <div className="flex items-start gap-2">
+    <div className="flex-1">
+      <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">
+        {item.label}
+      </div>
+      <div className="text-[10px] text-slate-400 mt-0.5">
+        {TYPE_NAMES[item.category] || item.category}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div className="col-span-2 pr-4 flex flex-col justify-center gap-1.5">
+  <div className="flex flex-wrap gap-1">
+    {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
+      <span className="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-[10px] font-bold text-slate-600">
+        {item.resBlocks} жил. / {item.nonResBlocks} нежил.
+      </span>
+    )}
+    {item.hasNonResPart && (
+      <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">
+        +Нежилые объекты на жилых этажах
+      </span>
+    )}
+    {item.category === 'infrastructure' && (
+      <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold">
+        {item.infraType}
+      </span>
+    )}
+    {detailsBadge && (
+      <span className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold">
+        {detailsBadge}
+      </span>
+    )}
+  </div>
+</div>
+<div className="col-span-1 pr-4">
+  <span
+    className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}
+  >
+    {item.stage || 'Проект'}
+  </span>
+</div>
+
+<div className="col-span-1 flex justify-end gap-1">
+  <button
+    onClick={() => openEditing(item)}
+    title="Открыть"
+    className="w-8 h-8 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm flex items-center justify-center hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all"
+  >
+    <ArrowRight size={14} />
+  </button>
+  {!isReadOnly && (
+    <button
+      onClick={() => handleDeleteClick(item.id)}
+      title="Удалить"
+      className="w-8 h-8 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm flex items-center justify-center hover:bg-red-600 hover:text-white hover:border-red-600 transition-all"
+    >
+      <Trash2 size={14} />
+    </button>
+  )}
+</div>
                       </div>
                     );
                   })}

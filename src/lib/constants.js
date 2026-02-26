@@ -205,13 +205,13 @@ export const STEPS_CONFIG = [
   {
     id: 'passport',
     title: 'Паспорт жилого комплекса',
-    description: 'Основные данные и участники',
+    description: 'основные данные и участники строительства',
     icon: FileText,
   },
   {
     id: 'composition',
     title: 'Здания и сооружения комплекса',
-    description: 'Список зданий и сооружений',
+    description: 'состав зданий и сооружений',
     icon: Layout,
   },
 
@@ -219,7 +219,7 @@ export const STEPS_CONFIG = [
   {
     id: 'registry_nonres',
     title: 'Нежилые блоки и инфраструктура',
-    description: 'Школы, сады, КПП',
+    description: 'за исключением жилых строений и блоков',
     icon: Warehouse,
   },
 
