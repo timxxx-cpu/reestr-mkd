@@ -36,7 +36,7 @@ export function useApartmentsData() {
       Object.keys(flatMatrix).forEach(key => {
         const unit = flatMatrix[key];
 
-        // [FIX] Проверяем buildingId внутри объекта, а не по ключу
+        // Проверяем buildingId внутри объекта, а не по ключу
         if (unit.buildingId !== building.id) return;
         if (!unit || !unit.num) return;
 

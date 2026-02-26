@@ -8,6 +8,8 @@ const moderationActionsSource = readFileSync(
   'utf8'
 );
 const apiServiceSource = readFileSync('src/lib/api-service.js', 'utf8');
+const workflowDomainSource = readFileSync('src/lib/api/workflow-domain.js', 'utf8');
+const projectDomainSource = readFileSync('src/lib/api/project-domain.js', 'utf8');
 
 test('DECLINE action in ApplicationsDashboard is routed through ApiService', () => {
   assert.match(
@@ -35,10 +37,37 @@ test('DECLINE action in ApplicationsDashboard is routed through ApiService', () 
   );
 });
 
-test('ApiService decline path remains backend-aware with BFF gate', () => {
+test('Workflow decline path remains backend-aware with BFF gate', () => {
+  assert.match(
+    workflowDomainSource,
+    /declineApplication:\s*async\s*\([^)]*\)\s*=>\s*\{[\s\S]*requireBffEnabled\('workflow\.declineApplication'\)[\s\S]*BffClient\.declineApplication\(/,
+    'Workflow domain declineApplication should enforce BFF guard and route through BffClient.declineApplication'
+  );
+
   assert.match(
     apiServiceSource,
-    /declineApplication:\s*async\s*\([^)]*\)\s*=>\s*\{[\s\S]*requireBffEnabled\('workflow\.declineApplication'\)[\s\S]*BffClient\.declineApplication\(/,
-    'ApiService declineApplication should enforce BFF guard and route through BffClient.declineApplication'
+    /\.\.\.createWorkflowDomainApi\(\{\s*BffClient,\s*requireBffEnabled,\s*resolveActor,\s*createIdempotencyKey\s*\}\)/,
+    'ApiService should compose workflow domain API in LegacyApiService'
+  );
+});
+
+
+test('Project domain contract remains backend-aware and composed in ApiService', () => {
+  assert.match(
+    projectDomainSource,
+    /createProjectFromApplication:\s*async\s*\([^)]*\)\s*=>\s*\{[\s\S]*requireBffEnabled\('project\.createProjectFromApplication'\)[\s\S]*BffClient\.createProjectFromApplication\(/,
+    'Project domain createProjectFromApplication should enforce BFF guard and route through BffClient.createProjectFromApplication'
+  );
+
+  assert.match(
+    projectDomainSource,
+    /saveData:\s*async\s*\([^)]*\)\s*=>\s*\{[\s\S]*requireBffEnabled\('project\.saveData'\)[\s\S]*BffClient\.saveProjectContextMeta\([\s\S]*BffClient\.saveProjectBuildingDetails\([\s\S]*BffClient\.saveStepBlockStatuses\(/,
+    'Project domain saveData should stay BFF-gated and persist context meta/details/step statuses via BffClient'
+  );
+
+  assert.match(
+    apiServiceSource,
+    /\.\.\.createProjectDomainApi\(\{[\s\S]*BffClient,[\s\S]*requireBffEnabled,[\s\S]*resolveActor,[\s\S]*createIdempotencyKey,[\s\S]*mapProjectAggregate,[\s\S]*mapBuildingFromDB,[\s\S]*mapBlockDetailsFromDB[\s\S]*\}\)/,
+    'ApiService should compose project domain API in LegacyApiService'
   );
 });

@@ -56,7 +56,7 @@ export function useDirectParking(projectId) {
       await queryClient.cancelQueries({ queryKey: keys.counts });
       const prev = queryClient.getQueryData(keys.counts);
 
-      // [FIX] Добавлена проверка типа для old
+      // Добавлена проверка типа для old
       queryClient.setQueryData(keys.counts, old => {
         const map = old && typeof old === 'object' ? old : {};
         return {

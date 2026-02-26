@@ -12,11 +12,14 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "guardrails:all": "npm run lint && npm run check:step-registry && npm run test:smoke && npm run test:backend-workflow-sync",
+    "test:backend-workflow-sync": "node --test apps/backend/tests/workflow-step-sync.test.mjs",
     "test:smoke": "node --test tests/workflow-smoke.test.mjs",
     "format": "prettier --write \"src/**/*.{js,jsx}\"",
     "format:check": "prettier --check \"src/**/*.{js,jsx}\"",
     "cutover:smoke": "node scripts/cutover-smoke.mjs",
-    "cutover:legacy-check": "node scripts/legacy-critical-path-check.mjs"
+    "cutover:legacy-check": "node scripts/legacy-critical-path-check.mjs",
+    "check:step-registry": "node scripts/check-step-registry-sync.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.93.3",

@@ -236,7 +236,7 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
 |---------|---------|-----|-----------|
 | `status` | `applicationInfo.status` | TEXT | Внешний статус (IN_PROGRESS/COMPLETED/DECLINED) |
 | `workflow_substatus` | `applicationInfo.workflowSubstatus` | TEXT | Подстатус workflow |
-| `current_step` | `applicationInfo.currentStepIndex` | INT | Текущий шаг (0-16) |
+| `current_step` | `applicationInfo.currentStepIndex` | INT | Текущий шаг (0-13) |
 | `current_stage` | `applicationInfo.currentStage` | INT | Текущий этап (1-4) |
 | `requested_decline_reason` | `applicationInfo.requestedDeclineReason` | TEXT | Причина запроса на отказ |
 | `requested_decline_step` | `applicationInfo.requestedDeclineStep` | INT | Шаг запроса на отказ |
@@ -276,7 +276,7 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
 | **1** | 5 | Этап 1: Инвентаризация | 0-5 (passport, composition, registry_nonres, registry_res, floors, entrances) |
 | **2** | 8 | Этап 2: Конфигурация | 6-8 (apartments, mop, parking_config) |
 | **3** | 11 | Этап 3: Реестры | 9-11 (registry_apartments, registry_commercial, registry_parking) |
-| **4** | 16 | Финал: Интеграция | 12-16 (integration_buildings, integration_units, registry_nonres_view, registry_res_view, summary) |
+| **4** | 13 | Финал: Интеграция | 12-13 (integration_buildings, integration_units) |
 
 ### Полный список шагов
 
@@ -295,10 +295,7 @@ canEditByRoleAndStatus(ROLES.TECHNICIAN, substatus) {
 | 10 | `registry_commercial` | Инвентаризация нежилых объектов | 3 | - |
 | 11 | `registry_parking` | Инвентаризация машиномест | 3 | ✓ CHECKPOINT 3 |
 | 12 | `integration_buildings` | Регистрация зданий (УЗКАД) | 4 | - |
-| 13 | `integration_units` | Регистрация помещений (УЗКАД) | 4 | - |
-| 14 | `registry_nonres_view` | Сводная по нежилым блокам | 4 | - |
-| 15 | `registry_res_view` | Сводная по жилым блокам | 4 | - |
-| 16 | `summary` | Сводная по ЖК | 4 | ✓ FINAL |
+| 13 | `integration_units` | Регистрация помещений (УЗКАД) | 4 | ✓ FINAL |
 
 ### 5.5.1 Стратегия сохранения по шагам (единая модель)
 

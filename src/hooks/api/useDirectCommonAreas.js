@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ApiService } from '../../lib/api-service';
-import { AuthService } from '../../lib/auth-service';
-import { useToast } from '../../context/ToastContext';
+import { ApiService } from '@lib/api-service';
+import { AuthService } from '@lib/auth-service';
+import { useToast } from '@context/ToastContext';
 
 export function useDirectCommonAreas(blockId, floorIds = []) {
   const queryClient = useQueryClient();
@@ -34,7 +34,7 @@ export function useDirectCommonAreas(blockId, floorIds = []) {
       const previousData = queryClient.getQueryData(queryKey);
 
       queryClient.setQueryData(queryKey, old => {
-        // [FIX] Явная проверка: если old не массив, считаем его пустым массивом
+        // Явная проверка: если old не массив, считаем его пустым массивом
         const list = Array.isArray(old) ? old : [];
 
         const targetId = newData.id;

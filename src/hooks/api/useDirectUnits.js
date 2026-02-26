@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ApiService } from '../../lib/api-service';
-import { AuthService } from '../../lib/auth-service';
-import { useToast } from '../../context/ToastContext';
+import { ApiService } from '@lib/api-service';
+import { AuthService } from '@lib/auth-service';
+import { useToast } from '@context/ToastContext';
 
 export function useDirectUnits(blockId, floorIds = []) {
   const queryClient = useQueryClient();
@@ -35,7 +35,7 @@ export function useDirectUnits(blockId, floorIds = []) {
       const previousUnits = queryClient.getQueryData(queryKey);
 
       queryClient.setQueryData(queryKey, old => {
-        // [FIX] Явная проверка типа: если old не массив, берем пустой массив
+        // Явная проверка типа: если old не массив, берем пустой массив
         const list = Array.isArray(old) ? old : [];
 
         // Если id нет (новый объект), генерим временный для UI

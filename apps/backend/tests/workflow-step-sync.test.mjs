@@ -21,7 +21,7 @@ test('getStageStepRange returns correct boundaries for every workflow stage', ()
   assert.deepEqual(getStageStepRange(1), { start: 0, end: 5 });
   assert.deepEqual(getStageStepRange(2), { start: 6, end: 8 });
   assert.deepEqual(getStageStepRange(3), { start: 9, end: 11 });
-  assert.deepEqual(getStageStepRange(4), { start: 12, end: 16 });
+  assert.deepEqual(getStageStepRange(4), { start: 12, end: 13 });
 });
 
 test('updateStepCompletion upserts completion flag for a single step', async () => {

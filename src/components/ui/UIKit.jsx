@@ -92,7 +92,7 @@ export const DebouncedInput = React.memo(
         return () => clearTimeout(handler);
       }, [value, delay, initialValue, onChange]);
 
-      // [FIX] Принудительное сохранение при потере фокуса
+      // Принудительное сохранение при потере фокуса
       const handleBlur = e => {
         if (String(value) !== String(initialValue || '')) {
           onChange(value);
@@ -107,7 +107,7 @@ export const DebouncedInput = React.memo(
           disabled={isDisabled}
           value={value}
           onChange={e => setValue(e.target.value)}
-          onBlur={handleBlur} // [FIX] Добавлено
+          onBlur={handleBlur} // Добавлено
           className={cn(
             'flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold text-foreground ring-offset-background',
             'placeholder:text-muted-foreground',

@@ -16,9 +16,9 @@ const LAST_STEP_INDEX_BY_STAGE = {
   1: 5,
   2: 8,
   3: 11,
-  4: 16,
+  4: 13,
 };
-const TOTAL_STEPS = 17;
+const TOTAL_STEPS = 14;
 
 const ALLOWED_CATALOG_TABLES = [
   'dict_project_statuses',

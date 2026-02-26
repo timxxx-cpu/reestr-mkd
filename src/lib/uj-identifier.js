@@ -81,7 +81,7 @@ export const getUnitPrefix = unitType => {
  */
 export const generateUnitCode = (prefix, sequenceNumber) => {
   const num = parseInt(String(sequenceNumber), 10) || 0;
-  // [CHANGED] Расширено до 4 знаков (было 3)
+  // Расширено до 4 знаков (было 3)
   return `${prefix}${String(num).padStart(4, '0')}`;
 };
 
@@ -169,7 +169,7 @@ export const isValidBuildingCode = code => {
  * @returns {boolean}
  */
 export const isValidUnitCode = code => {
-  // [CHANGED] Проверка теперь требует 4 цифры вместо 3
+  // Проверка теперь требует 4 цифры вместо 3
   return /^E[FOP]\d{4}$/.test(code);
 };
 
