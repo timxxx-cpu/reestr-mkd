@@ -31,7 +31,7 @@ import {
 } from '@components/ui/UIKit';
 import { useToast } from '@context/ToastContext';
 import { ApiService } from '@lib/api-service';
-import BuildingsRegistryTable from '@components/editors/registry/BuildingsRegistryTable';
+import BuildingsRegistryTable from '@/features/steps/registry/BuildingsRegistryTable';
 import { DASHBOARD_DEFAULTS } from './applications-dashboard/config';
 import {
   getDefaultTaskFilterForRole,

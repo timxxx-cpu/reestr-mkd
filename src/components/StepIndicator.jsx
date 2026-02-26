@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { Check } from 'lucide-react';
 import { STEPS_CONFIG, WORKFLOW_STAGES, APP_STATUS, ROLES } from '@lib/constants';
 import { useProject } from '@context/ProjectContext';
-// [NEW] Импорт утилиты
+// Импорт утилиты
 import { getStepStage } from '@lib/workflow-utils';
 
 export default function StepIndicator({ currentStep }) {
@@ -18,7 +18,7 @@ export default function StepIndicator({ currentStep }) {
     }
   }, [currentStep]);
 
-  // [REMOVED] Локальная функция getStepStage удалена
+  // Локальная функция getStepStage удалена
 
   const currentStage = applicationInfo?.currentStage || 1;
   const isProjectCompleted = applicationInfo?.status === APP_STATUS.COMPLETED;

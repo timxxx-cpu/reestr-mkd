@@ -28,7 +28,7 @@
 - Большая часть предметной логики разнесена по:
   - `src/context/project/*` (data/sync/workflow layers),
   - `src/lib/*` (маппинг, валидации, вычисления, идентификаторы),
-  - `src/components/editors/*` (шаговые редакторы).
+  - `src/features/steps/*` (шаговые редакторы).
 
 ### Backend/DB (на текущем этапе)
 

@@ -96,6 +96,26 @@
     - Риски документационного дрейфа
     - План улучшений и приоритеты
 
+
+14. [Сводка по проекту и переходу на PostgreSQL/BFF](./14-postgresql-transition-briefing.md) ✨ **НОВЫЙ**
+    - Текущее устойчивое состояние системы
+    - Критичные инварианты миграции
+    - Риски и рекомендуемый порядок следующих шагов
+
+15. [RFC-шаблон и план поставки: изменение workflow + frontend refactor](./15-workflow-change-rfc-and-delivery-plan.md) ✨ **НОВЫЙ**
+    - Готовый RFC-шаблон для изменения workflow
+    - Последовательность выполнения двух задач
+    - Definition of Done и критерии готовности
+
+16. [План действий: рефакторинг структуры фронтенд-редакторов шагов](./16-frontend-steps-refactor-execution-plan.md) ✨ **НОВЫЙ**
+    - Централизация рендера шагов через registry
+    - Новая структура feature-папок по этапам
+    - Пошаговый статус выполнения и next steps
+
+17. [План стабилизации `src/*` после миграции шагов](./17-src-refactor-stabilization-plan.md) ✨ **НОВЫЙ**
+    - Приоритизированный roadmap декомпозиции App/Workflow/API
+    - Этапы выполнения с критериями готовности
+
 ## Ключевые особенности документации
 
 ✅ **Полнота**: Описаны все таблицы, поля, связи, индексы  
@@ -106,6 +126,7 @@
 ✅ **Валидации**: Все правила с примерами ошибок  
 ✅ **Трассируемость**: От UI-поля до БД и обратно  
 ✅ **Справочники**: Полное описание всех справочных таблиц  
+✅ **Frontend guardrails**: legacy-пути `@components/editors/*` запрещены линтером, шаговые UI размещаются в `src/features/steps/*`  
 
 ## Источники кода
 
@@ -116,7 +137,9 @@
 - **Маппинг**: `src/lib/db-mappers.js`, `src/lib/dto.js`
 - **API**: `src/lib/api-service.js`, `src/lib/api/*`
 - **Контекст**: `src/context/project/*`
-- **Компоненты**: `src/components/editors/*`
+- **Компоненты шагов**: `src/features/steps/*` (legacy `@components/editors/*` запрещён правилом `no-restricted-imports`)
+- **Проверка синхронизации шагов**: `scripts/check-step-registry-sync.mjs` (`npm run check:step-registry`)
+- **Пакет обязательных guardrails-проверок**: `npm run lint`, `npm run check:step-registry`, `npm run test:smoke`, `npm run test:backend-workflow-sync` (или единым запуском `npm run guardrails:all`)
 
 ## Как использовать документацию
 
@@ -125,6 +148,15 @@
 3. **Для тестировщиков**: [07-validations.md](./07-validations.md) и [06-operational-flow.md](./06-operational-flow.md)
 4. **Для БД-специалистов**: [02-database-structure.md](./02-database-structure.md) и [03-er-and-integrity.md](./03-er-and-integrity.md)
 5. **Для интеграторов**: [10-uj-identifier-system.md](./10-uj-identifier-system.md), [08-integration-sync-and-migration.md](./08-integration-sync-and-migration.md), [11-object-versioning.md](./11-object-versioning.md)
+
+
+## Текущий статус стабилизации `src/*`
+
+- CI guardrails workflow: `.github/workflows/guardrails.yml` запускает `npm run guardrails:all` на PR/push.
+
+- Этапы A–E из `docs/project/17-src-refactor-stabilization-plan.md` закрыты.
+- Lint warning backlog по критичным workflow/editor модулям обнулён; `npm run lint` проходит без предупреждений.
+- Transition-комментарии миграции (`[FIX]`, `[NEW]`, `[REMOVED]`, `[CHANGED]`) очищены в `src/*`; для новых изменений используйте нейтральные смысловые комментарии.
 
 ## Статус документации
 

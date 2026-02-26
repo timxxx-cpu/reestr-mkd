@@ -26,7 +26,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   const toast = useToast();
   const dbScope = customScope || user?.uid;
 
-  // [FIX] Определяем режим просмотра глобально
+  // Определяем режим просмотра глобально
   const isViewMode = typeof window !== 'undefined' 
     ? new URLSearchParams(window.location.search).get('mode') === 'view' 
     : false;
@@ -112,7 +112,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     };
   }, [dbScope, projectId, userProfile, toast, isViewMode]);
 
-  // [FIX] Добавляем isViewMode в условие ReadOnly
+  // Добавляем isViewMode в условие ReadOnly
   const effectiveReadOnly = isReadOnly || Boolean(lockDeniedMessage) || isViewMode;
   const currentUser = AuthService.getCurrentUser?.() || null;
   const actor = useMemo(() => ({
@@ -268,7 +268,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         statuses: stepStatuses,
       });
 
-      // [FIX] Используем безопасный доступ к prev, чтобы избежать ошибки TS "Property does not exist on type '{}'"
+      // Используем безопасный доступ к prev, чтобы избежать ошибки TS "Property does not exist on type '{}'"
       setProjectMeta(prev => {
         const prevAppInfo = prev['applicationInfo'] || {}; 
         const prevBlockStatuses = prevAppInfo.stepBlockStatuses || {};
@@ -299,7 +299,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     ]
   );
 
-  // [FIX] Обновленный createSetter с поддержкой "тихого" режима (silent)
+  // Обновленный createSetter с поддержкой "тихого" режима (silent)
   // Это позволяет обновлять данные (например, при нормализации) без активации флага unsavedChanges
   const createSetter = key => (value, options = {}) => {
     if (effectiveReadOnly) return;

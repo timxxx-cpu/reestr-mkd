@@ -156,7 +156,7 @@
 |---------|-----------|-------------|---------|-----------------|----------------|------------------------|
 | `id` | UUID | PRIMARY KEY, NOT NULL, DEFAULT gen_random_uuid() | (служебно) | **ID записи шага** | При первом обращении к шагу | Автоматически БД |
 | `application_id` | UUID | NOT NULL, FK -> applications(id) ON DELETE CASCADE, UNIQUE(application_id, step_index) | (связь) | **Заявка** | При создании | ID текущей заявки |
-| `step_index` | INT | NOT NULL, UNIQUE(application_id, step_index) | (индекс) | **Номер шага (0-16)** | При создании | Индекс шага из STEPS_CONFIG |
+| `step_index` | INT | NOT NULL, UNIQUE(application_id, step_index) | (индекс) | **Номер шага (0-13)** | При создании | Индекс шага из STEPS_CONFIG |
 | `is_completed` | BOOLEAN | NOT NULL, DEFAULT false | `applicationInfo.completedSteps` | **Шаг выполнен** | При COMPLETE_STEP | true при завершении шага техником |
 | `is_verified` | BOOLEAN | NOT NULL, DEFAULT false | `applicationInfo.verifiedSteps` | **Шаг проверен** | При REVIEW_APPROVE | true при принятии контролером |
 | `block_statuses` | JSONB | NOT NULL, DEFAULT '{}'::jsonb | `applicationInfo.stepBlockStatuses[stepIndex]` | **Статусы заполнения блоков по шагу** | При нажатии «Сохранить» в редакторе здания на шагах с блоками | Рассчитывается клиентом по правилам step-валидации (`validateStepCompletion`) и сохраняется в запись текущего `step_index` |

@@ -136,7 +136,7 @@ export const mapBuildingFromDB = (b, blocks = []) => {
 
 // --- 3. DETAILS (BLOCK CONFIG) ---
 export const mapBlockDetailsFromDB = (b, block) => {
-  // [FIX] Используем getOne для надежности
+  // Используем getOne для надежности
   const constr = getOne(block.block_construction);
   const eng = getOne(block.block_engineering);
 
@@ -187,7 +187,7 @@ export const mapBlockDetailsFromDB = (b, block) => {
 };
 
 // --- 4. FLOORS ---
-// [FIX] Добавлены buildingId и blockId
+// Добавлены buildingId и blockId
 /**
  * @param {DbFloorRow} f
  * @param {string} buildingId
@@ -224,7 +224,7 @@ export const mapFloorFromDB = (f, buildingId, blockId) => ({
 });
 
 // --- 5. UNITS ---
-// [FIX] Добавлены buildingId и blockId
+// Добавлены buildingId и blockId
 /**
  * @param {DbUnitRow} u
  * @param {Array<any>} rooms

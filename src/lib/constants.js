@@ -5,8 +5,6 @@ import {
   Ruler,
   DoorOpen,
   Grid3X3,
-  BarChart3,
-  Table2,
   Car,
   PaintBucket,
   Building2,
@@ -183,7 +181,7 @@ export const WORKFLOW_STAGES = {
   3: { lastStepIndex: 11, label: 'Этап 3: Реестры' },
 
   // Этап 4: Финал (до конца списка)
-  4: { lastStepIndex: 16, label: 'Финал: Интеграция' },
+  4: { lastStepIndex: 13, label: 'Финал: Интеграция' },
 };
 
 // --- 3. СТАТУСЫ ВНУТРЕННИХ ОБЪЕКТОВ (Зданий, помещений) ---
@@ -301,23 +299,4 @@ export const STEPS_CONFIG = [
     icon: Database,
   },
 
-  // [ИЗМЕНЕНО] СВОДНЫЕ ОТЧЕТЫ СДВИНУТЫ В КОНЕЦ
-  {
-    id: 'registry_nonres_view',
-    title: 'Сводная по нежилым блокам и инфраструктуре',
-    description: 'Ведомость сооружений',
-    icon: Table2,
-  },
-  {
-    id: 'registry_res_view',
-    title: 'Сводная по жилым блокам',
-    description: 'Ведомость жилых зданий',
-    icon: Table2,
-  },
-  {
-    id: 'summary',
-    title: 'Сводная по Жилому комплексу',
-    description: 'Аналитика и графики ТЭП',
-    icon: BarChart3,
-  },
 ];

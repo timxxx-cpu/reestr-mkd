@@ -11,7 +11,7 @@ export function useCommercialData() {
   const resolveFloorLabel = useCallback(
     (buildingId, floorId) => {
       if (!floorId) return '-';
-      const entry = Object.values(floorData).find(f => f.id === floorId); // [FIX] Ищем по ID
+      const entry = Object.values(floorData).find(f => f.id === floorId); // Ищем по ID
       if (entry) return entry.label;
       return floorId;
     },
@@ -33,7 +33,7 @@ export function useCommercialData() {
       Object.keys(flatMatrix).forEach(key => {
         const unit = flatMatrix[key];
 
-        // [FIX] Проверяем buildingId внутри объекта
+        // Проверяем buildingId внутри объекта
         if (unit.buildingId !== building.id) return;
         if (!unit || !unit.num) return;
 

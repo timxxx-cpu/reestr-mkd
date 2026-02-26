@@ -438,7 +438,7 @@ const validateEntrances = data => {
       blockFloorKeys.forEach(floorKey => {
         const floor = floorData[floorKey];
 
-        // [FIX] Умный поиск виртуального ID
+        // Умный поиск виртуального ID
         let virtualFloorId = getVirtualId(floor.floorKey);
 
         if (!virtualFloorId || (virtualFloorId.length > 30 && !virtualFloorId.startsWith('base'))) {
@@ -551,7 +551,7 @@ const validateApartments = data => {
     if (!unit.blockId) return;
     const num = String(unit.num || '').trim();
     if (num !== '') {
-      // [FIX] Ключ строго привязан к blockId
+      // Ключ строго привязан к blockId
       const key = `${unit.blockId}_${num}`;
       
       if (numbersMap[key]) {

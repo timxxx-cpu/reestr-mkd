@@ -10,7 +10,7 @@ export function useParkingData() {
   const resolveFloorLabel = useCallback(
     (buildingId, floorId) => {
       if (!floorId) return '-';
-      const entry = Object.values(floorData).find(f => f.id === floorId); // [FIX] Ищем по ID
+      const entry = Object.values(floorData).find(f => f.id === floorId); // Ищем по ID
       if (entry) return entry.label;
       if (floorId.includes('level_minus')) return `Уровень -${floorId.split('_')[2]}`;
       return floorId;
@@ -25,7 +25,7 @@ export function useParkingData() {
       Object.keys(parkingPlaces).forEach(key => {
         const place = parkingPlaces[key];
 
-        // [FIX] Проверяем buildingId внутри объекта
+        // Проверяем buildingId внутри объекта
         if (place.buildingId !== building.id) return;
 
         // Фильтруем мета-данные (count, enabled), оставляем только сами места

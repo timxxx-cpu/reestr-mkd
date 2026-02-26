@@ -57,6 +57,21 @@ export default defineConfig([
       'jsx-a11y/interactive-supports-focus': 'warn',
       'jsx-a11y/label-has-associated-control': 'warn',
       'jsx-a11y/no-static-element-interactions': 'warn',
+
+      // Guardrail: legacy editor import-path удалён из кодовой базы,
+      // новые зависимости должны идти только через feature-структуру.
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@components/editors', '@components/editors/*'],
+              message:
+                'Legacy editor path removed. Use @/features/steps/* imports instead.',
+            },
+          ],
+        },
+      ],
     },
   },
 
