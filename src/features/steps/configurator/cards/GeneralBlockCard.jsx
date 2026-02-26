@@ -14,6 +14,9 @@ export default function GeneralBlockCard({
   const isResidential = currentBlock?.type === 'Ж';
   const canEditBlockAddress = String(building?.category || '').includes('residential');
 
+  // ВАЖНО: Разделяем поля! Для жилых пишем в entrances, для котельных/паркингов в inputs
+  const entrancesField = isResidential ? 'entrances' : 'inputs';
+
   const increment = (field, max = 100) => {
     const val = parseInt(details[field]) || 0;
     updateDetail(field, Math.min(max, val + 1));
@@ -25,7 +28,6 @@ export default function GeneralBlockCard({
   const renderCounterValue = val =>
     val === '' || val === undefined ? <span className="text-red-300">?</span> : val;
 
-  // Полный адрес с Домом №
   const fullHouseAddress = [
     building.region,
     building.district,
@@ -46,17 +48,17 @@ export default function GeneralBlockCard({
             <div className="flex items-center gap-3">
               <button
                 disabled={isReadOnly}
-                onClick={() => decrement('entrances', 1)}
+                onClick={() => decrement(entrancesField, 1)}
                 className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50"
               >
                 -
               </button>
               <span className="font-bold text-lg w-8 text-center">
-                {renderCounterValue(details.entrances)}
+                {renderCounterValue(details[entrancesField])}
               </span>
               <button
                 disabled={isReadOnly}
-                onClick={() => increment('entrances', 30)}
+                onClick={() => increment(entrancesField, 30)}
                 className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50"
               >
                 +
@@ -96,12 +98,11 @@ export default function GeneralBlockCard({
         </div>
       </Card>
 
-      {/* Адрес блока (для жилых зданий и блоков) */}
+      {/* Адрес блока */}
       {canEditBlockAddress && (
         <Card className="p-6 shadow-sm flex flex-col">
           <SectionTitle icon={MapPin}>Адрес</SectionTitle>
 
-          {/* Инфо о доме (ОСНОВНОЙ АДРЕС) */}
           <div className="mb-4 p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs">
             <div className="flex items-center gap-1.5 text-slate-400 mb-1">
               <Building size={10} />
@@ -121,7 +122,6 @@ export default function GeneralBlockCard({
                 disabled={isReadOnly}
                 className="mt-1 rounded text-blue-600 w-4 h-4 disabled:cursor-not-allowed"
               />
-              {/* [ИЗМЕНЕНО] */}
               <div>
                 <span className="text-sm font-bold text-slate-700">Указать отдельный адрес блока</span>
                 <p className="text-[10px] text-slate-400">
@@ -132,7 +132,6 @@ export default function GeneralBlockCard({
 
             {details.hasCustomAddress && (
               <div className="animate-in slide-in-from-top-2 fade-in duration-300 flex items-center gap-2">
-                {/* [ИЗМЕНЕНО] */}
                 <span className="text-slate-500 font-bold text-sm">Корпус №</span>
                 <Input
                   value={details.customHouseNumber || ''}

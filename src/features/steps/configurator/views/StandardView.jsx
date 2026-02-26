@@ -65,7 +65,6 @@ export default function StandardView({ building, mode }) {
     });
   }, [visibleBlocks]);
 
-  // 1. Сначала определяем текущий блок и ключи
   const currentBlock = blocksList.find(b => b.id === activeTabId);
   const detailsKey = currentBlock ? `${building.id}_${currentBlock.id}` : null;
   const featuresKey = `${building.id}_features`;
@@ -107,26 +106,19 @@ export default function StandardView({ building, mode }) {
     []
   );
 
-  // 2. Затем формируем объект details
   const details = useMemo(
     () => ({ ...defaultDetails, ...(buildingDetails[detailsKey] || {}) }),
     [defaultDetails, buildingDetails, detailsKey]
   );
 
-  // 3. Вызываем хук валидации (он зависит от details)
   const { errors } = useValidation(BuildingConfigSchema, details);
 
-  // 4. Эффект очистки данных идет ПОСЛЕ того, как все переменные объявлены
   useEffect(() => {
     if (!currentBlock || !detailsKey || isReadOnly) return;
 
-    // Вычисляем, как данные должны выглядеть в идеале
     const cleaned = cleanBlockDetails(building, currentBlock, details);
-
-    // Берем то, что СЕЙЧАС лежит в хранилище
     const currentStored = buildingDetails[detailsKey] || {};
 
-    // Сравниваем и обновляем "тихо" (silent: true), если есть разница
     if (JSON.stringify(cleaned) !== JSON.stringify(currentStored)) {
       setBuildingDetails(prev => ({ ...prev, [detailsKey]: cleaned }), { silent: true });
     }
@@ -196,12 +188,19 @@ export default function StandardView({ building, mode }) {
 
   const localResBlocks = useMemo(() => blocksList.filter(b => b.type === 'Ж'), [blocksList]);
 
+  // УНИВЕРСАЛЬНАЯ ПРОВЕРКА ДЛЯ ДОБАВЛЕНИЯ ЭТАЖЕЙ
   const toggleFloorAttribute = (targetList, value) => {
     if (isReadOnly) return;
     const currentTarget = details[targetList] || [];
-    const newTarget = currentTarget.includes(value)
-      ? currentTarget.filter(f => f !== value)
+    const stringValue = String(value);
+    
+    // Проверяем наличие элемента, игнорируя типы (число/строка)
+    const exists = currentTarget.some(f => String(f) === stringValue);
+    
+    const newTarget = exists
+      ? currentTarget.filter(f => String(f) !== stringValue)
       : [...currentTarget, value];
+      
     updateDetail(targetList, newTarget);
   };
 
@@ -294,7 +293,6 @@ export default function StandardView({ building, mode }) {
 
   return (
     <>
-      {/* Темная панель вкладок */}
       <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full mb-8 shadow-inner border border-slate-700">
         {visibleBlocks.map(block => {
           const label = formatBlockSwitcherLabel({
@@ -315,7 +313,6 @@ export default function StandardView({ building, mode }) {
           );
         })}
 
-        {/* Разделитель */}
         <div className="w-px h-6 bg-slate-700 mx-1"></div>
 
         <DarkTabButton

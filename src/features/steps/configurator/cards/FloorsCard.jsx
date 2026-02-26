@@ -13,7 +13,7 @@ export default function FloorsCard({
   stylobateHeightUnderCurrentBlock,
   currentBlock,
   building,
-  blockBasements, // Нужен только для рендера кнопок P-1 в блоке коммерции
+  blockBasements,
   toggleFloorAttribute,
 }) {
   const isReadOnly = useReadOnly();
@@ -22,7 +22,6 @@ export default function FloorsCard({
     <Card className="p-6 shadow-sm">
       <SectionTitle icon={Maximize}>Параметры этажности</SectionTitle>
 
-      {/* 1. Поля ввода этажей */}
       <div className="grid grid-cols-2 gap-8 mb-6">
         <div className="space-y-1">
           <Label>С этажа</Label>
@@ -74,7 +73,6 @@ export default function FloorsCard({
         </div>
       </div>
 
-      {/* 2. Чекбоксы доп. этажей */}
       <div className="flex flex-wrap gap-4 mt-4 mb-6">
         {[
           { k: 'hasBasementFloor', l: 'Цокольный этаж', disabled: isResBasementLocked },
@@ -101,7 +99,6 @@ export default function FloorsCard({
         ))}
       </div>
 
-      {/* 3. Технические этажи */}
       <div className="mt-4 p-4 bg-amber-50/50 border border-amber-100 rounded-xl">
         <div className="flex items-center gap-2 mb-3">
           <div className="p-1.5 bg-amber-100 text-amber-600 rounded-lg">
@@ -116,7 +113,8 @@ export default function FloorsCard({
         </div>
         <div className="flex flex-wrap gap-1.5">
           {floorRange.map((f, idx) => {
-            const isTech = details.technicalFloors?.includes(f);
+            // УНИВЕРСАЛЬНАЯ ПРОВЕРКА
+            const isTech = details.technicalFloors?.some(val => String(val) === String(f));
             const isGap = idx > 0 && idx % 10 === 0;
             const isLockedByStylobate =
               currentBlock.type === 'Ж' && f <= stylobateHeightUnderCurrentBlock;
@@ -156,7 +154,6 @@ export default function FloorsCard({
         </div>
       </div>
 
-      {/* 4. Коммерция (Только для жилых блоков, если в доме есть коммерция) */}
       {building.hasNonResPart && currentBlock.type === 'Ж' && (
         <div className="mt-6 p-4 bg-blue-50/50 border border-blue-100 rounded-xl animate-in fade-in slide-in-from-top-2">
           <div className="flex items-center gap-2 mb-4">
@@ -171,7 +168,6 @@ export default function FloorsCard({
             </div>
           </div>
           <div className="flex flex-wrap gap-1.5 mb-4">
-            {/* Подвалы - показываем кнопки для выбора, если подвалы созданы */}
             {blockBasements.map((b, idx) => {
               const val = `basement_${b.id}`;
               const isActive = details.commercialFloors?.includes(val);
@@ -187,7 +183,6 @@ export default function FloorsCard({
               );
             })}
 
-            {/* Цоколь */}
             {details.hasBasementFloor && (
               <button
                 disabled={isReadOnly}
@@ -198,13 +193,12 @@ export default function FloorsCard({
               </button>
             )}
 
-            {/* Этажи */}
             {floorRange.map((f, idx) => {
               const floorKey = String(f);
-              const isComm =
-                details.commercialFloors?.includes(floorKey) ||
-                details.commercialFloors?.includes(f);
-              const isCommTech = details.commercialFloors?.includes(`${f}-Т`);
+              // УНИВЕРСАЛЬНАЯ ПРОВЕРКА
+              const isComm = details.commercialFloors?.some(val => String(val) === floorKey);
+              const isCommTech = details.commercialFloors?.some(val => String(val) === `${f}-Т`);
+              
               const isLockedByStylobate = f <= stylobateHeightUnderCurrentBlock;
               const isDisabled = isLockedByStylobate || isReadOnly;
               return (
@@ -233,7 +227,7 @@ export default function FloorsCard({
                   </button>
 
                   {/* Кнопка для Тех. этажа */}
-                  {details.technicalFloors?.includes(f) && (
+                  {details.technicalFloors?.some(val => String(val) === String(f)) && (
                     <button
                       disabled={isReadOnly}
                       onClick={() => toggleFloorAttribute('commercialFloors', `${f}-Т`)}
@@ -251,7 +245,6 @@ export default function FloorsCard({
               );
             })}
 
-            {/* Спец. этажи */}
             {details.hasAttic && (
               <button
                 disabled={isReadOnly}

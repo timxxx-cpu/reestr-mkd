@@ -122,7 +122,7 @@ export const useWorkflowOperations = ({
 
         errors = backendErrors.map((err, idx) => ({
           id: `${err.code || 'VALIDATION'}-${idx}`,
-          title: err.code || 'VALIDATION_ERROR',
+          title: err.title || err.code || 'VALIDATION_ERROR',
           description: err.message || 'Ошибка проверки данных',
           source: 'backend',
         }));

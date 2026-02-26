@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-// --- Базовые типы ---
-
 export const MopItemSchema = z.object({
   id: z.string().uuid().optional(),
   type: z.string().min(1, 'Тип обязателен'),
@@ -96,7 +94,7 @@ export const ComplexInfoSchema = z
     district: z.string().optional(),
     street: z.string().min(5, 'Укажите корректный адрес'),
     landmark: z.string().optional(),
-    dateStartProject: z.string().nullish(), // Разрешает string | null | undefined
+    dateStartProject: z.string().nullish(),
     dateEndProject: z.string().nullish(),
     dateStartFact: z.string().nullish(),
     dateEndFact: z.string().nullish(),
@@ -130,7 +128,6 @@ export const BuildingModalSchema = z.object({
   infraType: z.string().optional(),
 });
 
-// [ВАЖНО] Все поля optional, чтобы step-validators мог управлять логикой обязательности
 export const BuildingConfigSchema = z
   .object({
     floorsFrom: z.coerce.number().int().min(1, 'Минимум 1 этаж').optional(),
@@ -140,11 +137,11 @@ export const BuildingConfigSchema = z
       .min(1, 'Минимум 1 этаж')
       .max(100, 'Максимум 100 этажей')
       .optional(),
+    
     entrances: z.coerce
       .number()
       .int()
-      .min(1, 'Минимум 1 подъезд')
-      .max(30, 'Максимум 30 подъездов')
+      .max(30, 'Максимум 30 подъездов/входов')
       .optional(),
 
     foundation: z.string().min(1, 'Выберите тип фундамента').optional(),
@@ -173,12 +170,10 @@ export const BuildingConfigSchema = z
     hasLoft: z.boolean().optional(),
     hasExploitableRoof: z.boolean().optional(),
 
-    // Паркинг
     lightStructureType: z.string().optional(),
   })
   .refine(
     data => {
-      // Range check только если оба поля существуют и не undefined
       if (
         data.floorsFrom !== undefined &&
         data.floorsTo !== undefined &&
@@ -217,7 +212,6 @@ export const ProjectSchema = z.object({
   name: z.string().min(3, 'Минимум 3 символа'),
   status: z.string(),
   author: z.string().optional(),
-  // Используем nullish() вместо optional(), чтобы разрешить null из БД
   lastModified: z.string().nullish(),
   complexInfo: z.record(z.string(), z.any()).optional(),
   composition: z.array(BuildingMetaSchema).default([]),

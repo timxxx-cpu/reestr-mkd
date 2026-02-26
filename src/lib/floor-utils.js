@@ -1,12 +1,5 @@
 import { getBlocksList } from './utils';
 
-/**
- * Генерация списка этажей и признаков для блока здания.
- * Используется для синхронизации floors и для UI.
- * @param {import('./types').BuildingMeta} building
- * @param {import('./dto').BuildingBlock} currentBlock
- * @param {Record<string, any>} buildingDetails
- */
 export const buildFloorList = (building, currentBlock, buildingDetails = {}) => {
   if (!building || !currentBlock) return [];
 
@@ -22,7 +15,10 @@ export const buildFloorList = (building, currentBlock, buildingDetails = {}) => 
   const blockDetails = buildingDetails[effectiveDetailsKey] || {};
   const features = buildingDetails[`${building.id}_features`] || {};
   const basements = features.basements || [];
+  
+  // УНИВЕРСАЛЬНОЕ ПРИВЕДЕНИЕ ТИПОВ
   const commFloors = (blockDetails.commercialFloors || []).map(val => String(val));
+  const techFloors = (blockDetails.technicalFloors || []).map(val => Number(val)); 
 
   const isParking =
     building.category === 'parking_separate' || currentBlock.originalType === 'parking';
@@ -220,7 +216,8 @@ export const buildFloorList = (building, currentBlock, buildingDetails = {}) => 
       });
     }
 
-    if (blockDetails.technicalFloors?.includes(i)) {
+    // ИСПОЛЬЗУЕМ techFloors
+    if (techFloors.includes(i)) {
       const isTechMixed = commFloors.includes(`${i}-Т`);
       list.push({
         id: `floor_${i}_tech`,
@@ -248,20 +245,21 @@ export const buildFloorList = (building, currentBlock, buildingDetails = {}) => 
     }
   }
 
-  const extraTechs = (blockDetails.technicalFloors || []).filter(f => Number(f) > end);
+  // ИСПОЛЬЗУЕМ techFloors
+  const extraTechs = techFloors.filter(f => f > end);
   extraTechs.forEach(f => {
     list.push({
       id: `floor_${f}_tech_extra`,
       floorKey: `tech:${f}`,
       label: `${f} (Тех)`,
-      index: Number(f),
+      index: f,
       type: 'technical',
       isComm: false,
-      sortOrder: Number(f) * 10,
+      sortOrder: f * 10,
       isStylobate: false,
       isSeparator: false,
       isInserted: false,
-      parentFloorIndex: Number(f),
+      parentFloorIndex: f,
       basementId: null,
       flags: {
         isTechnical: true,

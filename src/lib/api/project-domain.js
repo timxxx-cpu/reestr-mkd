@@ -52,6 +52,8 @@ export const createProjectDomainApi = ({
     const buildingsRes = { data: context.buildings || [], error: null };
     const historyRes = { data: context.history || [], error: null };
     const stepsRes = { data: context.steps || [], error: null };
+    const markersRes = { data: context.block_floor_markers || [], error: null }; 
+    const basementsRes = { data: context.basements || [], error: null };
 
     if (pRes.error) throw pRes.error;
 
@@ -88,10 +90,32 @@ export const createProjectDomainApi = ({
 
     (buildingsRes.data || []).forEach(b => {
       composition.push(mapBuildingFromDB(b, b.building_blocks));
+      
+      // Маппим подвалы для этого здания
+      const buildingBasements = basementsRes.data.filter(basement => basement.building_id === b.id).map(basement => {
+         const levels = {};
+         (basement.basement_parking_levels || []).forEach(lvl => {
+            levels[lvl.depth_level] = lvl.is_enabled;
+         });
+         return {
+            id: basement.id,
+            buildingId: basement.building_id,
+            blockId: basement.block_id,
+            blocks: [basement.block_id], 
+            depth: basement.depth,
+            hasParking: basement.has_parking,
+            parkingLevels: levels
+         };
+      });
+
+      if (buildingBasements.length > 0) {
+        buildingDetails[`${b.id}_features`] = { basements: buildingBasements };
+      }
 
       b.building_blocks.forEach(block => {
         const uiKey = `${b.id}_${block.id}`;
-        const mapped = mapBlockDetailsFromDB(b, block);
+        // Передаем маркеры в маппер
+        const mapped = mapBlockDetailsFromDB(b, block, markersRes.data);
         buildingDetails[uiKey] = mapped;
       });
     });

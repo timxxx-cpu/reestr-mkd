@@ -34,7 +34,6 @@ const NUMERIC_FIELDS = [
   'seismicity',
 ];
 
-// Хелпер для получения виртуального ID из floorKey (для связи с entrancesData)
 const getVirtualId = floorKey => floorKeyToVirtualId(floorKey);
 
 const normalizeNumericDetails = details => {
@@ -72,9 +71,6 @@ const normalizeNumericDetails = details => {
   return { normalized, invalidFields };
 };
 
-/**
- * Вспомогательная функция для сбора ошибок по конфигурации здания
- */
 const getBuildingErrors = (building, buildingDetails, mode) => {
   const errors = [];
   const blocks = getBlocksList(building, buildingDetails);
@@ -93,6 +89,9 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
 
   if (relevantBlocks.length === 0) return [];
 
+  const bCodeStr = building.buildingCode ? `[${building.buildingCode}] ` : '';
+  const houseStr = building.houseNumber ? ` (д. ${building.houseNumber})` : '';
+
   for (const block of relevantBlocks) {
     const detailsKey = `${building.id}_${block.id}`;
     const details = buildingDetails[detailsKey] || {};
@@ -101,14 +100,13 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
 
     let blockName = block.tabLabel;
     if (blockName === 'main') blockName = 'Основной блок';
-    const contextTitle = `Объект: ${building.label} (Блок: ${blockName})`;
+    
+    const contextTitle = `${bCodeStr}Объект: ${building.label}${houseStr} (Блок: ${blockName})`;
 
     const requiredFields = [];
 
-    // --- НОВАЯ ЛОГИКА: ПРОВЕРКА ИНЖЕНЕРИИ (КРОМЕ ПАРКИНГОВ) ---
     if (!isParking) {
       const engineering = details.engineering || {};
-      // Проверяем, есть ли хотя бы одно значение true
       const hasEngineering = Object.values(engineering).some(val => val === true);
       
       if (!hasEngineering) {
@@ -118,11 +116,18 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
         });
       }
     }
-    // ----------------------------------------------------------
 
     if (isResidential) {
       requiredFields.push('foundation', 'walls', 'slabs', 'roof', 'seismicity');
       requiredFields.push('entrances', 'floorsFrom', 'floorsTo');
+
+      if (cleanedDetails.entrances !== undefined && cleanedDetails.entrances < 1) {
+        errors.push({
+          title: contextTitle,
+          description: 'Поле "Количество подъездов/входов": Минимум 1 подъезд',
+        });
+      }
+
     } else if (isInfra) {
       requiredFields.push(
         'floorsCount',
@@ -133,6 +138,8 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
         'roof',
         'seismicity'
       );
+      delete cleanedDetails.entrances;
+
     } else if (isParking) {
       if (building.constructionType === 'capital') {
         requiredFields.push(
@@ -147,6 +154,8 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
       } else if (building.constructionType === 'light') {
         requiredFields.push('lightStructureType');
       }
+
+      delete cleanedDetails.entrances;
 
       if (building.parkingType !== 'underground' && building.constructionType !== 'capital') {
         cleanedDetails = { ...cleanedDetails };
@@ -165,8 +174,6 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
         delete cleanedDetails.levelsDepth;
       }
 
-      // Для наземного паркинга с легкими/открытыми конструкциями
-      // не применяем поля капитального контура, чтобы не валидировать лишние 0/пустые значения.
       const isGroundLightOrOpen =
         !isUnderground && ['light', 'open'].includes(building.constructionType);
       if (isGroundLightOrOpen) {
@@ -285,8 +292,6 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
   return errors;
 };
 
-// --- ВАЛИДАТОРЫ ИНВЕНТАРИЗАЦИИ ---
-
 const isHiddenStylobateFloorForResidentialBlock = (building, block, floor) => {
   const isResidentialBuilding = building?.category?.includes?.('residential');
   const isResidentialBlock = block?.type === 'Ж' || block?.type === 'residential';
@@ -323,16 +328,12 @@ const validateFloors = data => {
       blockFloorKeys.forEach(key => {
         const f = floorData[key];
 
-        // Стилобатные этажи жилого блока скрыты на шаге "Внешняя инвентаризация"
-        // и заполняются в связанном нежилом блоке, поэтому исключаем их из проверки.
         if (isHiddenStylobateFloorForResidentialBlock(building, block, f)) {
           return;
         }
 
-        // Используем label из данных этажа для сообщения об ошибке
         const floorLabel = f.label || key.split('_').pop();
 
-        // 1. Высота (не для крыши)
         if (!['roof'].includes(f.type) && !key.includes('roof')) {
           if (!f.height) {
             errors.push({
@@ -350,7 +351,6 @@ const validateFloors = data => {
           }
         }
 
-        // 2. Площадь проектная
         const areaErr = Validators.checkPositive(f.areaProj);
         if (areaErr) {
           errors.push({
@@ -359,7 +359,6 @@ const validateFloors = data => {
           });
         }
 
-        // 3. Критическое расхождение площадей (Правило 15%)
         const diffErr = Validators.checkDiff(f.areaProj, f.areaFact);
         if (diffErr) {
           errors.push({
@@ -438,7 +437,6 @@ const validateEntrances = data => {
       blockFloorKeys.forEach(floorKey => {
         const floor = floorData[floorKey];
 
-        // Умный поиск виртуального ID
         let virtualFloorId = getVirtualId(floor.floorKey);
 
         if (!virtualFloorId || (virtualFloorId.length > 30 && !virtualFloorId.startsWith('base'))) {
@@ -543,15 +541,11 @@ const validateApartments = data => {
   const errors = [];
   const numbersMap = {};
 
-  // 1. Проверка на дубликаты
-  // Допускаем одинаковые номера в разных блоках (в пределах одного здания),
-  // но запрещаем дубли внутри одного и того же блока.
   Object.values(flatMatrix).forEach(unit => {
     if (!unit.buildingId) return;
     if (!unit.blockId) return;
     const num = String(unit.num || '').trim();
     if (num !== '') {
-      // Ключ строго привязан к blockId
       const key = `${unit.blockId}_${num}`;
       
       if (numbersMap[key]) {
@@ -573,7 +567,6 @@ const validateApartments = data => {
     }
   });
 
-  // 2. Проверка на наличие пустых номеров и ЛОГИКА ДУПЛЕКСОВ
   composition.forEach(building => {
     if (!building.category.includes('residential')) return;
 
@@ -584,7 +577,6 @@ const validateApartments = data => {
       const prefix = `${building.id}_${block.id}`;
       const blockFloorKeys = Object.keys(floorData).filter(k => k.startsWith(prefix));
 
-      // ПРОВЕРКА ДУПЛЕКСОВ
       blockFloorKeys.forEach(floorKey => {
         const floor = floorData[floorKey];
         if (floor && floor.isDuplex) {
@@ -628,7 +620,6 @@ const validateApartments = data => {
         }
       });
 
-      // ПРОВЕРКА НОМЕРОВ КВАРТИР ПО ПЛАНОВОМУ КОЛИЧЕСТВУ В МАТРИЦЕ
       const blockFloors = blockFloorKeys.map(key => ({
         key,
         floor: floorData[key],
@@ -920,7 +911,6 @@ export const validateStepCompletion = (stepId, contextData) => {
 
 export const getStepBlocksForStatus = (stepId, building, buildingDetails = {}) => {
   const blocks = getBlocksList(building, buildingDetails);
-// ...
 
   if (stepId === 'registry_nonres') return blocks.filter(b => b.type !== 'Ж');
   if (['registry_res', 'entrances', 'apartments', 'mop'].includes(stepId)) {
@@ -952,8 +942,6 @@ const blockHasStepData = (stepId, detailsKey, contextData = {}) => {
 
 export const buildScopedContextForBlock = (stepId, building, block, contextData = {}) => {
   const detailsKey = `${building.id}_${block.id}`;
-// ...
-// ...
 
   if (stepId === 'registry_nonres' || stepId === 'registry_res') {
     return {
@@ -988,7 +976,6 @@ export const evaluateBuildingFillStatusForStep = (stepId, building, contextData 
     const scopedContext = buildScopedContextForBlock(stepId, building, block, contextData);
     const errors = validateStepCompletion(stepId, scopedContext) || [];
 
-    // Используем тернарный оператор вместо переопределения let, чтобы избежать ошибок типов
     const status =
       errors.length > 0
         ? hasData
@@ -1010,7 +997,6 @@ export const evaluateBuildingFillStatusForStep = (stepId, building, contextData 
   const isAllFilled = statuses.every(item => item === BLOCK_FILL_STATUS.FILLED);
   const isAllEmpty = statuses.every(item => item === BLOCK_FILL_STATUS.EMPTY);
 
-  // Вычисляем статус здания без использования let
   const buildingStatus = isAllFilled
     ? BLOCK_FILL_STATUS.FILLED
     : isAllEmpty

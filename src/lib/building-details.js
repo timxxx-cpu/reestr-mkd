@@ -63,11 +63,13 @@ export const cleanBlockDetails = (building, block, details) => {
       'lightStructureType',
       'parentBlocks',
       'commercialFloors',
-      'technicalFloors',
-      'hasTechnicalFloor',
+      'entrances', // У инфры мы используем inputs, поэтому удаляем entrances
     ]);
   } else if (isParking) {
-    cleaned = dropFields(cleaned, ['commercialFloors', 'technicalFloors', 'hasTechnicalFloor']);
+    cleaned = dropFields(cleaned, [
+      'commercialFloors', 
+      'entrances', // У паркингов мы используем inputs, поэтому удаляем entrances
+    ]);
   } else {
     cleaned = dropFields(cleaned, [
       'inputs',

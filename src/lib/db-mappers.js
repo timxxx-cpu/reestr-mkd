@@ -9,7 +9,6 @@
 /** @typedef {import('./dto').UiFloor} UiFloor */
 import { normalizeProjectStatusFromDb } from './project-status';
 
-// Хелпер для безопасного извлечения (Supabase может вернуть массив или объект)
 const getOne = val => (Array.isArray(val) ? val[0] || {} : val || {});
 
 const normalizeParkingConstructionFromDb = constructionType => {
@@ -135,13 +134,27 @@ export const mapBuildingFromDB = (b, blocks = []) => {
 };
 
 // --- 3. DETAILS (BLOCK CONFIG) ---
-export const mapBlockDetailsFromDB = (b, block) => {
-  // Используем getOne для надежности
+export const mapBlockDetailsFromDB = (b, block, blockMarkers = []) => {
   const constr = getOne(block.block_construction);
   const eng = getOne(block.block_engineering);
 
+  // Восстанавливаем массивы из маркеров
+  const technicalFloors = [];
+  const commercialFloors = [];
+  
+  (blockMarkers || []).forEach(m => {
+    if (m.block_id === block.id) {
+       if (m.is_technical && m.floor_index !== null) {
+          technicalFloors.push(m.floor_index);
+       }
+       if (m.is_commercial) {
+          // Если есть ключ, используем его, иначе индекс
+          commercialFloors.push(m.marker_key || String(m.floor_index));
+       }
+    }
+  });
+
   return {
-    // Геометрия
     floorsCount: block.floors_count || 0,
     entrances: block.entrances_count || 0,
     inputs: block.entrances_count || 0,
@@ -161,14 +174,12 @@ export const mapBlockDetailsFromDB = (b, block) => {
     hasCustomAddress: block.has_custom_address,
     customHouseNumber: block.custom_house_number,
 
-    // Конструктив
     foundation: constr.foundation || '',
     walls: constr.walls || '',
     slabs: constr.slabs || '',
     roof: constr.roof || '',
     seismicity: constr.seismicity ? parseInt(constr.seismicity) : 0,
 
-    // Инженерия
     engineering: {
       electricity: !!eng.has_electricity,
       hvs: !!eng.has_water,
@@ -181,23 +192,16 @@ export const mapBlockDetailsFromDB = (b, block) => {
       lowcurrent: !!eng.has_lowcurrent,
     },
 
-    technicalFloors: [],
-    commercialFloors: [],
+    // ВАЖНО: Возвращаем массивы, чтобы UI знал, что включено
+    technicalFloors,
+    commercialFloors,
   };
 };
 
-// --- 4. FLOORS ---
-// Добавлены buildingId и blockId
-/**
- * @param {DbFloorRow} f
- * @param {string} buildingId
- * @param {string} blockId
- * @returns {UiFloor}
- */
 export const mapFloorFromDB = (f, buildingId, blockId) => ({
   id: f.id,
-  buildingId, // ВАЖНО для фильтрации
-  blockId, // ВАЖНО для фильтрации
+  buildingId, 
+  blockId, 
   floorKey: f.floor_key,
   label: f.label,
   type: f.floor_type,
@@ -206,7 +210,6 @@ export const mapFloorFromDB = (f, buildingId, blockId) => ({
   areaProj: f.area_proj,
   areaFact: f.area_fact,
   isDuplex: f.is_duplex,
-  // legacy/compat поля, которые используются в части редакторов
   isComm: !!f.is_commercial,
   isCommercial: !!f.is_commercial,
   sortOrder: f.index,
@@ -223,20 +226,11 @@ export const mapFloorFromDB = (f, buildingId, blockId) => ({
   },
 });
 
-// --- 5. UNITS ---
-// Добавлены buildingId и blockId
-/**
- * @param {DbUnitRow} u
- * @param {Array<any>} rooms
- * @param {Object.<string, number>} entranceMap
- * @param {string} buildingId
- * @param {string} blockId
- */
 export const mapUnitFromDB = (u, rooms = [], entranceMap = {}, buildingId, blockId) => ({
   id: u.id,
   unitCode: u.unit_code,
-  buildingId, // ВАЖНО
-  blockId, // ВАЖНО
+  buildingId, 
+  blockId, 
   num: u.number,
   number: u.number,
   type: u.unit_type || 'flat',
@@ -262,13 +256,6 @@ export const mapUnitFromDB = (u, rooms = [], entranceMap = {}, buildingId, block
   })),
 });
 
-// --- 6. MOP ---
-/**
- * @param {DbMopRow} m
- * @param {Object.<string, number>} entranceMap
- * @param {string} buildingId
- * @param {string} blockId
- */
 export const mapMopFromDB = (m, entranceMap = {}, buildingId, blockId) => ({
   id: m.id,
   buildingId,
@@ -280,8 +267,6 @@ export const mapMopFromDB = (m, entranceMap = {}, buildingId, blockId) => ({
   entranceIndex: m.entrance_id ? entranceMap[m.entrance_id] || 1 : 1,
   entranceId: m.entrance_id,
 });
-
-// --- HELPERS ---
 
 function mapCategoryToLabel(cat) {
   const map = {
