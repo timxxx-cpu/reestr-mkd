@@ -70,7 +70,8 @@ buildings (1) ──┬── (N) building_blocks ──┬── (1) block_cons
                 │                          │
                 │                          └── (N) block_floor_markers
                 │
-                └── (N) basements ──── (N) basement_parking_levels
+                └── (N) building_blocks[is_basement_block=true]
+                       └── linked_block_ids[] -> building_blocks[is_basement_block=false]
 ```
 
 **Описание связей**:
@@ -108,21 +109,15 @@ buildings (1) ──┬── (N) building_blocks ──┬── (1) block_cons
    - Уникальность: UNIQUE(`block_id`, `marker_key`)
    - **Смысл**: Блок имеет маркеры для конфигурации этажей
    
-7. `buildings.id` ← `basements.building_id` **(1:N)**
+7. `buildings.id` ← `building_blocks.building_id` для `is_basement_block=true` **(1:N)**
    - Тип связи: Один-ко-многим
-   - FK: `basements.building_id` REFERENCES `buildings(id)` ON DELETE CASCADE
-   - **Смысл**: Здание может иметь подвалы
-   
-8. `building_blocks.id` ← `basements.block_id` **(1:N)**
-   - Тип связи: Один-ко-многим
-   - FK: `basements.block_id` REFERENCES `building_blocks(id)` ON DELETE CASCADE
-   - **Смысл**: Блок может иметь подвалы
-   
-9. `basements.id` ← `basement_parking_levels.basement_id` **(1:N)**
-   - Тип связи: Один-ко-многим
-   - FK: `basement_parking_levels.basement_id` REFERENCES `basements(id)` ON DELETE CASCADE
-   - Уникальность: UNIQUE(`basement_id`, `depth_level`)
-   - **Смысл**: Подвал имеет конфигурацию уровней для паркинга
+   - FK: `building_blocks.building_id` REFERENCES `buildings(id)` ON DELETE CASCADE
+   - **Смысл**: Подвалы хранятся как специальные записи в `building_blocks`
+
+8. `building_blocks.linked_block_ids[]` → `building_blocks.id` для `is_basement_block=false` **(N:M, логическая связь)**
+   - Тип связи: Многие-ко-многим (через массив UUID)
+   - Проверка: триггер `validate_basement_block_rules()` валидирует, что ссылки идут только на обычные блоки того же здания
+   - **Смысл**: Один подвал может обслуживать несколько блоков
 
 ### Иерархия FLOORS и UNITS (Этажи и помещения)
 
@@ -137,7 +132,7 @@ entrances (1) ──┬── (N) units (optional)
                 │
                 └── (N) common_areas (optional)
 
-basements (1) ──── (N) floors (optional)
+building_blocks[is_basement_block=true] (1) ──── (N) floors (optional via floors.basement_id)
 ```
 
 **Описание связей**:
@@ -172,9 +167,9 @@ basements (1) ──── (N) floors (optional)
    - FK: `common_areas.entrance_id` REFERENCES `entrances(id)` ON DELETE SET NULL
    - **Смысл**: МОП может быть привязан к подъезду (NULL для общих МОП)
    
-7. `basements.id` ← `floors.basement_id` **(1:N, OPTIONAL)**
+7. `building_blocks.id` (где `is_basement_block=true`) ← `floors.basement_id` **(1:N, OPTIONAL)**
    - Тип связи: Один-ко-многим (опциональная)
-   - FK: `floors.basement_id` REFERENCES `basements(id)` ON DELETE SET NULL
+   - FK: `floors.basement_id` REFERENCES `building_blocks(id)` ON DELETE SET NULL
    - **Смысл**: Этаж может быть частью подвала
 
 ### Связи с родительскими блоками (стилобаты)
@@ -201,10 +196,10 @@ building_blocks (parent) ──── building_blocks.parent_blocks[] (child)
 2. `applications` → `application_history`, `application_steps`
    - **Эффект**: Удаление заявки удаляет всю историю и шаги
    
-3. `buildings` → `building_blocks`, `basements`
+3. `buildings` → `building_blocks`, `building_blocks` (basement blocks)
    - **Эффект**: Удаление здания удаляет все блоки и подвалы
    
-4. `building_blocks` → `block_construction`, `block_engineering`, `floors`, `entrances`, `block_floor_markers`, `basements`
+4. `building_blocks` → `block_construction`, `block_engineering`, `floors`, `entrances`, `block_floor_markers`
    - **Эффект**: Удаление блока удаляет конструктив, инженерию, этажи, подъезды, маркеры
    
 5. `floors` → `entrance_matrix`, `units`, `common_areas`
@@ -213,8 +208,8 @@ building_blocks (parent) ──── building_blocks.parent_blocks[] (child)
 6. `units` → `rooms`
    - **Эффект**: Удаление помещения удаляет экспликацию
    
-7. `basements` → `basement_parking_levels`
-   - **Эффект**: Удаление подвала удаляет конфигурацию уровней
+7. `building_blocks` (basement blocks) → JSON-поля `basement_parking_levels` / `basement_communications`
+   - **Эффект**: Конфигурация подвала хранится в самой записи basement-блока
 
 **Полная цепочка каскадного удаления**:
 ```
@@ -224,7 +219,7 @@ projects
   └─► project_participants
   └─► project_documents
   └─► buildings
-       └─► building_blocks
+       └─► building_blocks (обычные и basement)
             └─► block_construction
             └─► block_engineering
             └─► floors
@@ -234,10 +229,8 @@ projects
                  └─► common_areas
             └─► entrances
             └─► block_floor_markers
-            └─► basements
-                 └─► basement_parking_levels
-       └─► basements
-            └─► basement_parking_levels
+
+Примечание: `basement_parking_levels` и `basement_communications` — JSON-поля внутри записи basement-блока, а не отдельные дочерние таблицы.
 ```
 
 ### ON DELETE SET NULL (Установка NULL)
@@ -253,7 +246,7 @@ projects
    - **Эффект**: Удаление подъезда не удаляет МОП, только обнуляет привязку
    - **Смысл**: МОП становится общим для этажа
    
-3. `basements.id` ← `floors.basement_id`
+3. `building_blocks.id` (basement block) ← `floors.basement_id`
    - **Эффект**: Удаление подвала не удаляет этажи, только обнуляет привязку
    - **Смысл**: Этаж сохраняется, но теряет связь с подвальным контуром
 
@@ -280,7 +273,7 @@ projects
 | `entrances` | (`block_id`, `number`) | Уникальный номер подъезда в блоке |
 | `entrance_matrix` | (`block_id`, `floor_id`, `entrance_number`) | Одна ячейка матрицы |
 | `block_floor_markers` | (`block_id`, `marker_key`) | Уникальный маркер в блоке |
-| `basement_parking_levels` | (`basement_id`, `depth_level`) | Один уровень в подвале |
+| `building_blocks` | (`building_id`, `is_basement_block`) + GIN(`linked_block_ids`) | Быстрая выборка basement-блоков и их связей |
 | `dict_room_types` | (`code`, `room_scope`) | Уникальный код в области применения |
 
 ### Составной уникальный индекс с функциями
@@ -331,8 +324,8 @@ UNIQUE INDEX uq_floors_block_idx_parent_basement_expr ON (
 | `units` | `unit_type` | Фильтрация по типу помещения |
 | `rooms` | `unit_id` | Выборка экспликации помещения |
 | `common_areas` | `floor_id` | Выборка МОП этажа |
-| `basements` | `building_id` | Выборка подвалов здания |
-| `basements` | `block_id` | Выборка подвалов блока |
+| `building_blocks` (basement blocks) | `building_id` | Выборка подвалов здания |
+| `building_blocks` (basement blocks) | `linked_block_ids` (GIN) | Выборка подвалов, связанных с блоком |
 | `block_floor_markers` | `block_id` | Выборка маркеров блока |
 
 ### Составные индексы
@@ -355,3 +348,9 @@ UNIQUE INDEX uq_floors_block_idx_parent_basement_expr ON (
 | `application_steps` | `block_statuses` | Статусы заполнения блоков в рамках конкретного шага (`step_index`) |
 
 `application_steps.block_statuses` обновляется отдельным действием «Сохранить» на шагах с блоками и не нарушает уникальность `(application_id, step_index)` — запись шага обновляется через upsert.
+
+## ВАЖНОЕ ОБНОВЛЕНИЕ basement-модели
+
+Текущая модель больше не использует отдельные таблицы `basements` и `basement_parking_levels`.
+Подвалы представлены как записи в `building_blocks` с `is_basement_block=true`, а их уровни/коммуникации хранятся в JSON-полях `basement_parking_levels` и `basement_communications`.
+Связь этажа с подвалом выполняется через `floors.basement_id -> building_blocks.id`.

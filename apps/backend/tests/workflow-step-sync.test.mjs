@@ -19,10 +19,10 @@ class MockSupabaseForUpsert {
 }
 
 test('getStageStepRange returns correct boundaries for every workflow stage', () => {
-  assert.deepEqual(getStageStepRange(1), { start: 0, end: 5 });
-  assert.deepEqual(getStageStepRange(2), { start: 6, end: 8 });
-  assert.deepEqual(getStageStepRange(3), { start: 9, end: 11 });
-  assert.deepEqual(getStageStepRange(4), { start: 12, end: 13 });
+  assert.deepEqual(getStageStepRange(1), { start: 0, end: 6 });
+  assert.deepEqual(getStageStepRange(2), { start: 7, end: 9 });
+  assert.deepEqual(getStageStepRange(3), { start: 10, end: 12 });
+  assert.deepEqual(getStageStepRange(4), { start: 13, end: 14 });
 });
 
 test('updateStepCompletion upserts completion flag for a single step', async () => {
@@ -63,7 +63,7 @@ test('updateStageVerification approves a whole stage range', async () => {
 
   const payload = supabase.calls[0].payload;
   assert.equal(payload.length, 3);
-  assert.deepEqual(payload.map(p => p.step_index), [9, 10, 11]);
+  assert.deepEqual(payload.map(p => p.step_index), [10, 11, 12]);
   assert.equal(payload.every(p => p.is_verified === true), true);
 });
 

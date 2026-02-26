@@ -24,7 +24,7 @@ async function collectProjectVersionEntities(supabase, projectId) {
   if (blockIds.length === 0) return entities;
 
   const [
-    { data: basements = [] },
+    { data: basementBlocks = [] },
     { data: floors = [] },
     { data: entrances = [] },
     { data: blockConstruction = [] },
@@ -32,7 +32,7 @@ async function collectProjectVersionEntities(supabase, projectId) {
     { data: blockMarkers = [] },
     { data: entranceMatrix = [] },
   ] = await Promise.all([
-    supabase.from('basements').select('*').in('building_id', buildingIds),
+    supabase.from('building_blocks').select('*').in('building_id', buildingIds).eq('is_basement_block', true),
     supabase.from('floors').select('*').in('block_id', blockIds),
     supabase.from('entrances').select('*').in('block_id', blockIds),
     supabase.from('block_construction').select('*').in('block_id', blockIds),
@@ -41,7 +41,7 @@ async function collectProjectVersionEntities(supabase, projectId) {
     supabase.from('entrance_matrix').select('*').in('block_id', blockIds),
   ]);
 
-  for (const row of basements) entities.push({ entityType: 'basement', entityId: row.id, snapshotData: row });
+  for (const row of basementBlocks) entities.push({ entityType: 'basement_block', entityId: row.id, snapshotData: row });
   for (const row of floors) entities.push({ entityType: 'floor', entityId: row.id, snapshotData: row });
   for (const row of entrances) entities.push({ entityType: 'entrance', entityId: row.id, snapshotData: row });
   for (const row of blockConstruction)
@@ -53,25 +53,17 @@ async function collectProjectVersionEntities(supabase, projectId) {
   for (const row of entranceMatrix)
     entities.push({ entityType: 'entrance_matrix', entityId: row.id, snapshotData: row });
 
-  const basementIds = basements.map(r => r.id);
   const floorIds = floors.map(r => r.id);
 
   const [
-    { data: basementParkingLevels = [] },
     { data: units = [] },
     { data: commonAreas = [] },
   ] = await Promise.all([
-    basementIds.length
-      ? supabase.from('basement_parking_levels').select('*').in('basement_id', basementIds)
-      : Promise.resolve({ data: [] }),
     floorIds.length ? supabase.from('units').select('*').in('floor_id', floorIds) : Promise.resolve({ data: [] }),
     floorIds.length
       ? supabase.from('common_areas').select('*').in('floor_id', floorIds)
       : Promise.resolve({ data: [] }),
   ]);
-
-  for (const row of basementParkingLevels)
-    entities.push({ entityType: 'basement_parking_level', entityId: row.id, snapshotData: row });
   for (const row of units) entities.push({ entityType: 'unit', entityId: row.id, snapshotData: row });
   for (const row of commonAreas)
     entities.push({ entityType: 'common_area', entityId: row.id, snapshotData: row });

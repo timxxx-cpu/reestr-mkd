@@ -7,7 +7,6 @@ import {
   Footprints,
   MapPin,
   Building2,
-  X,
 } from 'lucide-react';
 import { Card, SectionTitle, Label, Input, useReadOnly } from '@components/ui/UIKit';
 
@@ -18,8 +17,6 @@ export default function ParkingParametersCard({
   errorBorder,
   availableParents,
   toggleParentBlock,
-  canAddBasement,
-  createBasement,
   blockBasements,
   updateBasement,
   removeBasement,
@@ -130,13 +127,7 @@ export default function ParkingParametersCard({
                   <Label className="flex items-center gap-2">
                     <ArrowDownToLine size={14} /> Подвал
                   </Label>
-                  <button
-                    disabled={isReadOnly || !canAddBasement}
-                    onClick={createBasement}
-                    className={`px-2 py-1 rounded text-[10px] font-bold border transition-all ${canAddBasement && !isReadOnly ? 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200' : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed opacity-60'}`}
-                  >
-                    {canAddBasement ? '+ Добавить' : 'Макс. 1'}
-                  </button>
+                  <span className="text-[10px] text-slate-400">Создание отключено</span>
                 </div>
                 {blockBasements.map((base, idx) => (
                   <div

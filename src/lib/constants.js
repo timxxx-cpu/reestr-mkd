@@ -2,6 +2,7 @@ import {
   FileText,
   Layout,
   Warehouse,
+  Link2,
   Ruler,
   DoorOpen,
   Grid3X3,
@@ -172,16 +173,16 @@ export const VERSION_STATUS_LABELS = {
 // lastStepIndex - индекс шага в STEPS_CONFIG, после которого нужно отправлять на проверку
 export const WORKFLOW_STAGES = {
   // Этап 1: До инвентаризации подъездов (шаг 5) включительно
-  1: { lastStepIndex: 5, label: 'Этап 1: Инвентаризация' },
+  1: { lastStepIndex: 6, label: 'Этап 1: Инвентаризация' },
 
   // Этап 2: Нумерация, МОП, Паркинг (до шага 8)
-  2: { lastStepIndex: 8, label: 'Этап 2: Конфигурация' },
+  2: { lastStepIndex: 9, label: 'Этап 2: Конфигурация' },
 
   // Этап 3: Реестры (до шага 11)
-  3: { lastStepIndex: 11, label: 'Этап 3: Реестры' },
+  3: { lastStepIndex: 12, label: 'Этап 3: Реестры' },
 
   // Этап 4: Финал (до конца списка)
-  4: { lastStepIndex: 13, label: 'Финал: Интеграция' },
+  4: { lastStepIndex: 14, label: 'Финал: Интеграция' },
 };
 
 // --- 3. СТАТУСЫ ВНУТРЕННИХ ОБЪЕКТОВ (Зданий, помещений) ---
@@ -224,6 +225,13 @@ export const STEPS_CONFIG = [
   },
 
   // --- 3. ВВОД ДАННЫХ: ЖИЛЬЕ ---
+  {
+    id: 'basement_inventory',
+    title: 'Инвентаризация подвалов',
+    description: 'Глубины, коммуникации и привязка к блокам',
+    icon: Link2,
+  },
+
   {
     id: 'registry_res',
     title: 'Жилые блоки',

@@ -5,7 +5,6 @@ import { Box, ArrowUp, Footprints } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { Card, SectionTitle, Label, Input, useReadOnly } from '@components/ui/UIKit';
 import { BuildingConfigSchema } from '@lib/schemas';
-import { createClientId } from '@lib/utils';
 import { useValidation } from '@hooks/useValidation';
 
 // Наши карточки
@@ -73,20 +72,6 @@ export default function InfrastructureView({ building }) {
 
   // --- Логика Подвала ---
   const blockBasements = (features.basements || []).filter(b => b.blockId === blockId);
-  const canAddBasement = blockBasements.length < 3;
-
-  const createBlockBasement = () => {
-    if (isReadOnly || !canAddBasement) return;
-    const newB = {
-      id: createClientId(),
-      depth: 1,
-      blocks: [blockId],
-      buildingId: building.id,
-      blockId,
-    };
-    updateFeatures({ basements: [...(features.basements || []), newB] });
-  };
-
   const removeBasement = id => {
     if (isReadOnly) return;
     updateFeatures({ basements: (features.basements || []).filter(b => b.id !== id) });
@@ -177,8 +162,6 @@ export default function InfrastructureView({ building }) {
         <ConstructiveCard details={details} updateDetail={updateDetail} errors={errors} />
         <BasementCard
           blockBasements={blockBasements}
-          canAddBasement={canAddBasement}
-          createBlockBasement={createBlockBasement}
           removeBasement={removeBasement}
           updateBasement={updateBasement}
         />

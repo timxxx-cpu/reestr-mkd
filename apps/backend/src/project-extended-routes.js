@@ -3,6 +3,33 @@ import { generateFloorsModel } from './floor-generator.js';
 import { formatComplexCadastre } from './format-utils.js';
 import crypto from 'crypto';
 
+const COMMUNICATION_KEYS = ['electricity', 'water', 'sewerage', 'heating', 'ventilation', 'gas', 'firefighting'];
+
+const normalizeBasementDepth = value => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed)) return 1;
+  return Math.min(4, Math.max(1, parsed));
+};
+
+const normalizeParkingLevelsByDepth = (levels, depth) => {
+  const normalized = {};
+  if (!levels || typeof levels !== 'object') return normalized;
+  Object.entries(levels).forEach(([key, enabled]) => {
+    const lvl = Number.parseInt(key, 10);
+    if (!Number.isInteger(lvl) || lvl < 1 || lvl > depth) return;
+    normalized[String(lvl)] = !!enabled;
+  });
+  return normalized;
+};
+
+const normalizeBasementCommunications = communications => {
+  const source = communications && typeof communications === 'object' ? communications : {};
+  return COMMUNICATION_KEYS.reduce((acc, key) => {
+    acc[key] = !!source[key];
+    return acc;
+  }, {});
+};
+
 // Исправлен баг: building_id запрашивается один раз, а не три раза внутри Promise.all
 const syncFloorsForBlockWithGenerator = async (supabase, blockId) => {
   // Шаг 1: получаем building_id блока один раз
@@ -21,21 +48,25 @@ const syncFloorsForBlockWithGenerator = async (supabase, blockId) => {
     { data: block },
     { data: building },
     { data: allBlocks },
-    { data: basements },
     { data: markers },
     { data: existingFloors },
   ] = await Promise.all([
     supabase.from('building_blocks').select('*').eq('id', blockId).single(),
     supabase.from('buildings').select('*').eq('id', buildingId).single(),
     supabase.from('building_blocks').select('*').eq('building_id', buildingId),
-    supabase.from('basements').select('*').eq('building_id', buildingId),
     supabase.from('block_floor_markers').select('*').eq('block_id', blockId),
     supabase.from('floors').select('id, floor_key, index, parent_floor_index, basement_id').eq('block_id', blockId),
   ]);
 
   if (!block || !building) return new Error('Block or building not found');
 
-  let targetFloorsModel = generateFloorsModel(block, building, allBlocks || [], basements || [], markers || []);
+  if (block.is_basement_block) {
+    const { error: clearErr } = await supabase.from('floors').delete().eq('block_id', blockId);
+    if (clearErr) return clearErr;
+    return null;
+  }
+
+  let targetFloorsModel = generateFloorsModel(block, building, allBlocks || [], markers || []);
 
   const getConstraintKey = f => {
     const idx = Number(f.index || 0);
@@ -250,22 +281,49 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
     const buildingDetails = req.body?.buildingDetails || {};
 
     const { data: buildings, error: buildingsError } = await supabase
-      .from('buildings').select('id').eq('project_id', projectId);
+      .from('buildings').select('id, category, parking_type, construction_type').eq('project_id', projectId);
     if (buildingsError) return sendError(reply, 500, 'DB_ERROR', buildingsError.message);
 
+    const buildingMetaById = new Map((buildings || []).map(b => [b.id, b]));
     const knownBuildingIds = new Set((buildings || []).map(b => b.id));
 
     const toIntOrNull = v => (v === '' || v === undefined || v === null || isNaN(v) ? null : parseInt(v, 10));
     const toNullIfEmpty = v => (v === '' || v === undefined ? null : v);
 
-    // ПРОХОД 1: Сохраняем подвалы
+    // ПРОХОД 1: Сохраняем подвалы как отдельные basement-блоки
+    const featureBasementIdsByBuilding = new Map();
+
     for (const [key, details] of Object.entries(buildingDetails)) {
       if (!key.includes('_features')) continue;
 
       const buildingId = key.replace('_features', '');
       if (!knownBuildingIds.has(buildingId)) continue;
 
-      for (const base of (details.basements || [])) {
+      const buildingMeta = buildingMetaById.get(buildingId) || {};
+      const isUndergroundParkingBuilding = buildingMeta.category === 'parking_separate' && buildingMeta.parking_type === 'underground';
+      const isAbovegroundLightOrOpenParking =
+        buildingMeta.category === 'parking_separate' && buildingMeta.parking_type === 'aboveground' && ['light', 'open'].includes(buildingMeta.construction_type);
+
+      if (isUndergroundParkingBuilding || isAbovegroundLightOrOpenParking) {
+        featureBasementIdsByBuilding.set(buildingId, []);
+        continue;
+      }
+
+      const { data: targetBlocks = [], error: targetBlocksError } = await supabase
+        .from('building_blocks')
+        .select('id')
+        .eq('building_id', buildingId)
+        .eq('is_basement_block', false);
+      if (targetBlocksError) return sendError(reply, 500, 'DB_ERROR', targetBlocksError.message);
+      const singleTargetBlockId = targetBlocks.length === 1 ? targetBlocks[0].id : null;
+
+      const sourceBasements = buildingMeta.category === 'infrastructure'
+        ? (details.basements || []).slice(0, 1)
+        : (details.basements || []);
+
+      const ids = [];
+      let idx = 0;
+      for (const base of sourceBasements) {
         if (!base.id || !base.depth) continue;
 
         const linkedBlockIds = Array.isArray(base.blocks)
@@ -274,34 +332,59 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
         if (base.blockId && typeof base.blockId === 'string' && base.blockId.length === 36) {
           linkedBlockIds.push(base.blockId);
         }
-        const validBlockIds = Array.from(new Set(linkedBlockIds));
+        let validBlockIds = Array.from(new Set(linkedBlockIds));
+        if (validBlockIds.length === 0 && singleTargetBlockId) validBlockIds = [singleTargetBlockId];
         if (validBlockIds.length === 0) continue;
 
-        const { error: basementError } = await supabase.from('basements').upsert(
-          {
-            id: base.id,
-            building_id: buildingId,
-            block_id: validBlockIds[0],
-            depth: parseInt(base.depth, 10),
-            has_parking: !!base.hasParking,
-          },
-          { onConflict: 'id' }
-        );
+        const payload = {
+          id: base.id,
+          building_id: buildingId,
+          label: `Подвал ${idx + 1}`,
+          type: 'BAS',
+          is_basement_block: true,
+          linked_block_ids: validBlockIds,
+          basement_depth: normalizeBasementDepth(base.depth),
+          basement_has_parking: !!base.hasParking,
+          basement_parking_levels: normalizeParkingLevelsByDepth(base.parkingLevels, normalizeBasementDepth(base.depth)),
+          basement_communications: normalizeBasementCommunications(base.communications),
+          floors_count: 0,
+          floors_from: null,
+          floors_to: null,
+          entrances_count: Math.min(10, Math.max(1, Number.parseInt(base.entrancesCount, 10) || 1)),
+          elevators_count: 0,
+          vehicle_entries: 0,
+          levels_depth: 0,
+          light_structure_type: null,
+          parent_blocks: [],
+          has_basement: false,
+          has_attic: false,
+          has_loft: false,
+          has_roof_expl: false,
+          has_custom_address: false,
+          custom_house_number: null,
+        };
+
+        const { error: basementError } = await supabase.from('building_blocks').upsert(payload, { onConflict: 'id' });
         if (basementError) return sendError(reply, 500, 'DB_ERROR', basementError.message);
 
-        if (base.parkingLevels) {
-          const levels = Object.entries(base.parkingLevels).map(([lvl, enabled]) => ({
-            basement_id: base.id,
-            depth_level: parseInt(lvl, 10),
-            is_enabled: !!enabled,
-          }));
-          if (levels.length) {
-            const { error: levelsError } = await supabase
-              .from('basement_parking_levels')
-              .upsert(levels, { onConflict: 'basement_id,depth_level' });
-            if (levelsError) return sendError(reply, 500, 'DB_ERROR', levelsError.message);
-          }
-        }
+        ids.push(base.id);
+        idx += 1;
+      }
+      featureBasementIdsByBuilding.set(buildingId, ids);
+    }
+
+    for (const [buildingId, keepIds] of featureBasementIdsByBuilding.entries()) {
+      const { data: existingBasements = [], error: existingBasementsError } = await supabase
+        .from('building_blocks')
+        .select('id')
+        .eq('building_id', buildingId)
+        .eq('is_basement_block', true);
+      if (existingBasementsError) return sendError(reply, 500, 'DB_ERROR', existingBasementsError.message);
+
+      const deleteIds = existingBasements.map(r => r.id).filter(id => !keepIds.includes(id));
+      if (deleteIds.length > 0) {
+        const { error: deleteBasementBlocksError } = await supabase.from('building_blocks').delete().in('id', deleteIds);
+        if (deleteBasementBlocksError) return sendError(reply, 500, 'DB_ERROR', deleteBasementBlocksError.message);
       }
     }
 
@@ -335,7 +418,14 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
       if (blockError) return sendError(reply, 500, 'DB_ERROR', blockError.message);
 
       const markerTechSet = new Set(
-        (details.technicalFloors || []).map(v => Number(v)).filter(v => Number.isFinite(v)).map(v => String(v))
+        (details.technicalFloors || [])
+          .map(v => {
+            if (typeof v === 'string' && v.includes('-Т')) return v;
+            const parsed = Number.parseInt(v, 10);
+            if (!Number.isFinite(parsed)) return null;
+            return `${parsed}-Т`;
+          })
+          .filter(Boolean)
       );
       const markerCommSet = new Set((details.commercialFloors || []).map(v => String(v)));
 
@@ -748,26 +838,29 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
 
   app.get('/api/v1/projects/:projectId/basements', async (req, reply) => {
     const { projectId } = req.params;
-    const { data: buildings, error: bError } = await supabase.from('buildings').select('id').eq('project_id', projectId);
+    const { data: buildings, error: bError } = await supabase.from('buildings').select('id, category, parking_type, construction_type').eq('project_id', projectId);
     if (bError) return sendError(reply, 500, 'DB_ERROR', bError.message);
 
     const buildingIds = (buildings || []).map(b => b.id);
     if (!buildingIds.length) return reply.send([]);
 
     const { data, error } = await supabase
-      .from('basements').select('*, basement_parking_levels (depth_level, is_enabled)').in('building_id', buildingIds);
+      .from('building_blocks')
+      .select('id, building_id, linked_block_ids, basement_depth, basement_has_parking, basement_parking_levels, basement_communications, entrances_count')
+      .in('building_id', buildingIds)
+      .eq('is_basement_block', true);
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
 
     return reply.send((data || []).map(b => ({
       id: b.id,
       buildingId: b.building_id,
-      blockId: b.block_id,
-      depth: b.depth,
-      hasParking: b.has_parking,
-      parkingLevels: (b.basement_parking_levels || []).reduce((acc, l) => {
-        acc[l.depth_level] = l.is_enabled;
-        return acc;
-      }, {}),
+      blockId: b.linked_block_ids?.[0] || null,
+      blocks: b.linked_block_ids || [],
+      depth: b.basement_depth || 1,
+      hasParking: !!b.basement_has_parking,
+      parkingLevels: b.basement_parking_levels && typeof b.basement_parking_levels === 'object' ? b.basement_parking_levels : {},
+      communications: b.basement_communications && typeof b.basement_communications === 'object' ? b.basement_communications : {},
+      entrancesCount: Math.min(10, Math.max(1, Number.parseInt(b.entrances_count, 10) || 1)),
     })));
   });
 
@@ -783,10 +876,29 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
       return sendError(reply, 400, 'VALIDATION_ERROR', 'level must be integer in range [1..10]');
     }
 
-    const { error } = await supabase.from('basement_parking_levels').upsert(
-      { basement_id: basementId, depth_level: parsedLevel, is_enabled: !!req.body?.isEnabled },
-      { onConflict: 'basement_id,depth_level' }
-    );
+    const { data: row, error: getError } = await supabase
+      .from('building_blocks')
+      .select('id, basement_depth, basement_parking_levels')
+      .eq('id', basementId)
+      .eq('is_basement_block', true)
+      .single();
+    if (getError) return sendError(reply, 500, 'DB_ERROR', getError.message);
+
+    const basementDepth = normalizeBasementDepth(row?.basement_depth);
+    if (parsedLevel > basementDepth) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', `level must be <= basement depth (${basementDepth})`);
+    }
+
+    const levels = row?.basement_parking_levels && typeof row.basement_parking_levels === 'object'
+      ? { ...row.basement_parking_levels }
+      : {};
+    levels[String(parsedLevel)] = !!req.body?.isEnabled;
+
+    const { error } = await supabase
+      .from('building_blocks')
+      .update({ basement_parking_levels: levels, updated_at: new Date().toISOString() })
+      .eq('id', basementId)
+      .eq('is_basement_block', true);
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     return reply.send({ ok: true });
   });

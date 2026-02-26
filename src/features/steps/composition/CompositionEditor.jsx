@@ -263,6 +263,7 @@ const BuildingModal = ({
     parkingType: modal.parkingType,
     parkingConstruction: modal.parkingConstruction,
     infraType: modal.infraType,
+    basementsCount: modal.basementsCount,
   });
 
   const isMultiblockError =
@@ -504,6 +505,26 @@ const BuildingModal = ({
                 </Select>
               </div>
             )}
+
+            <div className="space-y-1.5 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-in fade-in">
+              <Label>
+                Количество подвалов <ErrorMsg field="basementsCount" />
+              </Label>
+              <Input
+                type="number"
+                min="0"
+                max="4"
+                value={modal.basementsCount ?? 0}
+                onChange={e =>
+                  setModal(m => ({
+                    ...m,
+                    basementsCount: Math.min(4, Math.max(0, parseInt(e.target.value, 10) || 0)),
+                  }))
+                }
+                disabled={isReadOnly || isSaving}
+              />
+              <p className="text-[10px] text-slate-500">Допустимо от 0 до 4.</p>
+            </div>
             <div className="space-y-1.5">
               <Label>Текущая стадия</Label>
               <Select
@@ -691,6 +712,7 @@ const CompositionEditor = () => {
     parkingConstruction: 'light',
     infraType: 'Котельная',
     blocksData: [],
+    basementsCount: 0,
   });
 
   const hasResidential = useMemo(
@@ -749,6 +771,7 @@ const CompositionEditor = () => {
       infraType: defaultInfraType,
       editingId: null,
       blocksData: [],
+      basementsCount: 0,
     });
   };
 
@@ -769,6 +792,7 @@ const CompositionEditor = () => {
       parkingType: item.parkingType || 'ground',
       parkingConstruction: item.constructionType || 'capital',
       infraType: item.infraType || 'Котельная',
+      basementsCount: item.basementsCount ?? 0,
       blocksData: Array.isArray(item.blocks)
         ? item.blocks.map((block, index) => ({
             id: block.id,
@@ -809,6 +833,7 @@ const CompositionEditor = () => {
       stage: modal.stage,
       dateStart: modal.dateStart,
       dateEnd: modal.dateEnd,
+      basementsCount: Math.min(4, Math.max(0, parseInt(modal.basementsCount, 10) || 0)),
     };
 
     if (modal.editingId) {

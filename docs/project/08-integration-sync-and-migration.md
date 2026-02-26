@@ -7,7 +7,7 @@
 - `participants` -> `project_participants` -> **Участники проекта**.
 - `documents` -> `project_documents` -> **Документы проекта**.
 - `composition` -> `buildings` + `building_blocks` -> **Состав объектов**.
-- `buildingDetails` -> `building_blocks` + `block_construction` + `block_engineering` + `basements` + `basement_parking_levels` + `block_floor_markers` -> **Параметры блоков**.
+- `buildingDetails` -> `building_blocks` + `block_construction` + `block_engineering` + `block_floor_markers` (включая basement-поля в `building_blocks` (`is_basement_block`, `linked_block_ids`, `basement_depth`, `basement_parking_levels`, `basement_communications`, `entrances_count`)) -> **Параметры блоков**.
 - `floorData` -> `floors` -> **Параметры этажей**.
 - `entrancesData` -> `entrance_matrix` -> **Матрица подъезд/этаж**.
 - `flatMatrix` -> `units` + `rooms` -> **Реестр помещений/экспликация**.

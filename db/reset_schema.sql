@@ -3,10 +3,14 @@
 
 begin;
 
+-- Full cleanup to avoid leftover objects (tables/indexes/sequences/triggers/functions)
+drop schema if exists public cascade;
+create schema public;
+
 create extension if not exists "pgcrypto";
 
 -- -----------------------------
--- DROP (children first)
+-- DROP (kept for compatibility in partial/manual reruns)
 -- -----------------------------
 drop table if exists application_steps cascade;
 drop table if exists application_history cascade;
@@ -15,14 +19,12 @@ drop table if exists application_locks cascade;
 drop table if exists object_versions cascade;
 drop table if exists dict_version_statuses cascade;
 drop table if exists dict_workflow_substatuses;
-drop table if exists basement_parking_levels cascade;
 drop table if exists common_areas cascade;
 drop table if exists rooms cascade;
 drop table if exists units cascade;
 drop table if exists entrance_matrix cascade;
 drop table if exists entrances cascade;
 drop table if exists floors cascade;
-drop table if exists basements cascade;
 drop table if exists block_floor_markers cascade;
 drop table if exists block_engineering cascade;
 drop table if exists block_construction cascade;
@@ -346,6 +348,12 @@ create table building_blocks (
   levels_depth int default 0,
   light_structure_type text,
   parent_blocks uuid[],
+  is_basement_block boolean not null default false,
+  linked_block_ids uuid[] not null default '{}',
+  basement_depth int,
+  basement_has_parking boolean not null default false,
+  basement_parking_levels jsonb not null default '{}'::jsonb,
+  basement_communications jsonb not null default '{}'::jsonb,
   has_basement boolean default false,
   has_attic boolean default false,
   has_loft boolean default false,
@@ -356,6 +364,104 @@ create table building_blocks (
   updated_at timestamptz not null default now()
 );
 create index idx_blocks_building on building_blocks(building_id);
+create index idx_blocks_is_basement on building_blocks(is_basement_block);
+create index idx_blocks_linked_basement_targets on building_blocks using gin(linked_block_ids);
+alter table building_blocks add constraint chk_basement_depth_range
+  check (not is_basement_block or (basement_depth is not null and basement_depth between 1 and 10));
+
+
+create or replace function validate_basement_block_rules()
+returns trigger
+language plpgsql
+as $$
+declare
+  b_category text;
+  b_parking_type text;
+  b_construction_type text;
+  basement_count int;
+  regular_blocks_count int;
+  lvl record;
+  depth_limit int;
+  comm_key text;
+begin
+  if not new.is_basement_block then
+    return new;
+  end if;
+
+  select category, parking_type, construction_type
+    into b_category, b_parking_type, b_construction_type
+  from buildings
+  where id = new.building_id;
+
+
+  depth_limit := coalesce(new.basement_depth, 1);
+
+  if new.basement_parking_levels is null or jsonb_typeof(new.basement_parking_levels) <> 'object' then
+    raise exception 'basement_parking_levels must be a JSON object';
+  end if;
+
+  for lvl in select key, value from jsonb_each(new.basement_parking_levels)
+  loop
+    if lvl.key !~ '^[0-9]+$' then
+      raise exception 'basement_parking_levels keys must be positive integer strings';
+    end if;
+    if (lvl.key)::int < 1 or (lvl.key)::int > depth_limit then
+      raise exception 'basement parking level % is out of basement depth bounds', lvl.key;
+    end if;
+    if jsonb_typeof(lvl.value) <> 'boolean' then
+      raise exception 'basement_parking_levels values must be boolean';
+    end if;
+  end loop;
+
+  if new.basement_communications is null or jsonb_typeof(new.basement_communications) <> 'object' then
+    raise exception 'basement_communications must be a JSON object';
+  end if;
+
+  for comm_key in select unnest(array['electricity','water','sewerage','heating','ventilation','gas','firefighting'])
+  loop
+    if not (new.basement_communications ? comm_key) then
+      raise exception 'basement_communications must contain key %', comm_key;
+    end if;
+    if jsonb_typeof(new.basement_communications -> comm_key) <> 'boolean' then
+      raise exception 'basement_communications.% must be boolean', comm_key;
+    end if;
+  end loop;
+
+  if array_length(new.linked_block_ids, 1) is not null then
+    select count(*) into regular_blocks_count
+    from building_blocks bb
+    where bb.building_id = new.building_id
+      and bb.is_basement_block = false
+      and bb.id = any(new.linked_block_ids);
+
+    if regular_blocks_count <> array_length(new.linked_block_ids, 1) then
+      raise exception 'linked_block_ids must reference regular blocks of same building';
+    end if;
+  end if;
+
+  if b_category = 'infrastructure' then
+    select count(*) into basement_count
+    from building_blocks bb
+    where bb.building_id = new.building_id
+      and bb.is_basement_block = true
+      and bb.id <> coalesce(new.id, '00000000-0000-0000-0000-000000000000'::uuid);
+    if basement_count >= 1 then
+      raise exception 'Infrastructure building can have only one basement block';
+    end if;
+  end if;
+
+  if b_category = 'parking_separate' and b_parking_type = 'aboveground' and b_construction_type in ('light', 'open') then
+    raise exception 'Aboveground light/open parking cannot have basement blocks';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger trg_validate_basement_block_rules
+  before insert or update on building_blocks
+  for each row
+  execute function validate_basement_block_rules();
 
 create table block_construction (
   id uuid primary key default gen_random_uuid(),
@@ -385,44 +491,6 @@ create table block_engineering (
   updated_at timestamptz not null default now()
 );
 
-create table basements (
-  id uuid primary key default gen_random_uuid(),
-  building_id uuid not null references buildings(id) on delete cascade,
-  block_id uuid not null references building_blocks(id) on delete cascade,
-  depth int not null,
-  has_parking boolean not null default false,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-create index idx_basements_building on basements(building_id);
-create index idx_basements_block on basements(block_id);
-
-create table block_floor_markers (
-  id uuid primary key default gen_random_uuid(),
-  block_id uuid not null references building_blocks(id) on delete cascade,
-  marker_key text not null,
-  marker_type text not null,
-  floor_index int,
-  parent_floor_index int,
-  is_technical boolean not null default false,
-  is_commercial boolean not null default false,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique(block_id, marker_key),
-  check (marker_type in ('floor', 'technical', 'special', 'basement'))
-);
-create index idx_block_floor_markers_block on block_floor_markers(block_id);
-
-create table basement_parking_levels (
-  id uuid primary key default gen_random_uuid(),
-  basement_id uuid not null references basements(id) on delete cascade,
-  depth_level int not null,
-  is_enabled boolean not null default false,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique(basement_id, depth_level)
-);
-
 -- -----------------------------
 -- FLOORS / ENTRANCES / UNITS / MOP
 -- -----------------------------
@@ -438,7 +506,7 @@ create table floors (
   area_fact numeric(14,2),
   is_duplex boolean default false,
   parent_floor_index int,
-  basement_id uuid references basements(id) on delete set null,
+  basement_id uuid references building_blocks(id) on delete set null,
   is_technical boolean default false,
   is_commercial boolean default false,
   is_stylobate boolean default false,
@@ -818,7 +886,15 @@ insert into dict_system_users(code, name, role, group_name, sort_order) values
 ('abbos_admin', 'Аббос', 'admin', 'Аббос', 100),
 ('abbos_manager', 'Аббос', 'branch_manager', 'Аббос', 105),
 ('abbos_contr', 'Аббос', 'controller', 'Аббос', 110),
-('abbos_tech', 'Аббос', 'technician', 'Аббос', 120)
+('abbos_tech', 'Аббос', 'technician', 'Аббос', 120),
+('islom_admin', 'Ислом', 'admin', 'Ислом', 130),
+('islom_manager', 'Ислом', 'branch_manager', 'Ислом', 135),
+('islom_contr', 'Ислом', 'controller', 'Ислом', 140),
+('islom_tech', 'Ислом', 'technician', 'Ислом', 145),
+('akhad_admin', 'Ахад', 'admin', 'Ахад', 150),
+('akhad_manager', 'Ахад', 'branch_manager', 'Ахад', 155),
+('akhad_contr', 'Ахад', 'controller', 'Ахад', 160),
+('akhad_tech', 'Ахад', 'technician', 'Ахад', 165)
 on conflict (code) do nothing;
 
 insert into dict_unit_types(code, label, sort_order) values

@@ -6,7 +6,7 @@ import { useProject } from '@context/ProjectContext';
 import { useReadOnly } from '@components/ui/UIKit';
 import { Validators } from '@lib/validators';
 import { BuildingConfigSchema } from '@lib/schemas';
-import { getBlocksList, createClientId } from '@lib/utils';
+import { getBlocksList } from '@lib/utils';
 import { cleanBlockDetails, formatBlockSwitcherLabel } from '@lib/building-details';
 import { useValidation } from '@hooks/useValidation';
 
@@ -207,22 +207,6 @@ export default function StandardView({ building, mode }) {
   const blockBasements = (features.basements || []).filter(b =>
     b.blocks?.includes(currentBlock?.id)
   );
-  const canAddBasement = blockBasements.length < 3;
-
-  const createBlockBasement = () => {
-    if (isReadOnly || !canAddBasement || !currentBlock) return;
-    const newB = {
-      id: createClientId(),
-      depth: 1,
-      hasParking: false,
-      parkingLevels: {},
-      blocks: [currentBlock.id],
-      buildingId: building.id,
-      blockId: currentBlock.id,
-    };
-    updateFeatures({ basements: [...(features.basements || []), newB] });
-  };
-
   const removeBasement = id => {
     if (isReadOnly) return;
     updateFeatures({ basements: (features.basements || []).filter(b => b.id !== id) });
@@ -378,8 +362,6 @@ export default function StandardView({ building, mode }) {
             <ConstructiveCard details={details} updateDetail={updateDetail} errors={errors} />
             <BasementCard
               blockBasements={blockBasements}
-              canAddBasement={canAddBasement}
-              createBlockBasement={createBlockBasement}
               removeBasement={removeBasement}
               updateBasement={updateBasement}
             />

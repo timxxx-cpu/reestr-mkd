@@ -5,6 +5,7 @@ function mapBlockTypeToUi(dbType) {
   if (dbType === 'Н') return 'non_residential';
   if (dbType === 'Parking') return 'parking';
   if (dbType === 'Infra') return 'infrastructure';
+  if (dbType === 'BAS') return 'basement';
   return dbType;
 }
 
@@ -13,6 +14,7 @@ function mapBlockTypeToDb(uiType) {
   if (uiType === 'non_residential') return 'Н';
   if (uiType === 'parking') return 'Parking';
   if (uiType === 'infrastructure') return 'Infra';
+  if (uiType === 'basement') return 'BAS';
   return uiType;
 }
 
@@ -42,6 +44,25 @@ function sanitizeBuildingCategoryFields(buildingData = {}) {
     parkingType: isParking ? normalizeParkingTypeToDb(buildingData.parkingType || null) : null,
     infraType: isInfrastructure ? buildingData.infraType || null : null,
   };
+}
+
+
+function resolveBasementCount(buildingData = {}) {
+  const raw = buildingData.basementsCount ?? buildingData.basementCount ?? 0;
+  const num = Number.parseInt(raw, 10);
+  if (!Number.isFinite(num) || num <= 0) return 0;
+  return Math.min(num, 10);
+}
+
+function canHaveBasements(buildingData = {}) {
+  const category = buildingData.category;
+  if (category === 'parking_separate') {
+    const parkingType = buildingData.parkingType;
+    const constructionType = buildingData.constructionType;
+    if (parkingType === 'aboveground' && ['light', 'open'].includes(constructionType)) return false;
+    return true;
+  }
+  return true;
 }
 
 function getBuildingPrefix(category, hasMultipleBlocks = false) {
@@ -107,7 +128,11 @@ export function registerCompositionRoutes(app, { supabase }) {
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
 
     return reply.send(
-      (data || []).map(b => ({
+      (data || []).map(b => {
+        const allBlocks = b.building_blocks || [];
+        const activeBlocks = allBlocks.filter(bl => !bl.is_basement_block);
+        const basementBlocks = allBlocks.filter(bl => bl.is_basement_block);
+        return ({
         id: b.id,
         buildingCode: b.building_code,
         label: b.label,
@@ -122,9 +147,10 @@ export function registerCompositionRoutes(app, { supabase }) {
         infraType: b.infra_type,
         hasNonResPart: b.has_non_res_part,
         cadastreNumber: b.cadastre_number,
-        resBlocks: (b.building_blocks || []).filter(x => x.type === 'Ж').length,
-        nonResBlocks: (b.building_blocks || []).filter(x => x.type === 'Н').length,
-        blocks: (b.building_blocks || [])
+        basementsCount: basementBlocks.length,
+        resBlocks: activeBlocks.filter(x => x.type === 'Ж').length,
+        nonResBlocks: activeBlocks.filter(x => x.type === 'Н').length,
+        blocks: allBlocks
           .map(bl => ({
             id: bl.id,
             label: bl.label,
@@ -133,7 +159,8 @@ export function registerCompositionRoutes(app, { supabase }) {
             floorsCount: bl.floors_count,
           }))
           .sort((a, c) => a.label.localeCompare(c.label)),
-      }))
+        });
+      })
     );
   });
 
@@ -205,6 +232,26 @@ export function registerCompositionRoutes(app, { supabase }) {
       if (blocksError) return sendError(reply, 500, 'DB_ERROR', blocksError.message);
     }
 
+    const basementCount = canHaveBasements(buildingData) ? resolveBasementCount(buildingData) : 0;
+    if (basementCount > 0) {
+      const nonBasementBlockIds = blocksData.map(b => b.id).filter(Boolean);
+      const autoLinkedIds = nonBasementBlockIds.length === 1 ? nonBasementBlockIds : [];
+      const basementRows = Array.from({ length: basementCount }).map((_, idx) => ({
+        building_id: insertedBuilding.id,
+        label: `Подвал ${idx + 1}`,
+        type: 'BAS',
+        is_basement_block: true,
+        linked_block_ids: autoLinkedIds,
+        basement_depth: 1,
+        basement_has_parking: false,
+        basement_parking_levels: {},
+        basement_communications: {},
+        entrances_count: 1,
+      }));
+      const { error: basementCreateError } = await supabase.from('building_blocks').insert(basementRows);
+      if (basementCreateError) return sendError(reply, 500, 'DB_ERROR', basementCreateError.message);
+    }
+
     return reply.send(insertedBuilding);
   });
 
@@ -241,7 +288,8 @@ export function registerCompositionRoutes(app, { supabase }) {
       const { data: existingBlocks, error: existingError } = await supabase
         .from('building_blocks')
         .select('id')
-        .eq('building_id', buildingId);
+        .eq('building_id', buildingId)
+        .eq('is_basement_block', false);
       if (existingError) return sendError(reply, 500, 'DB_ERROR', existingError.message);
 
       const existingIds = new Set((existingBlocks || []).map(b => b.id));
@@ -288,6 +336,63 @@ export function registerCompositionRoutes(app, { supabase }) {
       if (deleteIds.length) {
         const { error: deleteError } = await supabase.from('building_blocks').delete().in('id', deleteIds);
         if (deleteError) return sendError(reply, 500, 'DB_ERROR', deleteError.message);
+      }
+    }
+
+    const allowedBasements = canHaveBasements({
+      category: data.category,
+      parkingType: normalizeParkingTypeFromDb(data.parking_type),
+      constructionType: normalizeParkingConstructionFromDb(data.construction_type),
+    });
+    const targetBasementCount = allowedBasements ? resolveBasementCount(buildingData) : 0;
+
+    const { data: existingBasements = [], error: existingBasementsError } = await supabase
+      .from('building_blocks')
+      .select('id, linked_block_ids')
+      .eq('building_id', buildingId)
+      .eq('is_basement_block', true)
+      .order('created_at', { ascending: true });
+    if (existingBasementsError) return sendError(reply, 500, 'DB_ERROR', existingBasementsError.message);
+
+    const { data: nonBasementBlocks = [], error: nonBasementBlocksError } = await supabase
+      .from('building_blocks')
+      .select('id')
+      .eq('building_id', buildingId)
+      .eq('is_basement_block', false);
+    if (nonBasementBlocksError) return sendError(reply, 500, 'DB_ERROR', nonBasementBlocksError.message);
+
+    const nonBasementIds = nonBasementBlocks.map(r => r.id);
+    if (nonBasementIds.length === 1) {
+      const single = [nonBasementIds[0]];
+      const toPatch = existingBasements.filter(b => !Array.isArray(b.linked_block_ids) || b.linked_block_ids.length === 0);
+      if (toPatch.length > 0) {
+        const rows = toPatch.map(r => ({ id: r.id, linked_block_ids: single }));
+        const { error: patchError } = await supabase.from('building_blocks').upsert(rows, { onConflict: 'id' });
+        if (patchError) return sendError(reply, 500, 'DB_ERROR', patchError.message);
+      }
+    }
+
+    if (existingBasements.length < targetBasementCount) {
+      const autoLinkedIds = nonBasementIds.length === 1 ? [nonBasementIds[0]] : [];
+      const toCreate = Array.from({ length: targetBasementCount - existingBasements.length }).map((_, idx) => ({
+        building_id: buildingId,
+        label: `Подвал ${existingBasements.length + idx + 1}`,
+        type: 'BAS',
+        is_basement_block: true,
+        linked_block_ids: autoLinkedIds,
+        basement_depth: 1,
+        basement_has_parking: false,
+        basement_parking_levels: {},
+        basement_communications: {},
+        entrances_count: 1,
+      }));
+      const { error: createBasementError } = await supabase.from('building_blocks').insert(toCreate);
+      if (createBasementError) return sendError(reply, 500, 'DB_ERROR', createBasementError.message);
+    } else if (existingBasements.length > targetBasementCount) {
+      const deleteBasementIds = existingBasements.slice(targetBasementCount).map(r => r.id);
+      if (deleteBasementIds.length > 0) {
+        const { error: deleteBasementError } = await supabase.from('building_blocks').delete().in('id', deleteBasementIds);
+        if (deleteBasementError) return sendError(reply, 500, 'DB_ERROR', deleteBasementError.message);
       }
     }
 

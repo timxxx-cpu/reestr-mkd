@@ -69,7 +69,7 @@
 
 ## Загрузка и сохранение (обобщение)
 
-- Загрузка проекта читает таблицы: `projects`, `applications`, `application_history`, `application_steps`, `project_participants`, `project_documents`, `buildings`, `building_blocks`, `block_construction`, `block_engineering`, `floors`, `entrances`, `entrance_matrix`, `units`, `rooms`, `common_areas`, `basements`, `basement_parking_levels`.
+- Загрузка проекта читает таблицы: `projects`, `applications`, `application_history`, `application_steps`, `project_participants`, `project_documents`, `buildings`, `building_blocks`, `block_construction`, `block_engineering`, `floors`, `entrances`, `entrance_matrix`, `units`, `rooms`, `common_areas`, `building_blocks` (в т.ч. basement-блоки с `is_basement_block`, `basement_depth`, `basement_parking_levels`, `basement_communications`, `entrances_count`).
 - В `application_steps` дополнительно читаются `block_statuses` — статус заполнения блоков **в разрезе конкретного шага**.
 - Сохранение делает обратный маппинг UI -> БД по тем же сущностям.
 - При сохранении `applicationInfo` записываются оба поля: `status` и `workflow_substatus`.

@@ -3,7 +3,7 @@
  * Заменяет старую логику buildFloorList из фронтенда.
  */
 
-export function generateFloorsModel(block, building, allBlocks, basements, markers) {
+export function generateFloorsModel(block, building, allBlocks, markers) {
   const targetFloors = [];
 
   const isParking = building.category === 'parking_separate' || block.type === 'Parking';
@@ -32,15 +32,19 @@ export function generateFloorsModel(block, building, allBlocks, basements, marke
     return targetFloors;
   }
 
-  // 2. Подвалы (через таблицу basements)
-  // В новой схеме подвалы могут привязываться к конкретному блоку или быть общими
-  const blockBasements = basements.filter(b => b.block_id === block.id || !b.block_id);
+  // 2. Подвалы (как отдельные блоки building_blocks с is_basement_block=true)
+  const blockBasements = (allBlocks || []).filter(
+    b => b.is_basement_block && Array.isArray(b.linked_block_ids) && b.linked_block_ids.includes(block.id)
+  );
   const hasMultipleBasements = blockBasements.length > 1;
 
   blockBasements.forEach((b, bIdx) => {
-    const depth = Number(b.depth || 1);
+    const depth = Number(b.basement_depth || 1);
     for (let d = depth; d >= 1; d--) {
-      const isMixed = getMarker(`basement_${b.id}`).is_commercial || getMarker('basement').is_commercial;
+      const levelsMap = b.basement_parking_levels && typeof b.basement_parking_levels === 'object'
+        ? b.basement_parking_levels
+        : {};
+      const isMixed = getMarker(`basement_${b.id}`).is_commercial || getMarker('basement').is_commercial || !!levelsMap[String(d)];
       let label = `Подвал (этаж -${d})`;
       if (hasMultipleBasements) label = `Подвал ${bIdx + 1} (этаж -${d})`;
 
@@ -72,6 +76,7 @@ export function generateFloorsModel(block, building, allBlocks, basements, marke
   const stylobateMap = {};
   if (block.type === 'Ж') {
     allBlocks.forEach((b) => {
+      if (b.is_basement_block) return;
       if (b.type === 'Н' && b.parent_blocks && b.parent_blocks.includes(block.id)) {
         const h = Number(b.floors_to || 0);
         for (let k = 1; k <= h; k++) {

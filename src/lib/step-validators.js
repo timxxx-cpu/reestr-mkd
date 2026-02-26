@@ -844,6 +844,7 @@ export const BLOCK_FILL_STATUS = Object.freeze({
 export const BLOCK_STATUS_STEP_IDS = Object.freeze([
   'registry_nonres',
   'registry_res',
+  'basement_inventory',
   'floors',
   'entrances',
   'apartments',
@@ -894,6 +895,59 @@ export const STEP_VALIDATORS = {
     return allErrors;
   },
 
+
+  basement_inventory: data => {
+    const { composition = [], buildingDetails = {} } = data;
+    const errors = [];
+
+    composition.forEach(building => {
+      if ((building.basementsCount || 0) <= 0) return;
+      const features = buildingDetails[`${building.id}_features`] || {};
+      const basements = Array.isArray(features.basements) ? features.basements : [];
+      const activeBlocks = (building.blocks || []).filter(b => !b.isBasementBlock);
+      const isMultiblockResidential = building.category?.includes('residential') && activeBlocks.length > 1;
+
+      basements.forEach((base, index) => {
+        const depth = Number.parseInt(base.depth || 1, 10);
+        if (!Number.isInteger(depth) || depth < 1 || depth > 4) {
+          errors.push({
+            title: `${building.label} (Подвал ${index + 1})`,
+            description: 'Глубина подвала должна быть в диапазоне от -1 до -4.',
+          });
+        }
+
+        const entrancesCount = Number.parseInt(base.entrancesCount, 10);
+        if (!Number.isInteger(entrancesCount) || entrancesCount < 1 || entrancesCount > 10) {
+          errors.push({
+            title: `${building.label} (Подвал ${index + 1})`,
+            description: 'Количество входов в подвал должно быть целым числом от 1 до 10.',
+          });
+        }
+
+        const comm = base.communications;
+        const hasCommShape = comm && typeof comm === 'object' && ['electricity', 'water', 'sewerage', 'heating', 'ventilation', 'gas', 'firefighting'].every(k => typeof comm[k] === 'boolean');
+        if (!hasCommShape) {
+          errors.push({
+            title: `${building.label} (Подвал ${index + 1})`,
+            description: 'Необходимо заполнить коммуникации подвала.',
+          });
+        }
+
+        if (isMultiblockResidential) {
+          const linkedBlocks = Array.isArray(base.blocks) ? base.blocks.filter(Boolean) : [];
+          if (linkedBlocks.length === 0) {
+            errors.push({
+              title: `${building.label} (Подвал ${index + 1})`,
+              description: 'Для многоблочного жилого дома укажите, какие блоки обслуживает подвал.',
+            });
+          }
+        }
+      });
+    });
+
+    return errors;
+  },
+
   floors: validateFloors,
   entrances: validateEntrances,
   apartments: validateApartments,
@@ -913,6 +967,7 @@ export const getStepBlocksForStatus = (stepId, building, buildingDetails = {}) =
   const blocks = getBlocksList(building, buildingDetails);
 
   if (stepId === 'registry_nonres') return blocks.filter(b => b.type !== 'Ж');
+  if (stepId === 'basement_inventory') return blocks;
   if (['registry_res', 'entrances', 'apartments', 'mop'].includes(stepId)) {
     return blocks.filter(b => b.type === 'Ж');
   }
@@ -922,7 +977,7 @@ export const getStepBlocksForStatus = (stepId, building, buildingDetails = {}) =
 };
 
 const blockHasStepData = (stepId, detailsKey, contextData = {}) => {
-  if (stepId === 'registry_nonres' || stepId === 'registry_res') {
+  if (stepId === 'registry_nonres' || stepId === 'registry_res' || stepId === 'basement_inventory') {
     return !isObjectEmpty(contextData.buildingDetails?.[detailsKey]);
   }
   if (stepId === 'floors') {
@@ -943,7 +998,7 @@ const blockHasStepData = (stepId, detailsKey, contextData = {}) => {
 export const buildScopedContextForBlock = (stepId, building, block, contextData = {}) => {
   const detailsKey = `${building.id}_${block.id}`;
 
-  if (stepId === 'registry_nonres' || stepId === 'registry_res') {
+  if (stepId === 'registry_nonres' || stepId === 'registry_res' || stepId === 'basement_inventory') {
     return {
       ...contextData,
       composition: [{ ...building, blocks: (building.blocks || []).filter(item => item.id === block.id) }],

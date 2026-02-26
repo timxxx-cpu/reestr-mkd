@@ -105,6 +105,10 @@ const BuildingSelector = ({ stepId, onSelect }) => {
         );
       }
 
+      if (stepId === 'basement_inventory') {
+        return (item.basementsCount || 0) > 0;
+      }
+
       if (stepId === 'registry_res') {
         return item.category.includes('residential');
       }
