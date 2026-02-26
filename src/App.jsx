@@ -10,6 +10,7 @@ import { PersonaContext } from '@context/PersonaContext';
 import LoginScreen from '@components/app/LoginScreen';
 import ProjectEditorRoute from '@components/app/ProjectEditorRoute';
 import MainLayout from '@components/app/MainLayout';
+import ProjectProviderWrapper from '@components/app/ProjectProviderWrapper';
 
 const DB_SCOPE = 'shared_dev_env';
 
