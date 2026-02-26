@@ -33,6 +33,7 @@ export async function buildStepValidationResult(supabase, { projectId, stepId })
       building_blocks (
         id, label, type, floors_from, floors_to, floors_count, entrances_count,
         elevators_count, levels_depth, vehicle_entries, light_structure_type,
+        is_basement_block, linked_block_ids, basement_depth, basement_has_parking, basement_parking_levels, basement_communications,
         has_custom_address, custom_house_number,
         block_construction (foundation, walls, slabs, roof, seismicity),
         block_engineering (has_electricity, has_water, has_hot_water, has_sewerage, has_gas, has_heating, has_ventilation, has_firefighting, has_lowcurrent)
@@ -127,6 +128,48 @@ export async function buildStepValidationResult(supabase, { projectId, stepId })
         if (!eng || !Object.values(eng).some(v => v === true)) {
           errors.push(buildValidationError('ENGINEERING_REQUIRED', title, 'Не выбрана ни одна инженерная коммуникация'));
         }
+      });
+    });
+  }
+
+
+  if (normalizedStepId === 'basement_inventory') {
+    allBuildings.forEach(building => {
+      const basementBlocks = (building.building_blocks || []).filter(blk => blk.is_basement_block === true);
+      const regularBlocks = (building.building_blocks || []).filter(blk => !blk.is_basement_block);
+      const isMultiblockResidential = building.category?.includes('residential') && regularBlocks.length > 1;
+
+      basementBlocks.forEach(block => {
+        const title = getEntityTitle(building, block);
+        const depth = Number.parseInt(block.basement_depth || 1, 10);
+        if (!Number.isInteger(depth) || depth < 1 || depth > 4) {
+          errors.push(buildValidationError('BASEMENT_DEPTH_INVALID', title, 'Глубина подвала должна быть в диапазоне -1..-4.'));
+        }
+
+        const comm = block.basement_communications;
+        const commKeys = ['electricity', 'water', 'sewerage', 'heating', 'ventilation', 'gas', 'firefighting'];
+        const hasCommShape = comm && typeof comm === 'object' && commKeys.every(k => typeof comm[k] === 'boolean');
+        if (!hasCommShape) {
+          errors.push(buildValidationError('BASEMENT_COMM_REQUIRED', title, 'Необходимо указать коммуникации подвала.'));
+        }
+
+        const links = Array.isArray(block.linked_block_ids) ? block.linked_block_ids : [];
+        if (isMultiblockResidential && links.length === 0) {
+          errors.push(buildValidationError('BASEMENT_LINKS_REQUIRED', title, 'Для многоблочного жилого дома нужно указать обслуживаемые блоки.'));
+        }
+
+        const levels = block.basement_parking_levels && typeof block.basement_parking_levels === 'object'
+          ? block.basement_parking_levels
+          : {};
+        Object.entries(levels).forEach(([lvlKey, enabled]) => {
+          const lvl = Number.parseInt(lvlKey, 10);
+          if (!Number.isInteger(lvl) || lvl < 1 || lvl > depth) {
+            errors.push(buildValidationError('BASEMENT_PARKING_LEVEL_INVALID', title, 'Уровни паркинга в подвале должны быть в диапазоне глубины подвала.'));
+          }
+          if (typeof enabled !== 'boolean') {
+            errors.push(buildValidationError('BASEMENT_PARKING_LEVEL_FLAG_INVALID', title, 'Флаг активности уровня паркинга должен быть boolean.'));
+          }
+        });
       });
     });
   }

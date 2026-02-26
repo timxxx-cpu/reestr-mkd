@@ -40,39 +40,47 @@
 - `building_blocks` (этажность, подъезды, признаки) -> **Параметры блока**.
 - `block_construction.*` -> **Конструктив блока**.
 - `block_engineering.*` -> **Инженерное оснащение блока**.
-- `basements` + `basement_parking_levels` -> **Подвальные уровни и паркинг**.
+- `building_blocks` (`is_basement_block`, `linked_block_ids`, `basement_depth`, `basement_parking_levels`, `basement_communications`) -> **Подвальные уровни, связи и паркинг**.
 - `application_steps.block_statuses` -> **Статус заполнения блоков по шагу** (обновляется по кнопке «Сохранить» на уровне выбранного здания).
 
-## 6) Этажи (`floors`)
+## 6) Инвентаризация подвалов (`basement_inventory`)
+
+- `building_blocks` (`is_basement_block=true`) -> **Карточки подвалов**.
+- `building_blocks.linked_block_ids` -> **Какие блоки обслуживает подвал**.
+- `building_blocks.basement_depth` -> **Глубина подвала**.
+- `building_blocks.basement_communications` -> **Инженерные коммуникации подвала**.
+- `building_blocks.entrances_count` -> **Количество входов в подвал (1..10)**.
+
+## 7) Этажи (`floors`)
 
 - `floors.height/area_proj/area_fact/floor_type/...` -> **Инвентаризация этажей**.
 
-## 7) Подъезды (`entrances`)
+## 8) Подъезды (`entrances`)
 
 - `entrances.number` -> **Номера подъездов**.
 - `entrance_matrix.flats_count/commercial_count/mop_count` -> **План по этажу и подъезду**.
 
-## 8) Помещения (`apartments`)
+## 9) Помещения (`apartments`)
 
 - `units.number/unit_type/total_area/...` -> **Реестр помещений**.
 - `rooms.room_type/name/area/level` -> **Экспликация помещения**.
 
-## 9) МОП (`mop`)
+## 10) МОП (`mop`)
 
 - `common_areas.type/area` -> **Параметры мест общего пользования**.
 
-## 10) Паркинг (`parking_config`)
+## 11) Паркинг (`parking_config`)
 
-- `basement_parking_levels.is_enabled` -> **Активность уровня паркинга**.
+- `building_blocks.basement_parking_levels` -> **Активность уровней паркинга по глубине**.
 - `units.unit_type='parking_place'` -> **Машиноместа**.
 
-## 11) Проверка контролером
+## 12) Проверка контролером
 
 - `applications.status/current_step/current_stage` -> **Смена состояния workflow**.
 - `application_history.*` -> **Фиксация решения/комментария**.
 - `application_steps.*` -> **Фиксация completed/verified**.
 
-## 12) Локальное сохранение статусов заполнения блоков (новый подпроцесс)
+## 13) Локальное сохранение статусов заполнения блоков (новый подпроцесс)
 
 Для шагов, где участвуют блоки (`registry_nonres`, `registry_res`, `floors`, `entrances`, `apartments`, `mop`):
 

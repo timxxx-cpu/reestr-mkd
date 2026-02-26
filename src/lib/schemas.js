@@ -126,6 +126,7 @@ export const BuildingModalSchema = z.object({
   parkingType: z.string().optional(),
   parkingConstruction: z.string().optional(),
   infraType: z.string().optional(),
+  basementsCount: z.coerce.number().int().min(0, 'Минимум 0 подвалов').max(4, 'Максимум 4 подвала').optional(),
 });
 
 export const BuildingConfigSchema = z
@@ -205,6 +206,7 @@ export const BuildingMetaSchema = z.object({
   parkingType: z.string().optional(),
   constructionType: z.string().optional(),
   infraType: z.string().optional(),
+  basementsCount: z.coerce.number().int().min(0, 'Минимум 0 подвалов').max(4, 'Максимум 4 подвала').optional(),
 });
 
 export const ProjectSchema = z.object({

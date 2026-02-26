@@ -2,6 +2,7 @@ import React from 'react';
 import { PassportStep } from '@/features/steps/passport';
 import { CompositionStep } from '@/features/steps/composition';
 import { RegistryNonresSelectorStep, RegistryNonresEditorStep } from '@/features/steps/registry-nonres';
+import { BasementInventorySelectorStep, BasementInventoryEditorStep } from '@/features/steps/basement-inventory';
 import { RegistryResSelectorStep, RegistryResEditorStep } from '@/features/steps/registry-res';
 import { FloorsSelectorStep, FloorsEditorStep } from '@/features/steps/floors';
 import { EntrancesSelectorStep, EntrancesEditorStep } from '@/features/steps/entrances';
@@ -54,6 +55,12 @@ const STEP_REGISTRY = {
     render: renderBuildingScopedStep({
       SelectorComponent: RegistryNonresSelectorStep,
       EditorComponent: RegistryNonresEditorStep,
+    }),
+  },
+  basement_inventory: {
+    render: renderBuildingScopedStep({
+      SelectorComponent: BasementInventorySelectorStep,
+      EditorComponent: BasementInventoryEditorStep,
     }),
   },
   registry_res: {

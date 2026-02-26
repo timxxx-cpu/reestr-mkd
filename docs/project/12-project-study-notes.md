@@ -53,7 +53,7 @@
 ### Building domain
 
 - Иерархия: `buildings` → `building_blocks` → `floors` / `entrances` / `units`.
-- Доп. ветки: конструктив/инженерия, подвалы, МОП, паркинг (`basement_parking_levels`), помещения и др.
+- Доп. ветки: конструктив/инженерия, подвалы, МОП, паркинг (JSON `building_blocks.basement_parking_levels`), помещения и др.
 
 ### Dictionaries
 

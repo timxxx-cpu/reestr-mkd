@@ -195,7 +195,7 @@ export default function ParkingConfigurator({ buildingId }) {
                 isBasement: false,
               });
             }
-            const blockBasements = basements.filter(base => base.blockId === block.id);
+            const blockBasements = basements.filter(base => (Array.isArray(base.blocks) ? base.blocks : [base.blockId]).includes(block.id));
             blockBasements.forEach(base => {
               for (let d = 1; d <= base.depth; d++) {
                 rows.push({
@@ -212,7 +212,7 @@ export default function ParkingConfigurator({ buildingId }) {
             });
           }
         } else {
-          const blockBasements = basements.filter(base => base.blockId === block.id);
+          const blockBasements = basements.filter(base => (Array.isArray(base.blocks) ? base.blocks : [base.blockId]).includes(block.id));
           blockBasements.forEach(base => {
             for (let d = 1; d <= base.depth; d++) {
               rows.push({

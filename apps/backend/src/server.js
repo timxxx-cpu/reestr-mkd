@@ -15,13 +15,36 @@ import { registerWorkflowRoutes } from './workflow-routes.js';
 import { buildStepValidationResult } from './validation.js';
 import { parseCsvParam, normalizeProjectStatusFromDb, buildProjectAvailableActions } from './project-helpers.js';
 
+function buildCorsOriginResolver(config) {
+  if (config.runtimeEnv === 'dev') return true;
+
+  const fromEnv = String(config.corsOrigin || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+
+  const allowlist = fromEnv.length > 0
+    ? fromEnv
+    : [
+      'https://reestr-mkd.vercel.app',
+      'http://localhost:5173',
+      'http://localhost:4173',
+    ];
+
+  return (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (allowlist.includes(origin)) return cb(null, true);
+    return cb(new Error('Not allowed by CORS'), false);
+  };
+}
+
 export async function buildServer() {
   const config = getConfig();
   const supabase = createSupabaseAdminClient(config);
   const app = Fastify({ logger: true });
 
   await app.register(cors, {
-    origin: config.runtimeEnv === 'dev' ? true : config.corsOrigin || false,
+    origin: buildCorsOriginResolver(config),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',

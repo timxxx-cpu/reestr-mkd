@@ -64,7 +64,7 @@
 
 **Доступ к таблицам**:
 - Чтение: Все таблицы
-- Запись: projects, buildings, building_blocks, block_construction, block_engineering, basements, basement_parking_levels, floors, entrances, entrance_matrix, units, rooms, common_areas, block_floor_markers
+- Запись: projects, buildings, building_blocks (включая basement-поля), block_construction, block_engineering, floors, entrances, entrance_matrix, units, rooms, common_areas, block_floor_markers
 - Нет доступа к записи: applications (только через workflow), application_history, application_steps
 
 #### Controller (Контролер-бригадир)
@@ -338,21 +338,31 @@ application_history: INSERT (action='COMPLETE_STEP')
 - Доступны массовые действия: `Применить к выбранным` и `Сброс` (очистка МОП в выбранных ячейках).
 - Валидация перед сохранением: для каждой строки обязательны `тип`, `площадь > 0`, `высота > 0`.
 
-## 9.9 Шаг `parking_config`
 
-- `basements.has_parking` -> UI флаг -> **Есть ли паркинг в подвале**.
-- `basements.depth` -> UI глубина -> **Количество подземных уровней**.
-- `basement_parking_levels.depth_level` -> UI уровень -> **Номер подземного уровня**.
-- `basement_parking_levels.is_enabled` -> UI чекбокс -> **Уровень активен для паркинга**.
+## 9.9 Шаг `basement_inventory`
+
+- `building_blocks.is_basement_block=true` -> UI карточка -> **Подвальный блок**.
+- `building_blocks.linked_block_ids` -> UI `basements[].blocks` -> **Связанные обслуживаемые блоки**.
+- `building_blocks.basement_depth` -> UI `basements[].depth` -> **Глубина подвала**.
+- `building_blocks.basement_communications` -> UI `basements[].communications` -> **Коммуникации подвала**.
+- `building_blocks.entrances_count` -> UI `basements[].entrancesCount` -> **Количество входов в подвал (1..10)**.
+
+## 9.10 Шаг `parking_config`
+
+- `building_blocks.basement_has_parking` -> UI флаг -> **Есть ли паркинг в подвале**.
+- `building_blocks.basement_depth` -> UI глубина -> **Количество подземных уровней**.
+- `building_blocks.entrances_count` -> UI поле `entrancesCount` -> **Количество входов в подвал (1..10)**.
+- ключи JSON `building_blocks.basement_parking_levels` -> UI уровень -> **Номер подземного уровня**.
+- значения JSON `building_blocks.basement_parking_levels` -> UI чекбокс -> **Уровень активен для паркинга**.
 - `units.unit_type='parking_place'` -> UI машиноместо -> **Запись машиноместа**.
 
-## 9.10 Шаги интеграции
+## 9.11 Шаги интеграции
 
 - `applications.integration_data` -> UI статус интеграции -> **Состояния отправки/получения интеграционных операций**.
 - `buildings.cadastre_number` -> UI интеграции зданий -> **Кадастровый номер здания**.
 - `units.cadastre_number` -> UI интеграции помещений -> **Кадастровый номер помещения**.
 
-## 9.11 Действия контролера (`APPROVE` / `REJECT`)
+## 9.12 Действия контролера (`APPROVE` / `REJECT`)
 
 ### Что меняется при `APPROVE`
 - `applications.workflow_substatus` -> **DRAFT или INTEGRATION** (внешний статус остается IN_PROGRESS).
@@ -382,7 +392,7 @@ application_history: INSERT (action='COMPLETE_STEP')
 - `applications.requested_decline_*` -> **Очищаются**.
 - `application_history.action='RETURN_FROM_DECLINE'` -> **Запись в историю**.
 
-## 9.12 Справочники (где используются)
+## 9.13 Справочники (где используются)
 
 - `dict_project_statuses` -> `projects.construction_status` -> **Статус проекта**.
 - `dict_parking_types` -> `buildings.parking_type` -> **Тип паркинга**.

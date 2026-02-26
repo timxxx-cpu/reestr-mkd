@@ -1,4 +1,4 @@
-import { Building2, Store, Car, Box } from 'lucide-react';
+import { Building2, Store, Car, Box, Archive } from 'lucide-react';
 
 /**
  * Возвращает список блоков для здания.
@@ -28,6 +28,9 @@ export function getBlocksList(building, buildingDetails = {}) {
       } else if (block.type === 'infrastructure') {
         Icon = Box;
         typeLabel = 'И';
+      } else if (block.type === 'basement') {
+        Icon = Archive;
+        typeLabel = 'ПД';
       }
 
       // Формируем уникальный ключ для buildingDetails

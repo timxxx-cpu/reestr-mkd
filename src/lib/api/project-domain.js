@@ -53,7 +53,6 @@ export const createProjectDomainApi = ({
     const historyRes = { data: context.history || [], error: null };
     const stepsRes = { data: context.steps || [], error: null };
     const markersRes = { data: context.block_floor_markers || [], error: null }; 
-    const basementsRes = { data: context.basements || [], error: null };
 
     if (pRes.error) throw pRes.error;
 
@@ -91,28 +90,30 @@ export const createProjectDomainApi = ({
     (buildingsRes.data || []).forEach(b => {
       composition.push(mapBuildingFromDB(b, b.building_blocks));
       
-      // Маппим подвалы для этого здания
-      const buildingBasements = basementsRes.data.filter(basement => basement.building_id === b.id).map(basement => {
-         const levels = {};
-         (basement.basement_parking_levels || []).forEach(lvl => {
-            levels[lvl.depth_level] = lvl.is_enabled;
-         });
-         return {
-            id: basement.id,
-            buildingId: basement.building_id,
-            blockId: basement.block_id,
-            blocks: [basement.block_id], 
-            depth: basement.depth,
-            hasParking: basement.has_parking,
-            parkingLevels: levels
-         };
-      });
+      // Маппим подвалы из basement-блоков building_blocks
+      const buildingBasements = (b.building_blocks || [])
+        .filter(block => block.is_basement_block)
+        .map(block => ({
+          id: block.id,
+          buildingId: block.building_id,
+          blockId: block.linked_block_ids?.[0] || null,
+          blocks: block.linked_block_ids || [],
+          depth: block.basement_depth || 1,
+          hasParking: !!block.basement_has_parking,
+          parkingLevels: block.basement_parking_levels && typeof block.basement_parking_levels === 'object'
+            ? block.basement_parking_levels
+            : {},
+          communications: block.basement_communications && typeof block.basement_communications === 'object'
+            ? block.basement_communications
+            : {},
+          entrancesCount: Math.min(10, Math.max(1, Number.parseInt(block.entrances_count, 10) || 1)),
+        }));
 
       if (buildingBasements.length > 0) {
         buildingDetails[`${b.id}_features`] = { basements: buildingBasements };
       }
 
-      b.building_blocks.forEach(block => {
+      (b.building_blocks || []).filter(block => !block.is_basement_block).forEach(block => {
         const uiKey = `${b.id}_${block.id}`;
         // Передаем маркеры в маппер
         const mapped = mapBlockDetailsFromDB(b, block, markersRes.data);

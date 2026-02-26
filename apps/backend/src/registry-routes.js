@@ -744,18 +744,16 @@ export function registerRegistryRoutes(app, { supabase }) {
     const [
       { data: building },
       { data: allBlocks },
-      { data: basements },
       { data: markers },
       { data: existingFloors },
     ] = await Promise.all([
       supabase.from('buildings').select('*').eq('id', block.building_id).single(),
       supabase.from('building_blocks').select('*').eq('building_id', block.building_id),
-      supabase.from('basements').select('*').eq('building_id', block.building_id),
       supabase.from('block_floor_markers').select('*').eq('block_id', blockId),
       supabase.from('floors').select('id, floor_key, index, parent_floor_index, basement_id').eq('block_id', blockId),
     ]);
 
-    let targetFloorsModel = generateFloorsModel(block, building, allBlocks || [], basements || [], markers || []);
+    let targetFloorsModel = generateFloorsModel(block, building, allBlocks || [], markers || []);
 
     const getConstraintKey = f => {
       const idx = Number(f.index || 0);

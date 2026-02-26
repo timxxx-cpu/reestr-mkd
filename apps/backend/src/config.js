@@ -25,6 +25,7 @@ export function getConfig() {
   const authMode = process.env.AUTH_MODE || 'dev';
   const jwtSecret = process.env.JWT_SECRET || '';
   const runtimeEnv = resolveRuntimeEnv();
+  const corsOrigin = process.env.CORS_ORIGIN || process.env.FRONTEND_URL || '';
 
   if (authMode === 'jwt' && !jwtSecret) {
     throw new Error('Missing JWT_SECRET for AUTH_MODE=jwt');
@@ -32,5 +33,5 @@ export function getConfig() {
 
   validateAuthMode({ authMode, runtimeEnv });
 
-  return { port, host, supabaseUrl, supabaseServiceRoleKey, authMode, jwtSecret, runtimeEnv };
+  return { port, host, supabaseUrl, supabaseServiceRoleKey, authMode, jwtSecret, runtimeEnv, corsOrigin };
 }

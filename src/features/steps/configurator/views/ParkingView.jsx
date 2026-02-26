@@ -5,7 +5,6 @@ import { Tent, Warehouse, Store, Car } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { Card, SectionTitle, Label, useReadOnly } from '@components/ui/UIKit';
 import { BuildingConfigSchema } from '@lib/schemas';
-import { createClientId } from '@lib/utils';
 import { useValidation } from '@hooks/useValidation';
 
 // Карточки
@@ -65,20 +64,6 @@ export default function ParkingView({ building, typeInfo }) {
   const blockBasements = (features.basements || []).filter(
     b => b.blockId === blockId || b.blocks?.includes(blockId)
   );
-  const canAddBasement = blockBasements.length < 1;
-
-  const createBlockBasement = () => {
-    if (isReadOnly || !canAddBasement) return;
-    const newB = {
-      id: createClientId(),
-      depth: 1,
-      blocks: [blockId],
-      buildingId: building.id,
-      blockId,
-    };
-    updateFeatures({ basements: [...(features.basements || []), newB] });
-  };
-
   const removeBasement = id => {
     if (isReadOnly) return;
     updateFeatures({ basements: (features.basements || []).filter(b => b.id !== id) });
@@ -192,8 +177,6 @@ export default function ParkingView({ building, typeInfo }) {
           errorBorder={errorBorder}
           availableParents={availableParents}
           toggleParentBlock={toggleParentBlock}
-          canAddBasement={canAddBasement}
-          createBasement={createBlockBasement}
           blockBasements={blockBasements}
           updateBasement={updateBasement}
           removeBasement={removeBasement}
@@ -212,8 +195,6 @@ export default function ParkingView({ building, typeInfo }) {
         {isUnderground && (
           <BasementCard
             blockBasements={blockBasements}
-            canAddBasement={canAddBasement}
-            createBlockBasement={createBlockBasement}
             removeBasement={removeBasement}
             updateBasement={updateBasement}
           />

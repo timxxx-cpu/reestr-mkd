@@ -3,16 +3,16 @@
  * Не зависит от HTTP, Supabase или Fastify — легко тестируется в изоляции.
  */
 
-export const INTEGRATION_START_IDX = 12;
+export const INTEGRATION_START_IDX = 13;
 
 export const LAST_STEP_INDEX_BY_STAGE = Object.freeze({
-  1: 5,
-  2: 8,
-  3: 11,
-  4: 13,
+  1: 6,
+  2: 9,
+  3: 12,
+  4: 14,
 });
 
-export const TOTAL_STEPS = 14;
+export const TOTAL_STEPS = 15;
 
 export function getStageStepRange(stage) {
   const normalizedStage = Number(stage || 1);

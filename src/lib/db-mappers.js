@@ -106,8 +106,9 @@ export const mapProjectAggregate = (
 
 // --- 2. BUILDINGS ---
 export const mapBuildingFromDB = (b, blocks = []) => {
-  const resBlocksCount = blocks.filter(bl => bl.type === 'Ж').length;
-  const nonResBlocksCount = blocks.filter(bl => bl.type === 'Н').length;
+  const activeBlocks = (blocks || []).filter(bl => !bl.is_basement_block);
+  const resBlocksCount = activeBlocks.filter(bl => bl.type === 'Ж').length;
+  const nonResBlocksCount = activeBlocks.filter(bl => bl.type === 'Н').length;
 
   return {
     id: b.id,
@@ -123,7 +124,7 @@ export const mapBuildingFromDB = (b, blocks = []) => {
     constructionType: normalizeParkingConstructionFromDb(b.construction_type),
     infraType: b.infra_type,
     hasNonResPart: b.has_non_res_part ?? nonResBlocksCount > 0,
-    blocks: blocks.map(bl => ({
+    blocks: activeBlocks.map(bl => ({
       id: bl.id,
       buildingId: b.id,
       label: bl.label,
@@ -283,5 +284,6 @@ function mapDBTypeToUI(dbType) {
   if (dbType === 'Н') return 'non_residential';
   if (dbType === 'Parking') return 'parking';
   if (dbType === 'Infra') return 'infrastructure';
+  if (dbType === 'BAS') return 'basement';
   return dbType;
 }

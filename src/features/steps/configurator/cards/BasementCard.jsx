@@ -2,13 +2,7 @@ import React from 'react';
 import { ArrowDownToLine, X } from 'lucide-react';
 import { Card, SectionTitle, useReadOnly } from '@components/ui/UIKit';
 
-export default function BasementCard({
-  blockBasements,
-  canAddBasement,
-  createBlockBasement,
-  removeBasement,
-  updateBasement,
-}) {
+export default function BasementCard({ blockBasements, removeBasement, updateBasement }) {
   const isReadOnly = useReadOnly();
 
   return (
@@ -17,13 +11,7 @@ export default function BasementCard({
         <SectionTitle icon={ArrowDownToLine} className="mb-0">
           Подвал
         </SectionTitle>
-        <button
-          disabled={isReadOnly || !canAddBasement}
-          onClick={createBlockBasement}
-          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all shadow-sm ${canAddBasement && !isReadOnly ? 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200' : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed opacity-60'}`}
-        >
-          {canAddBasement ? '+ Добавить' : 'Макс. 3'}
-        </button>
+        <span className="text-[10px] text-slate-400">Создание в блоке отключено</span>
       </div>
       {blockBasements.length === 0 ? (
         <div className="text-center py-6 text-slate-400 text-xs bg-slate-50 rounded-lg border border-dashed border-slate-200">
