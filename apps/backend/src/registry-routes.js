@@ -6,7 +6,6 @@ import {
   tryServeIdempotentResponse,
   rememberIdempotentResponse,
 } from './idempotency-helpers.js';
-import { getNextSequenceNumber } from './format-utils.js';
 import crypto from 'crypto';
 
 function parseFloorIdsFromQuery(raw) {

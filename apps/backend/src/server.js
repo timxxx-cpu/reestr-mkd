@@ -126,7 +126,7 @@ export async function buildServer() {
         id: 'EXT-10001',
         source: 'EPIGU',
         externalId: 'EP-2026-9912',
-        applicant: 'ООО \"Golden House\"',
+        applicant: 'ООО "Golden House"',
         submissionDate: new Date().toISOString(),
         cadastre: '10:10:10:10:10:0001',
         address: 'г. Ташкент, Шайхантахурский р-н, ул. Навои, 12',
