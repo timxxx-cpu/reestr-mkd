@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-02-27T10:37:18.129Z",
-  "routeCount": 77,
+  "generatedAt": "2026-02-27T11:30:11.958Z",
+  "routeCount": 80,
   "routes": [
     {
       "method": "DELETE",
@@ -105,6 +105,11 @@
     {
       "method": "GET",
       "path": "/api/v1/projects/:projectId/full-registry",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/geometry-candidates",
       "source": "src/project-extended-routes.js"
     },
     {
@@ -285,6 +290,16 @@
     {
       "method": "POST",
       "path": "/api/v1/projects/:projectId/documents",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:projectId/geometry-candidates/import",
+      "source": "src/project-extended-routes.js"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:projectId/land-plot/select",
       "source": "src/project-extended-routes.js"
     },
     {

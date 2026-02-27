@@ -159,6 +159,35 @@ export const createProjectDomainApi = ({
     };
   },
 
+
+  getProjectGeometryCandidates: async projectId => {
+    if (!projectId) return [];
+    requireBffEnabled('project.getProjectGeometryCandidates');
+    return BffClient.getProjectGeometryCandidates({ projectId });
+  },
+
+  importProjectGeometryCandidates: async (projectId, candidates = [], actor = {}) => {
+    requireBffEnabled('project.importProjectGeometryCandidates');
+    const resolvedActor = resolveActor(actor);
+    return BffClient.importProjectGeometryCandidates({
+      projectId,
+      candidates,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
+  },
+
+  selectProjectLandPlot: async (projectId, candidateId, actor = {}) => {
+    requireBffEnabled('project.selectProjectLandPlot');
+    const resolvedActor = resolveActor(actor);
+    return BffClient.selectProjectLandPlot({
+      projectId,
+      candidateId,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
+  },
+
   getProjectDetails: async projectId => {
     if (!projectId) return null;
     requireBffEnabled('project.getProjectDetails');

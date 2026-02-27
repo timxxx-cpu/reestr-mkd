@@ -704,6 +704,74 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
     });
   });
 
+
+  app.get('/api/v1/projects/:projectId/geometry-candidates', async (req, reply) => {
+    const { projectId } = req.params;
+    const { data, error } = await supabase
+      .from('project_geometry_candidates')
+      .select('id, source_index, label, properties, geom_geojson, area_m2, is_selected_land_plot, assigned_building_id')
+      .eq('project_id', projectId)
+      .order('source_index', { ascending: true });
+
+    if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+    return reply.send((data || []).map(item => ({
+      id: item.id,
+      sourceIndex: item.source_index,
+      label: item.label,
+      properties: item.properties || {},
+      geometry: item.geom_geojson,
+      areaM2: item.area_m2,
+      isSelectedLandPlot: !!item.is_selected_land_plot,
+      assignedBuildingId: item.assigned_building_id || null,
+    })));
+  });
+
+  app.post('/api/v1/projects/:projectId/geometry-candidates/import', async (req, reply) => {
+    const actor = requirePolicyActor(req, reply, {
+      module: 'projectExtended', action: 'mutate', forbiddenMessage: 'Role cannot import geometry candidates',
+    });
+    if (!actor) return;
+
+    const { projectId } = req.params;
+    const candidates = Array.isArray(req.body?.candidates) ? req.body.candidates : [];
+    if (!candidates.length) return sendError(reply, 400, 'VALIDATION_ERROR', 'Candidates payload is required');
+
+    const inserted = [];
+    for (const candidate of candidates) {
+      if (!candidate?.geometry) continue;
+      const { data, error } = await supabase.rpc('upsert_project_geometry_candidate', {
+        p_project_id: projectId,
+        p_source_index: Number(candidate.sourceIndex ?? 0),
+        p_label: candidate.label || null,
+        p_properties: candidate.properties || {},
+        p_geom_geojson: candidate.geometry,
+      });
+      if (error) return sendError(reply, 400, 'GEOMETRY_IMPORT_ERROR', error.message);
+      inserted.push((data || [])[0] || null);
+    }
+
+    return reply.send({ ok: true, imported: inserted.filter(Boolean).length });
+  });
+
+  app.post('/api/v1/projects/:projectId/land-plot/select', async (req, reply) => {
+    const actor = requirePolicyActor(req, reply, {
+      module: 'projectExtended', action: 'mutate', forbiddenMessage: 'Role cannot select land plot geometry',
+    });
+    if (!actor) return;
+
+    const { projectId } = req.params;
+    const candidateId = req.body?.candidateId;
+    if (!candidateId) return sendError(reply, 400, 'VALIDATION_ERROR', 'candidateId is required');
+
+    const { data, error } = await supabase.rpc('set_project_land_plot_from_candidate', {
+      p_project_id: projectId,
+      p_candidate_id: candidateId,
+    });
+    if (error) return sendError(reply, 400, 'GEOMETRY_VALIDATION_ERROR', error.message);
+
+    return reply.send({ ok: true, areaM2: (data || [])[0]?.land_plot_area_m2 || null });
+  });
+
   app.get('/api/v1/projects/:projectId/passport', async (req, reply) => {
     const { projectId } = req.params;
 
@@ -726,7 +794,11 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
         dateStartProject: project.date_start_project, dateEndProject: project.date_end_project,
         dateStartFact: project.date_start_fact, dateEndFact: project.date_end_fact,
       },
-      cadastre: { number: project.cadastre_number },
+      cadastre: { number: project.cadastre_number, area: project.land_plot_area_m2 },
+      landPlot: {
+        geometry: project.land_plot_geojson || null,
+        areaM2: project.land_plot_area_m2 || null,
+      },
       participants: (participantsRes.data || []).reduce((acc, part) => {
         acc[part.role] = { id: part.id, name: part.name, inn: part.inn, role: part.role };
         return acc;
@@ -747,7 +819,7 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
     const info = req.body?.info || {};
     const cadastreData = req.body?.cadastreData || {};
 
-    const { data, error } = await supabase.from('projects').update({
+    const projectPatch = {
       name: info.name,
       construction_status: info.status,
       region: info.region,
@@ -760,7 +832,12 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
       date_end_fact: info.dateEndFact || null,
       cadastre_number: formatComplexCadastre(cadastreData.number),
       updated_at: new Date().toISOString(),
-    }).eq('id', projectId).select('*').single();
+    };
+    if (cadastreData.area !== undefined && cadastreData.area !== null && cadastreData.area !== '') {
+      projectPatch.land_plot_area_m2 = Number(cadastreData.area);
+    }
+
+    const { data, error } = await supabase.from('projects').update(projectPatch).eq('id', projectId).select('*').single();
 
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     return reply.send(data);

@@ -106,7 +106,8 @@ export const mapProjectAggregate = (
       return acc;
     }, {}),
 
-    cadastre: { number: project.cadastre_number },
+    cadastre: { number: project.cadastre_number, area: project.land_plot_area_m2 },
+    landPlot: { geometry: project.land_plot_geojson || null, areaM2: project.land_plot_area_m2 || null },
 
     documents: docs.map(d => ({
       id: d.id,

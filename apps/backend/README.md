@@ -120,6 +120,9 @@ npm test
 - `POST /api/v1/projects/:projectId/context-meta/save`
 - `POST /api/v1/projects/:projectId/step-block-statuses/save`
 - `GET /api/v1/projects/:projectId/context-registry-details`
+- `GET /api/v1/projects/:projectId/geometry-candidates`
+- `POST /api/v1/projects/:projectId/geometry-candidates/import`
+- `POST /api/v1/projects/:projectId/land-plot/select`
 - `GET /api/v1/projects/:projectId/passport`
 - `PUT /api/v1/projects/:projectId/passport`
 - `PUT /api/v1/projects/:projectId/participants/:role`

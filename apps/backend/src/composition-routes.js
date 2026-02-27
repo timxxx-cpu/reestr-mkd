@@ -157,6 +157,9 @@ export function registerCompositionRoutes(app, { supabase }) {
         infraType: b.infra_type,
         hasNonResPart: b.has_non_res_part,
         cadastreNumber: b.cadastre_number,
+        geometryCandidateId: b.geometry_candidate_id,
+        footprintGeojson: b.footprint_geojson,
+        buildingFootprintAreaM2: b.building_footprint_area_m2,
         basementsCount: basementBlocks.length,
         resBlocks: activeBlocks.filter(x => x.type === 'Ж').length,
         nonResBlocks: activeBlocks.filter(x => x.type === 'Н').length,
@@ -187,6 +190,9 @@ export function registerCompositionRoutes(app, { supabase }) {
     const blocksData = Array.isArray(req.body?.blocksData) ? req.body.blocksData : [];
 
     const normalizedFields = sanitizeBuildingCategoryFields(buildingData);
+    const geometryCandidateId = buildingData.geometryCandidateId || null;
+
+    if (!geometryCandidateId) return sendError(reply, 400, 'VALIDATION_ERROR', 'Geometry candidate is required for building creation');
 
     const { data: projectRow, error: projectError } = await supabase
       .from('projects')
@@ -222,11 +228,22 @@ export function registerCompositionRoutes(app, { supabase }) {
         parking_type: normalizedFields.parkingType,
         infra_type: normalizedFields.infraType,
         has_non_res_part: buildingData.hasNonResPart || false,
+        geometry_candidate_id: null,
+        footprint_geojson: null,
+        building_footprint_geom: null,
+        building_footprint_area_m2: null,
       })
       .select('*')
       .single();
 
     if (buildingError) return sendError(reply, 500, 'DB_ERROR', buildingError.message);
+
+    const { error: assignGeomError } = await supabase.rpc('assign_building_geometry_from_candidate', {
+      p_project_id: projectId,
+      p_building_id: insertedBuilding.id,
+      p_candidate_id: geometryCandidateId,
+    });
+    if (assignGeomError) return sendError(reply, 400, 'GEOMETRY_VALIDATION_ERROR', assignGeomError.message);
 
     if (blocksData.length > 0) {
       const blocksPayload = blocksData.map(b => ({
@@ -277,6 +294,9 @@ export function registerCompositionRoutes(app, { supabase }) {
     const buildingData = req.body?.buildingData || {};
     const blocksData = Array.isArray(req.body?.blocksData) ? req.body.blocksData : null;
     const normalizedFields = sanitizeBuildingCategoryFields(buildingData);
+    const geometryCandidateId = buildingData.geometryCandidateId || null;
+
+    if (!geometryCandidateId) return sendError(reply, 400, 'VALIDATION_ERROR', 'Geometry candidate is required for building creation');
 
     const { data, error } = await supabase
       .from('buildings')
@@ -293,6 +313,13 @@ export function registerCompositionRoutes(app, { supabase }) {
       .single();
 
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+
+    const { error: assignGeomError } = await supabase.rpc('assign_building_geometry_from_candidate', {
+      p_project_id: data.project_id,
+      p_building_id: buildingId,
+      p_candidate_id: geometryCandidateId,
+    });
+    if (assignGeomError) return sendError(reply, 400, 'GEOMETRY_VALIDATION_ERROR', assignGeomError.message);
 
     if (blocksData) {
       const { data: existingBlocks, error: existingError } = await supabase

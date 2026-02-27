@@ -28,6 +28,8 @@ import { getStageColor } from '@lib/utils';
 import { BuildingModalSchema } from '@lib/schemas';
 import { useValidation } from '@hooks/useValidation';
 import { useCatalog } from '@hooks/useCatalogs';
+import { ApiService } from '@lib/api-service';
+import { GeometryPickerMap, BASEMAP_OPTIONS } from '@components/maps/GeometryPickerMap';
 
 const TYPE_NAMES = {
   residential: 'Обычный многоквартирный дом',
@@ -245,6 +247,12 @@ const BuildingModal = ({
   parkingConstructionOptions,
   infraTypeOptions,
   projectStageOptions,
+  geometryCandidates = [],
+  selectedGeometryCandidateId = null,
+  onSelectGeometryCandidate,
+  geometryError = '',
+  basemap = 'osm',
+  onBasemapChange,
 }) => {
   const isReadOnly = useReadOnly();
   useEscapeKey(() => setModal(m => ({ ...m, isOpen: false })));
@@ -587,6 +595,25 @@ const BuildingModal = ({
           </div>
         </div>
 
+            <div className="md:col-span-2 space-y-2">
+              <SectionTitle icon={Layers}>Геометрия здания (обязательно)</SectionTitle>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Подложка:</span>
+                <select value={basemap} onChange={e => onBasemapChange?.(e.target.value)} className="border rounded px-2 py-1 text-xs">
+                  {BASEMAP_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </select>
+              </div>
+              {geometryError ? <div className="text-xs text-red-600">{geometryError}</div> : null}
+              <GeometryPickerMap
+                candidates={geometryCandidates}
+                selectedId={selectedGeometryCandidateId}
+                onSelect={onSelectGeometryCandidate}
+                basemap={basemap}
+                height={300}
+              />
+              <p className="text-[11px] text-slate-500">Выберите один полигон из SHP-кандидатов. Один полигон можно назначить только одному зданию.</p>
+            </div>
+
         <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
           <Button
             variant="ghost"
@@ -598,8 +625,8 @@ const BuildingModal = ({
           {!isReadOnly && (
             <Button
               onClick={onCommit}
-              disabled={!isValid || isMultiblockError || isSaving}
-              className={`shadow-xl shadow-blue-200/50 px-8 ${!isValid || isMultiblockError ? 'opacity-50 cursor-not-allowed bg-slate-400' : ''}`}
+              disabled={!isValid || isMultiblockError || isSaving || !selectedGeometryCandidateId}
+              className={`shadow-xl shadow-blue-200/50 px-8 ${!isValid || isMultiblockError || !selectedGeometryCandidateId ? 'opacity-50 cursor-not-allowed bg-slate-400' : ''}`}
             >
               {isSaving ? (
                 <Loader2 size={18} className="animate-spin mr-2" />
@@ -681,6 +708,9 @@ const CompositionEditor = () => {
   const isReadOnly = useReadOnly();
   const projectUjCode = complexInfo?.ujCode;
   const [deleteTargetId, setDeleteTargetId] = useState(null);
+  const [geometryCandidates, setGeometryCandidates] = useState([]);
+  const [geometryError, setGeometryError] = useState('');
+  const [basemap, setBasemap] = useState('osm');
 
   // State для переключения вида (grid/list)
   // Инициализируем из localStorage или по умолчанию 'grid'
@@ -713,6 +743,7 @@ const CompositionEditor = () => {
     infraType: 'Котельная',
     blocksData: [],
     basementsCount: 0,
+    geometryCandidateId: null,
   });
 
   const hasResidential = useMemo(
@@ -733,6 +764,25 @@ const CompositionEditor = () => {
   }, [parkingConstructionOptions]);
   const { options: infraTypeOptions } = useCatalog('dict_infra_types');
   const { options: projectStageOptions } = useCatalog('dict_project_statuses');
+
+  React.useEffect(() => {
+    let active = true;
+    if (!projectId) return () => {};
+
+    ApiService.getProjectGeometryCandidates(projectId)
+      .then(items => {
+        if (!active) return;
+        setGeometryCandidates(Array.isArray(items) ? items : []);
+      })
+      .catch(err => {
+        if (!active) return;
+        setGeometryError(err?.message || 'Не удалось загрузить геометрию');
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [projectId, isMutating]);
 
   
 
@@ -772,6 +822,7 @@ const CompositionEditor = () => {
       editingId: null,
       blocksData: [],
       basementsCount: 0,
+      geometryCandidateId: null,
     });
   };
 
@@ -793,6 +844,7 @@ const CompositionEditor = () => {
       parkingConstruction: item.constructionType || 'capital',
       infraType: item.infraType || 'Котельная',
       basementsCount: item.basementsCount ?? 0,
+      geometryCandidateId: item.geometryCandidateId || null,
       blocksData: Array.isArray(item.blocks)
         ? item.blocks.map((block, index) => ({
             id: block.id,
@@ -834,6 +886,7 @@ const CompositionEditor = () => {
       dateStart: modal.dateStart,
       dateEnd: modal.dateEnd,
       basementsCount: Math.min(4, Math.max(0, parseInt(modal.basementsCount, 10) || 0)),
+      geometryCandidateId: modal.geometryCandidateId,
     };
 
     if (modal.editingId) {
@@ -1171,6 +1224,12 @@ const CompositionEditor = () => {
           parkingConstructionOptions={normalizedParkingConstructionOptions}
           infraTypeOptions={infraTypeOptions}
           projectStageOptions={projectStageOptions}
+          geometryCandidates={geometryCandidates}
+          selectedGeometryCandidateId={modal.geometryCandidateId}
+          onSelectGeometryCandidate={candidateId => setModal(m => ({ ...m, geometryCandidateId: candidateId }))}
+          geometryError={geometryError}
+          basemap={basemap}
+          onBasemapChange={setBasemap}
         />
       )}
       <DeleteConfirmationModal 
