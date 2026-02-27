@@ -208,7 +208,15 @@ deleteProjectGeometryCandidate: async (projectId, candidateId, actor = {}) => {
       userRole: resolvedActor.userRole,
     });
   },
-
+ unselectProjectLandPlot: async (projectId, actor = {}) => {
+    requireBffEnabled('project.unselectProjectLandPlot');
+    const resolvedActor = resolveActor(actor);
+    return BffClient.unselectProjectLandPlot({
+      projectId,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
+  },
   getProjectDetails: async projectId => {
     if (!projectId) return null;
     requireBffEnabled('project.getProjectDetails');

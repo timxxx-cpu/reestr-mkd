@@ -249,6 +249,12 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
       userRole,
       body: { candidateId },
     }),
+  unselectProjectLandPlot: ({ projectId, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/land-plot/unselect`, {
+      method: 'POST',
+      userName,
+      userRole,
+    }),
 
   getProjectPassport: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/passport`),

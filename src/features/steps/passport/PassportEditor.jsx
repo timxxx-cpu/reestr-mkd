@@ -212,7 +212,18 @@ const handleAttachToProject = async () => {
       setGeometryError(err?.message || 'Не удалось прикрепить геометрию');
     }
   };
-
+  const handleDetachGeometry = async () => {
+    if (!window.confirm('Уверены, что хотите открепить текущую границу от ЖК?')) return;
+    
+    try {
+      await ApiService.unselectProjectLandPlot(projectId);
+      setActiveCandidateId(null);
+      await reloadCandidates(); // Обновляем статусы на карте
+      queryClient.invalidateQueries({ queryKey: ['project-info', projectId] }); // Перерисовываем зеленую заливку
+    } catch (err) {
+      setGeometryError(err?.message || 'Не удалось открепить геометрию');
+    }
+  };
   const handleDeleteGeometry = async () => {
     if (!activeCandidateId) return;
     if (!window.confirm('Уверены, что хотите удалить этот контур?')) return;
@@ -564,6 +575,17 @@ const handleAttachToProject = async () => {
               {isImportingGeometry ? <Loader2 size={14} className="animate-spin mr-1" /> : <Plus size={14} className="mr-1" />}
               Импорт SHP ZIP
             </Button>
+            {/* КНОПКА ОТКРЕПЛЕНИЯ */}
+            {landPlot?.geometry && !isReadOnly && (
+              <Button 
+                onClick={handleDetachGeometry} 
+                className="bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 ml-2"
+              >
+                <Trash2 size={14} className="mr-1" />
+                Открепить от ЖК
+              </Button>
+            )}
+            
             <input ref={shpInputRef} type="file" accept=".zip" className="hidden" onChange={handleImportGeometryZip} />
             <select value={basemap} onChange={e => setBasemap(e.target.value)} className="border rounded px-2 py-1 text-sm">
               {BASEMAP_OPTIONS.map(opt => (

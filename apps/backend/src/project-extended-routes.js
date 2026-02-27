@@ -771,6 +771,33 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
 
     return reply.send({ ok: true, areaM2: (data || [])[0]?.land_plot_area_m2 || null });
   });
+app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) => {
+    const actor = requirePolicyActor(req, reply, {
+      module: 'projectExtended', action: 'mutate', forbiddenMessage: 'Role cannot unselect land plot geometry',
+    });
+    if (!actor) return;
+
+    const { projectId } = req.params;
+
+    // 1. Снимаем флаг "выбран" со всех кандидатов этого проекта
+    await supabase.from('project_geometry_candidates')
+      .update({ is_selected_land_plot: false, updated_at: new Date().toISOString() })
+      .eq('project_id', projectId);
+
+    // 2. Очищаем геометрию в самом проекте
+    const { error } = await supabase.from('projects')
+      .update({ 
+        land_plot_geojson: null, 
+        land_plot_geom: null, 
+        land_plot_area_m2: null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', projectId);
+
+    if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+    return reply.send({ ok: true });
+  });
+
 // Удаление кандидата геометрии
   app.delete('/api/v1/projects/:projectId/geometry-candidates/:candidateId', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
