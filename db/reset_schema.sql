@@ -359,7 +359,7 @@ create table project_geometry_candidates (
   assigned_building_id uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique(project_id, source_index)
+  constraint uq_proj_geom_candidates unique(project_id, source_index)
 );
 create index idx_proj_geom_candidates_project on project_geometry_candidates(project_id);
 create index idx_proj_geom_candidates_geom on project_geometry_candidates using gist(geom);
@@ -1141,6 +1141,7 @@ begin
     select tablename
     from pg_tables
     where schemaname = 'public'
+    and tablename != 'spatial_ref_sys'
   loop
     execute format('alter table public.%I enable row level security', tbl.tablename);
 
@@ -1305,18 +1306,18 @@ begin
   v_multi := st_multi(v_geom);
 
   insert into project_geometry_candidates(project_id, source_index, label, properties, geom_geojson, geom, area_m2, updated_at)
-  values (
-    p_project_id,
-    p_source_index,
-    p_label,
-    coalesce(p_properties, '{}'::jsonb),
-    p_geom_geojson,
-    v_multi,
-    round(st_area(v_multi)::numeric, 2),
-    now()
-  )
-  on conflict (project_id, source_index) do update
-    set label = excluded.label,
+      values (
+        p_project_id,
+        p_source_index,
+        p_label,
+        coalesce(p_properties, '{}'::jsonb),
+        p_geom_geojson,
+        v_multi,
+        round(st_area(v_multi)::numeric, 2),
+        now()
+      )
+      on conflict on constraint uq_proj_geom_candidates do update
+        set label = excluded.label,
         properties = excluded.properties,
         geom_geojson = excluded.geom_geojson,
         geom = excluded.geom,
@@ -1333,16 +1334,16 @@ create or replace function set_project_land_plot_from_candidate(
   p_project_id uuid,
   p_candidate_id uuid
 )
-returns table(project_id uuid, land_plot_area_m2 numeric)
+returns table(out_project_id uuid, land_plot_area_m2 numeric)
 language plpgsql
 as $$
 declare
   v_candidate project_geometry_candidates%rowtype;
 begin
-  select * into v_candidate
-  from project_geometry_candidates
-  where id = p_candidate_id
-    and project_id = p_project_id;
+  select t.* into v_candidate
+  from project_geometry_candidates t
+  where t.id = p_candidate_id
+    and t.project_id = p_project_id;
 
   if not found then
     raise exception 'Candidate not found';
@@ -1368,14 +1369,14 @@ begin
   return query
   select p_project_id, v_candidate.area_m2;
 end;
-$$;
+$$
 
 create or replace function assign_building_geometry_from_candidate(
   p_project_id uuid,
   p_building_id uuid,
   p_candidate_id uuid
 )
-returns table(building_id uuid, building_footprint_area_m2 numeric)
+returns table(out_building_id uuid, building_footprint_area_m2 numeric)
 language plpgsql
 as $$
 declare
@@ -1391,10 +1392,10 @@ begin
     raise exception 'Land plot is not selected';
   end if;
 
-  select * into v_candidate
-  from project_geometry_candidates
-  where id = p_candidate_id
-    and project_id = p_project_id;
+  select t.* into v_candidate
+  from project_geometry_candidates t
+  where t.id = p_candidate_id
+    and t.project_id = p_project_id;
 
   if not found then
     raise exception 'Candidate not found';

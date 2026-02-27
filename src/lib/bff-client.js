@@ -110,12 +110,13 @@ async function request(path, options = {}) {
   return payload;
 }
 
-export const BffClient = {
+  export const BffClient = {
   isEnabled: isBffEnabled,
 
   getRegistryBuildingsSummary: () => request('/api/v1/registry/buildings-summary'),
 
-  getProjectsList: ({ scope, status, workflowSubstatus, assignee, search, page, limit } = {}) => {
+  getProjectsList: (options = {}) => {
+    const { scope, status, workflowSubstatus, assignee, search, page, limit } = options;
     const params = new URLSearchParams();
     if (scope) params.set('scope', scope);
     if (status) params.set('status', status);
@@ -127,14 +128,16 @@ export const BffClient = {
     return request(`/api/v1/projects?${params.toString()}`);
   },
 
-  getProjectsSummaryCounts: ({ scope, assignee } = {}) => {
+  getProjectsSummaryCounts: (options = {}) => {
+    const { scope, assignee } = options;
     const params = new URLSearchParams();
     if (scope) params.set('scope', scope);
     if (assignee) params.set('assignee', assignee);
     return request(`/api/v1/projects/summary-counts?${params.toString()}`);
   },
 
-  getExternalApplications: ({ scope } = {}) => {
+  getExternalApplications: (options = {}) => {
+    const { scope } = options;
     const params = new URLSearchParams();
     if (scope) params.set('scope', scope);
     return request(`/api/v1/external-applications?${params.toString()}`);
@@ -225,7 +228,20 @@ export const BffClient = {
       userRole,
       body: { candidates },
     }),
+deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/geometry-candidates/${candidateId}`, {
+      method: 'DELETE',
+      userName,
+      userRole,
+    }),
 
+  selectBuildingGeometry: ({ projectId, buildingId, candidateId, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/buildings/${buildingId}/geometry/select`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { candidateId },
+    }),
   selectProjectLandPlot: ({ projectId, candidateId, userName, userRole }) =>
     request(`/api/v1/projects/${projectId}/land-plot/select`, {
       method: 'POST',

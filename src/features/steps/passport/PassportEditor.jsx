@@ -28,6 +28,7 @@ import shp from 'shpjs';
 import { ApiService } from '@lib/api-service';
 import { GeometryPickerMap, BASEMAP_OPTIONS } from '@components/maps/GeometryPickerMap';
 import { normalizeShpFeatures } from '@lib/geometry-utils';
+import { useQueryClient } from '@tanstack/react-query';
 
 const STATUS_CONFIG = {
   Проектный: { color: 'bg-purple-500', text: 'Проектирование', icon: FileText },
@@ -42,13 +43,17 @@ const PARTICIPANT_ROLES = [
   { key: 'customer', label: 'Заказчик', icon: Landmark },
 ];
 
+
+
 const PassportEditor = () => {
   const { projectId } = useProject();
   const isReadOnly = useReadOnly();
-
+  const queryClient = useQueryClient();
+const [activeCandidateId, setActiveCandidateId] = useState(null);
   const {
     complexInfo,
     cadastre,
+    landPlot,
     participants,
     documents,
     isLoading,
@@ -197,7 +202,29 @@ const PassportEditor = () => {
       },
     }));
   };
+const handleAttachToProject = async () => {
+    if (!activeCandidateId) return;
+    try {
+      await ApiService.selectProjectLandPlot(projectId, activeCandidateId);
+      await reloadCandidates();
+      queryClient.invalidateQueries({ queryKey: ['project-info', projectId] });
+    } catch (err) {
+      setGeometryError(err?.message || 'Не удалось прикрепить геометрию');
+    }
+  };
 
+  const handleDeleteGeometry = async () => {
+    if (!activeCandidateId) return;
+    if (!window.confirm('Уверены, что хотите удалить этот контур?')) return;
+    
+    try {
+      await ApiService.deleteProjectGeometryCandidate(projectId, activeCandidateId);
+      setActiveCandidateId(null);
+      await reloadCandidates();
+    } catch (err) {
+      setGeometryError(err?.message || 'Не удалось удалить геометрию');
+    }
+  };
   const handleParticipantSave = async role => {
     await updateParticipant({ role, data: participantDrafts[role] || {} });
   };
@@ -237,15 +264,7 @@ const PassportEditor = () => {
     }
   };
 
-  const handleSelectLandPlot = async candidateId => {
-    setSelectedLandPlotCandidateId(candidateId);
-    try {
-      await ApiService.selectProjectLandPlot(projectId, candidateId);
-      await reloadCandidates();
-    } catch (err) {
-      setGeometryError(err?.message || 'Не удалось выбрать геометрию участка');
-    }
-  };
+ 
 
   const autoFill = () => {
     if (isReadOnly) return;
@@ -554,12 +573,39 @@ const PassportEditor = () => {
           </div>
           {geometryError ? <div className="text-sm text-red-600">{geometryError}</div> : null}
           <GeometryPickerMap
-            candidates={geometryCandidates}
-            selectedId={selectedLandPlotCandidateId}
-            onSelect={handleSelectLandPlot}
-            basemap={basemap}
-            height={340}
-          />
+         candidates={geometryCandidates}
+         selectedId={selectedLandPlotCandidateId}
+         activeId={activeCandidateId}
+         savedGeometry={landPlot?.geometry}
+         onSelect={setActiveCandidateId} // При клике просто меняем activeId
+         basemap={basemap}
+         height={340}
+       />
+
+       {/* ПАНЕЛЬ С КНОПКАМИ */}
+       {activeCandidateId && !isReadOnly && (
+         <div className="flex flex-col sm:flex-row items-center gap-3 mt-3 p-3 bg-blue-50/50 rounded-lg border border-blue-100">
+           <div className="text-sm text-slate-600 flex-1 w-full">
+             Выбран контур на карте. Выберите действие:
+           </div>
+           <div className="flex items-center gap-2 w-full sm:w-auto">
+             <Button 
+               onClick={handleAttachToProject} 
+               className="bg-emerald-600 text-white hover:bg-emerald-500 w-full sm:w-auto"
+             >
+               <CheckCircle2 size={16} className="mr-2" /> 
+               Прикрепить к ЖК
+             </Button>
+             <Button 
+               onClick={handleDeleteGeometry} 
+               className="bg-white border-red-200 text-red-600 hover:bg-red-50 w-full sm:w-auto"
+             >
+               <Trash2 size={16} className="mr-2" /> 
+               Удалить
+             </Button>
+           </div>
+         </div>
+       )}
           <div className="text-xs text-slate-500">Выберите ровно один полигон как земельный участок ЖК.</div>
         </div>
       </Card>

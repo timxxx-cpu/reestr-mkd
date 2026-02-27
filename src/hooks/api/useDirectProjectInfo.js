@@ -17,6 +17,7 @@ export function useDirectProjectInfo(projectId) {
 
 const complexInfo = useMemo(() => data?.complexInfo || {}, [data?.complexInfo]);
   const cadastre = useMemo(() => data?.cadastre || {}, [data?.cadastre]);
+  const landPlot = useMemo(() => data?.landPlot || null, [data?.landPlot]);
   const participants = useMemo(() => data?.participants || {}, [data?.participants]);
   const documents = useMemo(() => data?.documents || [], [data?.documents]);
 
@@ -84,6 +85,7 @@ const complexInfo = useMemo(() => data?.complexInfo || {}, [data?.complexInfo]);
   return {
     complexInfo,
     cadastre,
+    landPlot,
     participants,
     documents,
     isLoading,

@@ -771,7 +771,43 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
 
     return reply.send({ ok: true, areaM2: (data || [])[0]?.land_plot_area_m2 || null });
   });
+// Удаление кандидата геометрии
+  app.delete('/api/v1/projects/:projectId/geometry-candidates/:candidateId', async (req, reply) => {
+    const actor = requirePolicyActor(req, reply, {
+      module: 'projectExtended', action: 'mutate', forbiddenMessage: 'Role cannot delete geometry candidates',
+    });
+    if (!actor) return;
 
+    const { projectId, candidateId } = req.params;
+    const { error } = await supabase.from('project_geometry_candidates')
+      .delete()
+      .eq('id', candidateId)
+      .eq('project_id', projectId);
+      
+    if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+    return reply.send({ ok: true });
+  });
+
+  // Прикрепление геометрии к Зданию
+  app.post('/api/v1/projects/:projectId/buildings/:buildingId/geometry/select', async (req, reply) => {
+    const actor = requirePolicyActor(req, reply, {
+      module: 'projectExtended', action: 'mutate', forbiddenMessage: 'Role cannot select building geometry',
+    });
+    if (!actor) return;
+
+    const { projectId, buildingId } = req.params;
+    const { candidateId } = req.body || {};
+    if (!candidateId) return sendError(reply, 400, 'VALIDATION_ERROR', 'candidateId is required');
+
+    const { data, error } = await supabase.rpc('assign_building_geometry_from_candidate', {
+      p_project_id: projectId,
+      p_building_id: buildingId,
+      p_candidate_id: candidateId,
+    });
+    
+    if (error) return sendError(reply, 400, 'GEOMETRY_VALIDATION_ERROR', error.message);
+    return reply.send({ ok: true, areaM2: (data || [])[0]?.building_footprint_area_m2 || null });
+  });
   app.get('/api/v1/projects/:projectId/passport', async (req, reply) => {
     const { projectId } = req.params;
 

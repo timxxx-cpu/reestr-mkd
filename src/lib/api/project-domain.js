@@ -165,7 +165,28 @@ export const createProjectDomainApi = ({
     requireBffEnabled('project.getProjectGeometryCandidates');
     return BffClient.getProjectGeometryCandidates({ projectId });
   },
+deleteProjectGeometryCandidate: async (projectId, candidateId, actor = {}) => {
+    requireBffEnabled('project.deleteProjectGeometryCandidate');
+    const resolvedActor = resolveActor(actor);
+    return BffClient.deleteProjectGeometryCandidate({
+      projectId,
+      candidateId,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
+  },
 
+  selectBuildingGeometry: async (projectId, buildingId, candidateId, actor = {}) => {
+    requireBffEnabled('project.selectBuildingGeometry');
+    const resolvedActor = resolveActor(actor);
+    return BffClient.selectBuildingGeometry({
+      projectId,
+      buildingId,
+      candidateId,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
+  },
   importProjectGeometryCandidates: async (projectId, candidates = [], actor = {}) => {
     requireBffEnabled('project.importProjectGeometryCandidates');
     const resolvedActor = resolveActor(actor);
