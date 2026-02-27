@@ -116,6 +116,25 @@
     - Приоритизированный roadmap декомпозиции App/Workflow/API
     - Этапы выполнения с критериями готовности
 
+18. [Изучение backend (apps/backend): архитектура, безопасность, риски](./21-backend-study.md) ✨ **НОВЫЙ**
+    - Краткий технический разбор BFF-слоя
+    - Карта route/utility модулей
+    - Наблюдения по auth/policy/idempotency/locks
+
+19. [Передача backend на Java 21 (Spring Boot + Maven)](./22-backend-java-transfer.md) ✨ **НОВЫЙ**
+    - Новый модуль `apps/backend-java` рядом с действующим BFF
+    - Полная карта endpoint-ов в Java-контроллерах
+    - Прямое подключение к PostgreSQL
+
+20. [Лог миграции backend-java (итерационный)](./23-backend-java-migration-log.md) ✨ **НОВЫЙ**
+    - Что уже перенесено в код
+    - Что будет делаться дальше на следующем шаге
+
+
+21. [Вариант backend на Hibernate JPA Repository](./24-backend-java-jpa-variant.md) ✨ **НОВЫЙ**
+    - Отдельный модуль `apps/backend-java-jpa`
+    - DB-доступ через Spring Data JPA
+
 ## Ключевые особенности документации
 
 ✅ **Полнота**: Описаны все таблицы, поля, связи, индексы  
