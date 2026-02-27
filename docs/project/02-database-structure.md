@@ -349,6 +349,40 @@
 - Один-ко-многим с `entrances` через `entrances.block_id`
 - Один-ко-многим с `block_floor_markers` через `block_floor_markers.block_id`
 
+### Таблица `block_extensions` — Пристройки блока (новая сущность)
+
+**Назначение**: Хранит пристройки, относящиеся к конкретному блоку (`parent_block_id`), включая случаи смещенного старта по этажам (переходы, надстройки на кровле).
+
+**Первичный ключ**: `id` (UUID)
+
+**Индексы**:
+- `idx_block_extensions_building` на `building_id`
+- `idx_block_extensions_parent` на `parent_block_id`
+- `idx_block_extensions_anchor` на `(parent_block_id, start_floor_index)`
+
+**Ключевые поля**:
+- `extension_type` — тип пристройки (`CANOPY`, `TAMBUR`, `VESTIBULE`, `PASSAGE`, `UTILITY`, `OTHER`)
+- `construction_kind` — тип конструкции (`capital`/`light`)
+- `floors_count` — количество этажей пристройки
+- `start_floor_index` — индекс стартового уровня привязки
+- `vertical_anchor_type` — тип вертикальной привязки (`GROUND`, `BLOCK_FLOOR`, `ROOF`)
+- `anchor_floor_key` — ключ опорного уровня (для `BLOCK_FLOOR`/`ROOF`)
+
+**Ограничения целостности**:
+- `floors_count >= 1`
+- `start_floor_index >= 1`
+- `vertical_anchor_type` ограничен: `GROUND`, `BLOCK_FLOOR`, `ROOF`
+- Триггер `trg_validate_block_extension_rules` проверяет:
+  - принадлежность `parent_block_id` тому же `building_id`,
+  - запрет parent-подвала для пристройки,
+  - валидность `start_floor_index` по `block_floor_markers` (для `BLOCK_FLOOR`),
+  - признак `has_roof_expl=true` для `ROOF`.
+
+**Связи**:
+- Многие-к-одному с `buildings` через `building_id`
+- Многие-к-одному с `building_blocks` через `parent_block_id`
+- Один-ко-многим с `floors`/`units` через `extension_id`
+
 ### Таблица `block_construction` — Конструктивные характеристики блока
 
 **Назначение**: Хранит конструктивные параметры блока (связь 1:1 с `building_blocks`).

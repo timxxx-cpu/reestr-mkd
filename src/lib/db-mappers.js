@@ -16,6 +16,21 @@ const normalizeParkingConstructionFromDb = constructionType => {
   return constructionType;
 };
 
+
+const mapExtensionFromDB = extension => ({
+  id: extension.id,
+  parentBlockId: extension.parent_block_id,
+  buildingId: extension.building_id,
+  label: extension.label,
+  extensionType: extension.extension_type || 'OTHER',
+  constructionKind: extension.construction_kind || 'capital',
+  floorsCount: extension.floors_count || 1,
+  startFloorIndex: extension.start_floor_index || 1,
+  verticalAnchorType: extension.vertical_anchor_type || 'GROUND',
+  anchorFloorKey: extension.anchor_floor_key || null,
+  notes: extension.notes || null,
+});
+
 // --- 1. PROJECT + APPLICATION ---
 export const mapProjectAggregate = (
   project,
@@ -130,6 +145,7 @@ export const mapBuildingFromDB = (b, blocks = []) => {
       label: bl.label,
       type: mapDBTypeToUI(bl.type),
       index: 0,
+      extensions: (Array.isArray(bl.block_extensions) ? bl.block_extensions : []).map(mapExtensionFromDB),
     })),
   };
 };
@@ -215,8 +231,9 @@ export const mapBlockDetailsFromDB = (b, block, blockMarkers = []) => {
 
 export const mapFloorFromDB = (f, buildingId, blockId) => ({
   id: f.id,
-  buildingId, 
-  blockId, 
+  buildingId,
+  blockId,
+  extensionId: f.extension_id || null,
   floorKey: f.floor_key,
   label: f.label,
   type: f.floor_type,
@@ -244,8 +261,9 @@ export const mapFloorFromDB = (f, buildingId, blockId) => ({
 export const mapUnitFromDB = (u, rooms = [], entranceMap = {}, buildingId, blockId) => ({
   id: u.id,
   unitCode: u.unit_code,
-  buildingId, 
-  blockId, 
+  buildingId,
+  blockId,
+  extensionId: u.extension_id || null,
   num: u.number,
   number: u.number,
   type: u.unit_type || 'flat',

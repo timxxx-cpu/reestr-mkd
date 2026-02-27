@@ -43,6 +43,14 @@
 - `building_blocks` (`is_basement_block`, `linked_block_ids`, `basement_depth`, `basement_parking_levels`, `basement_communications`) -> **Подвальные уровни, связи и паркинг**.
 - `application_steps.block_statuses` -> **Статус заполнения блоков по шагу** (обновляется по кнопке «Сохранить» на уровне выбранного здания).
 
+
+
+### Дополнение по пристройкам (`block_extensions`)
+
+- В шагах `registry_res` и `registry_nonres` редактирование пристроек выполняется в `ExtensionsCard` внутри редактора текущего блока.
+- CRUD выполняется через extension API-контракты (`GET/POST/PUT/DELETE` для пристроек), а UI поддерживает локальный fallback для сред без backend endpoint.
+- В шагах статусов заполнения пристройки считаются отдельными сущностями (`kind: extension`) и влияют на общий статус здания по шагу.
+
 ## 6) Инвентаризация подвалов (`basement_inventory`)
 
 - `building_blocks` (`is_basement_block=true`) -> **Карточки подвалов**.

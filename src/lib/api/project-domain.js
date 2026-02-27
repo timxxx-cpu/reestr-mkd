@@ -50,6 +50,13 @@ export const createProjectDomainApi = ({
     const partsRes = { data: context.participants || [], error: null };
     const docsRes = { data: context.documents || [], error: null };
     const buildingsRes = { data: context.buildings || [], error: null };
+    const blockExtensionsByParent = (context.block_extensions || []).reduce((acc, item) => {
+      const parentId = item?.parent_block_id;
+      if (!parentId) return acc;
+      acc[parentId] = acc[parentId] || [];
+      acc[parentId].push(item);
+      return acc;
+    }, {});
     const historyRes = { data: context.history || [], error: null };
     const stepsRes = { data: context.steps || [], error: null };
     const markersRes = { data: context.block_floor_markers || [], error: null }; 
@@ -88,10 +95,29 @@ export const createProjectDomainApi = ({
     const buildingDetails = {};
 
     (buildingsRes.data || []).forEach(b => {
-      composition.push(mapBuildingFromDB(b, b.building_blocks));
+      const enrichedBlocks = (b.building_blocks || []).map(block => {
+        const mergedExtensions = [
+          ...(Array.isArray(block.block_extensions) ? block.block_extensions : []),
+          ...(blockExtensionsByParent[block.id] || []),
+        ];
+
+        const dedupedExtensions = mergedExtensions.reduce((acc, ext) => {
+          if (!ext?.id) return acc;
+          if (acc.some(item => item.id === ext.id)) return acc;
+          acc.push(ext);
+          return acc;
+        }, []);
+
+        return {
+          ...block,
+          block_extensions: dedupedExtensions,
+        };
+      });
+
+      composition.push(mapBuildingFromDB(b, enrichedBlocks));
       
       // Маппим подвалы из basement-блоков building_blocks
-      const buildingBasements = (b.building_blocks || [])
+      const buildingBasements = enrichedBlocks
         .filter(block => block.is_basement_block)
         .map(block => ({
           id: block.id,
@@ -113,7 +139,7 @@ export const createProjectDomainApi = ({
         buildingDetails[`${b.id}_features`] = { basements: buildingBasements };
       }
 
-      (b.building_blocks || []).filter(block => !block.is_basement_block).forEach(block => {
+      enrichedBlocks.filter(block => !block.is_basement_block).forEach(block => {
         const uiKey = `${b.id}_${block.id}`;
         // Передаем маркеры в маппер
         const mapped = mapBlockDetailsFromDB(b, block, markersRes.data);

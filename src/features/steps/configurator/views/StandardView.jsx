@@ -3,12 +3,21 @@ import { ImageIcon, LayoutGrid } from 'lucide-react';
 
 // ИМПОРТЫ
 import { useProject } from '@context/ProjectContext';
+import { useToast } from '@context/ToastContext';
 import { useReadOnly } from '@components/ui/UIKit';
 import { Validators } from '@lib/validators';
 import { BuildingConfigSchema } from '@lib/schemas';
 import { getBlocksList } from '@lib/utils';
 import { cleanBlockDetails, formatBlockSwitcherLabel } from '@lib/building-details';
 import { useValidation } from '@hooks/useValidation';
+import { ApiService } from '@lib/api-service';
+import {
+  createTemporaryExtensionId,
+  isExtensionApiUnavailable,
+  isExtensionsFeatureEnabled,
+  isExtensionsLocalFallbackEnabled,
+  isTemporaryExtensionId,
+} from '@lib/api/extensions-api';
 
 // Карточки
 import ConstructiveCard from '../cards/ConstructiveCard';
@@ -17,6 +26,7 @@ import PhotoTab from '../PhotoTab';
 import StylobateCard from '../cards/StylobateCard';
 import GeneralBlockCard from '../cards/GeneralBlockCard';
 import FloorsCard from '../cards/FloorsCard';
+import ExtensionsCard from '../cards/ExtensionsCard';
 
 // Кастомный компонент кнопки для темной панели
 const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
@@ -37,7 +47,8 @@ const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
 );
 
 export default function StandardView({ building, mode }) {
-  const { buildingDetails, setBuildingDetails, _complexInfo } = useProject();
+  const { buildingDetails, setBuildingDetails, setComposition, userProfile } = useProject();
+  const toast = useToast();
   const isReadOnly = useReadOnly();
 
   const blocksList = useMemo(
@@ -137,11 +148,6 @@ export default function StandardView({ building, mode }) {
     setBuildingDetails(prev => ({ ...prev, [detailsKey]: { ...details, [key]: val } }));
   };
 
-  const updateFeatures = updates => {
-    if (isReadOnly) return;
-    setBuildingDetails(prev => ({ ...prev, [featuresKey]: { ...features, ...updates } }));
-  };
-
   useEffect(() => {
     if (currentBlock && !isReadOnly && detailsKey) {
       if (details.floorsFrom !== 1) {
@@ -206,6 +212,140 @@ export default function StandardView({ building, mode }) {
   const blockBasements = (features.basements || []).filter(b =>
     b.blocks?.includes(currentBlock?.id)
   );
+
+
+  const currentBlockModel = useMemo(
+    () => (building.blocks || []).find(item => item.id === currentBlock?.id) || null,
+    [building.blocks, currentBlock?.id]
+  );
+
+  const extensionsFeatureEnabled = isExtensionsFeatureEnabled();
+  const extensionsLocalFallbackEnabled = isExtensionsLocalFallbackEnabled();
+
+  const blockExtensions = useMemo(
+    () => (Array.isArray(currentBlockModel?.extensions) ? currentBlockModel.extensions : []),
+    [currentBlockModel]
+  );
+
+  const updateBlockExtensionsInComposition = updater => {
+    setComposition(prev =>
+      (prev || []).map(item => {
+        if (item.id !== building.id) return item;
+        return {
+          ...item,
+          blocks: (item.blocks || []).map(block => {
+            if (block.id !== currentBlock?.id) return block;
+            const nextExtensions = typeof updater === 'function' ? updater(block.extensions || []) : updater;
+            return { ...block, extensions: nextExtensions };
+          }),
+        };
+      })
+    );
+  };
+
+  const createExtension = async extensionData => {
+    if (!extensionsFeatureEnabled) {
+      toast.warning('Функционал пристроек отключен feature-flag конфигурацией.');
+      return;
+    }
+    if (!currentBlock?.id) return;
+    const actor = { userName: userProfile?.name, userRole: userProfile?.role };
+
+    try {
+      const created = await ApiService.createBlockExtension(currentBlock.id, extensionData, actor);
+      const mapped = {
+        id: created?.id || createTemporaryExtensionId(),
+        parentBlockId: created?.parent_block_id || currentBlock.id,
+        buildingId: created?.building_id || building.id,
+        label: created?.label || extensionData.label,
+        extensionType: created?.extension_type || extensionData.extensionType,
+        constructionKind: created?.construction_kind || extensionData.constructionKind,
+        floorsCount: created?.floors_count || extensionData.floorsCount,
+        startFloorIndex: created?.start_floor_index || extensionData.startFloorIndex,
+        verticalAnchorType: created?.vertical_anchor_type || extensionData.verticalAnchorType,
+        anchorFloorKey: created?.anchor_floor_key || extensionData.anchorFloorKey || null,
+      };
+
+      updateBlockExtensionsInComposition(prev => [...prev, mapped]);
+      toast.success('Пристройка добавлена');
+    } catch (e) {
+      if (extensionsLocalFallbackEnabled && isExtensionApiUnavailable(e)) {
+        const local = {
+          id: createTemporaryExtensionId(),
+          parentBlockId: currentBlock.id,
+          buildingId: building.id,
+          label: extensionData.label,
+          extensionType: extensionData.extensionType,
+          constructionKind: extensionData.constructionKind,
+          floorsCount: extensionData.floorsCount,
+          startFloorIndex: extensionData.startFloorIndex,
+          verticalAnchorType: extensionData.verticalAnchorType,
+          anchorFloorKey: extensionData.anchorFloorKey || null,
+        };
+        updateBlockExtensionsInComposition(prev => [...prev, local]);
+        toast.warning('Backend-эндпоинт пристроек недоступен. Изменение сохранено локально.');
+      } else {
+        toast.error(e?.message || 'Не удалось создать пристройку');
+      }
+    }
+  };
+
+  const updateExtension = async (extensionId, extensionData) => {
+    if (!extensionsFeatureEnabled) {
+      toast.warning('Функционал пристроек отключен feature-flag конфигурацией.');
+      return;
+    }
+    const actor = { userName: userProfile?.name, userRole: userProfile?.role };
+    try {
+      const updated = await ApiService.updateBlockExtension(extensionId, extensionData, actor);
+      updateBlockExtensionsInComposition(prev =>
+        prev.map(item =>
+          item.id === extensionId
+            ? {
+                ...item,
+                ...extensionData,
+                extensionType: updated?.extension_type || extensionData.extensionType,
+                constructionKind: updated?.construction_kind || extensionData.constructionKind,
+                floorsCount: updated?.floors_count || extensionData.floorsCount,
+                startFloorIndex: updated?.start_floor_index || extensionData.startFloorIndex,
+                verticalAnchorType: updated?.vertical_anchor_type || extensionData.verticalAnchorType,
+                anchorFloorKey: updated?.anchor_floor_key || extensionData.anchorFloorKey || null,
+              }
+            : item
+        )
+      );
+      toast.success('Пристройка обновлена');
+    } catch (e) {
+      if (isTemporaryExtensionId(extensionId) || (extensionsLocalFallbackEnabled && isExtensionApiUnavailable(e))) {
+        updateBlockExtensionsInComposition(prev =>
+          prev.map(item => (item.id === extensionId ? { ...item, ...extensionData } : item))
+        );
+        toast.warning('Обновление пристройки применено локально (backend недоступен).');
+      } else {
+        toast.error(e?.message || 'Не удалось обновить пристройку');
+      }
+    }
+  };
+
+  const deleteExtension = async extensionId => {
+    if (!extensionsFeatureEnabled) {
+      toast.warning('Функционал пристроек отключен feature-flag конфигурацией.');
+      return;
+    }
+    const actor = { userName: userProfile?.name, userRole: userProfile?.role };
+    try {
+      await ApiService.deleteBlockExtension(extensionId, actor);
+      updateBlockExtensionsInComposition(prev => prev.filter(item => item.id !== extensionId));
+      toast.success('Пристройка удалена');
+    } catch (e) {
+      if (isTemporaryExtensionId(extensionId) || (extensionsLocalFallbackEnabled && isExtensionApiUnavailable(e))) {
+        updateBlockExtensionsInComposition(prev => prev.filter(item => item.id !== extensionId));
+        toast.warning('Удаление пристройки применено локально (backend недоступен).');
+      } else {
+        toast.error(e?.message || 'Не удалось удалить пристройку');
+      }
+    }
+  };
   
   const stylobateHeightUnderCurrentBlock = useMemo(() => {
     if (currentBlock?.type !== 'Ж') return 0;
@@ -335,6 +475,14 @@ export default function StandardView({ building, mode }) {
               building={building}
               blockBasements={blockBasements}
               toggleFloorAttribute={toggleFloorAttribute}
+            />
+
+            <ExtensionsCard
+              extensions={blockExtensions}
+              disabled={!extensionsFeatureEnabled}
+              onCreate={createExtension}
+              onUpdate={updateExtension}
+              onDelete={deleteExtension}
             />
 
             {isResidentialBlock && !isCommercialValid && (

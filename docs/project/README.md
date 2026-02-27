@@ -135,6 +135,11 @@
     - Отдельный модуль `apps/backend-java-jpa`
     - DB-доступ через Spring Data JPA
 
+22. [План внедрения сущности пристроек блока (`block_extensions`)](./25-block-extensions-implementation-plan.md) ✨ **НОВЫЙ**
+    - Доменная модель пристроек как отдельной сущности
+    - Пошаговый план изменений БД, backend, frontend, валидаций и workflow
+    - Стратегия миграции и тестирования
+
 ## Ключевые особенности документации
 
 ✅ **Полнота**: Описаны все таблицы, поля, связи, индексы  
@@ -174,8 +179,20 @@
 - CI guardrails workflow: `.github/workflows/guardrails.yml` запускает `npm run guardrails:all` на PR/push.
 
 - Этапы A–E из `docs/project/17-src-refactor-stabilization-plan.md` закрыты.
-- Lint warning backlog по критичным workflow/editor модулям обнулён; `npm run lint` проходит без предупреждений.
+- Критичные ошибки линтера в workflow/editor цепочке отсутствуют; в репозитории остаются отдельные warning-кейсы (например, `apps/backend/src/validation.js`, `src/features/steps/configurator/cards/GeneralBlockCard.jsx`), их устранение ведется отдельным треком.
 - Transition-комментарии миграции (`[FIX]`, `[NEW]`, `[REMOVED]`, `[CHANGED]`) очищены в `src/*`; для новых изменений используйте нейтральные смысловые комментарии.
+
+
+
+## Статус инициативы `block_extensions`
+
+- ✅ DB-контракт и базовая API/UI/validator-интеграция реализованы.
+- ✅ Добавлены регрессионные тесты для merge/dedupe/fallback/idempotency-контрактов.
+- ⚠️ В работе до полного завершения:
+  1. стабильный browser runtime/e2e smoke для extension CRUD + step-status в CI;
+  2. закрепление операционной практики API-only режима (`VITE_EXTENSIONS_LOCAL_FALLBACK_ENABLED=false`) и аварийного fallback только для диагностики.
+
+Подробный трек и статус по итерациям: `docs/project/25-block-extensions-implementation-plan.md`.
 
 ## Статус документации
 

@@ -11,6 +11,8 @@
 - `floorData` -> `floors` -> **Параметры этажей**.
 - `entrancesData` -> `entrance_matrix` -> **Матрица подъезд/этаж**.
 - `flatMatrix` -> `units` + `rooms` -> **Реестр помещений/экспликация**.
+- `block.extensions[]` -> `block_extensions` -> **Пристройки блока**.
+- `floorData[*].extensionId` -> `floors.extension_id` -> **Привязка этажа к пристройке**.
   - `flatMatrix[*].hasMezzanine` -> `units.has_mezzanine`
   - `flatMatrix[*].mezzanineType` -> `units.mezzanine_type`
   - `flatMatrix[*].explication[].isMezzanine` -> `rooms.is_mezzanine`
@@ -49,6 +51,7 @@
 
 - `applications.integration_data` -> **Служебные статусы интеграционных операций**.
 - `buildings.cadastre_number` -> **Кадастровый номер здания**.
+- `units.extension_id` -> **Привязка помещения к пристройке** (при наличии).
 - `units.cadastre_number` -> **Кадастровый номер помещения**.
 - `units.has_mezzanine` / `units.mezzanine_type` -> **Признак и тип мезонина юнита**.
 - `rooms.is_mezzanine` -> **Признак расположения помещения в мезонине**.
@@ -131,3 +134,43 @@ Lock хранится в таблице `application_locks` (1 lock = 1 заяв
 
 Вынесение lock в отдельные таблицы и SQL-функции повышает устойчивость конкурентного доступа
 и исключает гонки, характерные для client-side update JSON-полей.
+
+
+## Extension API-контракты (новые)
+
+- `GET /api/v1/blocks/:blockId/extensions` — список пристроек блока.
+- `POST /api/v1/blocks/:blockId/extensions` — создание пристройки блока.
+- `PUT /api/v1/extensions/:extensionId` — обновление пристройки.
+- `DELETE /api/v1/extensions/:extensionId` — удаление пристройки.
+
+- UI: карточка `ExtensionsCard` в `configurator/views/StandardView`, `InfrastructureView` и `ParkingView` обеспечивает CRUD пристроек в рамках редактирования родительского блока.
+
+
+## Текущий статус покрытия block_extensions (операционный)
+
+### Что подтверждено тестами
+
+- runtime UI contract: `tests/extensions-ui-rollout-contract.test.mjs` (floors/apartments extension-aware UX + feature-flag wiring);
+- helper-уровень (`extensions-api`): временные id, распознавание временных сущностей, детекция unavailable endpoint;
+- `project-domain` merge: дедупликация nested/top-level extension, orphan-filtering, duplicate-id precedence, маршрутизация по `parent_block_id`;
+- `registry-domain` extension CRUD: BFF gate + idempotency + actor propagation;
+- `step-validators`: контрактное присутствие extension-логики в status/filtering.
+
+### Что требует следующего этапа
+
+- runtime/e2e подтверждение extension-flow в браузерном сценарии (`registry_res`/`registry_nonres` + влияние на block status);
+- завершить browser e2e подтверждение extension-flow без fallback-режима UI (runtime smoke в контуре).
+
+
+## Feature-flag конфигурация для extensions
+
+Для поэтапного rollout предусмотрены переменные окружения фронтенда:
+
+- `VITE_EXTENSIONS_ENABLED` (default `true`) — включает/выключает extension UI-flow;
+- `VITE_EXTENSIONS_LOCAL_FALLBACK_ENABLED` (default `false`) — аварийный локальный fallback (`tmp-ext-*`) при `NOT_IMPLEMENTED/404`; для штатного runtime должен быть выключен.
+
+Текущий режим проекта (single-environment test):
+
+1. Используем единый контур с `VITE_EXTENSIONS_ENABLED=true`.
+2. Runtime endpoint-ы пристроек подтверждены; рабочий режим — `VITE_EXTENSIONS_LOCAL_FALLBACK_ENABLED=false`.
+3. Включение fallback (`true`) допускается только как временный аварийный режим диагностики.

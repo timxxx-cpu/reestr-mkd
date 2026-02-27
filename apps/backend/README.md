@@ -142,6 +142,10 @@ npm test
 - `PUT /api/v1/floors/:floorId`
 - `POST /api/v1/blocks/:blockId/floors/reconcile`
 - `GET /api/v1/blocks/:blockId/entrances`
+- `GET /api/v1/blocks/:blockId/extensions`
+- `POST /api/v1/blocks/:blockId/extensions`
+- `PUT /api/v1/extensions/:extensionId`
+- `DELETE /api/v1/extensions/:extensionId`
 - `POST /api/v1/blocks/:blockId/entrances/reconcile`
 - `GET /api/v1/blocks/:blockId/entrance-matrix`
 - `PUT /api/v1/blocks/:blockId/entrance-matrix/cell`

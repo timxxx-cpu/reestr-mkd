@@ -404,3 +404,27 @@ application_history: INSERT (action='COMPLETE_STEP')
 - `dict_room_types` -> `rooms.room_type` -> **Тип комнаты**.
 - `dict_external_systems` -> `applications.external_source` -> **Источник заявления**.
 - `dict_application_statuses` -> `applications.status` -> **Справочные статусы заявки**.
+
+
+## 9.14 Пристройки (`block_extensions`) в жизненном цикле шагов
+
+### Где создаются и редактируются
+
+- Техник редактирует пристройки в шагах `registry_res`/`registry_nonres` в рамках конкретного блока (`ExtensionsCard`).
+- Операции: создание, изменение, удаление пристройки.
+
+### Какие таблицы затрагиваются
+
+- `block_extensions` — основная сущность пристройки,
+- `floors.extension_id` — связь этажей с пристройкой,
+- `units.extension_id` — связь помещений с пристройкой.
+
+### Как это влияет на шаговые статусы
+
+- В `application_steps.block_statuses` пристройки учитываются как отдельные записи `kind: extension`.
+- На шагах `registry_res`, `registry_nonres`, `floors`, `apartments` итоговый статус здания агрегирует и блоки, и пристройки.
+
+### Поведение при недоступном endpoint
+
+- UI использует локальный fallback (временные `tmp-ext-*` id) и предупреждающие уведомления.
+- После появления backend endpoint изменения синхронизируются стандартным API-путем.

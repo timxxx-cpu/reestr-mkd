@@ -972,12 +972,11 @@ export const getStepBlocksForStatus = (stepId, building, buildingDetails = {}) =
 
   if (stepId === 'registry_nonres') {
     return blocks.filter(b => {
-       const isBasement = b.type === 'ПД' || b.type === 'BAS' || b.originalType === 'basement' || b.originalType === 'BAS';
-       // Блок должен быть не жилым (не 'Ж') и не подвалом
-       return b.type !== 'Ж' && !isBasement;
+      const isBasement = b.type === 'ПД' || b.type === 'BAS' || b.originalType === 'basement' || b.originalType === 'BAS';
+      return b.type !== 'Ж' && !isBasement;
     });
   }
-  
+
   if (stepId === 'basement_inventory') return blocks;
   if (['registry_res', 'entrances', 'apartments', 'mop'].includes(stepId)) {
     return blocks.filter(b => b.type === 'Ж');
@@ -987,8 +986,128 @@ export const getStepBlocksForStatus = (stepId, building, buildingDetails = {}) =
   return [];
 };
 
+
+const isResidentialBlockType = type => type === 'Ж' || type === 'residential';
+
+const isBasementBlockType = type =>
+  type === 'ПД' || type === 'BAS' || type === 'basement';
+
+const getBuildingExtensionsForStatus = (stepId, building) => {
+  const sourceBlocks = Array.isArray(building?.blocks) ? building.blocks : [];
+  const blocksById = sourceBlocks.reduce((acc, block) => {
+    if (block?.id) acc[block.id] = block;
+    return acc;
+  }, {});
+
+  const allExtensions = sourceBlocks.flatMap(block => {
+    const items = Array.isArray(block.extensions) ? block.extensions : [];
+    return items
+      .filter(item => item?.id)
+      .map(item => ({
+        ...item,
+        parentBlockId: item.parentBlockId || block.id,
+      }));
+  });
+
+  if (allExtensions.length === 0) return [];
+
+  const includeByStep = {
+    registry_nonres: ext => {
+      const parent = blocksById[ext.parentBlockId];
+      if (!parent) return false;
+      return !isResidentialBlockType(parent.type) && !isBasementBlockType(parent.type);
+    },
+    registry_res: ext => isResidentialBlockType(blocksById[ext.parentBlockId]?.type),
+    floors: () => true,
+    apartments: ext => isResidentialBlockType(blocksById[ext.parentBlockId]?.type),
+  };
+
+  const predicate = includeByStep[stepId];
+  if (!predicate) return [];
+
+  return allExtensions
+    .filter(predicate)
+    .map(ext => {
+      const parent = blocksById[ext.parentBlockId] || null;
+      const parentLabel = parent?.label || 'Блок';
+      return {
+        ...ext,
+        kind: 'extension',
+        id: ext.id,
+        parentBlockId: ext.parentBlockId,
+        tabLabel: `${parentLabel} / ${ext.label || 'Пристройка'}`,
+        fullId: `${building.id}_${ext.id}`,
+      };
+    });
+};
+
+const getStepEntitiesForStatus = (stepId, building, buildingDetails = {}) => {
+  const blocks = getStepBlocksForStatus(stepId, building, buildingDetails).map(block => ({
+    ...block,
+    kind: 'block',
+  }));
+
+  const extensions = getBuildingExtensionsForStatus(stepId, building);
+  return [...blocks, ...extensions];
+};
+
+const validateExtensionByStep = (stepId, extension) => {
+  if (!extension) return [{ description: 'Отсутствуют данные пристройки.' }];
+
+  if (stepId === 'registry_res' || stepId === 'registry_nonres') {
+    const errors = [];
+
+    if (!extension.constructionKind) {
+      errors.push({ description: 'Не указан тип конструкции пристройки.' });
+    }
+    if (!extension.extensionType) {
+      errors.push({ description: 'Не указан тип пристройки.' });
+    }
+
+    const floorsCount = Number.parseInt(extension.floorsCount, 10);
+    if (!Number.isInteger(floorsCount) || floorsCount < 1) {
+      errors.push({ description: 'Количество этажей пристройки должно быть целым числом >= 1.' });
+    }
+
+    const anchorType = extension.verticalAnchorType;
+    if (!anchorType || !['GROUND', 'BLOCK_FLOOR', 'ROOF'].includes(anchorType)) {
+      errors.push({ description: 'Некорректный тип вертикальной привязки пристройки.' });
+    }
+
+    if (anchorType !== 'GROUND' && !extension.anchorFloorKey) {
+      errors.push({ description: 'Для выбранной привязки необходимо указать опорный уровень (anchorFloorKey).' });
+    }
+
+    return errors;
+  }
+
+  return [];
+};
+
+const getExtensionFromComposition = (detailsKey, contextData = {}) => {
+  const [buildingId, extensionId] = String(detailsKey).split('_');
+  if (!buildingId || !extensionId) return null;
+
+  const building = (contextData.composition || []).find(item => item.id === buildingId);
+  if (!building) return null;
+
+  const blocks = Array.isArray(building.blocks) ? building.blocks : [];
+  for (const block of blocks) {
+    const extensions = Array.isArray(block.extensions) ? block.extensions : [];
+    const found = extensions.find(ext => ext.id === extensionId);
+    if (found) return found;
+  }
+
+  return null;
+};
+
 const blockHasStepData = (stepId, detailsKey, contextData = {}) => {
+  const extensionData = getExtensionFromComposition(detailsKey, contextData);
+
   if (stepId === 'registry_nonres' || stepId === 'registry_res' || stepId === 'basement_inventory') {
+    if (extensionData) {
+      return !isObjectEmpty(extensionData);
+    }
     return !isObjectEmpty(contextData.buildingDetails?.[detailsKey]);
   }
   if (stepId === 'floors') {
@@ -1031,13 +1150,36 @@ export const evaluateBuildingFillStatusForStep = (stepId, building, contextData 
     return { buildingStatus: BLOCK_FILL_STATUS.EMPTY, blocks: [] };
   }
 
-  const blocks = getStepBlocksForStatus(stepId, building, contextData.buildingDetails || {});
-  if (blocks.length === 0) {
+  const entities = getStepEntitiesForStatus(stepId, building, contextData.buildingDetails || {});
+  if (entities.length === 0) {
     return { buildingStatus: BLOCK_FILL_STATUS.EMPTY, blocks: [] };
   }
 
-  const evaluatedBlocks = blocks.map(block => {
+  const evaluatedBlocks = entities.map(block => {
     const detailsKey = `${building.id}_${block.id}`;
+
+    if (block.kind === 'extension') {
+      const hasData = blockHasStepData(stepId, detailsKey, contextData);
+      const extensionErrors = validateExtensionByStep(stepId, block);
+      const status =
+        extensionErrors.length > 0
+          ? hasData
+            ? BLOCK_FILL_STATUS.PARTIAL
+            : BLOCK_FILL_STATUS.EMPTY
+          : hasData
+            ? BLOCK_FILL_STATUS.FILLED
+            : BLOCK_FILL_STATUS.EMPTY;
+
+      return {
+        blockId: block.id,
+        blockLabel: block.tabLabel,
+        status,
+        errorsCount: extensionErrors.length,
+        detailsKey,
+        kind: 'extension',
+      };
+    }
+
     const hasData = blockHasStepData(stepId, detailsKey, contextData);
     const scopedContext = buildScopedContextForBlock(stepId, building, block, contextData);
     const errors = validateStepCompletion(stepId, scopedContext) || [];
@@ -1055,6 +1197,7 @@ export const evaluateBuildingFillStatusForStep = (stepId, building, contextData 
       status,
       errorsCount: errors.length,
       detailsKey,
+      kind: 'block',
     };
   });
 
