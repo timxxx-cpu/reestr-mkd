@@ -61,7 +61,12 @@ export async function buildStepValidationResult(supabase, { projectId, stepId })
       const isParking = building.category === 'parking_separate';
       const isInfra = building.category === 'infrastructure';
       const isUnderground = building.parking_type === 'underground' || building.construction_type === 'underground';
-      const nonResBlocks = (building.building_blocks || []).filter(blk => blk.type !== 'Ж');
+      const nonResBlocks = (building.building_blocks || []).filter(blk => 
+        blk.type !== 'Ж' && 
+        !blk.is_basement_block && 
+        blk.type !== 'BAS' && 
+        blk.type !== 'ПД'
+      );
 
       nonResBlocks.forEach(block => {
         const title = getEntityTitle(building, block);

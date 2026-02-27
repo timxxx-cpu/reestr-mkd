@@ -491,6 +491,20 @@ create table block_engineering (
   updated_at timestamptz not null default now()
 );
 
+create table block_floor_markers (
+  id uuid primary key default gen_random_uuid(),
+  block_id uuid not null references building_blocks(id) on delete cascade,
+  marker_key text not null,
+  marker_type text not null check (marker_type in ('floor', 'technical', 'special', 'basement')),
+  floor_index int,
+  parent_floor_index int,
+  is_technical boolean not null default false,
+  is_commercial boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(block_id, marker_key)
+);
+create index idx_block_floor_markers_block on block_floor_markers(block_id);
 -- -----------------------------
 -- FLOORS / ENTRANCES / UNITS / MOP
 -- -----------------------------
@@ -954,11 +968,11 @@ insert into dict_infra_types(code, label) values ('school', 'Школа'), ('kin
 -- WARNING: only for test/dev environments
 -- -----------------------------
 
-grant usage on schema public to anon, authenticated;
-grant all on all tables in schema public to anon, authenticated;
-grant all on all sequences in schema public to anon, authenticated;
-alter default privileges in schema public grant all on tables to anon, authenticated;
-alter default privileges in schema public grant all on sequences to anon, authenticated;
+grant usage on schema public to anon, authenticated, service_role;
+grant all on all tables in schema public to anon, authenticated, service_role;
+grant all on all sequences in schema public to anon, authenticated, service_role;
+alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 
 do $$
 declare

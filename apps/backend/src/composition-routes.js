@@ -116,6 +116,16 @@ async function generateNextBuildingCode(supabase, projectId, category, blocksCou
   return generateBuildingCode(prefix, nextNumber);
 }
 
+const DEFAULT_BASEMENT_COMMUNICATIONS = {
+  electricity: false,
+  water: false,
+  sewerage: false,
+  heating: false,
+  ventilation: false,
+  gas: false,
+  firefighting: false,
+};
+
 export function registerCompositionRoutes(app, { supabase }) {
   app.get('/api/v1/projects/:projectId/buildings', async (req, reply) => {
     const { projectId } = req.params;
@@ -245,7 +255,7 @@ export function registerCompositionRoutes(app, { supabase }) {
         basement_depth: 1,
         basement_has_parking: false,
         basement_parking_levels: {},
-        basement_communications: {},
+        basement_communications: DEFAULT_BASEMENT_COMMUNICATIONS,
         entrances_count: 1,
       }));
       const { error: basementCreateError } = await supabase.from('building_blocks').insert(basementRows);
@@ -383,7 +393,7 @@ export function registerCompositionRoutes(app, { supabase }) {
         basement_depth: 1,
         basement_has_parking: false,
         basement_parking_levels: {},
-        basement_communications: {},
+        basement_communications: DEFAULT_BASEMENT_COMMUNICATIONS,
         entrances_count: 1,
       }));
       const { error: createBasementError } = await supabase.from('building_blocks').insert(toCreate);

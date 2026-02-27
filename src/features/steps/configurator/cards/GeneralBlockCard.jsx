@@ -11,11 +11,16 @@ export default function GeneralBlockCard({
   _errorBorder,
 }) {
   const isReadOnly = useReadOnly();
-  const isResidential = currentBlock?.type === 'Ж';
+ const isResidential = currentBlock?.type === 'Ж';
   const canEditBlockAddress = String(building?.category || '').includes('residential');
 
-  // ВАЖНО: Разделяем поля! Для жилых пишем в entrances, для котельных/паркингов в inputs
-  const entrancesField = isResidential ? 'entrances' : 'inputs';
+  // Определяем, является ли объект чистой инфраструктурой или паркингом
+  const isInfra = building?.category === 'infrastructure' || currentBlock?.originalType === 'infrastructure';
+  const isParking = building?.category === 'parking_separate' || currentBlock?.originalType === 'parking';
+
+  // Согласовано с cleanBlockDetails: 
+  // Паркинги и инфру пишем в inputs. А вот жилые 'Ж' и нежилые 'Н' блоки внутри жилого комплекса — в entrances!
+  const entrancesField = (isInfra || isParking) ? 'inputs' : 'entrances';
 
   const increment = (field, max = 100) => {
     const val = parseInt(details[field]) || 0;

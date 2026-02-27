@@ -139,22 +139,37 @@ export const mapBlockDetailsFromDB = (b, block, blockMarkers = []) => {
   const constr = getOne(block.block_construction);
   const eng = getOne(block.block_engineering);
 
-  // Восстанавливаем массивы из маркеров
   const technicalFloors = [];
   const commercialFloors = [];
   
-  (blockMarkers || []).forEach(m => {
-    if (m.block_id === block.id) {
-       if (m.is_technical && m.floor_index !== null) {
-          technicalFloors.push(m.floor_index);
+  // УНИВЕРСАЛЬНЫЙ ПОИСК МАРКЕРОВ: 
+  // Берем из общего массива (если пришел) ИЛИ из вложенного объекта блока (часто в Supabase)
+  const markers = [
+    ...(Array.isArray(blockMarkers) ? blockMarkers : []),
+    ...(Array.isArray(block.block_floor_markers) ? block.block_floor_markers : [])
+  ];
+
+  markers.forEach(m => {
+    // Проверяем принадлежность к блоку (если маркер вложенный, block_id может не быть, считаем его валидным)
+    if (!m.block_id || m.block_id === block.id) {
+       
+       if (m.is_technical) {
+          const techVal = m.floor_index ?? m.marker_key;
+          if (techVal !== null && techVal !== undefined) {
+             technicalFloors.push(String(techVal)); // Принудительно в строку
+          }
        }
+       
        if (m.is_commercial) {
-          // Если есть ключ, используем его, иначе индекс
-          commercialFloors.push(m.marker_key || String(m.floor_index));
+          const commVal = m.marker_key ?? m.floor_index;
+          if (commVal !== null && commVal !== undefined) {
+             commercialFloors.push(String(commVal)); // Принудительно в строку
+          }
        }
     }
   });
 
+  
   return {
     floorsCount: block.floors_count || 0,
     entrances: block.entrances_count || 0,
@@ -193,7 +208,6 @@ export const mapBlockDetailsFromDB = (b, block, blockMarkers = []) => {
       lowcurrent: !!eng.has_lowcurrent,
     },
 
-    // ВАЖНО: Возвращаем массивы, чтобы UI знал, что включено
     technicalFloors,
     commercialFloors,
   };

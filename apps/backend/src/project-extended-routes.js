@@ -242,7 +242,7 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
       supabase.from('projects').select('*').eq('id', projectId).maybeSingle(),
       supabase.from('project_participants').select('*').eq('project_id', projectId),
       supabase.from('project_documents').select('*').eq('project_id', projectId),
-      supabase.from('buildings').select(`*, building_blocks (*, block_construction (*), block_engineering (*))`)
+      supabase.from('buildings').select(`*, building_blocks (*, block_construction (*), block_engineering (*), block_floor_markers (*))`)
         .eq('project_id', projectId).order('created_at', { ascending: true }),
       appRow?.id
         ? supabase.from('application_history').select('*').eq('application_id', appRow.id).order('created_at', { ascending: false })
@@ -374,6 +374,10 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
     }
 
     for (const [buildingId, keepIds] of featureBasementIdsByBuilding.entries()) {
+            if (!( `${buildingId}_features` in buildingDetails )) {
+        continue; 
+      }
+
       const { data: existingBasements = [], error: existingBasementsError } = await supabase
         .from('building_blocks')
         .select('id')

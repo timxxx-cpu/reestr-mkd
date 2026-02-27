@@ -82,6 +82,10 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
     building.parkingType === 'underground' || building.constructionType === 'underground';
 
   const relevantBlocks = blocks.filter(b => {
+    // Исключаем все возможные варианты подвалов
+    const isBasement = b.type === 'ПД' || b.type === 'BAS' || b.originalType === 'basement' || b.originalType === 'BAS';
+    if (isBasement) return false;
+
     if (mode === 'res') return b.type === 'Ж';
     if (mode === 'nonres') return b.type !== 'Ж';
     return true;
@@ -966,7 +970,14 @@ export const validateStepCompletion = (stepId, contextData) => {
 export const getStepBlocksForStatus = (stepId, building, buildingDetails = {}) => {
   const blocks = getBlocksList(building, buildingDetails);
 
-  if (stepId === 'registry_nonres') return blocks.filter(b => b.type !== 'Ж');
+  if (stepId === 'registry_nonres') {
+    return blocks.filter(b => {
+       const isBasement = b.type === 'ПД' || b.type === 'BAS' || b.originalType === 'basement' || b.originalType === 'BAS';
+       // Блок должен быть не жилым (не 'Ж') и не подвалом
+       return b.type !== 'Ж' && !isBasement;
+    });
+  }
+  
   if (stepId === 'basement_inventory') return blocks;
   if (['registry_res', 'entrances', 'apartments', 'mop'].includes(stepId)) {
     return blocks.filter(b => b.type === 'Ж');
