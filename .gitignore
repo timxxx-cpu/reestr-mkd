@@ -25,3 +25,7 @@ dist-ssr
 
 # Generated local QA reports
 tmp/reports/
+
+# Maven build output
+apps/backend-java/target/
+apps/backend-java-jpa/target/
