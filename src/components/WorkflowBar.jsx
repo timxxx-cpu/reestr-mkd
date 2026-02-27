@@ -44,6 +44,7 @@ import { useWorkflowOperations } from '@components/workflow/useWorkflowOperation
 const STEPS_WITH_CUSTOM_SAVE = [
   'registry_nonres', // Нежилые блоки и инфраструктура
   'registry_res',    // Жилые блоки
+  'basement_inventory',// Инвентаризация подвалов
   'floors',          // Внешняя инвентаризация
   'entrances',       // Инвентаризация подъездов
   'apartments',      // Присвоение номеров квартирам
@@ -432,8 +433,8 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
 
         {showRollbackConfirm && (
           <RollbackConfirmationModal
-            currentStepTitle={STEPS_CONFIG[currentStep]?.title || 'Текущий шаг'}
-            prevStepTitle={STEPS_CONFIG[Math.max(0, currentStep - 1)]?.title || 'Предыдущий шаг'}
+            currentStep={currentStep}
+            isFirstStep={currentStep === 0}
             onCancel={() => setShowRollbackConfirm(false)}
             onConfirm={performRollback}
             isLoading={isLoading}

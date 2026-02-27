@@ -158,9 +158,21 @@ export async function buildStepValidationResult(supabase, { projectId, stepId })
           errors.push(buildValidationError('BASEMENT_COMM_REQUIRED', title, 'Необходимо указать коммуникации подвала.'));
         }
 
-        const links = Array.isArray(block.linked_block_ids) ? block.linked_block_ids : [];
-        if (isMultiblockResidential && links.length === 0) {
-          errors.push(buildValidationError('BASEMENT_LINKS_REQUIRED', title, 'Для многоблочного жилого дома нужно указать обслуживаемые блоки.'));
+       // 1. Извлекаем массив связей
+        const rawLinks = Array.isArray(block.linked_block_ids) ? block.linked_block_ids : [];
+        
+        // 2. Очищаем его: убираем null, пустые строки и обрезаем пробелы
+        const links = rawLinks
+          .map(id => (typeof id === 'string' ? id.trim() : id))
+          .filter(id => id && id.length > 0);
+        
+        // 3. Жесткая проверка
+        if (links.length === 0) {
+          errors.push(buildValidationError(
+            'BASEMENT_LINKS_REQUIRED', 
+            title, 
+            'Для многоблочного жилого дома обязательно укажите, какие блоки обслуживает подвал.'
+          ));
         }
 
         const levels = block.basement_parking_levels && typeof block.basement_parking_levels === 'object'

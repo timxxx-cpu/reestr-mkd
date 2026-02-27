@@ -334,7 +334,7 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
         }
         let validBlockIds = Array.from(new Set(linkedBlockIds));
         if (validBlockIds.length === 0 && singleTargetBlockId) validBlockIds = [singleTargetBlockId];
-        if (validBlockIds.length === 0) continue;
+        
 
         const payload = {
           id: base.id,
