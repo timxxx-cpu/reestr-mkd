@@ -11,7 +11,6 @@ import { useValidation } from '@hooks/useValidation';
 import ConstructiveCard from '../cards/ConstructiveCard';
 import EngineeringCard from '../cards/EngineeringCard';
 import ParkingParametersCard from '../cards/ParkingParametersCard';
-import BasementCard from '../cards/BasementCard'; // 
 
 export default function ParkingView({ building, typeInfo }) {
   const { buildingDetails, setBuildingDetails, composition } = useProject();
@@ -192,14 +191,7 @@ export default function ParkingView({ building, typeInfo }) {
 
       <div className="xl:col-span-6 space-y-6">
         <ConstructiveCard details={details} updateDetail={updateDetail} errors={errors} />
-        {isUnderground && (
-          <BasementCard
-            blockBasements={blockBasements}
-            removeBasement={removeBasement}
-            updateBasement={updateBasement}
-          />
-        )}
-      </div>
+              </div>
     </div>
   );
 }

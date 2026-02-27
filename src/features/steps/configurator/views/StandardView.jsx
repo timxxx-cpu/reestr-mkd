@@ -17,7 +17,6 @@ import PhotoTab from '../PhotoTab';
 import StylobateCard from '../cards/StylobateCard';
 import GeneralBlockCard from '../cards/GeneralBlockCard';
 import FloorsCard from '../cards/FloorsCard';
-import BasementCard from '../cards/BasementCard';
 
 // Кастомный компонент кнопки для темной панели
 const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
@@ -207,19 +206,7 @@ export default function StandardView({ building, mode }) {
   const blockBasements = (features.basements || []).filter(b =>
     b.blocks?.includes(currentBlock?.id)
   );
-  const removeBasement = id => {
-    if (isReadOnly) return;
-    updateFeatures({ basements: (features.basements || []).filter(b => b.id !== id) });
-  };
-
-  const updateBasement = (id, field, val) => {
-    if (isReadOnly) return;
-    const updatedBasements = (features.basements || []).map(b =>
-      b.id === id ? { ...b, [field]: val } : b
-    );
-    updateFeatures({ basements: updatedBasements });
-  };
-
+  
   const stylobateHeightUnderCurrentBlock = useMemo(() => {
     if (currentBlock?.type !== 'Ж') return 0;
     let maxH = 0;
@@ -360,12 +347,7 @@ export default function StandardView({ building, mode }) {
 
           <div className="xl:col-span-3 space-y-6">
             <ConstructiveCard details={details} updateDetail={updateDetail} errors={errors} />
-            <BasementCard
-              blockBasements={blockBasements}
-              removeBasement={removeBasement}
-              updateBasement={updateBasement}
-            />
-          </div>
+            </div>
         </div>
       ) : null}
     </>

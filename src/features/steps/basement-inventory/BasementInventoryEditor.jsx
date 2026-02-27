@@ -1,8 +1,10 @@
 import React, { useMemo } from 'react';
-import { ArrowLeft, Building2, Link2, Archive, Activity, Layers } from 'lucide-react';
+import { ArrowLeft, Archive, Home, Save, Loader2 } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
-import { getBlocksList } from '@lib/utils';
-import { Card, SectionTitle, Label, useReadOnly } from '@components/ui/UIKit';
+import { getBlocksList, getStageColor } from '@lib/utils';
+import { formatFullIdentifier } from '@lib/uj-identifier';
+import { Card, useReadOnly, SaveIndicator } from '@components/ui/UIKit';
+import BasementStandardView from './views/BasementStandardView';
 
 const COMMUNICATION_FIELDS = [
   { key: 'electricity', label: 'Электроснабжение' },
@@ -20,9 +22,21 @@ const buildDefaultCommunications = (source = {}) =>
     return acc;
   }, {});
 
+const Divider = () => <div className="w-px h-6 bg-slate-200 mx-2 shrink-0" />;
+
 export default function BasementInventoryEditor({ buildingId, onBack }) {
-  const { composition, buildingDetails, setBuildingDetails } = useProject();
+  const {
+    complexInfo,
+    composition,
+    buildingDetails,
+    setBuildingDetails,
+    hasUnsavedChanges,
+    isSyncing,
+    saveProjectImmediate // Глобальная функция сохранения
+  } = useProject();
+
   const isReadOnly = useReadOnly();
+  const projectUjCode = complexInfo?.ujCode;
 
   const building = useMemo(() => composition.find(b => b.id === buildingId) || null, [composition, buildingId]);
   const blocks = useMemo(() => (building ? getBlocksList(building, buildingDetails) : []), [building, buildingDetails]);
@@ -30,6 +44,7 @@ export default function BasementInventoryEditor({ buildingId, onBack }) {
   const featuresKey = building ? `${building.id}_features` : null;
   const features = featuresKey ? buildingDetails[featuresKey] || {} : {};
   const basements = Array.isArray(features.basements) ? features.basements : [];
+
   const isResidentialBuilding = !!building?.category?.includes?.('residential');
   const isMultiblockResidential = isResidentialBuilding && blocks.length > 1;
 
@@ -37,10 +52,7 @@ export default function BasementInventoryEditor({ buildingId, onBack }) {
     if (!featuresKey || isReadOnly) return;
     setBuildingDetails(prev => ({
       ...prev,
-      [featuresKey]: {
-        ...(prev[featuresKey] || {}),
-        basements: next,
-      },
+      [featuresKey]: { ...(prev[featuresKey] || {}), basements: next },
     }));
   };
 
@@ -54,12 +66,7 @@ export default function BasementInventoryEditor({ buildingId, onBack }) {
     if (isReadOnly) return;
     const target = basements.find(base => base.id === id);
     const current = buildDefaultCommunications(target?.communications || {});
-    updateBasementField(id, {
-      communications: {
-        ...current,
-        [field]: !current[field],
-      },
-    });
+    updateBasementField(id, { communications: { ...current, [field]: !current[field] } });
   };
 
   const toggleBlockLink = (id, blockId) => {
@@ -72,156 +79,87 @@ export default function BasementInventoryEditor({ buildingId, onBack }) {
 
   if (!building) return <div className="p-8 text-center text-slate-400">Объект не найден.</div>;
 
+  const fullAddress = [building.region, building.district, building.address].filter(Boolean).join(', ');
+
+  const saveButtonClass = hasUnsavedChanges
+    ? 'bg-blue-600 text-white hover:bg-blue-500 ring-2 ring-blue-500/30 border-transparent shadow-md'
+    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900 shadow-sm';
+
   return (
-    <div className="w-full px-6 pb-16 space-y-6 animate-in fade-in duration-300">
-      <div className="flex items-center justify-between mb-8">
-        <button 
-          type="button" 
-          onClick={onBack} 
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"
-        >
-          <ArrowLeft size={16} /> Назад
-        </button>
-        <div className="text-right">
-          <h2 className="text-xl font-bold text-slate-800 inline-flex items-center gap-2">
-            <Archive size={20} className="text-blue-600" /> Инвентаризация подвалов
-          </h2>
-          <p className="text-xs font-medium text-slate-500 mt-1 uppercase tracking-wider">
-            {building.label} • дом № {building.houseNumber || '—'}
-          </p>
+    <div className="animate-in slide-in-from-bottom duration-500 space-y-6 pb-20 w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto">
+      
+      {/* ШАПКА РЕДАКТОРА */}
+      <div className="bg-white/95 backdrop-blur-md rounded-lg border border-slate-200 shadow-sm mb-6 sticky top-2 z-30 flex items-center justify-between px-2 h-14 overflow-hidden">
+        <div className="flex items-center gap-1 overflow-hidden flex-1">
+          <button onClick={onBack} className="flex items-center justify-center h-9 w-9 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors shrink-0" title="Вернуться к списку">
+            <ArrowLeft size={20} />
+          </button>
+          <Divider />
+
+          {building.buildingCode && projectUjCode && (
+            <>
+              <div className="flex items-center px-3 py-1.5 bg-slate-900 rounded-md shadow-sm shrink-0">
+                <span className="text-yellow-400 font-mono font-black text-sm tracking-widest">
+                  {formatFullIdentifier(projectUjCode, building.buildingCode)}
+                </span>
+              </div>
+              <Divider />
+            </>
+          )}
+
+          <div className="flex flex-col justify-center min-w-[80px] shrink-0">
+            <div className="flex items-center gap-1.5">
+              <Home size={16} className="text-slate-500" />
+              <span className="font-bold text-slate-800 text-sm whitespace-nowrap">
+                {building.houseNumber ? `Дом № ${building.houseNumber}` : 'Без номера'}
+              </span>
+            </div>
+            {fullAddress && <div className="text-[10px] text-slate-400 truncate max-w-[200px]" title={fullAddress}>{fullAddress}</div>}
+          </div>
+
+          <Divider />
+
+          <div className="flex flex-col justify-center min-w-0 shrink flex-1">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-slate-700 text-sm truncate" title={building.label}>{building.label}</span>
+              <span className={`px-1.5 py-px rounded-[4px] text-[9px] font-bold uppercase tracking-wide border shrink-0 ${getStageColor(building.stage)}`}>{building.stage || 'Проект'}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] text-blue-600 truncate mt-0.5">
+              <Archive size={12} className="shrink-0 opacity-70" />
+              <span className="truncate font-bold uppercase tracking-wide">Инвентаризация подвалов</span>
+            </div>
+          </div>
         </div>
+
+        {/* ЛОКАЛЬНАЯ КНОПКА СОХРАНЕНИЯ (Вызывает глобальный метод) */}
+        {!isReadOnly && (
+          <div className="pl-2 ml-1 border-l border-slate-200 shrink-0">
+            <button
+              onClick={saveProjectImmediate}
+              disabled={isSyncing}
+              className={`relative inline-flex items-center justify-center h-9 px-4 rounded-lg text-xs font-bold transition-all border disabled:opacity-60 disabled:cursor-not-allowed ${saveButtonClass}`}
+              title={hasUnsavedChanges ? "Есть несохраненные изменения" : "Сохранить"}
+            >
+              <SaveIndicator hasChanges={hasUnsavedChanges} />
+              {isSyncing ? <Loader2 size={14} className="animate-spin" /> : <Save size={15} className="mr-2" />}
+              {isSyncing ? 'Сохранение...' : 'Сохранить'}
+            </button>
+          </div>
+        )}
       </div>
 
+      {/* ОСНОВНОЙ КОНТЕНТ */}
       {basements.length === 0 ? (
-        <Card className="p-10 border-dashed text-center text-slate-500">
+        <Card className="p-10 border-dashed text-center text-slate-500 shadow-sm bg-slate-50/50">
           <Archive size={32} className="mx-auto mb-3 opacity-20" />
           <p className="font-medium">Для этого объекта подвалы не заданы.</p>
         </Card>
       ) : (
-        <div className="space-y-6">
-          {basements.map((base, idx) => {
-            const depth = Math.min(4, Math.max(1, parseInt(base.depth, 10) || 1));
-            const entrancesCount = Math.min(10, Math.max(1, parseInt(base.entrancesCount, 10) || 1));
-            const communications = buildDefaultCommunications(base.communications || {});
-            const linkedBlocks = Array.isArray(base.blocks) ? base.blocks : [];
-
-            return (
-              <Card key={base.id} className="p-6 shadow-sm">
-                <SectionTitle icon={Archive}>Подвал {idx + 1}</SectionTitle>
-
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                  {/* Левая колонка: Основные параметры */}
-                  <div className="space-y-6">
-                    {/* Глубина */}
-                    <div className="space-y-1">
-                      <Label>Глубина (уровней вниз)</Label>
-                      <div className="flex items-center gap-3">
-                        <button
-                          disabled={isReadOnly}
-                          onClick={() => updateBasementField(base.id, { depth: Math.max(1, depth - 1) })}
-                          className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50 transition-colors"
-                        >
-                          -
-                        </button>
-                        <span className="font-bold text-lg w-8 text-center">{depth}</span>
-                        <button
-                          disabled={isReadOnly}
-                          onClick={() => updateBasementField(base.id, { depth: Math.min(4, depth + 1) })}
-                          className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50 transition-colors"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Входы */}
-                    <div className="space-y-1">
-                      <Label>Количество входов в подвал (макс. 10)</Label>
-                      <div className="flex items-center gap-3">
-                        <button
-                          disabled={isReadOnly}
-                          onClick={() => updateBasementField(base.id, { entrancesCount: Math.max(1, entrancesCount - 1) })}
-                          className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50 transition-colors"
-                        >
-                          -
-                        </button>
-                        <span className="font-bold text-lg w-8 text-center">{entrancesCount}</span>
-                        <button
-                          disabled={isReadOnly}
-                          onClick={() => updateBasementField(base.id, { entrancesCount: Math.min(10, entrancesCount + 1) })}
-                          className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50 transition-colors"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Обслуживаемые блоки */}
-                    {isMultiblockResidential && (
-                      <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-xl">
-                        <Label className="text-blue-900 flex items-center gap-2 mb-3">
-                          <Link2 size={16} className="text-blue-500" /> Обслуживаемые блоки (обязательно)
-                        </Label>
-                        <div className="flex flex-wrap gap-2">
-                          {blocks.map(block => {
-                            const active = linkedBlocks.includes(block.id);
-                            return (
-                              <button
-                                key={block.id}
-                                type="button"
-                                disabled={isReadOnly}
-                                onClick={() => toggleBlockLink(base.id, block.id)}
-                                className={`
-                                  px-3 py-2 rounded-lg text-xs font-bold transition-all border 
-                                  ${active 
-                                    ? 'bg-blue-600 border-blue-600 text-white shadow-md' 
-                                    : 'bg-white border-blue-200 text-blue-600 hover:bg-blue-50'
-                                  } 
-                                  ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}
-                                `}
-                              >
-                                {block.tabLabel}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Правая колонка: Инженерия */}
-                  <div className="space-y-4">
-                     <div className="flex items-center gap-2 text-slate-700 font-bold mb-4">
-                        <Activity size={18} className="text-emerald-500" />
-                        Инженерные коммуникации
-                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {COMMUNICATION_FIELDS.map(item => (
-                        <label
-                          key={item.key}
-                          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border border-slate-100 transition-colors ${
-                            isReadOnly ? 'bg-slate-50 opacity-50 cursor-not-allowed' : 'bg-white cursor-pointer hover:border-emerald-300'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            disabled={isReadOnly}
-                            checked={!!communications[item.key]}
-                            onChange={() => toggleCommunication(base.id, item.key)}
-                            className="rounded text-emerald-600 w-4 h-4 focus:ring-emerald-500 disabled:cursor-not-allowed transition-all"
-                          />
-                          <span className="text-xs font-bold text-slate-600 select-none">
-                            {item.label}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
+        <BasementStandardView 
+          basements={basements} updateBasementField={updateBasementField} isMultiblockResidential={isMultiblockResidential}
+          blocks={blocks} toggleBlockLink={toggleBlockLink} buildDefaultCommunications={buildDefaultCommunications}
+          toggleCommunication={toggleCommunication} isReadOnly={isReadOnly}
+        />
       )}
     </div>
   );

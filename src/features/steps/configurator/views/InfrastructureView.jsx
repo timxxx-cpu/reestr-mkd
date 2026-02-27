@@ -10,7 +10,6 @@ import { useValidation } from '@hooks/useValidation';
 // Наши карточки
 import ConstructiveCard from '../cards/ConstructiveCard';
 import EngineeringCard from '../cards/EngineeringCard';
-import BasementCard from '../cards/BasementCard'; // 
 
 export default function InfrastructureView({ building }) {
   const { buildingDetails, setBuildingDetails } = useProject();
@@ -70,20 +69,7 @@ export default function InfrastructureView({ building }) {
     setBuildingDetails(prev => ({ ...prev, [featuresKey]: { ...features, ...updates } }));
   };
 
-  // --- Логика Подвала ---
-  const blockBasements = (features.basements || []).filter(b => b.blockId === blockId);
-  const removeBasement = id => {
-    if (isReadOnly) return;
-    updateFeatures({ basements: (features.basements || []).filter(b => b.id !== id) });
-  };
-
-  const updateBasement = (id, field, val) => {
-    if (isReadOnly) return;
-    const updated = (features.basements || []).map(b => (b.id === id ? { ...b, [field]: val } : b));
-    updateFeatures({ basements: updated });
-  };
-
-  const errorBorder = field =>
+    const errorBorder = field =>
     errors[field] ? 'border-red-500 focus:border-red-500 bg-red-50' : '';
 
   const increment = (field, max = 100) =>
@@ -160,12 +146,7 @@ export default function InfrastructureView({ building }) {
       {/* ПРАВАЯ КОЛОНКА (4/12): Конструктив + Подвал */}
       <div className="xl:col-span-4 space-y-6">
         <ConstructiveCard details={details} updateDetail={updateDetail} errors={errors} />
-        <BasementCard
-          blockBasements={blockBasements}
-          removeBasement={removeBasement}
-          updateBasement={updateBasement}
-        />
-      </div>
+              </div>
     </div>
   );
 }
