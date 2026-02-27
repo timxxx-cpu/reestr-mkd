@@ -214,6 +214,26 @@ export const BffClient = {
     }),
 
 
+
+  getProjectGeometryCandidates: ({ projectId }) =>
+    request(`/api/v1/projects/${projectId}/geometry-candidates`),
+
+  importProjectGeometryCandidates: ({ projectId, candidates, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/geometry-candidates/import`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { candidates },
+    }),
+
+  selectProjectLandPlot: ({ projectId, candidateId, userName, userRole }) =>
+    request(`/api/v1/projects/${projectId}/land-plot/select`, {
+      method: 'POST',
+      userName,
+      userRole,
+      body: { candidateId },
+    }),
+
   getProjectPassport: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/passport`),
 

@@ -8,6 +8,7 @@ drop schema if exists public cascade;
 create schema public;
 
 create extension if not exists "pgcrypto";
+create extension if not exists "postgis";
 
 -- -----------------------------
 -- DROP (kept for compatibility in partial/manual reruns)
@@ -73,12 +74,16 @@ create table projects (
   date_start_fact date,
   date_end_fact date,
   integration_data jsonb default '{}'::jsonb,
+  land_plot_geojson jsonb,
+  land_plot_geom geometry(MultiPolygon, 3857),
+  land_plot_area_m2 numeric(14,2),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 create index idx_projects_scope on projects(scope_id);
 create index idx_projects_updated on projects(updated_at desc);
 create unique index idx_projects_uj_code on projects(uj_code) where uj_code is not null;
+create index idx_projects_land_plot_geom on projects using gist(land_plot_geom);
 
 create table applications (
   id uuid primary key default gen_random_uuid(),
@@ -330,11 +335,40 @@ create table buildings (
   infra_type text,
   has_non_res_part boolean not null default false,
   cadastre_number text,
+  footprint_geojson jsonb,
+  building_footprint_geom geometry(MultiPolygon, 3857),
+  building_footprint_area_m2 numeric(14,2),
+  geometry_candidate_id uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 create index idx_buildings_project on buildings(project_id);
 create unique index idx_buildings_code on buildings(building_code) where building_code is not null;
+create index idx_buildings_footprint_geom on buildings using gist(building_footprint_geom);
+
+create table project_geometry_candidates (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references projects(id) on delete cascade,
+  source_index int not null,
+  label text,
+  properties jsonb not null default '{}'::jsonb,
+  geom_geojson jsonb not null,
+  geom geometry(MultiPolygon, 3857),
+  area_m2 numeric(14,2),
+  is_selected_land_plot boolean not null default false,
+  assigned_building_id uuid,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(project_id, source_index)
+);
+create index idx_proj_geom_candidates_project on project_geometry_candidates(project_id);
+create index idx_proj_geom_candidates_geom on project_geometry_candidates using gist(geom);
+create unique index idx_proj_geom_candidates_land_plot_once
+  on project_geometry_candidates(project_id)
+  where is_selected_land_plot = true;
+create unique index idx_proj_geom_candidates_building_once
+  on project_geometry_candidates(project_id, assigned_building_id)
+  where assigned_building_id is not null;
 
 create table building_blocks (
   id uuid primary key default gen_random_uuid(),
@@ -1242,5 +1276,172 @@ exception
     return query select false, 'UNIQUE_VIOLATION'::text, sqlerrm::text, null::uuid, null::uuid, null::text;
   when others then
     return query select false, 'DB_ERROR'::text, sqlerrm::text, null::uuid, null::uuid, null::text;
+end;
+$$;
+
+create or replace function upsert_project_geometry_candidate(
+  p_project_id uuid,
+  p_source_index int,
+  p_label text,
+  p_properties jsonb,
+  p_geom_geojson jsonb
+)
+returns table(id uuid, source_index int, label text, properties jsonb, geom_geojson jsonb, area_m2 numeric)
+language plpgsql
+as $$
+declare
+  v_geom geometry;
+  v_multi geometry;
+  v_row project_geometry_candidates%rowtype;
+begin
+  if p_project_id is null then
+    raise exception 'project_id is required';
+  end if;
+
+  v_geom := st_setsrid(st_geomfromgeojson(p_geom_geojson::text), 3857);
+  if geometrytype(v_geom) not in ('POLYGON', 'MULTIPOLYGON') then
+    raise exception 'Only Polygon/MultiPolygon supported';
+  end if;
+  v_multi := st_multi(v_geom);
+
+  insert into project_geometry_candidates(project_id, source_index, label, properties, geom_geojson, geom, area_m2, updated_at)
+  values (
+    p_project_id,
+    p_source_index,
+    p_label,
+    coalesce(p_properties, '{}'::jsonb),
+    p_geom_geojson,
+    v_multi,
+    round(st_area(v_multi)::numeric, 2),
+    now()
+  )
+  on conflict (project_id, source_index) do update
+    set label = excluded.label,
+        properties = excluded.properties,
+        geom_geojson = excluded.geom_geojson,
+        geom = excluded.geom,
+        area_m2 = excluded.area_m2,
+        updated_at = now()
+  returning * into v_row;
+
+  return query
+  select v_row.id, v_row.source_index, v_row.label, v_row.properties, v_row.geom_geojson, v_row.area_m2;
+end;
+$$;
+
+create or replace function set_project_land_plot_from_candidate(
+  p_project_id uuid,
+  p_candidate_id uuid
+)
+returns table(project_id uuid, land_plot_area_m2 numeric)
+language plpgsql
+as $$
+declare
+  v_candidate project_geometry_candidates%rowtype;
+begin
+  select * into v_candidate
+  from project_geometry_candidates
+  where id = p_candidate_id
+    and project_id = p_project_id;
+
+  if not found then
+    raise exception 'Candidate not found';
+  end if;
+
+  update project_geometry_candidates
+    set is_selected_land_plot = false,
+        updated_at = now()
+  where project_id = p_project_id;
+
+  update project_geometry_candidates
+    set is_selected_land_plot = true,
+        updated_at = now()
+  where id = p_candidate_id;
+
+  update projects
+    set land_plot_geojson = v_candidate.geom_geojson,
+        land_plot_geom = v_candidate.geom,
+        land_plot_area_m2 = v_candidate.area_m2,
+        updated_at = now()
+  where id = p_project_id;
+
+  return query
+  select p_project_id, v_candidate.area_m2;
+end;
+$$;
+
+create or replace function assign_building_geometry_from_candidate(
+  p_project_id uuid,
+  p_building_id uuid,
+  p_candidate_id uuid
+)
+returns table(building_id uuid, building_footprint_area_m2 numeric)
+language plpgsql
+as $$
+declare
+  v_candidate project_geometry_candidates%rowtype;
+  v_land geometry;
+  v_conflict uuid;
+begin
+  select land_plot_geom into v_land
+  from projects
+  where id = p_project_id;
+
+  if v_land is null then
+    raise exception 'Land plot is not selected';
+  end if;
+
+  select * into v_candidate
+  from project_geometry_candidates
+  where id = p_candidate_id
+    and project_id = p_project_id;
+
+  if not found then
+    raise exception 'Candidate not found';
+  end if;
+
+  if not st_coveredby(v_candidate.geom, v_land) then
+    raise exception 'Building geometry must be within land plot';
+  end if;
+
+  select b.id into v_conflict
+  from buildings b
+  where b.project_id = p_project_id
+    and b.id <> p_building_id
+    and b.building_footprint_geom is not null
+    and st_intersects(v_candidate.geom, b.building_footprint_geom)
+    and not st_touches(v_candidate.geom, b.building_footprint_geom)
+  limit 1;
+
+  if v_conflict is not null then
+    raise exception 'Building geometry intersects another building';
+  end if;
+
+  update buildings
+  set footprint_geojson = v_candidate.geom_geojson,
+      building_footprint_geom = v_candidate.geom,
+      building_footprint_area_m2 = v_candidate.area_m2,
+      geometry_candidate_id = v_candidate.id,
+      updated_at = now()
+  where id = p_building_id
+    and project_id = p_project_id;
+
+  if not found then
+    raise exception 'Building not found';
+  end if;
+
+  update project_geometry_candidates
+  set assigned_building_id = null,
+      updated_at = now()
+  where project_id = p_project_id
+    and assigned_building_id = p_building_id
+    and id <> p_candidate_id;
+
+  update project_geometry_candidates
+  set assigned_building_id = p_building_id,
+      updated_at = now()
+  where id = p_candidate_id;
+
+  return query select p_building_id, v_candidate.area_m2;
 end;
 $$;

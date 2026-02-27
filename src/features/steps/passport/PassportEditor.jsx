@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   LayoutDashboard,
   MapPin,
@@ -24,6 +24,10 @@ import { Card, SectionTitle, Label, Input, Button, useReadOnly } from '@componen
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { useCatalog } from '@hooks/useCatalogs';
 import { createVirtualComplexCadastre, formatComplexCadastre } from '@lib/cadastre';
+import shp from 'shpjs';
+import { ApiService } from '@lib/api-service';
+import { GeometryPickerMap, BASEMAP_OPTIONS } from '@components/maps/GeometryPickerMap';
+import { normalizeShpFeatures } from '@lib/geometry-utils';
 
 const STATUS_CONFIG = {
   Проектный: { color: 'bg-purple-500', text: 'Проектирование', icon: FileText },
@@ -81,6 +85,12 @@ const PassportEditor = () => {
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [saveError, setSaveError] = useState('');
   const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [geometryCandidates, setGeometryCandidates] = useState([]);
+  const [selectedLandPlotCandidateId, setSelectedLandPlotCandidateId] = useState(null);
+  const [isImportingGeometry, setIsImportingGeometry] = useState(false);
+  const [geometryError, setGeometryError] = useState('');
+  const [basemap, setBasemap] = useState('osm');
+  const shpInputRef = useRef(null);
 
   useEffect(() => {
     const safeComplexInfo = /** @type {any} */ (complexInfo || {});
@@ -117,6 +127,25 @@ const PassportEditor = () => {
   useEffect(() => {
     setParticipantDrafts(participants || {});
   }, [participants]);
+
+  useEffect(() => {
+    let isActive = true;
+    if (!projectId) return () => {};
+    ApiService.getProjectGeometryCandidates(projectId)
+      .then(items => {
+        if (!isActive) return;
+        setGeometryCandidates(Array.isArray(items) ? items : []);
+        const selected = (items || []).find(item => item.isSelectedLandPlot);
+        setSelectedLandPlotCandidateId(selected?.id || null);
+      })
+      .catch(() => {
+        if (!isActive) return;
+        setGeometryError('Не удалось загрузить геометрию участка');
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [projectId]);
 
   useEffect(() => {
     if (!isInitialDataLoaded || isReadOnly) return;
@@ -177,6 +206,45 @@ const PassportEditor = () => {
     if (!newDoc.name?.trim()) return;
     await upsertDocument(newDoc);
     setNewDoc({ name: '', type: '', number: '', date: '', url: '' });
+  };
+
+
+  const reloadCandidates = async () => {
+    if (!projectId) return;
+    const items = await ApiService.getProjectGeometryCandidates(projectId);
+    setGeometryCandidates(Array.isArray(items) ? items : []);
+    const selected = (items || []).find(item => item.isSelectedLandPlot);
+    setSelectedLandPlotCandidateId(selected?.id || null);
+  };
+
+  const handleImportGeometryZip = async event => {
+    const file = event.target.files?.[0];
+    if (!file || !projectId) return;
+    setGeometryError('');
+    setIsImportingGeometry(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const geojson = await shp(arrayBuffer);
+      const candidates = normalizeShpFeatures(geojson);
+      if (!candidates.length) throw new Error('В SHP ZIP не найдено Polygon/MultiPolygon геометрий');
+      await ApiService.importProjectGeometryCandidates(projectId, candidates);
+      await reloadCandidates();
+    } catch (err) {
+      setGeometryError(err?.message || 'Ошибка импорта геометрии');
+    } finally {
+      setIsImportingGeometry(false);
+      event.target.value = '';
+    }
+  };
+
+  const handleSelectLandPlot = async candidateId => {
+    setSelectedLandPlotCandidateId(candidateId);
+    try {
+      await ApiService.selectProjectLandPlot(projectId, candidateId);
+      await reloadCandidates();
+    } catch (err) {
+      setGeometryError(err?.message || 'Не удалось выбрать геометрию участка');
+    }
   };
 
   const autoFill = () => {
@@ -467,6 +535,34 @@ const PassportEditor = () => {
           </Card>
         </div>
       </div>
+
+
+      <Card className="p-6 shadow-sm mt-6">
+        <SectionTitle icon={MapPin}>Геометрия земельного участка</SectionTitle>
+        <div className="mt-4 space-y-3">
+          <div className="flex flex-wrap gap-2 items-center">
+            <Button onClick={() => shpInputRef.current?.click()} disabled={isReadOnly || isImportingGeometry}>
+              {isImportingGeometry ? <Loader2 size={14} className="animate-spin mr-1" /> : <Plus size={14} className="mr-1" />}
+              Импорт SHP ZIP
+            </Button>
+            <input ref={shpInputRef} type="file" accept=".zip" className="hidden" onChange={handleImportGeometryZip} />
+            <select value={basemap} onChange={e => setBasemap(e.target.value)} className="border rounded px-2 py-1 text-sm">
+              {BASEMAP_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+          {geometryError ? <div className="text-sm text-red-600">{geometryError}</div> : null}
+          <GeometryPickerMap
+            candidates={geometryCandidates}
+            selectedId={selectedLandPlotCandidateId}
+            onSelect={handleSelectLandPlot}
+            basemap={basemap}
+            height={340}
+          />
+          <div className="text-xs text-slate-500">Выберите ровно один полигон как земельный участок ЖК.</div>
+        </div>
+      </Card>
 
       <Card className="p-6 shadow-sm">
         <SectionTitle icon={Users}>Участники проекта</SectionTitle>
