@@ -17,6 +17,8 @@ import {
   Briefcase,
   UserCog,
   Landmark,
+  Layers,
+  CalendarDays
 } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { useDirectProjectInfo } from '@hooks/api/useDirectProjectInfo';
@@ -43,13 +45,13 @@ const PARTICIPANT_ROLES = [
   { key: 'customer', label: 'Заказчик', icon: Landmark },
 ];
 
-
-
 const PassportEditor = () => {
   const { projectId } = useProject();
   const isReadOnly = useReadOnly();
   const queryClient = useQueryClient();
-const [activeCandidateId, setActiveCandidateId] = useState(null);
+
+  const [activeCandidateId, setActiveCandidateId] = useState(null);
+
   const {
     complexInfo,
     cadastre,
@@ -90,6 +92,7 @@ const [activeCandidateId, setActiveCandidateId] = useState(null);
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [saveError, setSaveError] = useState('');
   const [isAutoSaving, setIsAutoSaving] = useState(false);
+  
   const [geometryCandidates, setGeometryCandidates] = useState([]);
   const [selectedLandPlotCandidateId, setSelectedLandPlotCandidateId] = useState(null);
   const [isImportingGeometry, setIsImportingGeometry] = useState(false);
@@ -133,23 +136,20 @@ const [activeCandidateId, setActiveCandidateId] = useState(null);
     setParticipantDrafts(participants || {});
   }, [participants]);
 
+  const reloadCandidates = async () => {
+    if (!projectId) return;
+    try {
+      const items = await ApiService.getProjectGeometryCandidates(projectId);
+      setGeometryCandidates(Array.isArray(items) ? items : []);
+      const selected = (items || []).find(item => item.isSelectedLandPlot);
+      setSelectedLandPlotCandidateId(selected?.id || null);
+    } catch (err) {
+      setGeometryError('Не удалось загрузить геометрию участка');
+    }
+  };
+
   useEffect(() => {
-    let isActive = true;
-    if (!projectId) return () => {};
-    ApiService.getProjectGeometryCandidates(projectId)
-      .then(items => {
-        if (!isActive) return;
-        setGeometryCandidates(Array.isArray(items) ? items : []);
-        const selected = (items || []).find(item => item.isSelectedLandPlot);
-        setSelectedLandPlotCandidateId(selected?.id || null);
-      })
-      .catch(() => {
-        if (!isActive) return;
-        setGeometryError('Не удалось загрузить геометрию участка');
-      });
-    return () => {
-      isActive = false;
-    };
+    reloadCandidates();
   }, [projectId]);
 
   useEffect(() => {
@@ -195,47 +195,10 @@ const [activeCandidateId, setActiveCandidateId] = useState(null);
   const handleParticipantChange = (role, field, value) => {
     setParticipantDrafts(prev => ({
       ...prev,
-      [role]: {
-        ...(prev[role] || {}),
-        role,
-        [field]: value,
-      },
+      [role]: { ...(prev[role] || {}), role, [field]: value },
     }));
   };
-const handleAttachToProject = async () => {
-    if (!activeCandidateId) return;
-    try {
-      await ApiService.selectProjectLandPlot(projectId, activeCandidateId);
-      await reloadCandidates();
-      queryClient.invalidateQueries({ queryKey: ['project-info', projectId] });
-    } catch (err) {
-      setGeometryError(err?.message || 'Не удалось прикрепить геометрию');
-    }
-  };
-  const handleDetachGeometry = async () => {
-    if (!window.confirm('Уверены, что хотите открепить текущую границу от ЖК?')) return;
-    
-    try {
-      await ApiService.unselectProjectLandPlot(projectId);
-      setActiveCandidateId(null);
-      await reloadCandidates(); // Обновляем статусы на карте
-      queryClient.invalidateQueries({ queryKey: ['project-info', projectId] }); // Перерисовываем зеленую заливку
-    } catch (err) {
-      setGeometryError(err?.message || 'Не удалось открепить геометрию');
-    }
-  };
-  const handleDeleteGeometry = async () => {
-    if (!activeCandidateId) return;
-    if (!window.confirm('Уверены, что хотите удалить этот контур?')) return;
-    
-    try {
-      await ApiService.deleteProjectGeometryCandidate(projectId, activeCandidateId);
-      setActiveCandidateId(null);
-      await reloadCandidates();
-    } catch (err) {
-      setGeometryError(err?.message || 'Не удалось удалить геометрию');
-    }
-  };
+
   const handleParticipantSave = async role => {
     await updateParticipant({ role, data: participantDrafts[role] || {} });
   };
@@ -244,15 +207,6 @@ const handleAttachToProject = async () => {
     if (!newDoc.name?.trim()) return;
     await upsertDocument(newDoc);
     setNewDoc({ name: '', type: '', number: '', date: '', url: '' });
-  };
-
-
-  const reloadCandidates = async () => {
-    if (!projectId) return;
-    const items = await ApiService.getProjectGeometryCandidates(projectId);
-    setGeometryCandidates(Array.isArray(items) ? items : []);
-    const selected = (items || []).find(item => item.isSelectedLandPlot);
-    setSelectedLandPlotCandidateId(selected?.id || null);
   };
 
   const handleImportGeometryZip = async event => {
@@ -275,7 +229,43 @@ const handleAttachToProject = async () => {
     }
   };
 
- 
+  const handleAttachToProject = async () => {
+    if (!activeCandidateId) return;
+    try {
+      await ApiService.selectProjectLandPlot(projectId, activeCandidateId);
+      await reloadCandidates();
+      queryClient.invalidateQueries({ queryKey: ['project-info', projectId] });
+      setActiveCandidateId(null);
+    } catch (err) {
+      setGeometryError(err?.message || 'Не удалось прикрепить геометрию');
+    }
+  };
+
+  const handleDeleteGeometry = async () => {
+    if (!activeCandidateId) return;
+    if (!window.confirm('Уверены, что хотите удалить этот контур?')) return;
+    
+    try {
+      await ApiService.deleteProjectGeometryCandidate(projectId, activeCandidateId);
+      setActiveCandidateId(null);
+      await reloadCandidates();
+    } catch (err) {
+      setGeometryError(err?.message || 'Не удалось удалить геометрию');
+    }
+  };
+
+  const handleDetachGeometry = async () => {
+    if (!window.confirm('Уверены, что хотите открепить текущую границу от ЖК?')) return;
+    
+    try {
+      await ApiService.unselectProjectLandPlot(projectId);
+      setActiveCandidateId(null);
+      await reloadCandidates(); 
+      queryClient.invalidateQueries({ queryKey: ['project-info', projectId] }); 
+    } catch (err) {
+      setGeometryError(err?.message || 'Не удалось открепить геометрию');
+    }
+  };
 
   const autoFill = () => {
     if (isReadOnly) return;
@@ -292,13 +282,13 @@ const handleAttachToProject = async () => {
 
   const { options: projectStatusOptions } = useCatalog('dict_project_statuses');
   const statusConfig = STATUS_CONFIG[localInfo.status] || STATUS_CONFIG['Проектный'];
-  const StatusIcon = statusConfig?.icon || LayoutDashboard;
+  
   const saveStatusLabel = useMemo(() => {
     if (isReadOnly) return 'Режим просмотра';
     if (isSaving || isAutoSaving) return 'Сохранение...';
-    if (saveError) return 'Ошибка сохранения';
+    if (saveError) return 'Ошибка';
     if (lastSavedAt) return `Сохранено: ${lastSavedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
-    return 'Автосохранение включено';
+    return 'Автосохранение';
   }, [isReadOnly, isSaving, isAutoSaving, saveError, lastSavedAt]);
 
   const dateWarnings = useMemo(() => {
@@ -314,125 +304,102 @@ const handleAttachToProject = async () => {
 
   if (isLoading && !isInitialDataLoaded) {
     return (
-      <div className="p-20 text-center">
-        <Loader2 className="animate-spin mx-auto text-blue-600" />
+      <div className="p-20 flex justify-center items-center h-64">
+        <Loader2 className="animate-spin text-blue-600 w-8 h-8" />
       </div>
     );
   }
 
   return (
-    <div className="w-full px-6 pb-20 animate-in fade-in duration-500 space-y-6">
-      <div className="relative rounded-3xl overflow-hidden bg-slate-900 text-white shadow-2xl">
-        <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-900 to-blue-900/60" />
-
-        <div className="relative z-10 p-6 md:p-8 space-y-6">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3">
-                <div className="text-xs uppercase tracking-[0.2em] text-blue-200/80 font-semibold">
-                  Паспорт объекта
-                </div>
-                {complexInfo?.ujCode && (
+    <div className="w-full px-4 lg:px-8 pb-24 animate-in fade-in duration-500 space-y-4 max-w-[1600px] mx-auto">
+      
+      {/* СЖАТЫЙ HEADER HERO */}
+      <div className="relative rounded-2xl overflow-hidden bg-slate-900 text-white shadow-md border border-slate-800">
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-900 to-blue-900/40" />
+        
+        <div className="relative z-10 p-4 md:px-6 md:py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-200 bg-blue-500/20 rounded border border-blue-400/20">
+                Паспорт Объекта
+              </span>
+              {complexInfo?.ujCode && (
+                <div className="scale-90 origin-left">
                   <FullIdentifierCompact 
                     fullCode={complexInfo.ujCode}
-                    variant="large"
-                    className="bg-blue-500/20 border-blue-400/30 text-blue-200"
+                    variant="default"
+                    className="bg-white/10 border-white/20 text-white"
                   />
-                )}
-              </div>
-              <h1 className="mt-2 text-2xl md:text-3xl font-black tracking-tight">
-                {localInfo.name || 'Новый жилой комплекс'}
-              </h1>
-              <div className="mt-3 flex items-center gap-2 text-sm text-slate-200">
-                <MapPin size={14} />
-                <span>{localInfo.street || 'Адрес не указан'}</span>
-              </div>
+                </div>
+              )}
             </div>
-
-            <div className="self-start">
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={autoFill}
-                  disabled={isReadOnly}
-                  variant="secondary"
-                  className="bg-white/10 border-white/20 text-white hover:bg-white/20"
-                >
-                  <Wand2 size={15} className="mr-1" />
-                  Автозаполнение
-                </Button>
-                <Button
-                  onClick={handleManualSave}
-                  disabled={isReadOnly || isSaving || isAutoSaving}
-                  className="bg-blue-500 hover:bg-blue-400 text-white"
-                >
-                  {isSaving || isAutoSaving ? (
-                    <Loader2 size={14} className="animate-spin mr-1" />
-                  ) : (
-                    <Save size={14} className="mr-1" />
-                  )}
-                  Сохранить
-                </Button>
-              </div>
-              <div className={`mt-2 text-xs ${saveError ? 'text-red-300' : 'text-blue-200/80'}`}>{saveStatusLabel}</div>
+            <h1 className="text-xl md:text-2xl font-bold tracking-tight">
+              {localInfo.name || 'Новый жилой комплекс'}
+            </h1>
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-300 font-medium">
+              <MapPin size={14} className="text-blue-400" />
+              <span>{localInfo.street || 'Адрес не указан'}</span>
             </div>
           </div>
 
-         {/* СЕТКА ИНФОРМАЦИИ В ШАПКЕ */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            
-            {/* 1. Блок СТАТУСА */}
-            <div className="rounded-2xl border border-white/15 bg-white/5 p-4 flex flex-col justify-center">
-              <div className="text-xs text-slate-300 mb-1.5">Текущий статус</div>
-              <div className="flex items-center gap-2">
-                <span className={`w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(0,0,0,0.5)] ${statusConfig.color}`} />
-                <div className="relative flex-1">
-                  <select
-                    value={localInfo.status || 'Проектный'}
-                    onChange={e => handleInfoChange('status', e.target.value)}
-                    disabled={isReadOnly}
-                    className="w-full bg-transparent text-sm font-bold text-white outline-none appearance-none cursor-pointer hover:text-blue-200 transition-colors"
-                  >
-                    {projectStatusOptions.map(s => (
-                      <option key={s.code} value={s.label} className="text-slate-900">
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+          <div className="flex flex-col items-start md:items-end">
+            <div className="flex items-center gap-1.5 bg-white/5 p-1 rounded-lg border border-white/10 backdrop-blur-sm">
+              <Button
+                onClick={autoFill}
+                disabled={isReadOnly}
+                variant="ghost"
+                className="text-slate-300 hover:text-white hover:bg-white/10 h-8 px-3 text-xs"
+              >
+                <Wand2 size={14} className="mr-1.5" />
+                Автозаполнение
+              </Button>
+              <div className="w-px h-4 bg-white/10 mx-0.5" />
+              <Button
+                onClick={handleManualSave}
+                disabled={isReadOnly || isSaving || isAutoSaving}
+                className="bg-blue-600 hover:bg-blue-500 text-white h-8 px-4 text-xs shadow"
+              >
+                {isSaving || isAutoSaving ? (
+                  <Loader2 size={14} className="animate-spin mr-1.5" />
+                ) : (
+                  <Save size={14} className="mr-1.5" />
+                )}
+                Сохранить
+              </Button>
             </div>
-
-            {/* 2. Блок КАДАСТРА */}
-            <div className="rounded-2xl border border-white/15 bg-white/5 p-4 flex flex-col justify-center">
-              <div className="text-xs text-slate-300 mb-1.5">Кадастровый номер</div>
-              <div className="flex items-center gap-2 text-sm font-bold tracking-wide">
-                <MapPin size={16} className="text-blue-400 shrink-0" />
-                <span className="truncate">{localCadastre.number || '—'}</span>
-              </div>
+            <div className={`mt-1.5 text-[10px] font-medium flex items-center gap-1.5 ${saveError ? 'text-red-400' : 'text-slate-400'}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${isAutoSaving ? 'bg-blue-400 animate-pulse' : saveError ? 'bg-red-400' : 'bg-emerald-400'}`} />
+              {saveStatusLabel}
             </div>
-
-            {/* 3. Новый блок: СРОКИ (вместо прогресса) */}
-            <div className="rounded-2xl border border-white/15 bg-white/5 p-4 flex flex-col justify-center">
-              <div className="text-xs text-slate-300 mb-1.5">Срок сдачи (План)</div>
-              <div className="flex items-center gap-2 text-sm font-bold">
-                <Clock size={16} className="text-orange-400 shrink-0" />
-                <span>
-                  {localInfo.dateEndProject 
-                    ? new Date(localInfo.dateEndProject).toLocaleDateString('ru-RU') 
-                    : 'Не указан'}
-                </span>
-              </div>
-            </div>
-
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <Card className="p-6 shadow-sm">
+      {/* ERRORS / WARNINGS */}
+      {saveError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 flex items-start gap-2 shadow-sm">
+          <AlertCircle className="shrink-0 mt-0.5" size={16} />
+          <div>{saveError}</div>
+        </div>
+      )}
+      {dateWarnings.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 flex items-start gap-2 shadow-sm">
+          <AlertTriangle className="shrink-0 mt-0.5" size={16} />
+          <div className="space-y-1">
+            {dateWarnings.map((w, i) => <div key={i}>{w}</div>)}
+          </div>
+        </div>
+      )}
+
+      {/* MAIN 2-COLUMN LAYOUT */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 pt-2">
+        
+        {/* ================= LEFT COLUMN: DATA ================= */}
+        <div className="xl:col-span-7 space-y-6">
+          
+          <Card className="p-5 md:p-6 shadow-sm border-slate-200/60">
             <SectionTitle icon={MapPin}>Основные данные</SectionTitle>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-5">
               <div className="space-y-4">
                 <div>
                   <Label>Наименование <span className="text-red-500">*</span></Label>
@@ -440,8 +407,8 @@ const handleAttachToProject = async () => {
                     value={localInfo.name}
                     onChange={e => handleInfoChange('name', e.target.value)}
                     placeholder="Название ЖК"
-                    title="Обязательное поле"
                     disabled={isReadOnly}
+                    className="mt-1"
                   />
                 </div>
                 <div>
@@ -450,17 +417,18 @@ const handleAttachToProject = async () => {
                     value={localCadastre.number}
                     onChange={e => handleCadastreChange('number', e.target.value)}
                     placeholder="10:09:03:02:01:0021"
-                    title="Формат: XX:XX:XX:XX:XX:XXXX"
                     disabled={isReadOnly}
+                    className="mt-1 font-mono text-sm"
                   />
                 </div>
                 <div>
-                  <Label>Адрес</Label>
+                  <Label>Адрес (Улица, дом)</Label>
                   <Input
                     value={localInfo.street}
                     onChange={e => handleInfoChange('street', e.target.value)}
-                    placeholder="Улица, дом"
+                    placeholder="Введите адрес..."
                     disabled={isReadOnly}
+                    className="mt-1"
                   />
                 </div>
               </div>
@@ -471,7 +439,9 @@ const handleAttachToProject = async () => {
                   <Input
                     value={localInfo.region}
                     onChange={e => handleInfoChange('region', e.target.value)}
+                    placeholder="Область / Город"
                     disabled={isReadOnly}
+                    className="mt-1"
                   />
                 </div>
                 <div>
@@ -479,7 +449,9 @@ const handleAttachToProject = async () => {
                   <Input
                     value={localInfo.district}
                     onChange={e => handleInfoChange('district', e.target.value)}
+                    placeholder="Район"
                     disabled={isReadOnly}
+                    className="mt-1"
                   />
                 </div>
                 <div>
@@ -487,299 +459,340 @@ const handleAttachToProject = async () => {
                   <Input
                     value={localInfo.landmark}
                     onChange={e => handleInfoChange('landmark', e.target.value)}
+                    placeholder="Рядом с..."
                     disabled={isReadOnly}
+                    className="mt-1"
                   />
                 </div>
               </div>
             </div>
           </Card>
 
-          {saveError && (
-            <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-              {saveError}
-            </div>
-          )}
-
-          {dateWarnings.length > 0 && (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 space-y-1">
-              {dateWarnings.map(w => (
-                <div key={w} className="flex items-start gap-1.5">
-                  <AlertTriangle size={12} className="mt-0.5" />
-                  <span>{w}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div>
-          <Card className="p-6 shadow-sm">
-            <SectionTitle icon={Clock}>График реализации</SectionTitle>
-            <div className="space-y-4 mt-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Начало (План)</Label>
-                  <Input
-                    type="date"
-                    value={localInfo.dateStartProject || ''}
-                    onChange={e => handleInfoChange('dateStartProject', e.target.value)}
-                    disabled={isReadOnly}
-                    className="text-xs"
-                  />
-                </div>
-                <div>
-                  <Label>Окончание (План)</Label>
-                  <Input
-                    type="date"
-                    value={localInfo.dateEndProject || ''}
-                    onChange={e => handleInfoChange('dateEndProject', e.target.value)}
-                    disabled={isReadOnly}
-                    className="text-xs"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-4 border-t border-slate-100">
-                <div>
-                  <Label className="text-slate-400">Начало (Факт)</Label>
-                  <Input
-                    type="date"
-                    value={localInfo.dateStartFact || ''}
-                    onChange={e => handleInfoChange('dateStartFact', e.target.value)}
-                    disabled={isReadOnly}
-                    className="text-xs bg-slate-50"
-                  />
-                </div>
-                <div>
-                  <Label className="text-slate-400">Окончание (Факт)</Label>
-                  <Input
-                    type="date"
-                    value={localInfo.dateEndFact || ''}
-                    onChange={e => handleInfoChange('dateEndFact', e.target.value)}
-                    disabled={isReadOnly}
-                    className="text-xs bg-slate-50"
-                  />
-                </div>
-              </div>
+          <Card className="p-5 md:p-6 shadow-sm border-slate-200/60">
+            <SectionTitle icon={Users}>Участники проекта</SectionTitle>
+            <div className="mt-5 space-y-3">
+              {PARTICIPANT_ROLES.map(roleItem => {
+                const { key, label, icon: Icon } = roleItem;
+                const row = participantDrafts[key] || { role: key, name: '', inn: '' };
+                return (
+                  <div key={key} className="flex flex-col sm:flex-row items-start gap-3 p-4 border border-slate-200 rounded-xl bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                    <div className="sm:w-1/3 flex items-center gap-2.5 pt-1.5">
+                      <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
+                        <Icon size={16} />
+                      </div>
+                      <div className="font-bold text-slate-800 text-sm">{label}</div>
+                    </div>
+                    <div className="sm:w-2/3 w-full grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="sm:col-span-2">
+                        <Input
+                          placeholder="Наименование организации *"
+                          value={row.name || ''}
+                          onChange={e => handleParticipantChange(key, 'name', e.target.value)}
+                          disabled={isReadOnly}
+                          className="bg-white text-sm"
+                        />
+                      </div>
+                      <div>
+                        <Input
+                          placeholder="ИНН (9 цифр)"
+                          value={row.inn || ''}
+                          onChange={e => handleParticipantChange(key, 'inn', e.target.value)}
+                          disabled={isReadOnly}
+                          className="bg-white font-mono text-sm"
+                        />
+                      </div>
+                      <div>
+                        <Button
+                          onClick={() => handleParticipantSave(key)}
+                          disabled={isReadOnly || isSaving}
+                          className="w-full bg-slate-800 text-white hover:bg-slate-700 h-[38px] text-sm"
+                        >
+                          {isSaving ? <Loader2 size={14} className="animate-spin mr-2" /> : <Save size={14} className="mr-2" />}
+                          Зафиксировать
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </Card>
+
+          <Card className="p-5 md:p-6 shadow-sm border-slate-200/60 overflow-hidden">
+            <SectionTitle icon={FileText}>Документы проекта</SectionTitle>
+            <div className="overflow-x-auto mt-5 rounded-xl border border-slate-200">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-slate-100/80 text-slate-600 text-xs uppercase tracking-wider font-semibold border-b border-slate-200">
+                  <tr>
+                    <th className="p-3">Название</th>
+                    <th className="p-3">Тип</th>
+                    <th className="p-3">Номер / Дата</th>
+                    <th className="p-3">Ссылка</th>
+                    <th className="p-3 w-12"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(documents || []).map(doc => (
+                    <tr key={doc.id} className="hover:bg-slate-50/50">
+                      <td className="p-3 font-medium text-slate-800">{doc.name}</td>
+                      <td className="p-3 text-slate-600 text-xs">{doc.type || '—'}</td>
+                      <td className="p-3 text-slate-600">
+                        <div className="font-mono text-xs">{doc.number || '—'}</div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">{doc.date || '—'}</div>
+                      </td>
+                      <td className="p-3">
+                        {doc.url ? (
+                          <a href={doc.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline max-w-[150px] truncate block text-xs" title={doc.url}>
+                            Открыть ссылку
+                          </a>
+                        ) : '—'}
+                      </td>
+                      <td className="p-3 text-right">
+                        <button
+                          onClick={() => deleteDocument(doc.id)}
+                          disabled={isReadOnly}
+                          className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+
+                  <tr className="bg-blue-50/30">
+                    <td className="p-2">
+                      <Input
+                        value={newDoc.name}
+                        onChange={e => setNewDoc(d => ({ ...d, name: e.target.value }))}
+                        placeholder="Название..."
+                        disabled={isReadOnly}
+                        className="bg-white text-xs h-8"
+                      />
+                    </td>
+                    <td className="p-2">
+                      <Input
+                        value={newDoc.type}
+                        onChange={e => setNewDoc(d => ({ ...d, type: e.target.value }))}
+                        placeholder="Тип..."
+                        disabled={isReadOnly}
+                        className="bg-white text-xs h-8"
+                      />
+                    </td>
+                    <td className="p-2 space-y-1">
+                      <Input
+                        value={newDoc.number}
+                        onChange={e => setNewDoc(d => ({ ...d, number: e.target.value }))}
+                        placeholder="№ док-та"
+                        disabled={isReadOnly}
+                        className="bg-white text-xs h-8 font-mono"
+                      />
+                      <Input
+                        type="date"
+                        value={newDoc.date}
+                        onChange={e => setNewDoc(d => ({ ...d, date: e.target.value }))}
+                        disabled={isReadOnly}
+                        className="bg-white text-xs h-8"
+                      />
+                    </td>
+                    <td className="p-2">
+                      <Input
+                        value={newDoc.url}
+                        onChange={e => setNewDoc(d => ({ ...d, url: e.target.value }))}
+                        placeholder="https://..."
+                        disabled={isReadOnly}
+                        className="bg-white text-xs h-8"
+                      />
+                    </td>
+                    <td className="p-2 text-right align-top">
+                      <Button
+                        onClick={handleAddDocument}
+                        disabled={isReadOnly || !newDoc.name.trim()}
+                        className="bg-blue-600 text-white hover:bg-blue-500 h-8 w-8 p-0 flex items-center justify-center rounded-md"
+                        title="Добавить документ"
+                      >
+                        <Plus size={14} />
+                      </Button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
         </div>
-      </div>
 
-
-      <Card className="p-6 shadow-sm mt-6">
-        <SectionTitle icon={MapPin}>Геометрия земельного участка</SectionTitle>
-        <div className="mt-4 space-y-3">
-          <div className="flex flex-wrap gap-2 items-center">
-            <Button onClick={() => shpInputRef.current?.click()} disabled={isReadOnly || isImportingGeometry}>
-              {isImportingGeometry ? <Loader2 size={14} className="animate-spin mr-1" /> : <Plus size={14} className="mr-1" />}
-              Импорт SHP ZIP
-            </Button>
-            {/* КНОПКА ОТКРЕПЛЕНИЯ */}
-            {landPlot?.geometry && !isReadOnly && (
-              <Button 
-                onClick={handleDetachGeometry} 
-                className="bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 ml-2"
-              >
-                <Trash2 size={14} className="mr-1" />
-                Открепить от ЖК
-              </Button>
-            )}
+        {/* ================= RIGHT COLUMN: CONTEXT & MAP ================= */}
+        <div className="xl:col-span-5 space-y-6 flex flex-col">
+          
+          {/* MAP HERO CARD */}
+          <Card className="flex flex-col shadow-sm border-slate-200/60 overflow-hidden min-h-[450px]">
+            <div className="p-4 border-b border-slate-100 bg-white flex items-center justify-between">
+               <SectionTitle icon={Layers} className="mb-0 text-base">Расположение жилого комплекса</SectionTitle>
+            </div>
             
-            <input ref={shpInputRef} type="file" accept=".zip" className="hidden" onChange={handleImportGeometryZip} />
-            <select value={basemap} onChange={e => setBasemap(e.target.value)} className="border rounded px-2 py-1 text-sm">
-              {BASEMAP_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
-          {geometryError ? <div className="text-sm text-red-600">{geometryError}</div> : null}
-          <GeometryPickerMap
-         candidates={geometryCandidates}
-         selectedId={selectedLandPlotCandidateId}
-         activeId={activeCandidateId}
-         savedGeometry={landPlot?.geometry}
-         onSelect={setActiveCandidateId} // При клике просто меняем activeId
-         basemap={basemap}
-         height={340}
-       />
-
-       {/* ПАНЕЛЬ С КНОПКАМИ */}
-       {activeCandidateId && !isReadOnly && (
-         <div className="flex flex-col sm:flex-row items-center gap-3 mt-3 p-3 bg-blue-50/50 rounded-lg border border-blue-100">
-           <div className="text-sm text-slate-600 flex-1 w-full">
-             Выбран контур на карте. Выберите действие:
-           </div>
-           <div className="flex items-center gap-2 w-full sm:w-auto">
-             <Button 
-               onClick={handleAttachToProject} 
-               className="bg-emerald-600 text-white hover:bg-emerald-500 w-full sm:w-auto"
-             >
-               <CheckCircle2 size={16} className="mr-2" /> 
-               Прикрепить к ЖК
-             </Button>
-             <Button 
-               onClick={handleDeleteGeometry} 
-               className="bg-white border-red-200 text-red-600 hover:bg-red-50 w-full sm:w-auto"
-             >
-               <Trash2 size={16} className="mr-2" /> 
-               Удалить
-             </Button>
-           </div>
-         </div>
-       )}
-          <div className="text-xs text-slate-500">Выберите ровно один полигон как земельный участок ЖК.</div>
-        </div>
-      </Card>
-
-      <Card className="p-6 shadow-sm">
-        <SectionTitle icon={Users}>Участники проекта</SectionTitle>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-          {PARTICIPANT_ROLES.map(roleItem => {
-            const { key, label } = roleItem;
-            const row = participantDrafts[key] || { role: key, name: '', inn: '' };
-            return (
-              <div
-                key={key}
-                className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3"
-              >
-                <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                  {React.createElement(roleItem.icon, { size: 14, className: 'text-blue-600' })}{' '}
-                  {label}
-                </div>
-                <div>
-                  <Label>Наименование <span className="text-red-500">*</span></Label>
-                  <Input
-                    value={row.name || ''}
-                    onChange={e => handleParticipantChange(key, 'name', e.target.value)}
-                    disabled={isReadOnly}
-                  />
-                </div>
-                <div>
-                  <Label>ИНН</Label>
-                  <div className="text-[10px] text-slate-400 mt-0.5">9 цифр</div>
-                  <Input
-                    value={row.inn || ''}
-                    onChange={e => handleParticipantChange(key, 'inn', e.target.value)}
-                    disabled={isReadOnly}
-                  />
-                </div>
-              <Button
-                onClick={() => handleParticipantSave(key)}
-                disabled={isReadOnly || isSaving}
-                className="w-full bg-slate-900 text-white hover:bg-slate-800"
-              >
-                {isSaving ? (
-                  <Loader2 size={14} className="mr-2 animate-spin" />
-                ) : (
-                  <Save size={14} className="mr-2" />
-                )}
-                {isSaving ? 'Сохранение...' : 'Сохранить'}
-              </Button>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-
-      <Card className="p-6 shadow-sm">
-        <SectionTitle icon={FileText}>Документы проекта</SectionTitle>
-        <div className="overflow-x-auto mt-4 border border-slate-200 rounded-xl">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
-              <tr>
-                <th className="p-3 text-left">Название</th>
-                <th className="p-3 text-left">Тип</th>
-                <th className="p-3 text-left">Номер</th>
-                <th className="p-3 text-left">Дата</th>
-                <th className="p-3 text-left">URL</th>
-                <th className="p-3 text-left">Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(documents || []).map(doc => (
-                <tr key={doc.id} className="border-t border-slate-100">
-                  <td className="p-3">{doc.name}</td>
-                  <td className="p-3">{doc.type || '-'}</td>
-                  <td className="p-3">{doc.number || '-'}</td>
-                  <td className="p-3">{doc.date || '-'}</td>
-                  <td className="p-3 truncate max-w-[260px]">
-                    {doc.url ? (
-                      <a href={doc.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-700 underline">
-                        {doc.url}
-                      </a>
-                    ) : (
-                      '-'
-                    )}
-                  </td>
-                  <td className="p-3">
-                    <button
-                      onClick={() => deleteDocument(doc.id)}
-                      disabled={isReadOnly}
-                      className="px-2 py-1 rounded border text-red-600 border-red-200 hover:bg-red-50 disabled:opacity-50"
+            <div className="p-4 bg-slate-50/50 flex flex-col gap-3 flex-1">
+              
+              {/* Map Controls */}
+              <div className="flex flex-wrap gap-2 items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Button 
+                    onClick={() => shpInputRef.current?.click()} 
+                    disabled={isReadOnly || isImportingGeometry}
+                    className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-blue-600 shadow-sm h-8 px-3 text-xs"
+                  >
+                    {isImportingGeometry ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Plus size={14} className="mr-1.5 text-blue-500" />}
+                    Импорт границ
+                  </Button>
+                  
+                  {landPlot?.geometry && !isReadOnly && (
+                    <Button 
+                      onClick={handleDetachGeometry} 
+                      className="bg-white border-red-100 text-red-600 hover:bg-red-50 shadow-sm h-8 px-2.5"
+                      title="Открепить геометрию от ЖК"
                     >
                       <Trash2 size={14} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    </Button>
+                  )}
+                  <input ref={shpInputRef} type="file" accept=".zip" className="hidden" onChange={handleImportGeometryZip} />
+                </div>
+                
+                <select 
+                  value={basemap} 
+                  onChange={e => setBasemap(e.target.value)} 
+                  className="bg-white border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-600 shadow-sm outline-none focus:border-blue-500"
+                >
+                  {BASEMAP_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
 
-              <tr className="border-t border-slate-200 bg-slate-50/70">
-                <td className="p-2">
-                  <Input
-                    value={newDoc.name}
-                    onChange={e => setNewDoc(d => ({ ...d, name: e.target.value }))}
-                    placeholder="Название документа"
+              {geometryError && (
+                <div className="text-[11px] text-red-600 bg-red-50 p-2 rounded border border-red-100">
+                  {geometryError}
+                </div>
+              )}
+
+              {/* Action Banner when polygon is clicked */}
+              {activeCandidateId && !isReadOnly && (
+                <div className="flex items-center justify-between gap-3 p-2 px-3 bg-blue-600 rounded-lg shadow-md text-white animate-in slide-in-from-top-1">
+                  <div className="text-xs font-medium">Контур выбран</div>
+                  <div className="flex items-center gap-1.5">
+                    <Button 
+                      onClick={handleAttachToProject} 
+                      className="bg-white text-blue-700 hover:bg-blue-50 h-7 px-3 text-[11px] font-bold"
+                    >
+                      Прикрепить
+                    </Button>
+                    <button 
+                      onClick={handleDeleteGeometry} 
+                      className="h-7 w-7 flex items-center justify-center rounded border border-blue-400 hover:bg-red-500 hover:border-red-500 transition-colors"
+                      title="Удалить из загрузок"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* MAP */}
+              <div className="flex-1 rounded-lg overflow-hidden border border-slate-200 shadow-inner bg-slate-100 relative min-h-[300px]">
+                <GeometryPickerMap
+                  candidates={geometryCandidates}
+                  selectedId={selectedLandPlotCandidateId}
+                  activeId={activeCandidateId}
+                  savedGeometry={landPlot?.geometry}
+                  onSelect={setActiveCandidateId}
+                  basemap={basemap}
+                  height={400}
+                />
+              </div>
+              
+              <div className="text-[10px] text-slate-400 text-center flex items-center justify-center gap-4">
+                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-500/80"></span> Сохранено</div>
+                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-blue-500/80"></span> Выбрано</div>
+                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-500/80"></span> Занято</div>
+              </div>
+
+            </div>
+          </Card>
+
+          {/* STATUS & SCHEDULE COMBINED */}
+          <Card className="p-5 md:p-6 shadow-sm border-slate-200/60 bg-gradient-to-b from-white to-slate-50/50">
+            <SectionTitle icon={CalendarDays} className="text-base">Статус и График</SectionTitle>
+            
+            <div className="mt-5 space-y-5">
+              <div>
+                <Label className="text-[11px] text-slate-500 mb-1.5 block uppercase tracking-wide">Строительный статус</Label>
+                <div className="flex items-center gap-2 p-1 pl-3 pr-1 border border-slate-200 rounded-lg bg-white shadow-sm">
+                  <span className={`w-2.5 h-2.5 rounded-full ${statusConfig.color} shadow-sm`} />
+                  <select
+                    value={localInfo.status || 'Проектный'}
+                    onChange={e => handleInfoChange('status', e.target.value)}
                     disabled={isReadOnly}
-                  />
-                </td>
-                <td className="p-2">
-                  <Input
-                    value={newDoc.type}
-                    onChange={e => setNewDoc(d => ({ ...d, type: e.target.value }))}
-                    placeholder="Тип"
-                    disabled={isReadOnly}
-                  />
-                </td>
-                <td className="p-2">
-                  <Input
-                    value={newDoc.number}
-                    onChange={e => setNewDoc(d => ({ ...d, number: e.target.value }))}
-                    placeholder="Номер"
-                    disabled={isReadOnly}
-                  />
-                </td>
-                <td className="p-2">
-                  <Input
-                    type="date"
-                    value={newDoc.date}
-                    onChange={e => setNewDoc(d => ({ ...d, date: e.target.value }))}
-                    disabled={isReadOnly}
-                  />
-                </td>
-                <td className="p-2">
-                  <Input
-                    value={newDoc.url}
-                    onChange={e => setNewDoc(d => ({ ...d, url: e.target.value }))}
-                    placeholder="https://..."
-                    title="Ссылка на документ"
-                    disabled={isReadOnly}
-                  />
-                </td>
-                <td className="p-2">
-                  <Button
-                    onClick={handleAddDocument}
-                    disabled={isReadOnly || !newDoc.name.trim()}
-                    className="bg-blue-600 text-white hover:bg-blue-500 whitespace-nowrap"
+                    className="flex-1 bg-transparent text-sm font-bold text-slate-800 outline-none h-8 cursor-pointer"
                   >
-                    <Plus size={14} className="mr-2" /> Добавить
-                  </Button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                    {projectStatusOptions.map(s => (
+                      <option key={s.code} value={s.label}>{s.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 pb-1.5">План</div>
+                  <div>
+                    <Label className="text-[10px] text-slate-500">Начало работ</Label>
+                    <Input
+                      type="date"
+                      value={localInfo.dateStartProject || ''}
+                      onChange={e => handleInfoChange('dateStartProject', e.target.value)}
+                      disabled={isReadOnly}
+                      className="mt-0.5 h-8 text-xs bg-white"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-slate-500">Окончание (ввод)</Label>
+                    <Input
+                      type="date"
+                      value={localInfo.dateEndProject || ''}
+                      onChange={e => handleInfoChange('dateEndProject', e.target.value)}
+                      disabled={isReadOnly}
+                      className="mt-0.5 h-8 text-xs bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 pb-1.5">Факт</div>
+                  <div>
+                    <Label className="text-[10px] text-slate-500">Начало работ</Label>
+                    <Input
+                      type="date"
+                      value={localInfo.dateStartFact || ''}
+                      onChange={e => handleInfoChange('dateStartFact', e.target.value)}
+                      disabled={isReadOnly}
+                      className="mt-0.5 h-8 text-xs bg-slate-50 border-dashed"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-slate-500">Окончание (ввод)</Label>
+                    <Input
+                      type="date"
+                      value={localInfo.dateEndFact || ''}
+                      onChange={e => handleInfoChange('dateEndFact', e.target.value)}
+                      disabled={isReadOnly}
+                      className="mt-0.5 h-8 text-xs bg-slate-50 border-dashed"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+
         </div>
-      </Card>
+      </div>
     </div>
   );
 };
