@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-02-26T00:00:00.000Z",
-  "routeCount": 73,
+  "generatedAt": "2026-02-27T10:37:18.129Z",
+  "routeCount": 77,
   "routes": [
     {
       "method": "DELETE",
@@ -10,6 +10,11 @@
     {
       "method": "DELETE",
       "path": "/api/v1/common-areas/:id",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/extensions/:extensionId",
       "source": "src/registry-routes.js"
     },
     {
@@ -40,6 +45,11 @@
     {
       "method": "GET",
       "path": "/api/v1/blocks/:blockId/entrances",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/blocks/:blockId/extensions",
       "source": "src/registry-routes.js"
     },
     {
@@ -229,6 +239,11 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/blocks/:blockId/extensions",
+      "source": "src/registry-routes.js"
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/blocks/:blockId/floors/reconcile",
       "source": "src/registry-routes.js"
     },
@@ -341,6 +356,11 @@
       "method": "PUT",
       "path": "/api/v1/catalogs/:table/:id/active",
       "source": "src/catalog-routes.js"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/extensions/:extensionId",
+      "source": "src/registry-routes.js"
     },
     {
       "method": "PUT",

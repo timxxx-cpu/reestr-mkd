@@ -533,6 +533,25 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
   const building = useMemo(() => buildings.find(b => b.id === selectedBuildingId), [buildings, selectedBuildingId]);
   const typeInfo = useBuildingType(building);
 
+  const EXTENSION_TAB_PREFIX = 'ext:';
+
+  const extensionTabs = useMemo(() => {
+    const blocks = Array.isArray(building?.blocks) ? building.blocks : [];
+    return blocks.flatMap(block =>
+      (Array.isArray(block.extensions) ? block.extensions : []).map(ext => ({
+        id: ext.id,
+        parentBlockId: block.id,
+        label: ext.label || 'Пристройка',
+        block,
+      }))
+    );
+  }, [building]);
+
+  const extensionToBlockMap = useMemo(
+    () => Object.fromEntries(extensionTabs.map(item => [item.id, item.parentBlockId])),
+    [extensionTabs]
+  );
+
   const [activeBlockId, setActiveBlockId] = useState(null);
   const [selectedUnitIds, setSelectedUnitIds] = useState(new Set());
   const [selectedTableUnitId, setSelectedTableUnitId] = useState(null);
@@ -668,44 +687,59 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
   }, [fullRegistry, selectedBuildingId]);
 
   // --- DERIVED STATE ---
+  const activeExtensionId =
+    typeof activeBlockId === 'string' && activeBlockId.startsWith(EXTENSION_TAB_PREFIX)
+      ? activeBlockId.slice(EXTENSION_TAB_PREFIX.length)
+      : null;
+
+  const activeBaseBlockId = activeExtensionId ? extensionToBlockMap[activeExtensionId] || null : activeBlockId;
+
   const activeBlock = useMemo(() => {
     if (prepared.blocks.length === 0) return null;
-    const found = prepared.blocks.find(b => b.id === activeBlockId);
+    const found = prepared.blocks.find(b => b.id === activeBaseBlockId);
     return found || prepared.blocks[0];
-  }, [prepared.blocks, activeBlockId]);
+  }, [prepared.blocks, activeBaseBlockId]);
 
   useEffect(() => {
-      if (activeBlock && activeBlock.id !== activeBlockId) {
+      if (activeBlock && !activeBlockId) {
           setActiveBlockId(activeBlock.id);
       }
   }, [activeBlock, activeBlockId]);
 
-  const { matrixMap } = useDirectMatrix(activeBlock?.id);
+  const { matrixMap } = useDirectMatrix(activeBaseBlockId || activeBlock?.id);
 
   const floors = useMemo(() => {
-      const allFloors = activeBlock ? prepared.floorsByBlock[activeBlock.id] || [] : [];
+      const blockId = activeBaseBlockId || activeBlock?.id;
+      const allFloors = blockId ? prepared.floorsByBlock[blockId] || [] : [];
       if (!allFloors.length) return [];
 
-      return allFloors.filter(f => {
-          const hasExistingUnits = (prepared.entrancesByBlock[activeBlock.id] || []).some(e => {
-              const cellKey = `${activeBlock.id}_${f.id}_${e.id}`;
+      const scopedFloors = activeExtensionId
+        ? allFloors.filter(f => f.extensionId === activeExtensionId)
+        : allFloors.filter(f => !f.extensionId);
+
+      return scopedFloors.filter(f => {
+          const hasExistingUnits = (prepared.entrancesByBlock[blockId] || []).some(e => {
+              const cellKey = `${blockId}_${f.id}_${e.id}`;
               const units = prepared.unitsByCell[cellKey];
               return units && units.length > 0;
           });
           if (hasExistingUnits) return true;
 
-          const hasPlan = (prepared.entrancesByBlock[activeBlock.id] || []).some(e => {
+          const hasPlan = (prepared.entrancesByBlock[blockId] || []).some(e => {
               const key = `${f.id}_${e.number}`;
               const plan = parseInt(matrixMap[key]?.apts || 0, 10);
               return plan > 0;
           });
           return hasPlan;
       });
-  }, [activeBlock, prepared.floorsByBlock, prepared.entrancesByBlock, prepared.unitsByCell, matrixMap]);
+  }, [activeBlock, activeBaseBlockId, activeExtensionId, prepared.floorsByBlock, prepared.entrancesByBlock, prepared.unitsByCell, matrixMap]);
 
   const bottomFloorId = useMemo(() => floors.length > 0 ? floors[floors.length - 1].id : null, [floors]);
   
-  const entrances = useMemo(() => (activeBlock ? prepared.entrancesByBlock[activeBlock.id] || [] : []), [activeBlock, prepared.entrancesByBlock]);
+  const entrances = useMemo(() => {
+    const blockId = activeBaseBlockId || activeBlock?.id;
+    return blockId ? prepared.entrancesByBlock[blockId] || [] : [];
+  }, [activeBaseBlockId, activeBlock, prepared.entrancesByBlock]);
   
   const firstEntranceId = useMemo(() => entrances.length > 0 ? entrances[0].id : null, [entrances]);
 
@@ -719,7 +753,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
         let filled = 0;
         
         floors.forEach(f => {
-            const cellKey = `${activeBlock.id}_${f.id}_${e.id}`;
+            const cellKey = `${activeBaseBlockId || activeBlock?.id}_${f.id}_${e.id}`;
             const units = prepared.unitsByCell[cellKey] || [];
             total += units.length;
             filled += units.filter(u => u.isExplicationFilled).length;
@@ -728,7 +762,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
         stats[e.id] = { total, filled };
     });
     return stats;
-  }, [activeBlock, entrances, floors, prepared.unitsByCell]);
+  }, [activeBlock, activeBaseBlockId, entrances, floors, prepared.unitsByCell]);
 
   const selectedUnits = useMemo(() => {
     if (!activeBlock || selectedUnitIds.size === 0) return [];
@@ -747,7 +781,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
     const result = [];
     floors.forEach(floor => {
       entrances.forEach(entrance => {
-        const cellKey = `${activeBlock.id}_${floor.id}_${entrance.id}`;
+        const cellKey = `${activeBaseBlockId || activeBlock?.id}_${floor.id}_${entrance.id}`;
         const cellUnits = prepared.unitsByCell[cellKey] || [];
         cellUnits.forEach(unit => {
           result.push({
@@ -771,7 +805,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
         numeric: true,
       });
     });
-  }, [activeBlock, floors, entrances, prepared.unitsByCell]);
+  }, [activeBlock, activeBaseBlockId, floors, entrances, prepared.unitsByCell]);
 
   const selectedTableUnit = useMemo(() => {
     if (!selectedTableUnitId) return null;
@@ -809,7 +843,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
       if (floorId === bottomFloorId && event.altKey) {
           const riserUnitIds = [];
           floors.forEach(f => {
-              const cellKey = `${activeBlock.id}_${f.id}_${entranceId}`;
+              const cellKey = `${activeBaseBlockId || activeBlock?.id}_${f.id}_${entranceId}`;
               const cellUnits = prepared.unitsByCell[cellKey] || [];
               if (cellUnits.length > indexInCell) {
                   riserUnitIds.push(cellUnits[indexInCell].id);
@@ -830,7 +864,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
       else if (entranceId === firstEntranceId && event.shiftKey) {
           const horizontalUnitIds = [];
           entrances.forEach(e => {
-             const cellKey = `${activeBlock.id}_${floorId}_${e.id}`;
+             const cellKey = `${activeBaseBlockId || activeBlock?.id}_${floorId}_${e.id}`;
              const cellUnits = prepared.unitsByCell[cellKey] || [];
              if (cellUnits.length > indexInCell) {
                  horizontalUnitIds.push(cellUnits[indexInCell].id);
@@ -969,16 +1003,31 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
                 {prepared.blocks.map(b => (
                   <DarkTabButton
                     key={b.id}
-                    active={activeBlock.id === b.id}
+                    active={!activeExtensionId && activeBlock?.id === b.id}
                     onClick={() => {
                       setActiveBlockId(b.id);
                       clearSelection();
                     }}
                     icon={getBlockIcon(b.type)}
                   >
-                    {formatBlockSwitcherLabel({ building, block: b, buildingDetails })} 
+                    {formatBlockSwitcherLabel({ building, block: b, buildingDetails })}
                   </DarkTabButton>
                 ))}
+                {extensionTabs
+                  .filter(item => item.parentBlockId === (activeBlock?.id || activeBaseBlockId))
+                  .map(ext => (
+                    <DarkTabButton
+                      key={`ext-tab-${ext.id}`}
+                      active={activeExtensionId === ext.id}
+                      onClick={() => {
+                        setActiveBlockId(`${EXTENSION_TAB_PREFIX}${ext.id}`);
+                        clearSelection();
+                      }}
+                      icon={Box}
+                    >
+                      {`${ext.block?.label || ext.block?.tabLabel || 'Блок'} / ${ext.label}`}
+                    </DarkTabButton>
+                  ))}
              </div>
 
              <div className="hidden md:flex items-center gap-3 text-xs text-slate-500">
@@ -1076,7 +1125,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
                         </span>
                     </td>
                     {entrances.map(e => {
-                      const cellKey = `${activeBlock.id}_${f.id}_${e.id}`;
+                      const cellKey = `${activeBaseBlockId || activeBlock?.id}_${f.id}_${e.id}`;
                       const cellUnits = prepared.unitsByCell[cellKey] || [];
                       
                       const isBottom = f.id === bottomFloorId;

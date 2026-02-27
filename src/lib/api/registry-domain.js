@@ -54,6 +54,49 @@ export const createRegistryDomainApi = ({
     });
   },
 
+  getBlockExtensions: async blockId => {
+    requireBffEnabled('extensions.getBlockExtensions');
+    return BffClient.getBlockExtensions({ blockId });
+  },
+
+  createBlockExtension: async (blockId, extensionData, actor = {}) => {
+    requireBffEnabled('extensions.createBlockExtension');
+
+    const resolvedActor = resolveActor(actor);
+    return BffClient.createBlockExtension({
+      blockId,
+      extensionData,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+      idempotencyKey: createIdempotencyKey('extensions-create', [blockId]),
+    });
+  },
+
+  updateBlockExtension: async (extensionId, extensionData, actor = {}) => {
+    requireBffEnabled('extensions.updateBlockExtension');
+
+    const resolvedActor = resolveActor(actor);
+    return BffClient.updateBlockExtension({
+      extensionId,
+      extensionData,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+      idempotencyKey: createIdempotencyKey('extensions-update', [extensionId]),
+    });
+  },
+
+  deleteBlockExtension: async (extensionId, actor = {}) => {
+    requireBffEnabled('extensions.deleteBlockExtension');
+
+    const resolvedActor = resolveActor(actor);
+    return BffClient.deleteBlockExtension({
+      extensionId,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+      idempotencyKey: createIdempotencyKey('extensions-delete', [extensionId]),
+    });
+  },
+
   getFloors: async blockId => {
     requireBffEnabled('composition.getFloors');
     const data = await BffClient.getFloors({ blockId });

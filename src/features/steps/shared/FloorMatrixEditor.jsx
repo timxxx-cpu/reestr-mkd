@@ -94,25 +94,70 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
   const typeInfo = useBuildingType(building);
   const { isParking, isInfrastructure, isUnderground } = typeInfo;
 
-  // 3. Управление блоками
-  const [activeBlockIndex, setActiveBlockIndex] = useState(0);
+  // 3. Управление блоками/пристройками
+  const extensionTargets = useMemo(() => {
+    const blocks = Array.isArray(building?.blocks) ? building.blocks : [];
+    return blocks.flatMap(block =>
+      (Array.isArray(block.extensions) ? block.extensions : []).map(ext => ({
+        id: ext.id,
+        kind: 'extension',
+        label: ext.label || 'Пристройка',
+        parentBlockId: block.id,
+        parentBlock: block,
+      }))
+    );
+  }, [building]);
+
+  const blockTargets = useMemo(() => {
+    const blocks = Array.isArray(building?.blocks) ? building.blocks : [];
+    const base = blocks.map(block => ({ id: block.id, kind: 'block', block }));
+    const extensions = extensionTargets.map(item => ({
+      id: item.id,
+      kind: 'extension',
+      parentBlockId: item.parentBlockId,
+      parentBlock: item.parentBlock,
+      label: item.label,
+    }));
+    return [...base, ...extensions];
+  }, [building, extensionTargets]);
+
+  const [activeTargetId, setActiveTargetId] = useState(null);
+
+  const activeTarget = useMemo(() => {
+    if (blockTargets.length === 0) return null;
+    return blockTargets.find(item => item.id === activeTargetId) || blockTargets[0];
+  }, [blockTargets, activeTargetId]);
+
+  useEffect(() => {
+    if (!activeTargetId && activeTarget?.id) setActiveTargetId(activeTarget.id);
+  }, [activeTargetId, activeTarget]);
+
   const currentBlock = useMemo(() => {
-    if (!building?.blocks?.length) return null;
-    return building.blocks[activeBlockIndex];
-  }, [building, activeBlockIndex]);
+    if (!activeTarget) return null;
+    if (activeTarget.kind === 'block') return activeTarget.block;
+    return activeTarget.parentBlock || null;
+  }, [activeTarget]);
 
   // 4. Этажи из БД
   const { floors, isLoading, updateFloor, isMutating } = useDirectFloors(currentBlock?.id);
 
+  const scopedFloors = useMemo(() => {
+    if (!activeTarget) return [];
+    if (activeTarget.kind === 'extension') {
+      return floors.filter(f => f.extensionId === activeTarget.id);
+    }
+    return floors.filter(f => !f.extensionId);
+  }, [floors, activeTarget]);
+
   const hiddenStylobateFloorsCount = useMemo(() => {
     if (currentBlock?.type !== 'residential') return 0;
-    return floors.filter(f => f?.isStylobate || f?.type === 'stylobate').length;
-  }, [floors, currentBlock?.type]);
+    return scopedFloors.filter(f => f?.isStylobate || f?.type === 'stylobate').length;
+  }, [scopedFloors, currentBlock?.type]);
 
   const visibleFloors = useMemo(() => {
-    if (currentBlock?.type !== 'residential') return floors;
-    return floors.filter(f => !(f?.isStylobate || f?.type === 'stylobate'));
-  }, [floors, currentBlock?.type]);
+    if (currentBlock?.type !== 'residential') return scopedFloors;
+    return scopedFloors.filter(f => !(f?.isStylobate || f?.type === 'stylobate'));
+  }, [scopedFloors, currentBlock?.type]);
 
   const [selectedRows, setSelectedRows] = useState(new Set());
   const [bulkValue, setBulkValue] = useState('');
@@ -130,7 +175,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     setSelectedRows(new Set());
     setOpenMenuId(null);
     inputsRef.current = {};
-  }, [activeBlockIndex]);
+  }, [activeTargetId]);
 
   useEffect(() => {
     const handleClickOutside = event => {
@@ -478,16 +523,24 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
       {/* TABS & TOOLS */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full shadow-inner border border-slate-700 custom-scrollbar">
-          {building.blocks.map((b, i) => (
-            <DarkTabButton
-              key={b.id}
-              active={activeBlockIndex === i}
-              onClick={() => setActiveBlockIndex(i)}
-              icon={getBlockIcon(b.type)}
-            >
-              {formatBlockSwitcherLabel({ building, block: b, buildingDetails })}
-            </DarkTabButton>
-          ))}
+          {blockTargets.map(target => {
+            const isExtension = target.kind === 'extension';
+            const tabBlock = isExtension ? target.parentBlock : target.block;
+            const label = isExtension
+              ? `${tabBlock?.label || tabBlock?.tabLabel || 'Блок'} / ${target.label}`
+              : formatBlockSwitcherLabel({ building, block: tabBlock, buildingDetails });
+
+            return (
+              <DarkTabButton
+                key={`${target.kind}-${target.id}`}
+                active={activeTarget?.id === target.id}
+                onClick={() => setActiveTargetId(target.id)}
+                icon={isExtension ? Box : getBlockIcon(tabBlock?.type)}
+              >
+                {label}
+              </DarkTabButton>
+            );
+          })}
         </div>
 
         <div className="flex items-center gap-3">

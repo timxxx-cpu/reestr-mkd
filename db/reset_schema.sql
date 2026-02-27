@@ -25,6 +25,7 @@ drop table if exists units cascade;
 drop table if exists entrance_matrix cascade;
 drop table if exists entrances cascade;
 drop table if exists floors cascade;
+drop table if exists block_extensions cascade;
 drop table if exists block_floor_markers cascade;
 drop table if exists block_engineering cascade;
 drop table if exists block_construction cascade;
@@ -43,6 +44,7 @@ drop table if exists dict_infra_types cascade;
 drop table if exists dict_parking_construction_types cascade;
 drop table if exists dict_parking_types cascade;
 drop table if exists dict_light_structure_types cascade;
+drop table if exists dict_extension_types cascade;
 drop table if exists dict_roof_types cascade;
 drop table if exists dict_slab_types cascade;
 drop table if exists dict_wall_materials cascade;
@@ -463,6 +465,80 @@ create trigger trg_validate_basement_block_rules
   for each row
   execute function validate_basement_block_rules();
 
+create table block_extensions (
+  id uuid primary key default gen_random_uuid(),
+  building_id uuid not null references buildings(id) on delete cascade,
+  parent_block_id uuid not null references building_blocks(id) on delete cascade,
+  label text not null,
+  extension_type text not null default 'OTHER',
+  construction_kind text not null default 'capital',
+  floors_count int not null default 1,
+  start_floor_index int not null default 1,
+  vertical_anchor_type text not null default 'GROUND',
+  anchor_floor_key text,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (floors_count >= 1),
+  check (start_floor_index >= 1),
+  check (construction_kind in ('capital', 'light')),
+  check (vertical_anchor_type in ('GROUND', 'BLOCK_FLOOR', 'ROOF')),
+  check (
+    (vertical_anchor_type = 'GROUND' and anchor_floor_key is null)
+    or (vertical_anchor_type in ('BLOCK_FLOOR', 'ROOF'))
+  )
+);
+create index idx_block_extensions_building on block_extensions(building_id);
+create index idx_block_extensions_parent on block_extensions(parent_block_id);
+create index idx_block_extensions_anchor on block_extensions(parent_block_id, start_floor_index);
+
+create or replace function validate_block_extension_rules()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_parent building_blocks%rowtype;
+  v_has_anchor boolean;
+begin
+  select * into v_parent from building_blocks where id = new.parent_block_id;
+
+  if not found then
+    raise exception 'parent block % not found for extension', new.parent_block_id;
+  end if;
+
+  if v_parent.building_id <> new.building_id then
+    raise exception 'extension building_id must match parent block building_id';
+  end if;
+
+  if v_parent.is_basement_block then
+    raise exception 'basement block cannot be parent for block extension';
+  end if;
+
+  if new.vertical_anchor_type = 'BLOCK_FLOOR' then
+    select exists(
+      select 1
+      from block_floor_markers m
+      where m.block_id = new.parent_block_id
+        and m.floor_index = new.start_floor_index
+    ) into v_has_anchor;
+
+    if not v_has_anchor then
+      raise exception 'start_floor_index % not found in parent block floor markers', new.start_floor_index;
+    end if;
+  end if;
+
+  if new.vertical_anchor_type = 'ROOF' and coalesce(v_parent.has_roof_expl, false) = false then
+    raise exception 'ROOF extension requires parent block with exploitable roof';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger trg_validate_block_extension_rules
+  before insert or update on block_extensions
+  for each row execute function validate_block_extension_rules();
+
 create table block_construction (
   id uuid primary key default gen_random_uuid(),
   block_id uuid not null unique references building_blocks(id) on delete cascade,
@@ -510,7 +586,8 @@ create index idx_block_floor_markers_block on block_floor_markers(block_id);
 -- -----------------------------
 create table floors (
   id uuid primary key default gen_random_uuid(),
-  block_id uuid not null references building_blocks(id) on delete cascade,
+  block_id uuid references building_blocks(id) on delete cascade,
+  extension_id uuid references block_extensions(id) on delete cascade,
   index int not null,
   floor_key text,
   label text,
@@ -529,18 +606,21 @@ create table floors (
   is_loft boolean default false,
   is_roof boolean default false,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  check (((block_id is not null)::int + (extension_id is not null)::int) = 1)
 );
 create index idx_floors_block on floors(block_id);
+create index idx_floors_extension on floors(extension_id);
 create unique index uq_floors_block_idx_parent_basement_expr
   on floors (
     block_id,
     index,
     coalesce(parent_floor_index, -99999),
-    coalesce(basement_id, '00000000-0000-0000-0000-000000000000'::uuid)
+    coalesce(basement_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    coalesce(extension_id, '00000000-0000-0000-0000-000000000000'::uuid)
   );
 -- Performance: composite index for sorted floor queries
-create index idx_floors_block_index on floors(block_id, index);
+create index idx_floors_block_index on floors(coalesce(block_id, '00000000-0000-0000-0000-000000000000'::uuid), index);
 
 create table entrances (
   id uuid primary key default gen_random_uuid(),
@@ -569,6 +649,7 @@ create index idx_entrance_matrix_block_floor on entrance_matrix(block_id, floor_
 create table units (
   id uuid primary key default gen_random_uuid(),
   floor_id uuid not null references floors(id) on delete cascade,
+  extension_id uuid references block_extensions(id) on delete cascade,
   entrance_id uuid references entrances(id) on delete set null,
   unit_code text,
   number text,
@@ -587,11 +668,40 @@ create table units (
   check ((has_mezzanine = false and mezzanine_type is null) or has_mezzanine = true)
 );
 create index idx_units_floor on units(floor_id);
+create index idx_units_extension on units(extension_id);
 create index idx_units_entrance on units(entrance_id);
 create index idx_units_type on units(unit_type);
 -- Performance: composite index for units by floor and entrance queries
 create index idx_units_floor_entrance on units(floor_id, entrance_id);
 create unique index idx_units_code on units(unit_code) where unit_code is not null;
+
+create or replace function validate_unit_extension_consistency()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_floor_extension_id uuid;
+begin
+  select extension_id into v_floor_extension_id from floors where id = new.floor_id;
+
+  if not found then
+    raise exception 'Floor % not found for unit', new.floor_id;
+  end if;
+
+  if (new.extension_id is null and v_floor_extension_id is not null)
+     or (new.extension_id is not null and v_floor_extension_id is null)
+     or (new.extension_id is not null and v_floor_extension_id is not null and new.extension_id <> v_floor_extension_id) then
+    raise exception 'units.extension_id must match floors.extension_id for floor %', new.floor_id;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_units_extension_consistency on units;
+create trigger trg_units_extension_consistency
+before insert or update on units
+for each row execute function validate_unit_extension_consistency();
 
 create table rooms (
   id uuid primary key default gen_random_uuid(),
@@ -710,6 +820,14 @@ create table dict_slab_types (
 );
 
 create table dict_roof_types (
+  id uuid primary key default gen_random_uuid(),
+  code text not null,
+  label text not null,
+  sort_order int not null default 100,
+  is_active boolean not null default true
+);
+
+create table dict_extension_types (
   id uuid primary key default gen_random_uuid(),
   code text not null,
   label text not null,
@@ -957,6 +1075,13 @@ insert into dict_foundations(code, label) values ('MONOLITH', 'Монолитн�
 insert into dict_wall_materials(code, label) values ('BRICK', 'Кирпич') on conflict (code) do nothing;
 insert into dict_slab_types(code, label) values ('RC', 'Ж/Б') on conflict (code) do nothing;
 insert into dict_roof_types(code, label) values ('FLAT', 'Плоская') on conflict (code) do nothing;
+insert into dict_extension_types(code, label) values
+('CANOPY', 'Навес'),
+('TAMBUR', 'Тамбур'),
+('VESTIBULE', 'Вестибюль'),
+('PASSAGE', 'Переход'),
+('UTILITY', 'Подсобка'),
+('OTHER', 'Прочее') on conflict (code) do nothing;
 insert into dict_light_structure_types(code, label) values ('STANDARD', 'Стандарт') on conflict (code) do nothing;
 insert into dict_parking_types(code, label) values ('underground', 'Подземный'), ('aboveground', 'Наземный') on conflict (code) do nothing;
 insert into dict_parking_construction_types(code, label) values ('capital', 'Капитальный'), ('light', 'Из легких конструкций'), ('open', 'Открытый') on conflict (code) do nothing;

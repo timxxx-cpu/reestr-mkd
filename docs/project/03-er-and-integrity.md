@@ -354,3 +354,21 @@ UNIQUE INDEX uq_floors_block_idx_parent_basement_expr ON (
 Текущая модель больше не использует отдельные таблицы `basements` и `basement_parking_levels`.
 Подвалы представлены как записи в `building_blocks` с `is_basement_block=true`, а их уровни/коммуникации хранятся в JSON-полях `basement_parking_levels` и `basement_communications`.
 Связь этажа с подвалом выполняется через `floors.basement_id -> building_blocks.id`.
+
+
+## 3.6 Расширение модели: `block_extensions` и `extension_id`
+
+Для поддержки пристроек (annex/extensions) в доменной модели добавлены:
+
+- таблица `block_extensions` (связь с `building_blocks` по `parent_block_id`),
+- ссылка `floors.extension_id` (этаж принадлежит либо блоку, либо пристройке),
+- ссылка `units.extension_id` (помещение согласуется с extension родительского этажа).
+
+Ключевые правила целостности:
+
+1. **XOR для этажа**: у `floors` должен быть заполнен ровно один владелец (`block_id` xor `extension_id`).
+2. **Согласованность unit/floor**: `units.extension_id` должен совпадать с `floors.extension_id`.
+3. **Якорные правила пристроек**: `vertical_anchor_type` и `anchor_floor_key` валидируются триггером `validate_block_extension_rules()`.
+4. **Согласованность parent/building**: `block_extensions.building_id` должен соответствовать зданию родительского блока.
+
+Таким образом, пристройка — полноценная сущность в ER-модели, а не вложенный JSON-фрагмент.

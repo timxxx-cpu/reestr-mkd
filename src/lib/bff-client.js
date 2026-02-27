@@ -28,11 +28,12 @@ const getAuthHeaders = () => {
 
 // 1. Создаем кастомный класс ошибки, чтобы VS Code знал о полях code и details
 class BffError extends Error {
-  constructor(message, code, details) {
+  constructor(message, code, details, status) {
     super(message);
     this.name = 'BffError';
     this.code = code;
     this.details = details;
+    this.status = status;
   }
 }
 
@@ -84,7 +85,8 @@ async function request(path, options = {}) {
     throw new BffError(
       payload?.message || `BFF request failed: ${res.status}`,
       payload?.code,
-      payload?.details
+      payload?.details,
+      res.status
     );
   }
 
@@ -377,6 +379,35 @@ export const BffClient = {
       method: 'DELETE',
       userName,
       userRole,
+    }),
+
+  getBlockExtensions: ({ blockId }) =>
+    request(`/api/v1/blocks/${blockId}/extensions`),
+
+  createBlockExtension: ({ blockId, extensionData, userName, userRole, idempotencyKey }) =>
+    request(`/api/v1/blocks/${blockId}/extensions`, {
+      method: 'POST',
+      userName,
+      userRole,
+      idempotencyKey,
+      body: { extensionData },
+    }),
+
+  updateBlockExtension: ({ extensionId, extensionData, userName, userRole, idempotencyKey }) =>
+    request(`/api/v1/extensions/${extensionId}`, {
+      method: 'PUT',
+      userName,
+      userRole,
+      idempotencyKey,
+      body: { extensionData },
+    }),
+
+  deleteBlockExtension: ({ extensionId, userName, userRole, idempotencyKey }) =>
+    request(`/api/v1/extensions/${extensionId}`, {
+      method: 'DELETE',
+      userName,
+      userRole,
+      idempotencyKey,
     }),
 
   getFloors: ({ blockId }) =>

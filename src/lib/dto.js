@@ -5,7 +5,8 @@
 /**
  * @typedef {Object} DbFloorRow
  * @property {string} id
- * @property {string} block_id
+ * @property {string|null} [block_id]
+ * @property {string|null} [extension_id]
  * @property {string} floor_key
  * @property {string} [label]
  * @property {number} [index]
@@ -29,7 +30,8 @@
  * @typedef {Object} UiFloor
  * @property {string} id
  * @property {string} buildingId
- * @property {string} blockId
+ * @property {string|null} [blockId]
+ * @property {string|null} [extensionId]
  * @property {string} floorKey
  * @property {string} [label]
  * @property {string} [type]
@@ -73,6 +75,7 @@
  * @property {string} [status]
  * @property {string} [cadastre_number]
  * @property {string} [floor_id]
+ * @property {string|null} [extension_id]
  * @property {string} [entrance_id]
  */
 
@@ -82,6 +85,7 @@
  * @property {string} [type]
  * @property {number} [area]
  * @property {string} [floor_id]
+ * @property {string|null} [extension_id]
  * @property {string} [entrance_id]
  */
 

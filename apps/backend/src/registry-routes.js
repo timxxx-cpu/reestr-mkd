@@ -181,6 +181,65 @@ const getExistingUnitSegmentsByBuildingCode = async (supabase, buildingCode) => 
   };
 };
 
+const EXTENSION_VERTICAL_ANCHORS = new Set(['GROUND', 'BLOCK_FLOOR', 'ROOF']);
+const EXTENSION_CONSTRUCTION_KINDS = new Set(['capital', 'light']);
+
+const normalizeExtensionPayload = (payload = {}) => {
+  const label = String(payload.label || '').trim();
+  if (!label) {
+    return { error: 'label is required' };
+  }
+
+  const floorsCount = Number.parseInt(payload.floorsCount, 10);
+  if (!Number.isInteger(floorsCount) || floorsCount < 1) {
+    return { error: 'floorsCount must be an integer >= 1' };
+  }
+
+  const startFloorIndex = Number.parseInt(payload.startFloorIndex, 10);
+  if (!Number.isInteger(startFloorIndex) || startFloorIndex < 1) {
+    return { error: 'startFloorIndex must be an integer >= 1' };
+  }
+
+  const extensionType = String(payload.extensionType || 'OTHER').trim().toUpperCase();
+  const constructionKind = String(payload.constructionKind || 'capital').trim().toLowerCase();
+  if (!EXTENSION_CONSTRUCTION_KINDS.has(constructionKind)) {
+    return { error: 'constructionKind must be one of: capital, light' };
+  }
+
+  const verticalAnchorType = String(payload.verticalAnchorType || 'GROUND').trim().toUpperCase();
+  if (!EXTENSION_VERTICAL_ANCHORS.has(verticalAnchorType)) {
+    return { error: 'verticalAnchorType must be one of: GROUND, BLOCK_FLOOR, ROOF' };
+  }
+
+  const anchorFloorRaw = payload.anchorFloorKey === undefined || payload.anchorFloorKey === null
+    ? null
+    : String(payload.anchorFloorKey).trim();
+  const anchorFloorKey = anchorFloorRaw || null;
+
+  if (verticalAnchorType === 'GROUND' && anchorFloorKey !== null) {
+    return { error: 'anchorFloorKey must be null when verticalAnchorType=GROUND' };
+  }
+
+  if (verticalAnchorType !== 'GROUND' && !anchorFloorKey) {
+    return { error: 'anchorFloorKey is required when verticalAnchorType is BLOCK_FLOOR or ROOF' };
+  }
+
+  return {
+    data: {
+      label,
+      extension_type: extensionType,
+      construction_kind: constructionKind,
+      floors_count: floorsCount,
+      start_floor_index: startFloorIndex,
+      vertical_anchor_type: verticalAnchorType,
+      anchor_floor_key: verticalAnchorType === 'GROUND' ? null : anchorFloorKey,
+      notes: payload.notes === undefined || payload.notes === null
+        ? null
+        : String(payload.notes).trim() || null,
+    },
+  };
+};
+
 export function registerRegistryRoutes(app, { supabase }) {
   const idempotencyStore = createIdempotencyStore();
 
@@ -291,6 +350,114 @@ export function registerRegistryRoutes(app, { supabase }) {
     const { data, error } = await supabase.from('entrances').select('*').eq('block_id', blockId).order('number', { ascending: true });
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     return reply.send(data || []);
+  });
+
+  app.get('/api/v1/blocks/:blockId/extensions', async (req, reply) => {
+    const { blockId } = req.params;
+    const { data, error } = await supabase
+      .from('block_extensions')
+      .select('*')
+      .eq('parent_block_id', blockId)
+      .order('created_at', { ascending: true });
+
+    if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+    return reply.send(data || []);
+  });
+
+  app.post('/api/v1/blocks/:blockId/extensions', async (req, reply) => {
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
+    });
+    if (!actor) return;
+
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
+
+    const { blockId } = req.params;
+    const { data: block, error: blockError } = await supabase
+      .from('building_blocks')
+      .select('id, building_id')
+      .eq('id', blockId)
+      .maybeSingle();
+
+    if (blockError) return sendError(reply, 500, 'DB_ERROR', blockError.message);
+    if (!block?.id) return sendError(reply, 404, 'NOT_FOUND', 'Block not found');
+
+    const normalized = normalizeExtensionPayload(req.body?.extensionData || {});
+    if (normalized.error) return sendError(reply, 400, 'VALIDATION_ERROR', normalized.error);
+
+    const insertPayload = {
+      ...normalized.data,
+      id: crypto.randomUUID(),
+      building_id: block.building_id,
+      parent_block_id: blockId,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('block_extensions')
+      .insert(insertPayload)
+      .select('*')
+      .single();
+
+    if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+    rememberIdempotentResponse(idempotencyStore, idempotencyContext, data);
+    return reply.send(data);
+  });
+
+  app.put('/api/v1/extensions/:extensionId', async (req, reply) => {
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
+    });
+    if (!actor) return;
+
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
+
+    const { extensionId } = req.params;
+    const normalized = normalizeExtensionPayload(req.body?.extensionData || {});
+    if (normalized.error) return sendError(reply, 400, 'VALIDATION_ERROR', normalized.error);
+
+    const { data, error } = await supabase
+      .from('block_extensions')
+      .update({
+        ...normalized.data,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', extensionId)
+      .select('*')
+      .maybeSingle();
+
+    if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+    if (!data) return sendError(reply, 404, 'NOT_FOUND', 'Extension not found');
+
+    rememberIdempotentResponse(idempotencyStore, idempotencyContext, data);
+    return reply.send(data);
+  });
+
+  app.delete('/api/v1/extensions/:extensionId', async (req, reply) => {
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
+    });
+    if (!actor) return;
+
+    const idempotencyContext = buildIdempotencyContext(req, actor);
+    if (tryServeIdempotentResponse(idempotencyStore, idempotencyContext, reply)) return;
+
+    const { extensionId } = req.params;
+    const { data, error } = await supabase
+      .from('block_extensions')
+      .delete()
+      .eq('id', extensionId)
+      .select('id')
+      .maybeSingle();
+
+    if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+    if (!data?.id) return sendError(reply, 404, 'NOT_FOUND', 'Extension not found');
+
+    const payload = { ok: true, id: data.id };
+    rememberIdempotentResponse(idempotencyStore, idempotencyContext, payload);
+    return reply.send(payload);
   });
 
   app.get('/api/v1/units/:unitId/explication', async (req, reply) => {
