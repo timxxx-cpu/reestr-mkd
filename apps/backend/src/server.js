@@ -23,8 +23,13 @@ function buildCorsOriginResolver(config) {
     .map(item => item.trim())
     .filter(Boolean);
 
+  // Если в ENV передана '*', просто разрешаем все домены (часто используется на тестовых серверах)
+  if (fromEnv.includes('*')) {
+    return true;
+  }
+
   const allowlist = fromEnv.length > 0
-    ? fromEnv
+    ? fromEnv.map(url => url.replace(/\/$/, '')) // Убираем слэш на конце на всякий случай
     : [
       'https://reestr-mkd.vercel.app',
       'http://localhost:5173',
@@ -32,9 +37,18 @@ function buildCorsOriginResolver(config) {
     ];
 
   return (origin, cb) => {
+    // Пропускаем вызовы без origin (например, server-to-server)
     if (!origin) return cb(null, true);
-    if (allowlist.includes(origin)) return cb(null, true);
-    return cb(new Error('Not allowed by CORS'), false);
+
+    const normalizedOrigin = origin.replace(/\/$/, '');
+
+    if (allowlist.includes(normalizedOrigin)) {
+      return cb(null, true);
+    }
+
+    // ВАЖНО: Вместо возврата Error, возвращаем (null, false).
+    // Это заставит Fastify просто отклонить CORS без падения сервера с ошибкой 500
+    return cb(null, false);
   };
 }
 
@@ -49,6 +63,8 @@ export async function buildServer() {
     allowedHeaders: [
       'Content-Type',
       'Authorization',
+      'Accept', // <-- Добавлено
+      'Origin', // <-- Добавлено
       'x-user-id',
       'x-user-role',
       'x-idempotency-key',
