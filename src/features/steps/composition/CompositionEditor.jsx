@@ -16,12 +16,13 @@ import {
   Eye,
   Loader2,
   Hash,
-  LayoutGrid, // Иконка сетки
-  List as ListIcon, // Иконка списка
+  LayoutGrid,
+  List as ListIcon,
+  Save // <-- ДОБАВЛЕН ИМПОРТ
 } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { useDirectBuildings } from '@hooks/api/useDirectBuildings';
-import { Button, Input, Select, Label, SectionTitle, useReadOnly, useEscapeKey } from '@components/ui/UIKit';
+import { Button, Input, Select, Label, SectionTitle, useReadOnly, useEscapeKey, Card } from '@components/ui/UIKit';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { formatFullIdentifier } from '@lib/uj-identifier';
 import { getStageColor } from '@lib/utils';
@@ -50,14 +51,13 @@ const PARKING_CONSTRUCTION_FALLBACK = [
   { code: 'open', label: 'Открытый' },
 ];
 
-// Хелпер генерации блоков для payload
 const generateBlocksPayload = params => {
   const blocks = [];
   const { category, resBlocks, nonResBlocks, infraType, parkingType } = params;
 
   if (category.includes('residential')) {
-    const rCount = parseInt(resBlocks) || 0;
-    const nCount = category === 'residential_multiblock' ? parseInt(nonResBlocks) || 0 : 0;
+    const rCount = Number(resBlocks) || 0; // <-- ИСПРАВЛЕНО НА Number
+    const nCount = category === 'residential_multiblock' ? Number(nonResBlocks) || 0 : 0;
 
     for (let i = 0; i < rCount; i++) {
       blocks.push({
@@ -93,60 +93,52 @@ const generateBlocksPayload = params => {
 
   return blocks;
 };
-// Настройка стилей карточки в зависимости от типа
+
 const CARD_THEMES = {
   residential: {
-    bg: 'bg-white', // Жилье оставляем чистым или очень легким
+    bg: 'bg-white',
     border: 'border-slate-200',
     header: 'bg-slate-50/50',
     iconWrapper: 'bg-white border-slate-200 text-blue-600',
     accent: 'group-hover:border-blue-300',
   },
   residential_multiblock: {
-    bg: 'bg-indigo-50/30', // Легкий индиго для сложных домов
+    bg: 'bg-indigo-50/30',
     border: 'border-indigo-100',
     header: 'bg-indigo-50/40',
     iconWrapper: 'bg-white border-indigo-200 text-indigo-600',
     accent: 'group-hover:border-indigo-300',
   },
   parking_separate: {
-    bg: 'bg-slate-50', // Серый фон для тех. сооружений/паркинга
+    bg: 'bg-slate-50',
     border: 'border-slate-200',
     header: 'bg-slate-100/50',
     iconWrapper: 'bg-white border-slate-200 text-slate-600',
     accent: 'group-hover:border-slate-300',
   },
   infrastructure: {
-    bg: 'bg-amber-50/40', // Теплый фон для инфраструктуры
+    bg: 'bg-amber-50/40',
     border: 'border-amber-200/50',
     header: 'bg-amber-50/60',
     iconWrapper: 'bg-white border-amber-200 text-amber-600',
     accent: 'group-hover:border-amber-300',
   },
 };
-// --- Компонент Карточки Строения ---
+
 const BuildingCard = ({ item, projectUjCode, isReadOnly, onEdit, onDelete }) => {
-  // Определяем тему по категории, fallback на residential
   const theme = CARD_THEMES[item.category] || CARD_THEMES.residential;
   
   let detailsBadge = null;
   if (item.category === 'parking_separate') {
-    const pType =
-      item.parkingType === 'ground' || item.parkingType === 'aboveground'
-        ? 'Наземный'
-        : 'Подземный';
-    const pConstName =
-      PARKING_CONSTRUCTION_NAMES[item.constructionType] || item.constructionType;
+    const pType = item.parkingType === 'ground' || item.parkingType === 'aboveground' ? 'Наземный' : 'Подземный';
+    const pConstName = PARKING_CONSTRUCTION_NAMES[item.constructionType] || item.constructionType;
     detailsBadge = `${pType} • ${pConstName}`;
   }
 
   const Icon = item.category === 'parking_separate' ? Car : item.category === 'infrastructure' ? Box : Building2;
 
   return (
-    <div 
-      className={`group rounded-xl border shadow-sm hover:shadow-md transition-all duration-200 flex flex-col overflow-hidden relative ${theme.bg} ${theme.border} ${theme.accent}`}
-    >
-      {/* Верхняя часть с номером и иконкой */}
+    <div className={`group rounded-xl border shadow-sm hover:shadow-md transition-all duration-200 flex flex-col overflow-hidden relative ${theme.bg} ${theme.border} ${theme.accent}`}>
       <div className={`p-4 border-b ${theme.border} ${theme.header} flex justify-between items-start`}>
         <div className="flex items-center gap-3">
           <div className={`w-10 h-10 rounded-lg flex items-center justify-center shadow-sm border ${theme.iconWrapper}`}>
@@ -171,14 +163,11 @@ const BuildingCard = ({ item, projectUjCode, isReadOnly, onEdit, onDelete }) => 
             )}
           </div>
         </div>
-        
-        {/* Статус */}
         <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border bg-white/50 ${getStageColor(item.stage)}`}>
           {item.stage || 'Проект'}
         </span>
       </div>
 
-      {/* Основная информация */}
       <div className="p-4 flex-grow space-y-3">
         <div>
           <h3 className="font-bold text-slate-800 leading-tight group-hover:text-blue-700 transition-colors">
@@ -189,7 +178,6 @@ const BuildingCard = ({ item, projectUjCode, isReadOnly, onEdit, onDelete }) => 
           </p>
         </div>
 
-        {/* Характеристики (теги) */}
         <div className="flex flex-wrap gap-1.5">
            {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
               <span className="px-2 py-1 bg-white/60 rounded border border-slate-200 text-[10px] font-semibold text-slate-600">
@@ -214,7 +202,6 @@ const BuildingCard = ({ item, projectUjCode, isReadOnly, onEdit, onDelete }) => 
         </div>
       </div>
 
-      {/* Футер с действиями */}
       <div className={`p-3 border-t ${theme.border} flex gap-2 bg-white/40 mt-auto`}>
         <button
           onClick={() => onEdit(item)}
@@ -236,7 +223,6 @@ const BuildingCard = ({ item, projectUjCode, isReadOnly, onEdit, onDelete }) => 
     </div>
   );
 };
-// -------------------------------------
 
 const BuildingModal = ({
   modal,
@@ -248,13 +234,12 @@ const BuildingModal = ({
   infraTypeOptions,
   projectStageOptions,
   geometryCandidates = [],
-  selectedGeometryCandidateId = null,
-  onSelectGeometryCandidate,
   geometryError = '',
-  basemap = 'osm',
-  onBasemapChange,
 }) => {
   const isReadOnly = useReadOnly();
+  const [activeCandidateId, setActiveCandidateId] = useState(null);
+  const [basemap, setBasemap] = useState('osm');
+
   useEscapeKey(() => setModal(m => ({ ...m, isOpen: false })));
 
   const { errors, isValid } = useValidation(BuildingModalSchema, {
@@ -285,355 +270,352 @@ const BuildingModal = ({
     ) : null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden ring-1 ring-white/20 animate-in zoom-in-95 duration-200">
-        <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <div>
-            <h3 className="text-xl font-bold text-slate-800">
-              {modal.editingId
-                ? isReadOnly
-                  ? 'Просмотр объекта'
-                  : 'Редактирование объекта'
-                : 'Создание объекта'}
-            </h3>
-            <p className="text-xs text-slate-500 font-medium mt-1">Паспортные данные строения</p>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-5xl max-h-[95vh] rounded-3xl shadow-2xl overflow-hidden ring-1 ring-white/20 animate-in zoom-in-95 duration-200 flex flex-col">
+        
+        {/* HEADER */}
+        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/80 sticky top-0 z-10 backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
+              <Building2 size={20} />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-800 leading-tight">
+                {modal.editingId
+                  ? isReadOnly ? 'Просмотр объекта' : 'Редактирование объекта'
+                  : 'Создание нового объекта'}
+              </h3>
+              <p className="text-xs text-slate-500 font-medium">Паспортные данные и привязка к генплану</p>
+            </div>
           </div>
           <button
             onClick={() => setModal(m => ({ ...m, isOpen: false }))}
             className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-200"
           >
-            <X size={20} className="text-slate-400 hover:text-slate-700" />
+            <X size={18} className="text-slate-500" />
           </button>
         </div>
 
-        <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* ЛЕВАЯ КОЛОНКА */}
-          <div className="space-y-5">
-            <SectionTitle icon={Hash}>Идентификация</SectionTitle>
-            <div className="space-y-1.5">
-              <Label>
-                Номер дома / Корпус <span className="text-red-500">*</span>{' '}
-                <ErrorMsg field="houseNumber" />
-              </Label>
-              <div className="relative">
-                <Hash
-                  size={16}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-                <Input
-                  value={modal.houseNumber}
-                  onChange={e => setModal(m => ({ ...m, houseNumber: e.target.value }))}
-                  placeholder="12А"
-                  className={`pl-9 font-bold text-lg uppercase ${errors.houseNumber ? 'border-red-300 bg-red-50' : ''}`}
-                  autoFocus={!isReadOnly}
-                  disabled={isReadOnly || isSaving}
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>
-                Наименование <ErrorMsg field="baseName" />
-              </Label>
-              <Input
-                value={modal.baseName}
-                onChange={e => setModal(m => ({ ...m, baseName: e.target.value }))}
-                placeholder="Например: Отдельный жилой дом"
-                className={errors.baseName ? 'border-red-300 bg-red-50' : ''}
-                disabled={
-                  isReadOnly || 
-                  isSaving || 
-                  modal.category === 'infrastructure' || 
-                  modal.category === 'parking_separate' ||
-                  modal.category.includes('residential') // ИЗМЕНЕНИЕ: Блокируем и для жилья
-                }
-              />
-            </div>
-            </div>
-
-          {/* ПРАВАЯ КОЛОНКА */}
-          <div className="space-y-5">
-            <SectionTitle icon={Clock}>Параметры и Сроки</SectionTitle>
-            {modal.category?.includes('residential') && (
-              <div
-                className={`flex flex-col gap-3 p-3 rounded-xl border transition-colors animate-in fade-in ${isMultiblockError ? 'bg-red-50 border-red-200' : 'bg-indigo-50 border-indigo-100'}`}
-              >
-               <div className={`grid ${modal.category === 'residential_multiblock' ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>
-                  <div className="space-y-1">
-                    <Label>Жилых блоков</Label>
+        {/* BODY */}
+        <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            
+            {/* ЛЕВАЯ КОЛОНКА: ДАННЫЕ */}
+            <div className="lg:col-span-5 space-y-6">
+              
+              {/* Блок Идентификации */}
+              <div className="space-y-4">
+                <SectionTitle icon={Hash} className="text-base mb-0">Идентификация</SectionTitle>
+                
+                <div className="space-y-1.5">
+                  <Label>Номер дома / Корпус <span className="text-red-500">*</span> <ErrorMsg field="houseNumber" /></Label>
+                  <div className="relative">
+                    <Hash size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <Input
-                      type="number"
-                      min="0"
-                      max="10"
-                      value={modal.resBlocks}
-                      onChange={e =>
-                        setModal(m => {
-                          const val = Math.min(10, Math.max(0, parseInt(e.target.value) || 0));
-                          
-                          // ИЗМЕНЕНИЕ: Пересчитываем имя с учетом текущих нежилых блоков
-                          let newName = m.baseName;
-                          if (m.category.includes('residential')) {
-                             newName = getResidentialName(val, m.nonResBlocks);
-                          }
-
-                          return {
-                            ...m,
-                            resBlocks: val,
-                            baseName: newName,
-                          };
-                        })
-                      }
-                      disabled={modal.editingId || isSaving}
+                      value={modal.houseNumber}
+                      onChange={e => setModal(m => ({ ...m, houseNumber: e.target.value }))}
+                      placeholder="12А"
+                      className={`pl-9 font-bold text-lg uppercase ${errors.houseNumber ? 'border-red-300 bg-red-50' : ''}`}
+                      autoFocus={!isReadOnly}
+                      disabled={isReadOnly || isSaving}
                     />
                   </div>
-                  {modal.category === 'residential_multiblock' && (
-                    <div className="space-y-1">
-                      <Label>Нежилых</Label>
-                      <div className="space-y-1">
-                      <Input
-                        type="number"
-                        min="0"
-                        max="10"
-                        value={modal.nonResBlocks}
-                        onChange={e =>
-                          setModal(m => {
-                            const val = Math.min(10, Math.max(0, parseInt(e.target.value) || 0));
-                            
-                            // ИЗМЕНЕНИЕ: Также пересчитываем имя при смене кол-ва нежилых
-                            let newName = m.baseName;
-                            if (m.category.includes('residential')) {
-                               newName = getResidentialName(m.resBlocks, val);
-                            }
+                </div>
 
-                            return {
-                              ...m,
-                              nonResBlocks: val,
-                              baseName: newName,
-                            };
-                          })
-                        }
-                        disabled={modal.editingId || isSaving}
-                      />
-                    </div>
-                    </div>
-                  )}
-                </div>
-                {modal.editingId && (
-                  <div className="text-[10px] text-slate-500 italic">
-                    Изменение структуры блоков доступно только при создании.
-                  </div>
-                )}
-                {isMultiblockError && (
-                  <div className="flex items-start gap-2 text-[10px] text-red-600 font-bold leading-tight mt-2">
-                    <AlertCircle size={14} className="shrink-0 mt-0.5" />
-                    <span>
-                      {modal.category === 'residential_multiblock'
-                        ? 'Для этого типа необходимо минимум: 1 жилой и 1 нежилой блок.'
-                        : 'Необходимо минимум: 1 жилой блок.'}
-                    </span>
-                  </div>
-                )}
-                {modal.category === 'residential' && (
-                  <div className="text-[10px] text-slate-500">
-                    Отдельный жилой дом может состоять из нескольких жилых блоков. Нежилые блоки не создаются.
-                  </div>
-                )}
-              </div>
-            )}
-            {modal.category === 'parking_separate' && (
-              <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-in fade-in">
                 <div className="space-y-1.5">
-                  <Label>Тип паркинга</Label>
-                  <Select
-                    value={modal.parkingType}
-                    onChange={e => {
-                      const nextType = e.target.value;
-                      setModal(m => ({
-                        ...m,
-                        parkingType: nextType,
-                        parkingConstruction:
-                          nextType === 'underground' ? 'capital' : m.parkingConstruction,
-                      }));
-                    }}
-                    disabled={isReadOnly || isSaving}
-                  >
-                    {parkingTypeOptions.map(opt => (
-                      <option key={opt.code} value={opt.code}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </Select>
+                  <Label>Наименование <ErrorMsg field="baseName" /></Label>
+                  <Input
+                    value={modal.baseName}
+                    onChange={e => setModal(m => ({ ...m, baseName: e.target.value }))}
+                    placeholder="Например: Отдельный жилой дом"
+                    className={`text-sm ${errors.baseName ? 'border-red-300 bg-red-50' : ''}`}
+                    disabled={
+                      isReadOnly || isSaving || 
+                      modal.category === 'infrastructure' || 
+                      modal.category === 'parking_separate' ||
+                      modal.category.includes('residential')
+                    }
+                  />
                 </div>
-                {(modal.parkingType === 'ground' || modal.parkingType === 'aboveground') && (
-                  <div className="space-y-1.5 animate-in slide-in-from-top-2">
-                    <Label>Конструктив</Label>
+              </div>
+
+              {/* Блок Параметров */}
+              <div className="space-y-4">
+                <SectionTitle icon={Clock} className="text-base mb-0">Параметры и Сроки</SectionTitle>
+                
+                {modal.category?.includes('residential') && (
+                  <div className={`p-4 rounded-xl border transition-colors animate-in fade-in shadow-sm ${isMultiblockError ? 'bg-red-50 border-red-200' : 'bg-indigo-50/50 border-indigo-100'}`}>
+                    <div className={`grid ${modal.category === 'residential_multiblock' ? 'grid-cols-2' : 'grid-cols-1'} gap-4`}>
+                      <div className="space-y-1.5">
+                        <Label className="text-indigo-900">Жилых блоков</Label>
+                        <Input
+                          type="number" min="0" max="10"
+                          value={modal.resBlocks}
+                          onChange={e =>
+                            setModal(m => {
+                              const val = Math.min(10, Math.max(0, parseInt(e.target.value) || 0));
+                              let newName = m.baseName;
+                              if (m.category.includes('residential')) newName = getResidentialName(val, m.nonResBlocks);
+                              return { ...m, resBlocks: val, baseName: newName };
+                            })
+                          }
+                          disabled={modal.editingId || isSaving}
+                          className="bg-white text-sm"
+                        />
+                      </div>
+                      {modal.category === 'residential_multiblock' && (
+                        <div className="space-y-1.5">
+                          <Label className="text-indigo-900">Нежилых блоков</Label>
+                          <Input
+                            type="number" min="0" max="10"
+                            value={modal.nonResBlocks}
+                            onChange={e =>
+                              setModal(m => {
+                                const val = Math.min(10, Math.max(0, parseInt(e.target.value) || 0));
+                                let newName = m.baseName;
+                                if (m.category.includes('residential')) newName = getResidentialName(m.resBlocks, val);
+                                return { ...m, nonResBlocks: val, baseName: newName };
+                              })
+                            }
+                            disabled={modal.editingId || isSaving}
+                            className="bg-white text-sm"
+                          />
+                        </div>
+                      )}
+                    </div>
+                    {modal.editingId && <div className="text-[10px] text-slate-500 italic mt-2">Изменение структуры блоков доступно только при создании.</div>}
+                    {isMultiblockError && (
+                      <div className="flex items-start gap-1.5 text-[10px] text-red-600 font-bold mt-2">
+                        <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                        <span>{modal.category === 'residential_multiblock' ? 'Необходимо минимум: 1 жилой и 1 нежилой блок.' : 'Необходимо минимум: 1 жилой блок.'}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {modal.category === 'parking_separate' && (
+                  <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-100 animate-in fade-in shadow-sm">
+                    <div className="space-y-1.5">
+                      <Label>Тип паркинга</Label>
+                      <Select
+                        value={modal.parkingType}
+                        onChange={e => {
+                          const nextType = e.target.value;
+                          setModal(m => ({ ...m, parkingType: nextType, parkingConstruction: nextType === 'underground' ? 'capital' : m.parkingConstruction }));
+                        }}
+                        disabled={isReadOnly || isSaving}
+                        className="bg-white text-sm"
+                      >
+                        {parkingTypeOptions.map(opt => <option key={opt.code} value={opt.code}>{opt.label}</option>)}
+                      </Select>
+                    </div>
+                    {(modal.parkingType === 'ground' || modal.parkingType === 'aboveground') && (
+                      <div className="space-y-1.5 animate-in slide-in-from-top-2">
+                        <Label>Конструктив</Label>
+                        <Select
+                          value={modal.parkingConstruction}
+                          onChange={e => setModal(m => ({ ...m, parkingConstruction: e.target.value }))}
+                          disabled={isReadOnly || isSaving}
+                          className="bg-white text-sm"
+                        >
+                          {parkingConstructionOptions.map(opt => <option key={opt.code} value={opt.code}>{opt.label}</option>)}
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {modal.category === 'infrastructure' && (
+                  <div className="space-y-1.5 p-4 bg-amber-50/50 rounded-xl border border-amber-100 animate-in fade-in shadow-sm">
+                    <Label>Тип объекта <span className="text-red-500">*</span> <ErrorMsg field="infraType" /></Label>
                     <Select
-                      value={modal.parkingConstruction}
-                      onChange={e => setModal(m => ({ ...m, parkingConstruction: e.target.value }))}
+                      value={modal.infraType}
+                      onChange={e => setModal(m => ({ ...m, infraType: e.target.value, baseName: e.target.value }))}
                       disabled={isReadOnly || isSaving}
+                      className={`text-sm ${!modal.infraType && !isValid ? 'border-red-300 bg-white' : 'bg-white'}`}
                     >
-                      {parkingConstructionOptions.map(opt => (
-                        <option key={opt.code} value={opt.code}>
-                          {opt.label}
-                        </option>
-                      ))}
+                      <option value="" disabled>-- Выберите тип --</option>
+                      {infraTypeOptions.map(opt => <option key={opt.code} value={opt.label}>{opt.label}</option>)}
                     </Select>
                   </div>
                 )}
-              </div>
-            )}
-            {modal.category === 'infrastructure' && (
-              <div className="space-y-1.5 p-3 bg-amber-50 rounded-xl border border-amber-100 animate-in fade-in">
-                <Label>
-                  Тип объекта <span className="text-red-500">*</span>
-                  {/* Вывод ошибки, если валидатор вернул ошибку */}
-                  <ErrorMsg field="infraType" />
-                </Label>
-                <Select
-                  value={modal.infraType}
-                  onChange={e => {
-                    const newValue = e.target.value;
-                    setModal(m => ({ 
-                      ...m, 
-                      infraType: newValue,
-                      baseName: newValue // Авто-заполнение имени
-                    }));
-                  }}
-                  disabled={isReadOnly || isSaving}
-                  // Подсветка красным, если попытка сохранения с пустым полем (зависит от вашей валидации)
-                  className={!modal.infraType && !isValid ? 'border-red-300 bg-white' : 'bg-white'}
-                >
-                  {/* ИЗМЕНЕНИЕ: Добавляем пустой пункт по умолчанию */}
-                  <option value="" disabled>-- Выберите тип --</option>
-                  
-                  {infraTypeOptions.map(opt => (
-                    <option key={opt.code} value={opt.label}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            )}
 
-            <div className="space-y-1.5 p-3 bg-slate-50 rounded-xl border border-slate-100 animate-in fade-in">
-              <Label>
-                Количество подвалов <ErrorMsg field="basementsCount" />
-              </Label>
-              <Input
-                type="number"
-                min="0"
-                max="4"
-                value={modal.basementsCount ?? 0}
-                onChange={e =>
-                  setModal(m => ({
-                    ...m,
-                    basementsCount: Math.min(4, Math.max(0, parseInt(e.target.value, 10) || 0)),
-                  }))
-                }
-                disabled={isReadOnly || isSaving}
-              />
-              <p className="text-[10px] text-slate-500">Допустимо от 0 до 4.</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Текущая стадия</Label>
-              <Select
-                value={modal.stage}
-                onChange={e => setModal(m => ({ ...m, stage: e.target.value }))}
-                disabled={isReadOnly || isSaving}
-              >
-                {projectStageOptions.map(opt => (
-                  <option key={opt.code} value={opt.label}>
-                    {opt.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Начало работ</Label>
-                <Input
-                  type="date"
-                  value={modal.dateStart}
-                  onChange={e => setModal(m => ({ ...m, dateStart: e.target.value }))}
-                  className="text-xs font-bold"
-                  disabled={isReadOnly || isSaving}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Ввод в экспл.</Label>
-                <Input
-                  type="date"
-                  value={modal.dateEnd}
-                  onChange={e => setModal(m => ({ ...m, dateEnd: e.target.value }))}
-                  className="text-xs font-bold"
-                  disabled={isReadOnly || isSaving}
-                />
-              </div>
-            </div>
-            {modal.category?.includes('residential') && (
-              <div className="pt-2 border-t border-slate-100 mt-2">
-                <div
-                  className={`flex items-start gap-3 group ${isReadOnly || isSaving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                >
-                  <input
-                    id="has-nonres-part-checkbox"
-                    aria-label="Есть нежилые объекты на жилых этажах"
-                    type="checkbox"
-                    checked={modal.hasNonResPart}
-                    onChange={e => setModal(m => ({ ...m, hasNonResPart: e.target.checked }))}
-                    disabled={isReadOnly || isSaving}
-                    className="mt-1 w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300 disabled:cursor-not-allowed"
-                  />
-                  <div>
-                    <span className="text-sm font-bold text-slate-700 group-hover:text-blue-700 transition-colors">
-                      Есть нежилые объекты на жилых этажах
-                    </span>
-                    <p className="text-[10px] text-slate-400">Есть квартиры используемые как нежилые объекты</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5 p-3 bg-slate-50/80 rounded-xl border border-slate-100">
+                    <Label>Подвалы <ErrorMsg field="basementsCount" /></Label>
+                    <Input
+                      type="number" min="0" max="4"
+                      value={modal.basementsCount ?? 0}
+                      onChange={e => setModal(m => ({ ...m, basementsCount: Math.min(4, Math.max(0, parseInt(e.target.value, 10) || 0)) }))}
+                      disabled={isReadOnly || isSaving}
+                      className="bg-white text-sm"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">Допустимо: 0 – 4</p>
+                  </div>
+                  
+                  <div className="space-y-1.5 p-3 bg-slate-50/80 rounded-xl border border-slate-100">
+                    <Label>Стадия</Label>
+                    <Select
+                      value={modal.stage}
+                      onChange={e => setModal(m => ({ ...m, stage: e.target.value }))}
+                      disabled={isReadOnly || isSaving}
+                      className="bg-white text-sm font-medium"
+                    >
+                      {projectStageOptions.map(opt => <option key={opt.code} value={opt.label}>{opt.label}</option>)}
+                    </Select>
                   </div>
                 </div>
+
+                <div className="grid grid-cols-2 gap-4 p-4 border border-slate-100 rounded-xl bg-slate-50/30">
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] text-slate-500">Начало работ</Label>
+                    <Input
+                      type="date"
+                      value={modal.dateStart}
+                      onChange={e => setModal(m => ({ ...m, dateStart: e.target.value }))}
+                      className="text-xs bg-white"
+                      disabled={isReadOnly || isSaving}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] text-slate-500">Ввод в экспл.</Label>
+                    <Input
+                      type="date"
+                      value={modal.dateEnd}
+                      onChange={e => setModal(m => ({ ...m, dateEnd: e.target.value }))}
+                      className="text-xs bg-white"
+                      disabled={isReadOnly || isSaving}
+                    />
+                  </div>
+                </div>
+
+                {modal.category?.includes('residential') && (
+                  <div className="pt-2 border-t border-slate-100">
+                    <div className={`flex items-start gap-3 group p-2 rounded-lg hover:bg-slate-50 transition-colors ${isReadOnly || isSaving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                      <input
+                        type="checkbox"
+                        checked={modal.hasNonResPart}
+                        onChange={e => setModal(m => ({ ...m, hasNonResPart: e.target.checked }))}
+                        disabled={isReadOnly || isSaving}
+                        className="mt-0.5 w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 disabled:cursor-not-allowed"
+                      />
+                      <div>
+                        <span className="text-sm font-bold text-slate-700 group-hover:text-blue-700 transition-colors">Есть нежилые помещения</span>
+                        <p className="text-[10px] text-slate-400 leading-tight mt-0.5">Отметьте, если в жилых блоках присутствуют квартиры, переведенные в нежилой фонд или изначально спроектированные как коммерция.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
+
+            {/* ПРАВАЯ КОЛОНКА: КАРТА */}
+            <div className="lg:col-span-7 flex flex-col min-h-[500px]">
+              <Card className="flex flex-col flex-1 shadow-sm border-slate-200/60 overflow-hidden h-full">
+                <div className="p-4 border-b border-slate-100 bg-white flex items-center justify-between">
+                  <SectionTitle icon={Layers} className="mb-0 text-base">Привязка к генплану</SectionTitle>
+                </div>
+                
+                <div className="p-4 bg-slate-50/50 flex flex-col gap-3 flex-1">
+                  
+                  {/* Map Controls */}
+                  <div className="flex flex-wrap gap-2 items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {modal.geometryCandidateId && !isReadOnly && (
+                        <Button 
+                          onClick={() => setModal(m => ({ ...m, geometryCandidateId: null }))}
+                          className="bg-white border-red-100 text-red-600 hover:bg-red-50 shadow-sm h-8 px-3 text-xs"
+                          title="Открепить геометрию"
+                        >
+                          <Trash2 size={14} className="mr-1.5" /> Открепить
+                        </Button>
+                      )}
+                      {!modal.geometryCandidateId && !activeCandidateId && (
+                        <span className="text-[11px] text-slate-500 font-medium px-1">Выберите полигон на карте</span>
+                      )}
+                    </div>
+                    <select 
+                      value={basemap} 
+                      onChange={e => setBasemap(e.target.value)} 
+                      className="bg-white border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-600 shadow-sm outline-none focus:border-blue-500"
+                    >
+                      {BASEMAP_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </select>
+                  </div>
+
+                  {geometryError && (
+                    <div className="text-[11px] text-red-600 bg-red-50 p-2 rounded border border-red-100">
+                      {geometryError}
+                    </div>
+                  )}
+
+                  {/* Action Banner when polygon is clicked */}
+                  {activeCandidateId && activeCandidateId !== modal.geometryCandidateId && !isReadOnly && (
+                    <div className="flex items-center justify-between gap-3 p-2 px-3 bg-blue-600 rounded-lg shadow-md text-white animate-in slide-in-from-top-1">
+                      <div className="text-xs font-medium">Контур выбран</div>
+                      <div className="flex items-center gap-1.5">
+                        <Button 
+                          onClick={() => {
+                            setModal(m => ({ ...m, geometryCandidateId: activeCandidateId }));
+                            setActiveCandidateId(null);
+                          }}
+                          className="bg-white text-blue-700 hover:bg-blue-50 h-7 px-3 text-[11px] font-bold"
+                        >
+                          Прикрепить
+                        </Button>
+                        <button 
+                          onClick={() => setActiveCandidateId(null)}
+                          className="h-7 w-7 flex items-center justify-center rounded border border-blue-400 hover:bg-blue-700 hover:border-blue-500 transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* MAP */}
+                  <div className="flex-1 rounded-lg overflow-hidden border border-slate-200 shadow-inner bg-slate-100 relative min-h-[350px]">
+                    <GeometryPickerMap
+                      candidates={geometryCandidates}
+                      selectedId={modal.geometryCandidateId}
+                      activeId={activeCandidateId}
+                      savedGeometry={null} // <-- ИСПРАВЛЕНО
+                      onSelect={setActiveCandidateId}
+                      basemap={basemap}
+                      height={450}
+                    />
+                  </div>
+                  
+                  <div className="text-[10px] text-slate-400 text-center flex items-center justify-center gap-4">
+                     <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-500/80"></span> Выбрано для этого здания</div>
+                     <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-blue-500/80"></span> Активный контур</div>
+                     <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-500/80"></span> Занято другим</div>
+                  </div>
+
+                </div>
+              </Card>
+            </div>
           </div>
         </div>
 
-            <div className="md:col-span-2 space-y-2">
-              <SectionTitle icon={Layers}>Геометрия здания (обязательно)</SectionTitle>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">Подложка:</span>
-                <select value={basemap} onChange={e => onBasemapChange?.(e.target.value)} className="border rounded px-2 py-1 text-xs">
-                  {BASEMAP_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                </select>
-              </div>
-              {geometryError ? <div className="text-xs text-red-600">{geometryError}</div> : null}
-              <GeometryPickerMap
-                candidates={geometryCandidates}
-                selectedId={selectedGeometryCandidateId}
-                onSelect={onSelectGeometryCandidate}
-                basemap={basemap}
-                height={300}
-              />
-              <p className="text-[11px] text-slate-500">Выберите один полигон из SHP-кандидатов. Один полигон можно назначить только одному зданию.</p>
-            </div>
-
-        <div className="px-8 py-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+        {/* FOOTER */}
+        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3 sticky bottom-0 z-10 backdrop-blur-md">
           <Button
             variant="ghost"
             onClick={() => setModal(m => ({ ...m, isOpen: false }))}
             disabled={isReadOnly || isSaving}
+            className="text-slate-600 hover:bg-slate-200"
           >
             {isReadOnly ? 'Закрыть' : 'Отмена'}
           </Button>
           {!isReadOnly && (
             <Button
               onClick={onCommit}
-              disabled={!isValid || isMultiblockError || isSaving || !selectedGeometryCandidateId}
-              className={`shadow-xl shadow-blue-200/50 px-8 ${!isValid || isMultiblockError || !selectedGeometryCandidateId ? 'opacity-50 cursor-not-allowed bg-slate-400' : ''}`}
+              disabled={!isValid || isMultiblockError || isSaving || !modal.geometryCandidateId}
+              className={`shadow-lg px-8 ${!isValid || isMultiblockError || !modal.geometryCandidateId ? 'opacity-50 cursor-not-allowed bg-slate-400' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-200'}`}
             >
-              {isSaving ? (
-                <Loader2 size={18} className="animate-spin mr-2" />
-              ) : (
-                <ArrowRight size={18} className="mr-2" />
-              )}
-              {isSaving ? 'Сохранение...' : 'Применить'}
+              {isSaving ? <Loader2 size={16} className="animate-spin mr-2" /> : <Save size={16} className="mr-2" />}
+              {isSaving ? 'Сохранение...' : 'Сохранить'}
             </Button>
           )}
         </div>
@@ -642,6 +624,7 @@ const BuildingModal = ({
     document.body
   );
 };
+
 const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, isDeleting }) => {
   if (!isOpen) return null;
 
@@ -690,8 +673,6 @@ const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, isDeleting }) => 
   );
 };
 
-
-// Хелпер для формирования названия жилого дома
 const getResidentialName = (resBlocks, nonResBlocks) => {
   let name = 'Многоквартирный жилой дом';
   if (resBlocks > 1) {
@@ -710,13 +691,8 @@ const CompositionEditor = () => {
   const [deleteTargetId, setDeleteTargetId] = useState(null);
   const [geometryCandidates, setGeometryCandidates] = useState([]);
   const [geometryError, setGeometryError] = useState('');
-  const [basemap, setBasemap] = useState('osm');
-
-  // State для переключения вида (grid/list)
-  // Инициализируем из localStorage или по умолчанию 'grid'
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('compositionViewMode') || 'grid');
 
-  // Функция для сохранения выбора пользователя
   const handleSetViewMode = (mode) => {
     setViewMode(mode);
     localStorage.setItem('compositionViewMode', mode);
@@ -784,12 +760,9 @@ const CompositionEditor = () => {
     };
   }, [projectId, isMutating]);
 
-  
-
   const openPlanning = category => {
     let defaultName = TYPE_NAMES[category] || 'Новый объект';
     
-    // Начальные значения блоков
     const initResBlocks = category.includes('multiblock') ? 1 : category.includes('residential') ? 1 : 0;
     const initNonResBlocks = category.includes('multiblock') ? 1 : 0;
 
@@ -798,7 +771,6 @@ const CompositionEditor = () => {
     } else if (category === 'parking_separate') {
       defaultName = 'Отдельно стоящий Паркинг';
     } else if (category.includes('residential')) {
-      // ИЗМЕНЕНИЕ: Формируем имя через хелпер
       defaultName = getResidentialName(initResBlocks, initNonResBlocks);
     }
 
@@ -872,20 +844,14 @@ const CompositionEditor = () => {
       label: modal.baseName,
       houseNumber: modal.houseNumber,
       category: modal.category,
-      constructionType: isParking
-        ? isAbovegroundParking
-          ? modal.parkingConstruction
-          : 'capital'
-        : null,
+      constructionType: isParking ? (isAbovegroundParking ? modal.parkingConstruction : 'capital') : null,
       parkingType: isParking ? modal.parkingType : null,
       infraType: isInfrastructure ? modal.infraType : null,
       hasNonResPart: modal.hasNonResPart,
-      // Пробрасываем эти поля, даже если их нет в базовой схеме buildings,
-      // так как api-service может использовать их для записи в building_blocks или мета-таблицы
       stage: modal.stage,
       dateStart: modal.dateStart,
       dateEnd: modal.dateEnd,
-      basementsCount: Math.min(4, Math.max(0, parseInt(modal.basementsCount, 10) || 0)),
+      basementsCount: Math.min(4, Math.max(0, Number(modal.basementsCount) || 0)), // <-- ИСПРАВЛЕНО НА Number
       geometryCandidateId: modal.geometryCandidateId,
     };
 
@@ -894,10 +860,7 @@ const CompositionEditor = () => {
         id: modal.editingId,
         data: buildingData,
         blocksData: modal.blocksData,
-        actor: {
-          userName: userProfile?.name,
-          userRole: userProfile?.role,
-        },
+        actor: { userName: userProfile?.name, userRole: userProfile?.role },
       });
     } else {
       for (let i = 0; i < modal.quantity; i++) {
@@ -907,10 +870,7 @@ const CompositionEditor = () => {
         await createBuilding({
           buildingData: { ...buildingData, label },
           blocksData: blocks,
-          actor: {
-            userName: userProfile?.name,
-            userRole: userProfile?.role,
-          },
+          actor: { userName: userProfile?.name, userRole: userProfile?.role },
         });
       }
     }
@@ -921,17 +881,13 @@ const CompositionEditor = () => {
     setDeleteTargetId(id);
   };
 
-  // 2. Обработчик подтверждения (выполняет удаление)
   const handleConfirmDelete = async () => {
     if (deleteTargetId) {
       await deleteBuilding({
         id: deleteTargetId,
-        actor: {
-          userName: userProfile?.name,
-          userRole: userProfile?.role,
-        },
+        actor: { userName: userProfile?.name, userRole: userProfile?.role },
       });
-      setDeleteTargetId(null); // Закрываем окно после успеха
+      setDeleteTargetId(null);
     }
   };
 
@@ -956,9 +912,7 @@ const CompositionEditor = () => {
             <button
               onClick={() => handleSetViewMode('list')}
               className={`p-2 rounded-lg transition-all ${
-                viewMode === 'list' 
-                  ? 'bg-white shadow-sm text-blue-600' 
-                  : 'text-slate-400 hover:text-slate-600'
+                viewMode === 'list' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'
               }`}
               title="Списком"
             >
@@ -967,9 +921,7 @@ const CompositionEditor = () => {
             <button
               onClick={() => handleSetViewMode('grid')}
               className={`p-2 rounded-lg transition-all ${
-                viewMode === 'grid' 
-                  ? 'bg-white shadow-sm text-blue-600' 
-                  : 'text-slate-400 hover:text-slate-600'
+                viewMode === 'grid' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'
               }`}
               title="Карточки"
             >
@@ -985,7 +937,6 @@ const CompositionEditor = () => {
 
       {!isReadOnly && (
         <div className="relative overflow-hidden rounded-2xl bg-slate-900 shadow-xl shadow-slate-900/10 mb-8 animate-in slide-in-from-top-4 duration-500">
-          {/* Декоративный фон */}
           <div className="absolute top-0 right-0 p-12 opacity-10">
             <Building2 size={200} className="text-white" />
           </div>
@@ -1003,34 +954,10 @@ const CompositionEditor = () => {
 
             <div className="flex flex-wrap gap-3">
               {[
-                {
-                  id: 'residential',
-                  label: 'Жилой дом',
-                  desc: 'Обычный / МКД',
-                  icon: Home,
-                  style: 'hover:bg-blue-500 hover:border-blue-400 text-white',
-                },
-                {
-                  id: 'residential_multiblock',
-                  label: 'Многосекционный',
-                  desc: 'Жилье + Нежилые',
-                  icon: Layers,
-                  style: 'hover:bg-indigo-500 hover:border-indigo-400 text-white',
-                },
-                {
-                  id: 'parking_separate',
-                  label: 'Паркинг',
-                  desc: 'Отдельное здание',
-                  icon: Car,
-                  style: 'hover:bg-slate-600 hover:border-slate-500 text-white',
-                },
-                {
-                  id: 'infrastructure',
-                  label: 'Инфраструктура',
-                  desc: 'ТП, Котельная и др.',
-                  icon: Box,
-                  style: 'hover:bg-amber-500 hover:border-amber-400 text-white',
-                },
+                { id: 'residential', label: 'Жилой дом', desc: 'Обычный / МКД', icon: Home, style: 'hover:bg-blue-500 hover:border-blue-400 text-white' },
+                { id: 'residential_multiblock', label: 'Многосекционный', desc: 'Жилье + Нежилые', icon: Layers, style: 'hover:bg-indigo-500 hover:border-indigo-400 text-white' },
+                { id: 'parking_separate', label: 'Паркинг', desc: 'Отдельное здание', icon: Car, style: 'hover:bg-slate-600 hover:border-slate-500 text-white' },
+                { id: 'infrastructure', label: 'Инфраструктура', desc: 'ТП, Котельная и др.', icon: Box, style: 'hover:bg-amber-500 hover:border-amber-400 text-white' },
               ].map(btn => (
                 <button
                   key={btn.id}
@@ -1080,10 +1007,10 @@ const CompositionEditor = () => {
                   <div className="col-span-1 text-center">#</div>
                   <div className="col-span-1 text-center">Дом №</div>
                   <div className="col-span-2">Код</div>
-                  <div className="col-span-4">Наименование</div> {/* Увеличили с 3 до 4 */}
+                  <div className="col-span-4">Наименование</div>
                   <div className="col-span-2">Характеристики</div>
                   <div className="col-span-1">Статус</div>
-                  <div className="col-span-1 text-right">Действия</div> {/* Удалили "Ред." */}
+                  <div className="col-span-1 text-right">Действия</div>
                 </div>
 
                 <div className="divide-y divide-slate-100">
@@ -1091,106 +1018,85 @@ const CompositionEditor = () => {
                     const isRes = item.category.includes('residential');
                     let detailsBadge = null;
                     if (item.category === 'parking_separate') {
-                      const pType =
-                        item.parkingType === 'ground' || item.parkingType === 'aboveground'
-                          ? 'Наземный'
-                          : 'Подземный';
-                      const pConstName =
-                        PARKING_CONSTRUCTION_NAMES[item.constructionType] || item.constructionType;
+                      const pType = item.parkingType === 'ground' || item.parkingType === 'aboveground' ? 'Наземный' : 'Подземный';
+                      const pConstName = PARKING_CONSTRUCTION_NAMES[item.constructionType] || item.constructionType;
                       detailsBadge = `${pType} • ${pConstName}`;
                     }
 
                   return (
-                      <div
-                        key={item.id}
-                        className="grid grid-cols-12 items-center py-4 pl-6 pr-4 hover:bg-blue-50/50 transition-colors group even:bg-slate-50/50"
-                      >
-                        <div className="col-span-1 text-xs font-bold text-slate-400 text-center">
-                          {idx + 1}
-                        </div>
+                      <div key={item.id} className="grid grid-cols-12 items-center py-4 pl-6 pr-4 hover:bg-blue-50/50 transition-colors group even:bg-slate-50/50">
+                        <div className="col-span-1 text-xs font-bold text-slate-400 text-center">{idx + 1}</div>
                         <div className="col-span-1 flex justify-center">
-                          <div
-                            className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-sm shadow-sm border ${isRes ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-200 text-amber-700'}`}
-                          >
+                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-sm shadow-sm border ${isRes ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-200 text-amber-700'}`}>
                             {item.houseNumber || '?'}
                           </div>
                         </div>
 
-                        {/* НОВАЯ КОЛОНКА КОД */}
                         <div className="col-span-2 flex items-center">
                           {item.buildingCode && projectUjCode ? (
-                              <FullIdentifierCompact 
-                                fullCode={formatFullIdentifier(projectUjCode, item.buildingCode)}
-                                variant="default" 
-                              />
+                              <FullIdentifierCompact fullCode={formatFullIdentifier(projectUjCode, item.buildingCode)} variant="default" />
                           ) : (
                             <span className="text-slate-300 text-xs px-2">-</span>
                           )}
                         </div>
 
                         <div className="col-span-4 pr-4"> 
-  <div className="flex items-start gap-2">
-    <div className="flex-1">
-      <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">
-        {item.label}
-      </div>
-      <div className="text-[10px] text-slate-400 mt-0.5">
-        {TYPE_NAMES[item.category] || item.category}
-      </div>
-    </div>
-  </div>
-</div>
+                          <div className="flex items-start gap-2">
+                            <div className="flex-1">
+                              <div className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">{item.label}</div>
+                              <div className="text-[10px] text-slate-400 mt-0.5">{TYPE_NAMES[item.category] || item.category}</div>
+                            </div>
+                          </div>
+                        </div>
 
-<div className="col-span-2 pr-4 flex flex-col justify-center gap-1.5">
-  <div className="flex flex-wrap gap-1">
-    {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
-      <span className="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-[10px] font-bold text-slate-600">
-        {item.resBlocks} жил. / {item.nonResBlocks} нежил.
-      </span>
-    )}
-    {item.hasNonResPart && (
-      <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">
-        +Нежилые объекты на жилых этажах
-      </span>
-    )}
-    {item.category === 'infrastructure' && (
-      <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold">
-        {item.infraType}
-      </span>
-    )}
-    {detailsBadge && (
-      <span className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold">
-        {detailsBadge}
-      </span>
-    )}
-  </div>
-</div>
-<div className="col-span-1 pr-4">
-  <span
-    className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}
-  >
-    {item.stage || 'Проект'}
-  </span>
-</div>
+                        <div className="col-span-2 pr-4 flex flex-col justify-center gap-1.5">
+                          <div className="flex flex-wrap gap-1">
+                            {(item.resBlocks > 0 || item.nonResBlocks > 0) && (
+                              <span className="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-[10px] font-bold text-slate-600">
+                                {item.resBlocks} жил. / {item.nonResBlocks} нежил.
+                              </span>
+                            )}
+                            {item.hasNonResPart && (
+                              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">
+                                +Нежилые
+                              </span>
+                            )}
+                            {item.category === 'infrastructure' && (
+                              <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold">
+                                {item.infraType}
+                              </span>
+                            )}
+                            {detailsBadge && (
+                              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold">
+                                {detailsBadge}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="col-span-1 pr-4">
+                          <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase border ${getStageColor(item.stage)}`}>
+                            {item.stage || 'Проект'}
+                          </span>
+                        </div>
 
-<div className="col-span-1 flex justify-end gap-1">
-  <button
-    onClick={() => openEditing(item)}
-    title="Открыть"
-    className="w-8 h-8 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm flex items-center justify-center hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all"
-  >
-    <ArrowRight size={14} />
-  </button>
-  {!isReadOnly && (
-    <button
-      onClick={() => handleDeleteClick(item.id)}
-      title="Удалить"
-      className="w-8 h-8 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm flex items-center justify-center hover:bg-red-600 hover:text-white hover:border-red-600 transition-all"
-    >
-      <Trash2 size={14} />
-    </button>
-  )}
-</div>
+                        <div className="col-span-1 flex justify-end gap-1">
+                          <button
+                            onClick={() => openEditing(item)}
+                            title="Открыть"
+                            className="w-8 h-8 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm flex items-center justify-center hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all"
+                          >
+                            <ArrowRight size={14} />
+                          </button>
+                          {!isReadOnly && (
+                            <button
+                              onClick={() => handleDeleteClick(item.id)}
+                              title="Удалить"
+                              className="w-8 h-8 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm flex items-center justify-center hover:bg-red-600 hover:text-white hover:border-red-600 transition-all"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -1225,11 +1131,7 @@ const CompositionEditor = () => {
           infraTypeOptions={infraTypeOptions}
           projectStageOptions={projectStageOptions}
           geometryCandidates={geometryCandidates}
-          selectedGeometryCandidateId={modal.geometryCandidateId}
-          onSelectGeometryCandidate={candidateId => setModal(m => ({ ...m, geometryCandidateId: candidateId }))}
           geometryError={geometryError}
-          basemap={basemap}
-          onBasemapChange={setBasemap}
         />
       )}
       <DeleteConfirmationModal 
