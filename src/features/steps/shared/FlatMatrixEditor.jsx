@@ -174,6 +174,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
   const [confirmDuplexFloor, setConfirmDuplexFloor] = useState(null); 
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false); 
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [startNum, setStartNum] = useState(1);
   
   // Автогенерация удалена
@@ -320,10 +321,32 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     }
   };
 
+
+  const requestReconcilePreview = async () => {
+    if (!currentBlock?.id) return null;
+    setIsPreviewLoading(true);
+    try {
+      return await ApiService.previewReconcileByBlock(currentBlock.id);
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
   const handleSaveStep = async () => {
       setIsSaving(true);
       try {
         await saveProjectImmediate({ shouldRefetch: false });
+
+        const preview = await requestReconcilePreview();
+        const previewUnits = preview?.units?.toRemove || 0;
+        if (previewUnits > 0) {
+          const confirmed = confirm(`Будут удалены лишние помещения по плану: ${previewUnits}. Продолжить?`);
+          if (!confirmed) {
+            setIsSaving(false);
+            return;
+          }
+        }
+
         const reconcile = await ApiService.reconcileUnitsForBlock(currentBlock.id, actor);
         await saveStepBuildingStatuses({ stepId: 'apartments', buildingId: building.id });
         setHasUnsavedChanges(false);
@@ -376,8 +399,8 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         onBack={onBack}
         showSaveButton={true}
         onSave={handleSaveStep}
-        saveDisabled={isReadOnly || isGenerating || isSaving}
-        saveLabel={isSaving ? 'Сохранение...' : 'Сохранить и выйти'}
+        saveDisabled={isReadOnly || isGenerating || isSaving || isPreviewLoading}
+        saveLabel={isPreviewLoading ? 'Проверяем...' : isSaving ? 'Сохранение...' : 'Сохранить и выйти'}
       />
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 shrink-0">

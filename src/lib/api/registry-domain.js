@@ -115,6 +115,18 @@ export const createRegistryDomainApi = ({
     });
   },
 
+
+  updateFloorsBatch: async (items, actor = {}) => {
+    requireBffEnabled('composition.updateFloorsBatch');
+
+    const resolvedActor = resolveActor(actor);
+    return BffClient.updateFloorsBatch({
+      items: Array.isArray(items) ? items : [],
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
+  },
+
   generateFloors: async (blockId, floorsFrom, floorsTo, defaultType = 'residential', actor = {}) => {
     requireBffEnabled('composition.generateFloors');
 
@@ -160,6 +172,18 @@ export const createRegistryDomainApi = ({
       floorId,
       entranceNumber,
       values,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+    });
+  },
+
+  batchUpsertMatrixCells: async (blockId, cells, actor = {}) => {
+    requireBffEnabled('matrix.batchUpsertMatrixCells');
+
+    const resolvedActor = resolveActor(actor);
+    return BffClient.batchUpsertMatrixCells({
+      blockId,
+      cells: Array.isArray(cells) ? cells : [],
       userName: resolvedActor.userName,
       userRole: resolvedActor.userRole,
     });
@@ -300,6 +324,11 @@ export const createRegistryDomainApi = ({
       userRole: resolvedActor.userRole,
       idempotencyKey: createIdempotencyKey('reconcile-mops', [blockId]),
     });
+  },
+
+  previewReconcileByBlock: async blockId => {
+    requireBffEnabled('reconcile.previewByBlock');
+    return BffClient.previewReconcileByBlock({ blockId });
   },
 
   getBasements: async projectId => {

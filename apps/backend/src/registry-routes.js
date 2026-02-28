@@ -29,6 +29,60 @@ async function fetchAllPaged(queryFactory, pageSize = 1000) {
   return { data: rows, error: null };
 }
 
+
+
+function parseNonNegativeIntOrNull(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num) || !Number.isInteger(num) || num < 0) return null;
+  return num;
+}
+
+function validateMatrixValues(values = {}) {
+  const payload = {};
+  const hasApts = Object.prototype.hasOwnProperty.call(values, 'apts');
+  const hasUnits = Object.prototype.hasOwnProperty.call(values, 'units');
+  const hasMops = Object.prototype.hasOwnProperty.call(values, 'mopQty');
+  if (!hasApts && !hasUnits && !hasMops) {
+    return { error: 'values must include at least one field: apts, units, mopQty' };
+  }
+
+  const MAX_ALLOWED = 500;
+  if (hasApts) {
+    const parsed = parseNonNegativeIntOrNull(values.apts);
+    if (parsed === null && values.apts !== '' && values.apts !== null && values.apts !== undefined) return { error: 'apts must be a non-negative integer or empty' };
+    if (parsed !== null && parsed > MAX_ALLOWED) return { error: `apts must be <= ${MAX_ALLOWED}` };
+    payload.flats_count = parsed;
+  }
+  if (hasUnits) {
+    const parsed = parseNonNegativeIntOrNull(values.units);
+    if (parsed === null && values.units !== '' && values.units !== null && values.units !== undefined) return { error: 'units must be a non-negative integer or empty' };
+    if (parsed !== null && parsed > MAX_ALLOWED) return { error: `units must be <= ${MAX_ALLOWED}` };
+    payload.commercial_count = parsed;
+  }
+  if (hasMops) {
+    const parsed = parseNonNegativeIntOrNull(values.mopQty);
+    if (parsed === null && values.mopQty !== '' && values.mopQty !== null && values.mopQty !== undefined) return { error: 'mopQty must be a non-negative integer or empty' };
+    if (parsed !== null && parsed > MAX_ALLOWED) return { error: `mopQty must be <= ${MAX_ALLOWED}` };
+    payload.mop_count = parsed;
+  }
+
+  return { payload };
+}
+
+function mapFloorUpdatesToPayload(updates = {}) {
+  const payload = {};
+  if (updates.height !== undefined) payload.height = updates.height;
+  if (updates.areaProj !== undefined) payload.area_proj = updates.areaProj;
+  if (updates.areaFact !== undefined) payload.area_fact = updates.areaFact;
+  if (updates.isDuplex !== undefined) payload.is_duplex = updates.isDuplex;
+  if (updates.label !== undefined) payload.label = updates.label;
+  if (updates.type !== undefined) payload.floor_type = updates.type;
+  if (updates.isTechnical !== undefined) payload.is_technical = updates.isTechnical;
+  if (updates.isCommercial !== undefined) payload.is_commercial = updates.isCommercial;
+  return payload;
+}
+
 async function ensureEntranceMatrixForBlock(supabase, blockId) {
   const [{ data: floors = [], error: floorsError }, { data: entrances = [], error: entrancesError }] =
     await Promise.all([
@@ -878,20 +932,47 @@ export function registerRegistryRoutes(app, { supabase }) {
 
     const { floorId } = req.params;
     const updates = req.body?.updates || {};
-    const payload = {};
-
-    if (updates.height !== undefined) payload.height = updates.height;
-    if (updates.areaProj !== undefined) payload.area_proj = updates.areaProj;
-    if (updates.areaFact !== undefined) payload.area_fact = updates.areaFact;
-    if (updates.isDuplex !== undefined) payload.is_duplex = updates.isDuplex;
-    if (updates.label !== undefined) payload.label = updates.label;
-    if (updates.type !== undefined) payload.floor_type = updates.type;
-    if (updates.isTechnical !== undefined) payload.is_technical = updates.isTechnical;
-    if (updates.isCommercial !== undefined) payload.is_commercial = updates.isCommercial;
+    const payload = mapFloorUpdatesToPayload(updates);
 
     const { data, error } = await supabase.from('floors').update(payload).eq('id', floorId).select('*').single();
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     return reply.send(data);
+  });
+
+
+
+  app.put('/api/v1/floors/batch', async (req, reply) => {
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
+    });
+    if (!actor) return;
+
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (items.length === 0) return reply.send({ ok: true, updated: 0, failed: [] });
+
+    const failed = [];
+    const payload = [];
+
+    items.forEach((item, index) => {
+      const floorId = item?.id;
+      if (!floorId) {
+        failed.push({ index, reason: 'id is required' });
+        return;
+      }
+      const updates = mapFloorUpdatesToPayload(item?.updates || {});
+      if (Object.keys(updates).length === 0) {
+        failed.push({ index, id: floorId, reason: 'updates are required' });
+        return;
+      }
+      payload.push({ id: floorId, ...updates });
+    });
+
+    if (payload.length > 0) {
+      const { error } = await supabase.from('floors').upsert(payload, { onConflict: 'id' });
+      if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+    }
+
+    return reply.send({ ok: true, updated: payload.length, failed });
   });
 
   app.post('/api/v1/blocks/:blockId/floors/reconcile', async (req, reply) => {
@@ -1029,15 +1110,18 @@ export function registerRegistryRoutes(app, { supabase }) {
       return sendError(reply, 400, 'VALIDATION_ERROR', 'floorId and entranceNumber are required');
     }
 
+    const validated = validateMatrixValues(values);
+    if (validated.error) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', validated.error);
+    }
+
     const payload = {
       block_id: blockId,
       floor_id: floorId,
       entrance_number: entranceNumber,
       updated_at: new Date().toISOString(),
+      ...validated.payload,
     };
-    if (values.apts !== undefined) payload.flats_count = values.apts;
-    if (values.units !== undefined) payload.commercial_count = values.units;
-    if (values.mopQty !== undefined) payload.mop_count = values.mopQty;
 
     const { data, error } = await supabase
       .from('entrance_matrix')
@@ -1047,5 +1131,126 @@ export function registerRegistryRoutes(app, { supabase }) {
 
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     return reply.send(data);
+  });
+
+  app.put('/api/v1/blocks/:blockId/entrance-matrix/batch', async (req, reply) => {
+    const actor = requirePolicyActor(req, reply, {
+      module: 'registry', action: 'mutate', forbiddenMessage: 'Role cannot modify registry data',
+    });
+    if (!actor) return;
+
+    const { blockId } = req.params;
+    const cells = Array.isArray(req.body?.cells) ? req.body.cells : [];
+    if (cells.length === 0) return reply.send({ ok: true, updated: 0, failed: [] });
+
+    const payload = [];
+    const failed = [];
+
+    cells.forEach((cell, index) => {
+      const floorId = cell?.floorId;
+      const entranceNumber = Number(cell?.entranceNumber);
+      if (!floorId || !Number.isFinite(entranceNumber)) {
+        failed.push({ index, reason: 'floorId and entranceNumber are required' });
+        return;
+      }
+      const validated = validateMatrixValues(cell?.values || {});
+      if (validated.error) {
+        failed.push({ index, floorId, entranceNumber, reason: validated.error });
+        return;
+      }
+      payload.push({
+        block_id: blockId,
+        floor_id: floorId,
+        entrance_number: entranceNumber,
+        updated_at: new Date().toISOString(),
+        ...validated.payload,
+      });
+    });
+
+    if (payload.length > 0) {
+      const { error } = await supabase
+        .from('entrance_matrix')
+        .upsert(payload, { onConflict: 'block_id,floor_id,entrance_number' });
+      if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+    }
+
+    return reply.send({ ok: true, updated: payload.length, failed });
+  });
+
+  app.post('/api/v1/blocks/:blockId/reconcile/preview', async (req, reply) => {
+    const { blockId } = req.params;
+
+    const { data: floors, error: floorsErr } = await supabase.from('floors').select('id').eq('block_id', blockId);
+    if (floorsErr) return sendError(reply, 500, 'DB_ERROR', floorsErr.message);
+
+    const floorIds = (floors || []).map(f => f.id);
+    if (floorIds.length === 0) {
+      return reply.send({ units: { toRemove: 0, checkedCells: 0 }, commonAreas: { toRemove: 0, checkedCells: 0 } });
+    }
+
+    const { data: entrances, error: entErr } = await supabase.from('entrances').select('id, number').eq('block_id', blockId);
+    if (entErr) return sendError(reply, 500, 'DB_ERROR', entErr.message);
+    const entranceByNumber = new Map((entrances || []).map(e => [Number(e.number), e.id]));
+
+    const { data: matrixRows, error: matrixErr } = await supabase
+      .from('entrance_matrix').select('floor_id, entrance_number, flats_count, commercial_count, mop_count').eq('block_id', blockId);
+    if (matrixErr) return sendError(reply, 500, 'DB_ERROR', matrixErr.message);
+
+    const desiredUnitsMap = new Map();
+    const desiredMopsMap = new Map();
+    (matrixRows || []).forEach(row => {
+      const entranceId = entranceByNumber.get(Number(row.entrance_number));
+      if (!entranceId) return;
+      const key = `${row.floor_id}_${entranceId}`;
+      desiredUnitsMap.set(key, {
+        flats: Math.max(0, parseInt(row.flats_count || 0, 10) || 0),
+        commercial: Math.max(0, parseInt(row.commercial_count || 0, 10) || 0),
+      });
+      desiredMopsMap.set(key, Math.max(0, parseInt(row.mop_count || 0, 10) || 0));
+    });
+
+    const { data: units, error: unitsErr } = await supabase
+      .from('units').select('id, floor_id, entrance_id, unit_type, created_at').in('floor_id', floorIds);
+    if (unitsErr) return sendError(reply, 500, 'DB_ERROR', unitsErr.message);
+
+    const { data: areas, error: areasErr } = await supabase
+      .from('common_areas').select('id, floor_id, entrance_id, created_at').in('floor_id', floorIds);
+    if (areasErr) return sendError(reply, 500, 'DB_ERROR', areasErr.message);
+
+    const isFlatType = type => ['flat', 'duplex_up', 'duplex_down'].includes(type);
+    const isCommercialType = type => ['office', 'office_inventory', 'non_res_block', 'infrastructure'].includes(type);
+
+    const groupedUnits = new Map();
+    (units || []).forEach(u => {
+      const key = `${u.floor_id}_${u.entrance_id}`;
+      if (!groupedUnits.has(key)) groupedUnits.set(key, { flats: [], commercial: [] });
+      if (isFlatType(u.unit_type)) groupedUnits.get(key).flats.push(u);
+      else if (isCommercialType(u.unit_type)) groupedUnits.get(key).commercial.push(u);
+    });
+
+    let unitsToRemove = 0;
+    groupedUnits.forEach((bucket, key) => {
+      const desired = desiredUnitsMap.get(key) || { flats: 0, commercial: 0 };
+      unitsToRemove += Math.max(0, bucket.flats.length - desired.flats);
+      unitsToRemove += Math.max(0, bucket.commercial.length - desired.commercial);
+    });
+
+    const groupedAreas = new Map();
+    (areas || []).forEach(a => {
+      const key = `${a.floor_id}_${a.entrance_id}`;
+      if (!groupedAreas.has(key)) groupedAreas.set(key, []);
+      groupedAreas.get(key).push(a);
+    });
+
+    let mopsToRemove = 0;
+    groupedAreas.forEach((list, key) => {
+      const desired = desiredMopsMap.get(key) || 0;
+      mopsToRemove += Math.max(0, list.length - desired);
+    });
+
+    return reply.send({
+      units: { toRemove: unitsToRemove, checkedCells: groupedUnits.size },
+      commonAreas: { toRemove: mopsToRemove, checkedCells: groupedAreas.size },
+    });
   });
 }

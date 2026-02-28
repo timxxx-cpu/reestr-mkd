@@ -139,7 +139,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
   }, [activeTarget]);
 
   // 4. Этажи из БД
-  const { floors, isLoading, updateFloor, isMutating } = useDirectFloors(currentBlock?.id);
+  const { floors, isLoading, updateFloor, updateFloors, isMutating } = useDirectFloors(currentBlock?.id);
 
   const scopedFloors = useMemo(() => {
     if (!activeTarget) return [];
@@ -220,11 +220,11 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
       areaFact: sourceFloor.areaFact,
     };
 
-    const promises = [];
+    const payload = [];
     for (let i = idx + 1; i < visibleFloors.length; i++) {
-      promises.push(updateFloor({ id: visibleFloors[i].id, updates }));
+      payload.push({ id: visibleFloors[i].id, updates });
     }
-    await Promise.all(promises);
+    if (payload.length > 0) await updateFloors(payload);
     setOpenMenuId(null);
   };
 
@@ -239,11 +239,11 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     if (isReadOnly) return;
     setHasUnsavedChanges(true);
     const val = visibleFloors[idx][field];
-    const promises = [];
+    const payload = [];
     for (let i = idx + 1; i < visibleFloors.length; i++) {
-      promises.push(updateFloor({ id: visibleFloors[i].id, updates: { [field]: val } }));
+      payload.push({ id: visibleFloors[i].id, updates: { [field]: val } });
     }
-    await Promise.all(promises);
+    if (payload.length > 0) await updateFloors(payload);
   };
 
   const handleKeyDown = (e, rowIndex, colKey) => {
@@ -283,11 +283,11 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
   const applyBulk = async field => {
     if (isReadOnly || !bulkValue) return;
     setHasUnsavedChanges(true);
-    const promises = [];
+    const payload = [];
     selectedRows.forEach(id => {
-      promises.push(updateFloor({ id, updates: { [field]: bulkValue } }));
+      payload.push({ id, updates: { [field]: bulkValue } });
     });
-    await Promise.all(promises);
+    if (payload.length > 0) await updateFloors(payload);
   };
 
   const autoFill = async () => {
@@ -295,7 +295,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     if (!confirm('Заполнить пустые значения типовыми данными?')) return;
     setHasUnsavedChanges(true);
 
-    const promises = [];
+    const payload = [];
     visibleFloors.forEach(f => {
       const isEmpty = !f.areaProj || parseFloat(f.areaProj) === 0;
       if (isEmpty) {
@@ -322,15 +322,13 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
           s_proj = '400.00';
         }
 
-        promises.push(
-          updateFloor({
-            id: f.id,
-            updates: { height: h, areaProj: s_proj, areaFact: s_proj },
-          })
-        );
+        payload.push({
+          id: f.id,
+          updates: { height: h, areaProj: s_proj, areaFact: s_proj },
+        });
       }
     });
-    await Promise.all(promises);
+    if (payload.length > 0) await updateFloors(payload);
   };
 
   // --- SAVE LOGIC START ---
