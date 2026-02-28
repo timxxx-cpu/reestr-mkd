@@ -252,10 +252,34 @@ export const createRegistryDomainApi = ({
     requireBffEnabled('units.upsertUnit');
 
     const resolvedActor = resolveActor(actor);
+    const normalizedUnitData = {
+      ...unitData,
+      number: unitData?.number ?? unitData?.num,
+      num: unitData?.num ?? unitData?.number,
+    };
+
     return BffClient.upsertUnit({
-      unitData,
+      unitData: normalizedUnitData,
       userName: resolvedActor.userName,
       userRole: resolvedActor.userRole,
+    });
+  },
+
+  batchUpsertUnits: async (list, actor = {}) => {
+    requireBffEnabled('units.batchUpsertUnits');
+
+    const resolvedActor = resolveActor(actor);
+    const normalizedUnits = (Array.isArray(list) ? list : []).map(unit => ({
+      ...unit,
+      number: unit?.number ?? unit?.num,
+      num: unit?.num ?? unit?.number,
+    }));
+
+    return BffClient.batchUpsertUnits({
+      unitsList: normalizedUnits,
+      userName: resolvedActor.userName,
+      userRole: resolvedActor.userRole,
+      idempotencyKey: createIdempotencyKey('batch-upsert-units', [normalizedUnits.length]),
     });
   },
 

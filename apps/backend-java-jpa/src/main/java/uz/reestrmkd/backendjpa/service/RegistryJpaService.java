@@ -302,7 +302,7 @@ public class RegistryJpaService {
         params.put("floorId", body.get("floorId"));
         params.put("entranceId", body.get("entranceId"));
         params.put("unitCode", body.get("unitCode"));
-        params.put("number", body.get("number"));
+        params.put("number", body.getOrDefault("number", body.get("num")));
         params.put("type", body.get("type"));
         params.put("area", body.get("area"));
         params.put("livingArea", body.get("livingArea"));
