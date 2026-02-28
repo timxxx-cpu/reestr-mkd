@@ -1,12 +1,16 @@
 package uz.reestrmkd.backend.application;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uz.reestrmkd.backend.common.ApiException;
 
 import java.util.*;
 
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @Service
@@ -36,25 +40,39 @@ public class CompositionService {
 
     @Transactional
     public Map<String, Object> createBuilding(String projectId, Map<String, Object> body) {
+        Map<String, Object> buildingData = unwrapBuildingData(body);
+        String geometryCandidateId = requireGeometryCandidateId(buildingData);
         String id = body.get("id") == null ? UUID.randomUUID().toString() : String.valueOf(body.get("id"));
         jdbc.update(
             "insert into buildings(id, project_id, building_code, label, house_number, category, stage, date_start, date_end, construction_type, parking_type, infra_type, has_non_res_part, cadastre_number, updated_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,now())",
             id, projectId,
-            body.get("buildingCode"), body.get("label"), body.get("houseNumber"), body.get("category"),
-            body.get("stage"), body.get("dateStart"), body.get("dateEnd"), body.get("constructionType"),
-            body.get("parkingType"), body.get("infraType"), body.get("hasNonResPart"), body.get("cadastreNumber")
+            buildingData.get("buildingCode"), buildingData.get("label"), buildingData.get("houseNumber"), buildingData.get("category"),
+            buildingData.get("stage"), buildingData.get("dateStart"), buildingData.get("dateEnd"), buildingData.get("constructionType"),
+            buildingData.get("parkingType"), buildingData.get("infraType"), buildingData.get("hasNonResPart"), buildingData.get("cadastreNumber")
         );
+
+        assignBuildingGeometry(projectId, id, geometryCandidateId);
         return Map.of("ok", true, "id", id);
     }
 
     @Transactional
     public Map<String, Object> updateBuilding(String buildingId, Map<String, Object> body) {
+        Map<String, Object> buildingData = unwrapBuildingData(body);
+        String geometryCandidateId = requireGeometryCandidateId(buildingData);
         int updated = jdbc.update(
             "update buildings set label=?, house_number=?, category=?, stage=?, date_start=?, date_end=?, construction_type=?, parking_type=?, infra_type=?, has_non_res_part=?, cadastre_number=?, updated_at=now() where id=?",
-            body.get("label"), body.get("houseNumber"), body.get("category"), body.get("stage"), body.get("dateStart"), body.get("dateEnd"),
-            body.get("constructionType"), body.get("parkingType"), body.get("infraType"), body.get("hasNonResPart"), body.get("cadastreNumber"), buildingId
+            buildingData.get("label"), buildingData.get("houseNumber"), buildingData.get("category"), buildingData.get("stage"), buildingData.get("dateStart"), buildingData.get("dateEnd"),
+            buildingData.get("constructionType"), buildingData.get("parkingType"), buildingData.get("infraType"), buildingData.get("hasNonResPart"), buildingData.get("cadastreNumber"), buildingId
         );
         if (updated == 0) throw new ApiException(NOT_FOUND, "NOT_FOUND", "Building not found");
+
+        String projectId;
+        try {
+            projectId = jdbc.queryForObject("select project_id from buildings where id = ?", String.class, buildingId);
+        } catch (EmptyResultDataAccessException ex) {
+            throw new ApiException(NOT_FOUND, "NOT_FOUND", "Building not found");
+        }
+        assignBuildingGeometry(projectId, buildingId, geometryCandidateId);
         return Map.of("ok", true);
     }
 
@@ -79,5 +97,37 @@ public class CompositionService {
             body.get("cadastreNumber"), unitId);
         if (updated == 0) throw new ApiException(NOT_FOUND, "NOT_FOUND", "Unit not found");
         return Map.of("ok", true);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> unwrapBuildingData(Map<String, Object> body) {
+        if (body == null) return Map.of();
+        Object nested = body.get("buildingData");
+        if (nested instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return body;
+    }
+
+    private String requireGeometryCandidateId(Map<String, Object> buildingData) {
+        Object raw = buildingData.get("geometryCandidateId");
+        if (raw == null || String.valueOf(raw).isBlank()) {
+            throw new ApiException(BAD_REQUEST, "VALIDATION_ERROR", "Geometry candidate is required for building creation");
+        }
+        return String.valueOf(raw);
+    }
+
+    private void assignBuildingGeometry(String projectId, String buildingId, String candidateId) {
+        try {
+            jdbc.queryForMap(
+                "select * from assign_building_geometry_from_candidate(cast(? as uuid), cast(? as uuid), cast(? as uuid))",
+                projectId, buildingId, candidateId
+            );
+        } catch (DataAccessException ex) {
+            String message = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+            throw new ApiException(BAD_REQUEST, "GEOMETRY_VALIDATION_ERROR", message == null ? "Geometry validation failed" : message);
+        } catch (RuntimeException ex) {
+            throw new ApiException(INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", ex.getMessage());
+        }
     }
 }

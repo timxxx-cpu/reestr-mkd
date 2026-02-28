@@ -192,7 +192,7 @@ export function registerCompositionRoutes(app, { supabase }) {
     const normalizedFields = sanitizeBuildingCategoryFields(buildingData);
     const geometryCandidateId = buildingData.geometryCandidateId || null;
 
-    if (!geometryCandidateId) return sendError(reply, 400, 'VALIDATION_ERROR', 'Geometry candidate is required for building creation');
+    if (!geometryCandidateId) return sendError(reply, 400, 'VALIDATION_ERROR', 'Geometry candidate is required for building save');
 
     const { data: projectRow, error: projectError } = await supabase
       .from('projects')
@@ -243,7 +243,10 @@ export function registerCompositionRoutes(app, { supabase }) {
       p_building_id: insertedBuilding.id,
       p_candidate_id: geometryCandidateId,
     });
-    if (assignGeomError) return sendError(reply, 400, 'GEOMETRY_VALIDATION_ERROR', assignGeomError.message);
+    if (assignGeomError) {
+      await supabase.from('buildings').delete().eq('id', insertedBuilding.id);
+      return sendError(reply, 400, 'GEOMETRY_VALIDATION_ERROR', assignGeomError.message);
+    }
 
     if (blocksData.length > 0) {
       const blocksPayload = blocksData.map(b => ({
@@ -256,7 +259,10 @@ export function registerCompositionRoutes(app, { supabase }) {
         floors_to: b.floorsCount || 1,
       }));
       const { error: blocksError } = await supabase.from('building_blocks').insert(blocksPayload);
-      if (blocksError) return sendError(reply, 500, 'DB_ERROR', blocksError.message);
+      if (blocksError) {
+        await supabase.from('buildings').delete().eq('id', insertedBuilding.id);
+        return sendError(reply, 500, 'DB_ERROR', blocksError.message);
+      }
     }
 
     const basementCount = canHaveBasements(buildingData) ? resolveBasementCount(buildingData) : 0;
@@ -276,7 +282,10 @@ export function registerCompositionRoutes(app, { supabase }) {
         entrances_count: 1,
       }));
       const { error: basementCreateError } = await supabase.from('building_blocks').insert(basementRows);
-      if (basementCreateError) return sendError(reply, 500, 'DB_ERROR', basementCreateError.message);
+      if (basementCreateError) {
+        await supabase.from('buildings').delete().eq('id', insertedBuilding.id);
+        return sendError(reply, 500, 'DB_ERROR', basementCreateError.message);
+      }
     }
 
     return reply.send(insertedBuilding);
@@ -296,7 +305,7 @@ export function registerCompositionRoutes(app, { supabase }) {
     const normalizedFields = sanitizeBuildingCategoryFields(buildingData);
     const geometryCandidateId = buildingData.geometryCandidateId || null;
 
-    if (!geometryCandidateId) return sendError(reply, 400, 'VALIDATION_ERROR', 'Geometry candidate is required for building creation');
+    if (!geometryCandidateId) return sendError(reply, 400, 'VALIDATION_ERROR', 'Geometry candidate is required for building save');
 
     const { data, error } = await supabase
       .from('buildings')

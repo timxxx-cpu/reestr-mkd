@@ -40,22 +40,24 @@ public class CompositionJpaService {
 
     @Transactional
     public Map<String, Object> createBuilding(String projectId, Map<String, Object> body) {
+        Map<String, Object> buildingData = unwrapBuildingData(body);
+        String geometryCandidateId = requireGeometryCandidateId(buildingData);
         String id = stringValOr(body.get("id"), UUID.randomUUID().toString());
         Map<String, Object> params = new HashMap<>();
         params.put("id", id);
         params.put("projectId", projectId);
-        params.put("buildingCode", body.get("buildingCode"));
-        params.put("label", body.get("label"));
-        params.put("houseNumber", body.get("houseNumber"));
-        params.put("category", body.get("category"));
-        params.put("stage", body.get("stage"));
-        params.put("dateStart", body.get("dateStart"));
-        params.put("dateEnd", body.get("dateEnd"));
-        params.put("constructionType", body.get("constructionType"));
-        params.put("parkingType", body.get("parkingType"));
-        params.put("infraType", body.get("infraType"));
-        params.put("hasNonResPart", body.get("hasNonResPart"));
-        params.put("cadastreNumber", body.get("cadastreNumber"));
+        params.put("buildingCode", buildingData.get("buildingCode"));
+        params.put("label", buildingData.get("label"));
+        params.put("houseNumber", buildingData.get("houseNumber"));
+        params.put("category", buildingData.get("category"));
+        params.put("stage", buildingData.get("stage"));
+        params.put("dateStart", buildingData.get("dateStart"));
+        params.put("dateEnd", buildingData.get("dateEnd"));
+        params.put("constructionType", buildingData.get("constructionType"));
+        params.put("parkingType", buildingData.get("parkingType"));
+        params.put("infraType", buildingData.get("infraType"));
+        params.put("hasNonResPart", buildingData.get("hasNonResPart"));
+        params.put("cadastreNumber", buildingData.get("cadastreNumber"));
 
         execute("""
             insert into buildings(id, project_id, building_code, label, house_number, category, stage, date_start, date_end,
@@ -63,23 +65,27 @@ public class CompositionJpaService {
             values (:id,:projectId,:buildingCode,:label,:houseNumber,:category,:stage,:dateStart,:dateEnd,
                     :constructionType,:parkingType,:infraType,:hasNonResPart,:cadastreNumber,now())
             """, params);
+
+        assignBuildingGeometry(projectId, id, geometryCandidateId);
         return Map.of("ok", true, "id", id);
     }
 
     @Transactional
     public Map<String, Object> updateBuilding(String buildingId, Map<String, Object> body) {
+        Map<String, Object> buildingData = unwrapBuildingData(body);
+        String geometryCandidateId = requireGeometryCandidateId(buildingData);
         Map<String, Object> params = new HashMap<>();
-        params.put("label", body.get("label"));
-        params.put("houseNumber", body.get("houseNumber"));
-        params.put("category", body.get("category"));
-        params.put("stage", body.get("stage"));
-        params.put("dateStart", body.get("dateStart"));
-        params.put("dateEnd", body.get("dateEnd"));
-        params.put("constructionType", body.get("constructionType"));
-        params.put("parkingType", body.get("parkingType"));
-        params.put("infraType", body.get("infraType"));
-        params.put("hasNonResPart", body.get("hasNonResPart"));
-        params.put("cadastreNumber", body.get("cadastreNumber"));
+        params.put("label", buildingData.get("label"));
+        params.put("houseNumber", buildingData.get("houseNumber"));
+        params.put("category", buildingData.get("category"));
+        params.put("stage", buildingData.get("stage"));
+        params.put("dateStart", buildingData.get("dateStart"));
+        params.put("dateEnd", buildingData.get("dateEnd"));
+        params.put("constructionType", buildingData.get("constructionType"));
+        params.put("parkingType", buildingData.get("parkingType"));
+        params.put("infraType", buildingData.get("infraType"));
+        params.put("hasNonResPart", buildingData.get("hasNonResPart"));
+        params.put("cadastreNumber", buildingData.get("cadastreNumber"));
         params.put("buildingId", buildingId);
 
         int updated = execute("""
@@ -89,6 +95,10 @@ public class CompositionJpaService {
             where id=:buildingId
             """, params);
         if (updated == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Building not found");
+
+        String projectId = stringVal(queryScalar("select project_id from buildings where id = :id", Map.of("id", buildingId)));
+        if (projectId == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Building not found");
+        assignBuildingGeometry(projectId, buildingId, geometryCandidateId);
         return Map.of("ok", true);
     }
 
@@ -131,6 +141,14 @@ public class CompositionJpaService {
         return query.executeUpdate();
     }
 
+    private Object queryScalar(String sql, Map<String, Object> params) {
+        Query query = em.createNativeQuery(sql);
+        params.forEach(query::setParameter);
+        @SuppressWarnings("unchecked")
+        List<Object> rows = query.getResultList();
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
     private Map<String, Object> tupleToMap(Tuple tuple) {
         Map<String, Object> row = new LinkedHashMap<>();
         tuple.getElements().forEach(e -> row.put(e.getAlias(), tuple.get(e)));
@@ -141,5 +159,41 @@ public class CompositionJpaService {
         if (value == null) return fallback;
         String v = String.valueOf(value);
         return v.isBlank() ? fallback : v;
+    }
+
+    private String stringVal(Object value) {
+        if (value == null) return null;
+        String v = String.valueOf(value);
+        return v.isBlank() ? null : v;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> unwrapBuildingData(Map<String, Object> body) {
+        if (body == null) return Map.of();
+        Object nested = body.get("buildingData");
+        if (nested instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return body;
+    }
+
+    private String requireGeometryCandidateId(Map<String, Object> buildingData) {
+        String candidateId = stringVal(buildingData.get("geometryCandidateId"));
+        if (candidateId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Geometry candidate is required for building creation");
+        }
+        return candidateId;
+    }
+
+    private void assignBuildingGeometry(String projectId, String buildingId, String candidateId) {
+        try {
+            queryScalar(
+                "select out_building_id from assign_building_geometry_from_candidate(cast(:projectId as uuid), cast(:buildingId as uuid), cast(:candidateId as uuid))",
+                Map.of("projectId", projectId, "buildingId", buildingId, "candidateId", candidateId)
+            );
+        } catch (RuntimeException ex) {
+            String message = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message == null ? "Geometry validation failed" : message);
+        }
     }
 }
