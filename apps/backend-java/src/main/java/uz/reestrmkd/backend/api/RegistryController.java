@@ -79,14 +79,14 @@ public class RegistryController {
     @PostMapping("/units/batch-upsert")
     public Map<String, Object> batchUpsertUnit(@RequestBody Map<String, Object> body) {
         policy.require("registry", "mutate", "Role cannot mutate registry");
-        List<Map<String, Object>> items = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("items", List.of());
+        List<Map<String, Object>> items = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("items", body.getOrDefault("unitsList", List.of()));
         return registry.batchUpsertUnits(items);
     }
 
     @PostMapping("/blocks/{blockId}/units/reconcile")
     public Map<String, Object> reconcileUnits(@PathVariable String blockId, @RequestBody Map<String, Object> body) {
         policy.require("registry", "mutate", "Role cannot mutate registry");
-        List<Map<String, Object>> items = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("items", List.of());
+        List<Map<String, Object>> items = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("items", body.getOrDefault("unitsList", List.of()));
         return registry.reconcileUnits(blockId, items);
     }
 

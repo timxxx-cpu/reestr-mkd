@@ -247,7 +247,7 @@ public class RegistryService {
     public Map<String, Object> upsertUnit(Map<String, Object> body) {
         String id = body.get("id") == null ? UUID.randomUUID().toString() : String.valueOf(body.get("id"));
         jdbc.update("insert into units(id, floor_id, entrance_id, unit_code, number, unit_type, total_area, living_area, useful_area, rooms_count, has_mezzanine, mezzanine_type, status, updated_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?,now()) on conflict (id) do update set floor_id=excluded.floor_id, entrance_id=excluded.entrance_id, unit_code=excluded.unit_code, number=excluded.number, unit_type=excluded.unit_type, total_area=excluded.total_area, living_area=excluded.living_area, useful_area=excluded.useful_area, rooms_count=excluded.rooms_count, has_mezzanine=excluded.has_mezzanine, mezzanine_type=excluded.mezzanine_type, status=excluded.status, updated_at=now()",
-            id, body.get("floorId"), body.get("entranceId"), body.get("unitCode"), body.get("number"), body.get("type"), body.get("area"), body.get("livingArea"), body.get("usefulArea"), body.get("rooms"), body.get("hasMezzanine"), body.get("mezzanineType"), body.get("status"));
+            id, body.get("floorId"), body.get("entranceId"), body.get("unitCode"), body.getOrDefault("number", body.get("num")), body.get("type"), body.get("area"), body.get("livingArea"), body.get("usefulArea"), body.get("rooms"), body.get("hasMezzanine"), body.get("mezzanineType"), body.get("status"));
         return Map.of("id", id);
     }
 

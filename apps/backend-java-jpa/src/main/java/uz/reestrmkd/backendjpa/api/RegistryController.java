@@ -49,12 +49,12 @@ public class RegistryController {
     @PostMapping("/units/upsert") public Map<String,Object> upsertUnit(@RequestBody Map<String,Object> body){ return registry.upsertUnit(body); }
     @PostMapping("/units/batch-upsert")
     public Map<String,Object> batch(@RequestBody Map<String,Object> body){
-        @SuppressWarnings("unchecked") List<Map<String, Object>> items = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("items", List.of());
+        @SuppressWarnings("unchecked") List<Map<String, Object>> items = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("items", body.getOrDefault("unitsList", List.of()));
         return registry.batchUpsertUnits(items);
     }
     @PostMapping("/blocks/{blockId}/units/reconcile")
     public Map<String,Object> recUnits(@PathVariable String blockId, @RequestBody Map<String,Object> body){
-        @SuppressWarnings("unchecked") List<Map<String, Object>> items = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("items", List.of());
+        @SuppressWarnings("unchecked") List<Map<String, Object>> items = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("items", body.getOrDefault("unitsList", List.of()));
         return registry.reconcileUnits(blockId, items);
     }
     @GetMapping("/units/{unitId}/explication") public Map<String,Object> expl(@PathVariable String unitId){ return Map.of("items", registry.explication(unitId)); }

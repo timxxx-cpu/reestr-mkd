@@ -96,6 +96,27 @@ const toFeatureCollection = (candidates = [], selectedId = null, activeId = null
     })),
 });
 
+
+const toSingleFeatureCollection = (geometry, selectedId = null, activeId = null) => {
+  if (!geometry) return { type: 'FeatureCollection', features: [] };
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: safeGeometryConvert(geometry),
+        properties: {
+          candidateId: selectedId || 'focused-geometry',
+          isSelected: true,
+          isActive: !!activeId,
+          isAssigned: false,
+          isSavedGeometry: false,
+        },
+      },
+    ],
+  };
+};
+
 // Утилита для расчета границ охвата (Bounding Box)
 function getBbox(featureCollection) {
   let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
@@ -164,8 +185,16 @@ export const GeometryPickerMap = ({
 
   useEffect(() => {
     if (!mapRef.current || sourceData.features.length === 0) return;
-    
-    const bounds = getBbox(sourceData);
+
+    const selectedCandidate = selectedId
+      ? candidates.find(item => item?.id === selectedId && item?.geometry)
+      : null;
+
+    const focusedCollection = selectedCandidate?.geometry
+      ? toSingleFeatureCollection(selectedCandidate.geometry, selectedId, activeId)
+      : sourceData;
+
+    const bounds = getBbox(focusedCollection);
     if (bounds) {
       try {
         if (bounds[0][0] === bounds[1][0] && bounds[0][1] === bounds[1][1]) {
@@ -177,7 +206,7 @@ export const GeometryPickerMap = ({
         console.warn("Не удалось изменить рамки карты", err);
       }
     }
-  }, [candidates, sourceData]);
+  }, [candidates, sourceData, selectedId, activeId]);
 
   return (
     <div className="w-full rounded-xl border border-slate-200 overflow-hidden relative">
