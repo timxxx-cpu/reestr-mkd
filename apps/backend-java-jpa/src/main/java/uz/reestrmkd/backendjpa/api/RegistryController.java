@@ -15,6 +15,11 @@ public class RegistryController {
 
     @GetMapping("/blocks/{blockId}/floors") public Object floors(@PathVariable String blockId){ return registry.floors(blockId); }
     @PutMapping("/floors/{floorId}") public Map<String,Object> floor(@PathVariable String floorId, @RequestBody Map<String,Object> body){ return registry.updateFloor(floorId, body); }
+    @PutMapping("/floors/batch")
+    public Map<String,Object> floorsBatch(@RequestBody Map<String,Object> body){
+        @SuppressWarnings("unchecked") List<Map<String, Object>> items = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("items", List.of());
+        return registry.updateFloorsBatch(items);
+    }
     @PostMapping("/blocks/{blockId}/floors/reconcile")
     public Map<String,Object> floorsRec(@PathVariable String blockId, @RequestBody Map<String,Object> body){
         @SuppressWarnings("unchecked") List<Map<String, Object>> items = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("items", List.of());
@@ -29,6 +34,12 @@ public class RegistryController {
     }
     @GetMapping("/blocks/{blockId}/entrance-matrix") public Map<String,Object> matrix(@PathVariable String blockId){ return Map.of("items", registry.entranceMatrix(blockId)); }
     @PutMapping("/blocks/{blockId}/entrance-matrix/cell") public Map<String,Object> matrixCell(@PathVariable String blockId, @RequestBody Map<String,Object> body){ return registry.upsertMatrixCell(blockId, body); }
+    @PutMapping("/blocks/{blockId}/entrance-matrix/batch")
+    public Map<String,Object> matrixBatch(@PathVariable String blockId, @RequestBody Map<String,Object> body){
+        @SuppressWarnings("unchecked") List<Map<String, Object>> cells = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("cells", List.of());
+        return registry.batchUpsertMatrixCells(blockId, cells);
+    }
+    @PostMapping("/blocks/{blockId}/reconcile/preview") public Map<String,Object> reconcilePreview(@PathVariable String blockId){ return registry.previewReconcileByBlock(blockId); }
 
     @GetMapping("/blocks/{blockId}/units") public Object units(@PathVariable String blockId){ return registry.units(blockId); }
     @GetMapping("/blocks/{blockId}/extensions") public Object extensions(@PathVariable String blockId){ return registry.listExtensions(blockId); }

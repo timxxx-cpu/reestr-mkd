@@ -37,6 +37,27 @@ const BASEMAPS = {
       layers: [{ id: 'carto', type: 'raster', source: 'carto' }],
     },
   },
+  googleSatellite: {
+    id: 'googleSatellite',
+    label: 'Google Satellite',
+    style: {
+      version: 8,
+      sources: {
+        googleSatellite: {
+          type: 'raster',
+          tiles: [
+            'https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+            'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+            'https://mt2.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+            'https://mt3.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+          ],
+          tileSize: 256,
+          attribution: '© Google',
+        },
+      },
+      layers: [{ id: 'google-satellite', type: 'raster', source: 'googleSatellite' }],
+    },
+  },
 };
 
 // Функция-помощник: проверяет, не в метрах ли координаты (EPSG:3857)

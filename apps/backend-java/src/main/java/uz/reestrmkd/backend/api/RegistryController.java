@@ -45,7 +45,7 @@ public class RegistryController {
     }
 
     @GetMapping("/blocks/{blockId}/entrance-matrix")
-    public Map<String, Object> entranceMatrix(@PathVariable String blockId) {
+    public List<Map<String, Object>> entranceMatrix(@PathVariable String blockId) {
         return registry.entranceMatrix(blockId);
     }
 
@@ -53,6 +53,18 @@ public class RegistryController {
     public Map<String, Object> entranceCell(@PathVariable String blockId, @RequestBody Map<String, Object> body) {
         policy.require("registry", "mutate", "Role cannot mutate registry");
         return registry.updateEntranceMatrixCell(blockId, body);
+    }
+
+    @PutMapping("/blocks/{blockId}/entrance-matrix/batch")
+    public Map<String, Object> entranceBatch(@PathVariable String blockId, @RequestBody Map<String, Object> body) {
+        policy.require("registry", "mutate", "Role cannot mutate registry");
+        List<Map<String, Object>> cells = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("cells", List.of());
+        return registry.batchUpsertMatrixCells(blockId, cells);
+    }
+
+    @PostMapping("/blocks/{blockId}/reconcile/preview")
+    public Map<String, Object> previewReconcile(@PathVariable String blockId) {
+        return registry.previewReconcileByBlock(blockId);
     }
 
     @GetMapping("/blocks/{blockId}/units")

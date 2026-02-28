@@ -505,6 +505,12 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
       body: {},
     }),
 
+  previewReconcileByBlock: ({ blockId }) =>
+    request(`/api/v1/blocks/${blockId}/reconcile/preview`, {
+      method: 'POST',
+      body: {},
+    }),
+
   upsertCommonArea: ({ data, userName, userRole }) =>
     request('/api/v1/common-areas/upsert', {
       method: 'POST',
@@ -536,6 +542,15 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
       body: { updates },
     }),
 
+
+  updateFloorsBatch: ({ items, userName, userRole }) =>
+    request('/api/v1/floors/batch', {
+      method: 'PUT',
+      userName,
+      userRole,
+      body: { items },
+    }),
+
   reconcileFloors: ({ blockId, floorsFrom, floorsTo, defaultType, userName, userRole, idempotencyKey }) =>
     request(`/api/v1/blocks/${blockId}/floors/reconcile`, {
       method: 'POST',
@@ -551,6 +566,14 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
       userName,
       userRole,
       body: { floorId, entranceNumber, values },
+    }),
+
+  batchUpsertMatrixCells: ({ blockId, cells, userName, userRole }) =>
+    request(`/api/v1/blocks/${blockId}/entrance-matrix/batch`, {
+      method: 'PUT',
+      userName,
+      userRole,
+      body: { cells },
     }),
 
   reconcileEntrances: ({ blockId, count, userName, userRole, idempotencyKey }) =>

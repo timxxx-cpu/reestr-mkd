@@ -193,6 +193,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
   const [isSavingStatus, setIsSavingStatus] = useState(false);
   const [validationWarnings, setValidationWarnings] = useState([]);
   const [showWarningModal, setShowWarningModal] = useState(false);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
   // --- Data Loading ---
   const { buildings } = useDirectBuildings(projectId);
@@ -213,7 +214,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
   const isUnderground = false;
 
   const { floors: rawFloors, updateFloor } = useDirectFloors(currentBlock?.id);
-  const { entrances, matrixMap, updateCell, syncEntrances } = useDirectMatrix(currentBlock?.id);
+  const { entrances, matrixMap, updateCells, syncEntrances } = useDirectMatrix(currentBlock?.id);
 
   // --- Effects ---
   useEffect(() => {
@@ -357,28 +358,30 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
           const [floorId, entNum] = key.split('_');
           const floor = floors.find(f => f.id === floorId);
           if (floor && isFieldEnabled(floor, field)) {
-             updates.push(updateCell({ floorId, entranceNumber: parseInt(entNum), values: { [field]: value } }));
+             updates.push({ floorId, entranceNumber: parseInt(entNum, 10), values: { [field]: value } });
           }
       });
-      await Promise.all(updates);
+      if (updates.length === 0) return;
+      await updateCells(updates);
   };
 
   const autoFill = async () => {
     if (isReadOnly) return;
     if (!confirm('Заполнить матрицу типовыми значениями (4 кв. на этаж)?')) return;
     setHasUnsavedChanges(true);
-    const promises = [];
+    const updates = [];
     floors.forEach(f => {
       entrances.forEach(e => {
         let apts = 0;
         if (['residential', 'attic'].includes(f.type)) apts = 4;
         if (f.type === 'mixed') apts = 3;
         if (apts > 0 || f.isCommercial) {
-          promises.push(updateCell({ floorId: f.id, entranceNumber: e.number, values: { apts, mopQty: 1, units: f.isCommercial ? 1 : 0 } }));
+          updates.push({ floorId: f.id, entranceNumber: e.number, values: { apts, mopQty: 1, units: f.isCommercial ? 1 : 0 } });
         }
       });
     });
-    await Promise.all(promises);
+    if (updates.length === 0) return;
+    await updateCells(updates);
   };
 
   const toggleDuplexForSelectedFloors = async () => {
@@ -445,6 +448,17 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     }
   };
 
+
+  const requestReconcilePreview = async () => {
+    if (!currentBlock?.id) return null;
+    setIsPreviewLoading(true);
+    try {
+      return await ApiService.previewReconcileByBlock(currentBlock.id);
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
   const collectValidationErrors = (stepId, building) => {
     const contextData = {
       composition,
@@ -484,6 +498,17 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
       await new Promise(resolve => setTimeout(resolve, 350));
       await saveProjectImmediate({ shouldRefetch: false });
       await waitForPendingMutations();
+
+      const preview = await requestReconcilePreview();
+      const previewUnits = preview?.units?.toRemove || 0;
+      const previewMops = preview?.commonAreas?.toRemove || 0;
+      if (previewUnits > 0 || previewMops > 0) {
+        const confirmed = confirm(`Будут удалены лишние записи по плану: помещения ${previewUnits}, МОП ${previewMops}. Продолжить?`);
+        if (!confirmed) {
+          setIsSavingStatus(false);
+          return;
+        }
+      }
 
       const unitsReconcile = await ApiService.reconcileUnitsForBlock(currentBlock.id, actor);
       const mopsReconcile = await ApiService.reconcileCommonAreasForBlock(currentBlock.id, actor);
@@ -542,8 +567,8 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
           isSticky={false}
           showSaveButton={showSave}
           onSave={handleSave}
-          saveDisabled={isSavingStatus}
-          saveLabel={isSavingStatus ? 'Сохраняем…' : 'Сохранить'}
+          saveDisabled={isSavingStatus || isPreviewLoading}
+          saveLabel={isPreviewLoading ? 'Проверяем…' : isSavingStatus ? 'Сохраняем…' : 'Сохранить'}
         />
 
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

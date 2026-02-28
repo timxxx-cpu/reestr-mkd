@@ -25,10 +25,59 @@ public class RegistryJpaService {
 
     @Transactional
     public Map<String, Object> updateFloor(String floorId, Map<String, Object> body) {
-        execute("""
-            update floors set floor_number=:floorNumber, floor_type=:floorType, updated_at=now() where id=:id
-            """, Map.of("floorNumber", body.get("floorNumber"), "floorType", body.get("floorType"), "id", floorId));
+        Map<String, Object> updates = mapFrom(body == null ? null : body.get("updates"));
+        if (updates.isEmpty() && body != null) updates = body;
+
+        List<String> sets = new ArrayList<>();
+        Map<String, Object> params = new HashMap<>();
+        params.put("id", floorId);
+
+        if (updates.containsKey("height")) { sets.add("height = :height"); params.put("height", updates.get("height")); }
+        if (updates.containsKey("areaProj")) { sets.add("area_proj = :areaProj"); params.put("areaProj", updates.get("areaProj")); }
+        if (updates.containsKey("areaFact")) { sets.add("area_fact = :areaFact"); params.put("areaFact", updates.get("areaFact")); }
+        if (updates.containsKey("isDuplex")) { sets.add("is_duplex = :isDuplex"); params.put("isDuplex", updates.get("isDuplex")); }
+        if (updates.containsKey("label")) { sets.add("label = :label"); params.put("label", updates.get("label")); }
+        if (updates.containsKey("type")) { sets.add("floor_type = :floorType"); params.put("floorType", updates.get("type")); }
+        if (updates.containsKey("isTechnical")) { sets.add("is_technical = :isTechnical"); params.put("isTechnical", updates.get("isTechnical")); }
+        if (updates.containsKey("isCommercial")) { sets.add("is_commercial = :isCommercial"); params.put("isCommercial", updates.get("isCommercial")); }
+
+        if (sets.isEmpty()) {
+            if (body != null && body.containsKey("floorNumber")) { sets.add("floor_number = :floorNumber"); params.put("floorNumber", body.get("floorNumber")); }
+            if (body != null && body.containsKey("floorType")) { sets.add("floor_type = :legacyFloorType"); params.put("legacyFloorType", body.get("floorType")); }
+        }
+
+        if (sets.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "updates are required");
+        }
+
+        sets.add("updated_at = now()");
+        String sql = "update floors set " + String.join(", ", sets) + " where id = :id";
+        execute(sql, params);
         return Map.of("ok", true);
+    }
+
+    @Transactional
+    public Map<String, Object> updateFloorsBatch(List<Map<String, Object>> items) {
+        int updated = 0;
+        List<Map<String, Object>> failed = new ArrayList<>();
+
+        for (int i = 0; i < items.size(); i++) {
+            Map<String, Object> item = items.get(i);
+            String id = stringValOr(item == null ? null : item.get("id"), "");
+            if (id.isBlank()) {
+                failed.add(Map.of("index", i, "reason", "id is required"));
+                continue;
+            }
+            try {
+                Map<String, Object> body = Map.of("updates", mapFrom(item == null ? null : item.get("updates")));
+                updateFloor(id, body);
+                updated += 1;
+            } catch (ResponseStatusException ex) {
+                failed.add(Map.of("index", i, "id", id, "reason", ex.getReason() == null ? "Validation error" : ex.getReason()));
+            }
+        }
+
+        return Map.of("ok", true, "updated", updated, "failed", failed);
     }
 
     @Transactional
@@ -100,23 +149,139 @@ public class RegistryJpaService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> entranceMatrix(String blockId) {
-        return queryList("select * from entrance_matrix where block_id = :blockId order by floor_id asc, entrance_id asc", Map.of("blockId", blockId));
+        return queryList("select * from entrance_matrix where block_id = :blockId order by floor_id asc, entrance_number asc", Map.of("blockId", blockId));
     }
 
     @Transactional
     public Map<String, Object> upsertMatrixCell(String blockId, Map<String, Object> body) {
+        String floorId = stringValOr(body.get("floorId"), "");
+        int entranceNumber = toInt(body.get("entranceNumber"));
+        if (floorId.isBlank() || entranceNumber <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "floorId and entranceNumber are required");
+        }
+
+        Map<String, Object> values = mapFrom(body.get("values"));
+        Map<String, Object> payloadValues = validateMatrixValues(values);
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("id", stringValOr(body.get("id"), UUID.randomUUID().toString()));
+        params.put("blockId", blockId);
+        params.put("floorId", floorId);
+        params.put("entranceNumber", entranceNumber);
+        params.put("flatsCount", payloadValues.get("flats_count"));
+        params.put("commercialCount", payloadValues.get("commercial_count"));
+        params.put("mopCount", payloadValues.get("mop_count"));
+
         execute("""
-            insert into entrance_matrix(id, block_id, floor_id, entrance_id, unit_count, updated_at)
-            values (:id,:blockId,:floorId,:entranceId,:unitCount,now())
-            on conflict (id) do update set unit_count=excluded.unit_count, updated_at=now()
-            """, Map.of(
-            "id", stringValOr(body.get("id"), UUID.randomUUID().toString()),
-            "blockId", blockId,
-            "floorId", body.get("floorId"),
-            "entranceId", body.get("entranceId"),
-            "unitCount", body.get("unitCount")
-        ));
+            insert into entrance_matrix(id, block_id, floor_id, entrance_number, flats_count, commercial_count, mop_count, updated_at)
+            values (:id,:blockId,:floorId,:entranceNumber,:flatsCount,:commercialCount,:mopCount,now())
+            on conflict (block_id, floor_id, entrance_number) do update
+            set flats_count=coalesce(excluded.flats_count, entrance_matrix.flats_count),
+                commercial_count=coalesce(excluded.commercial_count, entrance_matrix.commercial_count),
+                mop_count=coalesce(excluded.mop_count, entrance_matrix.mop_count),
+                updated_at=now()
+            """, params);
         return Map.of("ok", true);
+    }
+
+    @Transactional
+    public Map<String, Object> batchUpsertMatrixCells(String blockId, List<Map<String, Object>> cells) {
+        int updated = 0;
+        List<Map<String, Object>> failed = new ArrayList<>();
+
+        for (int i = 0; i < cells.size(); i++) {
+            Map<String, Object> cell = cells.get(i);
+            try {
+                upsertMatrixCell(blockId, cell == null ? Map.of() : cell);
+                updated += 1;
+            } catch (ResponseStatusException ex) {
+                failed.add(Map.of("index", i, "reason", ex.getReason() == null ? "Validation error" : ex.getReason()));
+            }
+        }
+
+        return Map.of("ok", true, "updated", updated, "failed", failed);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> previewReconcileByBlock(String blockId) {
+        List<Map<String, Object>> floorRows = queryList("select id from floors where block_id = :blockId", Map.of("blockId", blockId));
+        List<String> floorIds = floorRows.stream().map(v -> String.valueOf(v.get("id"))).toList();
+        if (floorIds.isEmpty()) {
+            return Map.of("units", Map.of("toRemove", 0, "checkedCells", 0), "commonAreas", Map.of("toRemove", 0, "checkedCells", 0));
+        }
+
+        List<Map<String, Object>> entranceRows = queryList("select id, number from entrances where block_id = :blockId", Map.of("blockId", blockId));
+        Map<Integer, String> entranceByNumber = new HashMap<>();
+        for (Map<String, Object> row : entranceRows) {
+            entranceByNumber.put(toInt(row.get("number")), String.valueOf(row.get("id")));
+        }
+
+        List<Map<String, Object>> matrixRows = queryList("""
+            select floor_id, entrance_number, flats_count, commercial_count, mop_count
+            from entrance_matrix
+            where block_id = :blockId
+            """, Map.of("blockId", blockId));
+
+        Map<String, Integer> desiredFlats = new HashMap<>();
+        Map<String, Integer> desiredCommercial = new HashMap<>();
+        Map<String, Integer> desiredMops = new HashMap<>();
+        for (Map<String, Object> row : matrixRows) {
+            String entranceId = entranceByNumber.get(toInt(row.get("entrance_number")));
+            if (entranceId == null) continue;
+            String key = String.valueOf(row.get("floor_id")) + "_" + entranceId;
+            desiredFlats.put(key, Math.max(0, toInt(row.get("flats_count"))));
+            desiredCommercial.put(key, Math.max(0, toInt(row.get("commercial_count"))));
+            desiredMops.put(key, Math.max(0, toInt(row.get("mop_count"))));
+        }
+
+        String floorsIn = namedInClause("f", floorIds.size());
+        Map<String, Object> floorParams = mapForInClause("f", floorIds);
+
+        List<Map<String, Object>> units = queryList("""
+            select id, floor_id, entrance_id, unit_type
+            from units
+            where floor_id in (""" + floorsIn + ")", floorParams);
+
+        Map<String, Integer> actualFlats = new HashMap<>();
+        Map<String, Integer> actualCommercial = new HashMap<>();
+        for (Map<String, Object> row : units) {
+            String key = String.valueOf(row.get("floor_id")) + "_" + String.valueOf(row.get("entrance_id"));
+            String type = String.valueOf(row.get("unit_type"));
+            if (List.of("flat", "duplex_up", "duplex_down").contains(type)) {
+                actualFlats.put(key, actualFlats.getOrDefault(key, 0) + 1);
+            } else if (List.of("office", "office_inventory", "non_res_block", "infrastructure").contains(type)) {
+                actualCommercial.put(key, actualCommercial.getOrDefault(key, 0) + 1);
+            }
+        }
+
+        int unitsToRemove = 0;
+        Set<String> unitKeys = new HashSet<>();
+        unitKeys.addAll(actualFlats.keySet());
+        unitKeys.addAll(actualCommercial.keySet());
+        for (String key : unitKeys) {
+            unitsToRemove += Math.max(0, actualFlats.getOrDefault(key, 0) - desiredFlats.getOrDefault(key, 0));
+            unitsToRemove += Math.max(0, actualCommercial.getOrDefault(key, 0) - desiredCommercial.getOrDefault(key, 0));
+        }
+
+        List<Map<String, Object>> areas = queryList("""
+            select id, floor_id, entrance_id
+            from common_areas
+            where floor_id in (""" + floorsIn + ")", floorParams);
+        Map<String, Integer> actualMops = new HashMap<>();
+        for (Map<String, Object> row : areas) {
+            String key = String.valueOf(row.get("floor_id")) + "_" + String.valueOf(row.get("entrance_id"));
+            actualMops.put(key, actualMops.getOrDefault(key, 0) + 1);
+        }
+
+        int mopsToRemove = 0;
+        for (String key : actualMops.keySet()) {
+            mopsToRemove += Math.max(0, actualMops.getOrDefault(key, 0) - desiredMops.getOrDefault(key, 0));
+        }
+
+        return Map.of(
+            "units", Map.of("toRemove", unitsToRemove, "checkedCells", unitKeys.size()),
+            "commonAreas", Map.of("toRemove", mopsToRemove, "checkedCells", actualMops.size())
+        );
     }
 
     @Transactional(readOnly = true)
@@ -386,6 +551,59 @@ public class RegistryJpaService {
         Map<String, Object> row = new LinkedHashMap<>();
         tuple.getElements().forEach(e -> row.put(e.getAlias(), tuple.get(e)));
         return row;
+    }
+
+
+
+    private Map<String, Object> validateMatrixValues(Map<String, Object> values) {
+        boolean hasAny = values.containsKey("apts") || values.containsKey("units") || values.containsKey("mopQty");
+        if (!hasAny) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "values must include at least one field: apts, units, mopQty");
+        }
+
+        int maxAllowed = 500;
+        Map<String, Object> payload = new HashMap<>();
+        if (values.containsKey("apts")) {
+            Integer parsed = parseOptionalNonNegativeInt(values.get("apts"));
+            if (parsed != null && parsed > maxAllowed) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "apts must be <= " + maxAllowed);
+            payload.put("flats_count", parsed);
+        }
+        if (values.containsKey("units")) {
+            Integer parsed = parseOptionalNonNegativeInt(values.get("units"));
+            if (parsed != null && parsed > maxAllowed) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "units must be <= " + maxAllowed);
+            payload.put("commercial_count", parsed);
+        }
+        if (values.containsKey("mopQty")) {
+            Integer parsed = parseOptionalNonNegativeInt(values.get("mopQty"));
+            if (parsed != null && parsed > maxAllowed) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "mopQty must be <= " + maxAllowed);
+            payload.put("mop_count", parsed);
+        }
+        return payload;
+    }
+
+    private Integer parseOptionalNonNegativeInt(Object value) {
+        if (value == null) return null;
+        String raw = String.valueOf(value).trim();
+        if (raw.isEmpty()) return null;
+        try {
+            int parsed = Integer.parseInt(raw);
+            if (parsed < 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "value must be non-negative integer");
+            return parsed;
+        } catch (NumberFormatException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "value must be non-negative integer");
+        }
+    }
+
+    private String namedInClause(String prefix, int size) {
+        List<String> names = new ArrayList<>();
+        for (int i = 0; i < size; i++) names.add(":" + prefix + i);
+        return String.join(",", names);
+    }
+
+    private Map<String, Object> mapForInClause(String prefix, List<String> values) {
+        Map<String, Object> params = new HashMap<>();
+        for (int i = 0; i < values.size(); i++) params.put(prefix + i, values.get(i));
+        return params;
     }
 
     private int toInt(Object value) {
