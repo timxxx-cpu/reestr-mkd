@@ -109,6 +109,7 @@ const PassportEditor = () => {
   const [draftPolygonPoints, setDraftPolygonPoints] = useState([]);
   const shpInputRef = useRef(null);
 
+
   useEffect(() => {
     const safeComplexInfo = /** @type {any} */ (complexInfo || {});
     const safeCadastre = /** @type {any} */ (cadastre || {});
@@ -350,6 +351,42 @@ const PassportEditor = () => {
   const { options: streetsOptions } = useCatalog('streets');
   const { options: makhallasOptions } = useCatalog('makhallas');
 
+
+  useEffect(() => {
+    if (!isInitialDataLoaded) return;
+
+    const hasRegionSoato = Boolean(localInfo.regionSoato);
+    const hasDistrictSoato = Boolean(localInfo.districtSoato);
+    if (hasRegionSoato && hasDistrictSoato) return;
+
+    const matchedRegion = (regionsOptions || []).find(region => {
+      const regionName = String(region.name_ru || region.name_uz || '').trim().toLowerCase();
+      return regionName && regionName === String(localInfo.region || '').trim().toLowerCase();
+    });
+
+    const candidateDistricts = (districtsOptions || []).filter(district => !matchedRegion || district.region_id === matchedRegion.id);
+    const matchedDistrict = candidateDistricts.find(district => {
+      const districtName = String(district.name_ru || district.name_uz || '').trim().toLowerCase();
+      return districtName && districtName === String(localInfo.district || '').trim().toLowerCase();
+    });
+
+    if (!matchedRegion && !matchedDistrict) return;
+
+    setLocalInfo(prev => ({
+      ...prev,
+      regionSoato: prev.regionSoato || matchedRegion?.soato || '',
+      districtSoato: prev.districtSoato || matchedDistrict?.soato || '',
+    }));
+  }, [
+    isInitialDataLoaded,
+    localInfo.region,
+    localInfo.district,
+    localInfo.regionSoato,
+    localInfo.districtSoato,
+    regionsOptions,
+    districtsOptions,
+  ]);
+
   const selectedRegion = useMemo(
     () => (regionsOptions || []).find(r => String(r.soato || '') === String(localInfo.regionSoato || '')) || null,
     [regionsOptions, localInfo.regionSoato]
@@ -381,7 +418,7 @@ const PassportEditor = () => {
       if (prev.region === regionName && prev.district === districtName && prev.mahalla === mahallaName && prev.street === nextStreet) return prev;
       return { ...prev, region: regionName, district: districtName, mahalla: mahallaName, street: nextStreet };
     });
-  }, [selectedRegion, availableDistricts, availableStreets, availableMakhallas, localInfo.districtSoato, localInfo.streetId, localInfo.mahallaId, localInfo.buildingNo]);
+  }, [selectedRegion, availableDistricts, availableStreets, availableMakhallas, localInfo.region, localInfo.district, localInfo.mahalla, localInfo.districtSoato, localInfo.streetId, localInfo.mahallaId, localInfo.buildingNo]);
   const statusConfig = STATUS_CONFIG[localInfo.status] || STATUS_CONFIG['Проектный'];
   
   const saveStatusLabel = useMemo(() => {
