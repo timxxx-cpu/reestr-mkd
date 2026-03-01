@@ -52,6 +52,13 @@ const getOuterRingGeo = geometry => {
   return [];
 };
 
+const getOuterRingMeters = geometry => {
+  if (!geometry || typeof geometry !== 'object') return [];
+  if (geometry.type === 'Polygon') return geometry.coordinates?.[0] || [];
+  if (geometry.type === 'MultiPolygon') return geometry.coordinates?.[0]?.[0] || [];
+  return [];
+};
+
 const getLeftBottomVertex = (ring = []) => {
   const vertices = ring.slice(0, -1);
   if (!vertices.length) return null;
@@ -214,7 +221,7 @@ export default function BuildingCadEditorModal({
     };
   }, [boundaryGeometry, initialGeometry]);
 
-  const referenceRing = useMemo(() => projected?.boundaryMeters?.coordinates?.[0] || [], [projected]);
+  const referenceRing = useMemo(() => getOuterRingMeters(projected?.boundaryMeters), [projected]);
   const referenceVertices = useMemo(() => referenceRing.slice(0, -1), [referenceRing]);
 
   const pushHistory = useCallback(() => {
@@ -231,8 +238,9 @@ export default function BuildingCadEditorModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (projected?.initialMeters?.coordinates?.[0]?.length >= 4) {
-      const initialPoints = projected.initialMeters.coordinates[0].slice(0, -1);
+    const initialRing = getOuterRingMeters(projected?.initialMeters);
+    if (initialRing.length >= 4) {
+      const initialPoints = initialRing.slice(0, -1);
       setPoints(initialPoints);
       setIsClosed(true);
       setSelectedPointIndex(null);
@@ -716,7 +724,11 @@ export default function BuildingCadEditorModal({
                 src={satelliteUrls[satelliteProvider]}
                 className="absolute inset-2 w-[calc(100%-1rem)] h-[calc(100%-1rem)] rounded pointer-events-none"
                 loading="lazy"
-                style={{ opacity: satelliteOpacity }}
+                style={{
+                  opacity: satelliteOpacity,
+                  transform: `rotate(${-(projected?.rotationDeg || 0)}deg)`,
+                  transformOrigin: 'center',
+                }}
               />
             )}
             <svg width="100%" viewBox={`0 0 ${width} ${height}`} className="w-full h-auto rounded relative">

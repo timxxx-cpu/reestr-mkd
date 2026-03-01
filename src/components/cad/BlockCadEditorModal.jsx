@@ -39,6 +39,13 @@ const getOuterRingGeo = geometry => {
   return [];
 };
 
+const getOuterRingMeters = geometry => {
+  if (!geometry || typeof geometry !== 'object') return [];
+  if (geometry.type === 'Polygon') return geometry.coordinates?.[0] || [];
+  if (geometry.type === 'MultiPolygon') return geometry.coordinates?.[0]?.[0] || [];
+  return [];
+};
+
 const calcPolygonAreaM2 = points => {
   if (!Array.isArray(points) || points.length < 3) return 0;
   let sum = 0;
@@ -297,16 +304,10 @@ export default function BlockCadEditorModal({
     return [screenX / scale + allBounds.minX, (viewport.h - screenY) / scale + allBounds.minY];
   };
 
-  const existingPoints = useMemo(
-    () => (projected?.blockMeters?.coordinates?.[0]?.[0] || []).slice(0, -1),
-    [projected]
-  );
+  const existingPoints = useMemo(() => getOuterRingMeters(projected?.blockMeters).slice(0, -1), [projected]);
   const activePoints = draftPoints.length ? draftPoints : existingPoints;
 
-  const buildingOuterRing = useMemo(
-    () => projected?.buildingMeters?.coordinates?.[0]?.[0] || [],
-    [projected]
-  );
+  const buildingOuterRing = useMemo(() => getOuterRingMeters(projected?.buildingMeters), [projected]);
   const buildingVertices = buildingOuterRing.slice(0, -1);
 
   const underlayUrls = useMemo(() => {
@@ -848,7 +849,11 @@ export default function BlockCadEditorModal({
               src={underlayUrls[underlayProvider]}
               className="absolute inset-4 w-[calc(100%-2rem)] h-[calc(100%-2rem)] rounded-xl pointer-events-none border border-slate-800"
               loading="lazy"
-              style={{ opacity: underlayOpacity }}
+              style={{
+                opacity: underlayOpacity,
+                transform: `rotate(${-(projected?.rotationDeg || 0)}deg)`,
+                transformOrigin: 'center',
+              }}
             />
           )}
           <svg
