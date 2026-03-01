@@ -92,3 +92,42 @@ export const normalizeShpFeatures = geojson => {
     })
     .filter(Boolean);
 };
+
+
+const pointInRing = (point, ring = []) => {
+  const [x, y] = point;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i] || [];
+    const [xj, yj] = ring[j] || [];
+    const intersects = ((yi > y) !== (yj > y))
+      && (x < ((xj - xi) * (y - yi)) / ((yj - yi) || Number.EPSILON) + xi);
+    if (intersects) inside = !inside;
+  }
+  return inside;
+};
+
+const pointInPolygonWithHoles = (point, polygon = []) => {
+  if (!Array.isArray(polygon) || polygon.length === 0) return false;
+  const [outer, ...holes] = polygon;
+  if (!pointInRing(point, outer || [])) return false;
+  return !holes.some(hole => pointInRing(point, hole || []));
+};
+
+const flattenPolygonVertices = geometry => {
+  const multi = toMultiPolygonGeometry(geometry);
+  if (!multi) return [];
+  return multi.coordinates.flatMap(poly => (poly[0] || []));
+};
+
+export const isGeometryWithinGeometry = (innerGeometry, outerGeometry) => {
+  const inner = toMultiPolygonGeometry(innerGeometry);
+  const outer = toMultiPolygonGeometry(outerGeometry);
+  if (!inner || !outer) return false;
+
+  const outerPolygons = outer.coordinates || [];
+  const vertices = flattenPolygonVertices(inner);
+  if (!vertices.length) return false;
+
+  return vertices.every(point => outerPolygons.some(poly => pointInPolygonWithHoles(point, poly)));
+};

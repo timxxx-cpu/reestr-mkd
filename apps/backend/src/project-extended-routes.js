@@ -5,6 +5,42 @@ import crypto from 'crypto';
 
 const COMMUNICATION_KEYS = ['electricity', 'water', 'sewerage', 'heating', 'ventilation', 'gas', 'firefighting'];
 
+const pointInRing = (point, ring = []) => {
+  const [x, y] = point;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i] || [];
+    const [xj, yj] = ring[j] || [];
+    const intersect = ((yi > y) !== (yj > y))
+      && (x < ((xj - xi) * (y - yi)) / ((yj - yi) || Number.EPSILON) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+};
+
+const toMultiPolygon = geometry => {
+  if (!geometry || typeof geometry !== 'object') return null;
+  if (geometry.type === 'MultiPolygon') return geometry;
+  if (geometry.type === 'Polygon') return { type: 'MultiPolygon', coordinates: [geometry.coordinates] };
+  return null;
+};
+
+const isGeometryInsideGeometry = (inner, outer) => {
+  const i = toMultiPolygon(inner);
+  const o = toMultiPolygon(outer);
+  if (!i || !o) return false;
+  const outerPolys = o.coordinates || [];
+  const vertices = (i.coordinates || []).flatMap(poly => poly?.[0] || []);
+  if (!vertices.length) return false;
+
+  return vertices.every(point => outerPolys.some(poly => {
+    const [outerRing, ...holes] = poly || [];
+    if (!pointInRing(point, outerRing || [])) return false;
+    return !holes.some(h => pointInRing(point, h || []));
+  }));
+};
+
+
 const normalizeBasementDepth = value => {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed)) return 1;
@@ -458,6 +494,30 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
       const blockId = parts[parts.length - 1];
       if (!blockId || blockId.length !== 36) continue;
 
+      const { data: blockMetaForGeometry, error: blockMetaForGeometryError } = await supabase
+        .from('building_blocks')
+        .select('building_id')
+        .eq('id', blockId)
+        .maybeSingle();
+      if (blockMetaForGeometryError) return sendError(reply, 500, 'DB_ERROR', blockMetaForGeometryError.message);
+
+      const normalizedBlockGeometry = toMultiPolygon(details.blockGeometry || null);
+      if (!normalizedBlockGeometry) {
+        return sendError(reply, 400, 'VALIDATION_ERROR', 'Геометрия блока обязательна');
+      }
+
+      if (blockMetaForGeometry?.building_id) {
+        const { data: buildingGeomRow, error: buildingGeomError } = await supabase
+          .from('buildings')
+          .select('footprint_geojson')
+          .eq('id', blockMetaForGeometry.building_id)
+          .maybeSingle();
+        if (buildingGeomError) return sendError(reply, 500, 'DB_ERROR', buildingGeomError.message);
+        if (!isGeometryInsideGeometry(normalizedBlockGeometry, buildingGeomRow?.footprint_geojson)) {
+          return sendError(reply, 400, 'VALIDATION_ERROR', 'Геометрия блока должна находиться внутри границ здания');
+        }
+      }
+
       const blockUpdate = {
         floors_count: toIntOrNull(details.floorsCount),
         entrances_count: toIntOrNull(details.entrances || details.inputs),
@@ -475,6 +535,7 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
         has_custom_address: !!details.hasCustomAddress,
         custom_house_number: toNullIfEmpty(details.customHouseNumber),
         address_id: details.addressId || null,
+        footprint_geojson: normalizedBlockGeometry,
       };
 
       const { error: blockError } = await supabase.from('building_blocks').update(blockUpdate).eq('id', blockId);

@@ -402,6 +402,9 @@
 | `has_roof_expl` | BOOLEAN | NULL, DEFAULT false | `buildingDetails[*].hasExploitableRoof` | **Эксплуатируемая кровля** | Шаг `registry_res` | Ввод пользователя (checkbox) |
 | `has_custom_address` | BOOLEAN | NULL, DEFAULT false | `buildingDetails[*].hasCustomAddress` | **Свой номер корпуса** | Шаг `registry_res`/`registry_nonres` | Ввод пользователя (checkbox) |
 | `custom_house_number` | TEXT | NULL | `buildingDetails[*].customHouseNumber` | **Номер корпуса блока** | Шаг `registry_res`/`registry_nonres` | Ввод пользователя (если has_custom_address=true) |
+| `footprint_geojson` | JSONB | NULL | `buildingDetails[*].blockGeometry` | **Геометрия контура блока** | Шаг `registry_res`/`registry_nonres` | Рисование полигона на карте (обязательно) |
+| `block_footprint_geom` | GEOMETRY(MultiPolygon,3857) | NULL, GIST INDEX | derived from `footprint_geojson` | **Пространственная геометрия блока** | Backend | Вычисляется/используется для пространственных проверок |
+| `block_footprint_area_m2` | NUMERIC(14,2) | NULL | derived | **Площадь блока** | Backend | Производное от геометрии блока |
 | `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата создания** | При создании | Автоматически БД |
 | `updated_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата изменения** | При изменении | Автоматически при UPDATE |
 

@@ -110,6 +110,7 @@
  * @property {string} [seismicity] - Сейсмичность
  * @property {boolean} [hasCustomAddress] - Флаг ручного изменения адреса блока
  * @property {string} [customHouseNumber] - Отдельный номер дома для блока
+ * @property {Object|null} [blockGeometry] - Геометрия блока (Polygon/MultiPolygon GeoJSON)
  * @property {boolean} [hasAttic]
  * @property {boolean} [hasLoft]
  * @property {boolean} [hasExploitableRoof]

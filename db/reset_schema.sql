@@ -582,6 +582,9 @@ create table building_blocks (
   has_custom_address boolean default false,
   custom_house_number text,
   address_id uuid references addresses(id) on delete set null,
+  footprint_geojson jsonb,
+  block_footprint_geom geometry(MultiPolygon, 3857),
+  block_footprint_area_m2 numeric(14,2),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -589,6 +592,7 @@ create index idx_blocks_building on building_blocks(building_id);
 create index idx_blocks_is_basement on building_blocks(is_basement_block);
 create index idx_blocks_linked_basement_targets on building_blocks using gin(linked_block_ids);
 create index idx_blocks_address_id on building_blocks(address_id);
+create index idx_blocks_footprint_geom on building_blocks using gist(block_footprint_geom);
 alter table building_blocks add constraint chk_basement_depth_range
   check (not is_basement_block or (basement_depth is not null and basement_depth between 1 and 10));
 

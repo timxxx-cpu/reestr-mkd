@@ -89,6 +89,7 @@ export default function StandardView({ building, mode }) {
       seismicity: '',
       hasCustomAddress: false,
       customHouseNumber: '',
+      blockGeometry: null,
       floorsFrom: 1,
       floorsTo: '',
       entrances: '',

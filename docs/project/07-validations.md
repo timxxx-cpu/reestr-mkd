@@ -709,3 +709,9 @@ if (errors && errors.length > 0) {
 - `EMPTY` — данных нет.
 
 Это поведение синхронизировано с `evaluateBuildingFillStatusForStep` и блок-статусами в `application_steps.block_statuses`.
+
+
+### Геометрия блока (новое обязательное правило)
+- `buildingDetails[*].blockGeometry` обязательно для каждого блока.
+- При сохранении backend валидирует, что полигон блока полностью находится внутри `buildings.footprint_geojson` соответствующего здания.
+- Отсутствие геометрии или выход за границы здания возвращает `VALIDATION_ERROR`.
