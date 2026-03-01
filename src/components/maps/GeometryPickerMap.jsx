@@ -2,7 +2,6 @@ import React, { useMemo, useRef, useEffect } from 'react';
 import Map, { Layer, Source } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
 import { geometry3857To4326 } from '@lib/geometry-utils';
-import { useQueryClient } from '@tanstack/react-query';
 
 const BASEMAPS = {
   osm: {
@@ -148,29 +147,30 @@ export const GeometryPickerMap = ({
   candidates = [],
   selectedId,
   activeId,
-  savedGeometry, // <--- НОВЫЙ ПРОП
+  savedGeometry,
+  fitToSavedOnOpen = false,
+  fitScopeKey = null,
   onSelect,
   height = 400,
   basemap = 'osm',
 }) => {
   const mapRef = useRef(null);
+  const didInitialSavedFitRef = useRef(false);
   
   const sourceData = useMemo(() => {
     const collection = toFeatureCollection(candidates, selectedId, activeId);
     
-    // Если у проекта ЕСТЬ геометрия в БД, но среди текущих кандидатов 
-    // нет выбранного (например, мы удалили SHP), мы принудительно рисуем её
-    if (savedGeometry && !selectedId) {
+    if (savedGeometry) {
       collection.features.push({
         type: 'Feature',
         geometry: safeGeometryConvert(savedGeometry),
         properties: {
           candidateId: 'saved-geometry',
-          isSelected: false,   // <--- ДОБАВИТЬ
-          isActive: false,     // <--- ДОБАВИТЬ
-          isAssigned: false,   // <--- ДОБАВИТЬ
-          isSavedGeometry: true, // Флаг для зеленого цвета
-        }
+          isSelected: false,
+          isActive: false,
+          isAssigned: false,
+          isSavedGeometry: true,
+        },
       });
     }
     
@@ -184,19 +184,27 @@ export const GeometryPickerMap = ({
   }), []);
 
   useEffect(() => {
+    didInitialSavedFitRef.current = false;
+  }, [fitScopeKey]);
+
+  useEffect(() => {
     if (!mapRef.current || sourceData.features.length === 0) return;
 
     const selectedCandidate = selectedId
       ? candidates.find(item => item?.id === selectedId && item?.geometry)
       : null;
 
-    const focusedCollection = selectedCandidate?.geometry
-      ? toSingleFeatureCollection(selectedCandidate.geometry, selectedId, activeId)
-      : sourceData;
+    const shouldFitSavedNow = fitToSavedOnOpen && savedGeometry && !didInitialSavedFitRef.current;
+    const focusedCollection = shouldFitSavedNow
+      ? toSingleFeatureCollection(savedGeometry, 'saved-geometry', null)
+      : selectedCandidate?.geometry
+        ? toSingleFeatureCollection(selectedCandidate.geometry, selectedId, activeId)
+        : sourceData;
 
     const bounds = getBbox(focusedCollection);
     if (bounds) {
       try {
+        if (shouldFitSavedNow) didInitialSavedFitRef.current = true;
         if (bounds[0][0] === bounds[1][0] && bounds[0][1] === bounds[1][1]) {
           mapRef.current.flyTo({ center: bounds[0], zoom: 17, duration: 1500 });
         } else {
@@ -206,7 +214,7 @@ export const GeometryPickerMap = ({
         console.warn("Не удалось изменить рамки карты", err);
       }
     }
-  }, [candidates, sourceData, selectedId, activeId]);
+  }, [candidates, sourceData, selectedId, activeId, fitToSavedOnOpen, savedGeometry]);
 
   return (
     <div className="w-full rounded-xl border border-slate-200 overflow-hidden relative">

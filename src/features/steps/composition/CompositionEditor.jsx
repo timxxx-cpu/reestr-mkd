@@ -235,6 +235,7 @@ const BuildingModal = ({
   projectStageOptions,
   geometryCandidates = [],
   geometryError = '',
+  complexGeometry = null,
 }) => {
   const isReadOnly = useReadOnly();
   const [activeCandidateId, setActiveCandidateId] = useState(null);
@@ -579,7 +580,9 @@ const BuildingModal = ({
                       candidates={geometryCandidates}
                       selectedId={modal.geometryCandidateId}
                       activeId={activeCandidateId}
-                      savedGeometry={null} // <-- ИСПРАВЛЕНО
+                      savedGeometry={complexGeometry}
+                      fitToSavedOnOpen
+                      fitScopeKey={`${modal.editingId || 'new'}-${modal.isOpen}`}
                       onSelect={setActiveCandidateId}
                       basemap={basemap}
                       height={450}
@@ -590,6 +593,7 @@ const BuildingModal = ({
                      <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-500/80"></span> Выбрано для этого здания</div>
                      <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-blue-500/80"></span> Активный контур</div>
                      <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-500/80"></span> Занято другим</div>
+                     <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-700/80"></span> Граница жилого комплекса</div>
                   </div>
 
                 </div>
@@ -685,7 +689,7 @@ const getResidentialName = (resBlocks, nonResBlocks) => {
 };
 
 const CompositionEditor = () => {
-  const { projectId, complexInfo, userProfile } = useProject();
+  const { projectId, complexInfo, landPlot, userProfile } = useProject();
   const isReadOnly = useReadOnly();
   const projectUjCode = complexInfo?.ujCode;
   const [deleteTargetId, setDeleteTargetId] = useState(null);
@@ -1132,6 +1136,7 @@ const CompositionEditor = () => {
           projectStageOptions={projectStageOptions}
           geometryCandidates={geometryCandidates}
           geometryError={geometryError}
+          complexGeometry={landPlot?.geometry || null}
         />
       )}
       <DeleteConfirmationModal 

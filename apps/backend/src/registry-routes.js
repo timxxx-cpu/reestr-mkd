@@ -153,6 +153,72 @@ async function ensureEntranceMatrixForBlock(supabase, blockId) {
   return null;
 }
 
+async function syncExtensionFloors(supabase, extensionId) {
+  const { data: extension, error: extensionError } = await supabase
+    .from('block_extensions')
+    .select('id, parent_block_id, floors_count, start_floor_index')
+    .eq('id', extensionId)
+    .maybeSingle();
+  if (extensionError) return extensionError;
+  if (!extension?.id) return { message: 'Extension not found' };
+
+  const { data: parentBlock, error: parentError } = await supabase
+    .from('building_blocks')
+    .select('id, type')
+    .eq('id', extension.parent_block_id)
+    .maybeSingle();
+  if (parentError) return parentError;
+
+  const floorsCount = Math.max(1, Number(extension.floors_count || 1));
+  const startFloorIndex = Math.max(1, Number(extension.start_floor_index || 1));
+  const floorType = parentBlock?.type === 'Ж' ? 'residential' : 'office';
+
+  const { data: existingFloors = [], error: existingError } = await supabase
+    .from('floors')
+    .select('id, index, parent_floor_index, basement_id')
+    .eq('extension_id', extension.id);
+  if (existingError) return existingError;
+
+  const existingByIndex = new Map((existingFloors || []).map(item => [Number(item.index), item]));
+  const targetIndexes = [];
+  const payload = [];
+  const now = new Date().toISOString();
+
+  for (let i = 0; i < floorsCount; i++) {
+    const idx = startFloorIndex + i;
+    targetIndexes.push(idx);
+    const existing = existingByIndex.get(idx);
+    payload.push({
+      id: existing?.id || crypto.randomUUID(),
+      block_id: null,
+      extension_id: extension.id,
+      index: idx,
+      floor_key: `extension:${extension.id}:${idx}`,
+      label: `${idx} этаж`,
+      floor_type: floorType,
+      parent_floor_index: null,
+      basement_id: null,
+      updated_at: now,
+    });
+  }
+
+  const toDeleteIds = (existingFloors || [])
+    .filter(item => !targetIndexes.includes(Number(item.index)))
+    .map(item => item.id);
+
+  if (toDeleteIds.length > 0) {
+    const { error: deleteError } = await supabase.from('floors').delete().in('id', toDeleteIds);
+    if (deleteError) return deleteError;
+  }
+
+  if (payload.length > 0) {
+    const { error: upsertError } = await supabase.from('floors').upsert(payload, { onConflict: 'id' });
+    if (upsertError) return upsertError;
+  }
+
+  return null;
+}
+
 const UNIT_TYPE_PREFIXES = Object.freeze({
   flat: 'EF',
   duplex_up: 'EF',
@@ -394,7 +460,20 @@ export function registerRegistryRoutes(app, { supabase }) {
 
   app.get('/api/v1/blocks/:blockId/floors', async (req, reply) => {
     const { blockId } = req.params;
-    const { data, error } = await supabase.from('floors').select('*').eq('block_id', blockId).order('index', { ascending: true });
+
+    const { data: extensions, error: extensionError } = await supabase
+      .from('block_extensions')
+      .select('id')
+      .eq('parent_block_id', blockId);
+    if (extensionError) return sendError(reply, 500, 'DB_ERROR', extensionError.message);
+
+    const extensionIds = (extensions || []).map(item => item.id);
+    let query = supabase.from('floors').select('*').eq('block_id', blockId);
+    if (extensionIds.length > 0) {
+      query = query.or(`block_id.eq.${blockId},extension_id.in.(${extensionIds.join(',')})`);
+    }
+
+    const { data, error } = await query.order('index', { ascending: true });
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     return reply.send(data || []);
   });
@@ -455,6 +534,10 @@ export function registerRegistryRoutes(app, { supabase }) {
       .single();
 
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+
+    const syncError = await syncExtensionFloors(supabase, data.id);
+    if (syncError) return sendError(reply, 500, 'DB_ERROR', syncError.message || 'Failed to sync extension floors');
+
     rememberIdempotentResponse(idempotencyStore, idempotencyContext, data);
     return reply.send(data);
   });
@@ -484,6 +567,9 @@ export function registerRegistryRoutes(app, { supabase }) {
 
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
     if (!data) return sendError(reply, 404, 'NOT_FOUND', 'Extension not found');
+
+    const syncError = await syncExtensionFloors(supabase, data.id);
+    if (syncError) return sendError(reply, 500, 'DB_ERROR', syncError.message || 'Failed to sync extension floors');
 
     rememberIdempotentResponse(idempotencyStore, idempotencyContext, data);
     return reply.send(data);
@@ -934,8 +1020,13 @@ export function registerRegistryRoutes(app, { supabase }) {
     const updates = req.body?.updates || {};
     const payload = mapFloorUpdatesToPayload(updates);
 
+    if (Object.keys(payload).length === 0) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'updates are required');
+    }
+
     const { data, error } = await supabase.from('floors').update(payload).eq('id', floorId).select('*').single();
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+    if (!data?.id) return sendError(reply, 404, 'NOT_FOUND', 'Floor not found');
     return reply.send(data);
   });
 
@@ -948,6 +1039,7 @@ export function registerRegistryRoutes(app, { supabase }) {
     if (!actor) return;
 
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    const strict = Boolean(req.body?.strict);
     if (items.length === 0) return reply.send({ ok: true, updated: 0, failed: [] });
 
     const failed = [];
@@ -968,11 +1060,37 @@ export function registerRegistryRoutes(app, { supabase }) {
     });
 
     if (payload.length > 0) {
-      const { error } = await supabase.from('floors').upsert(payload, { onConflict: 'id' });
+      const floorIds = payload.map(item => item.id);
+      const { data: existingFloors, error: existingFloorsError } = await supabase.from('floors').select('id').in('id', floorIds);
+      if (existingFloorsError) return sendError(reply, 500, 'DB_ERROR', existingFloorsError.message);
+
+      const existingIdSet = new Set((existingFloors || []).map(row => row.id));
+      const filteredPayload = [];
+
+      payload.forEach((item, index) => {
+        if (existingIdSet.has(item.id)) {
+          filteredPayload.push(item);
+          return;
+        }
+        const sourceIdx = items.findIndex(source => source?.id === item.id);
+        failed.push({ index: sourceIdx >= 0 ? sourceIdx : index, id: item.id, reason: 'floor not found' });
+      });
+
+      if (strict && failed.length > 0) {
+        return sendError(reply, 409, 'PARTIAL_UPDATE', 'One or more floors cannot be updated', { failed });
+      }
+
+      if (filteredPayload.length === 0) {
+        return reply.send({ ok: failed.length === 0, updated: 0, failed });
+      }
+
+      const { error } = await supabase.from('floors').upsert(filteredPayload, { onConflict: 'id' });
       if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
+
+      return reply.send({ ok: failed.length === 0, updated: filteredPayload.length, failed });
     }
 
-    return reply.send({ ok: true, updated: payload.length, failed });
+    return reply.send({ ok: failed.length === 0, updated: 0, failed });
   });
 
   app.post('/api/v1/blocks/:blockId/floors/reconcile', async (req, reply) => {

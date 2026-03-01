@@ -15,12 +15,68 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class RegistryJpaService {
+
+    private static final Set<String> EXTENSION_VERTICAL_ANCHORS = Set.of("GROUND", "BLOCK_FLOOR", "ROOF");
+    private static final Set<String> EXTENSION_CONSTRUCTION_KINDS = Set.of("capital", "light");
+
+    private Map<String, Object> normalizeExtensionPayload(Map<String, Object> payload) {
+        String label = stringValOr(payload == null ? null : payload.get("label"), "").trim();
+        if (label.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "label is required");
+
+        int floorsCount = toInt(payload == null ? null : payload.get("floorsCount"));
+        if (floorsCount < 1) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "floorsCount must be an integer >= 1");
+
+        int startFloorIndex = toInt(payload == null ? null : payload.get("startFloorIndex"));
+        if (startFloorIndex < 1) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "startFloorIndex must be an integer >= 1");
+
+        String extensionType = stringValOr(payload == null ? null : payload.get("extensionType"), "OTHER").trim().toUpperCase(Locale.ROOT);
+        String constructionKind = stringValOr(payload == null ? null : payload.get("constructionKind"), "capital").trim().toLowerCase(Locale.ROOT);
+        if (!EXTENSION_CONSTRUCTION_KINDS.contains(constructionKind)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "constructionKind must be one of: capital, light");
+        }
+
+        String verticalAnchorType = stringValOr(payload == null ? null : payload.get("verticalAnchorType"), "GROUND").trim().toUpperCase(Locale.ROOT);
+        if (!EXTENSION_VERTICAL_ANCHORS.contains(verticalAnchorType)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "verticalAnchorType must be one of: GROUND, BLOCK_FLOOR, ROOF");
+        }
+
+        String anchorFloorRaw = payload == null ? null : stringValOr(payload.get("anchorFloorKey"), "").trim();
+        String anchorFloorKey = anchorFloorRaw == null || anchorFloorRaw.isEmpty() ? null : anchorFloorRaw;
+
+        if ("GROUND".equals(verticalAnchorType) && anchorFloorKey != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "anchorFloorKey must be null when verticalAnchorType=GROUND");
+        }
+        if (!"GROUND".equals(verticalAnchorType) && (anchorFloorKey == null || anchorFloorKey.isEmpty())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "anchorFloorKey is required when verticalAnchorType is BLOCK_FLOOR or ROOF");
+        }
+
+        String notes = payload == null || payload.get("notes") == null ? null : stringValOr(payload.get("notes"), "").trim();
+        if (notes != null && notes.isEmpty()) notes = null;
+
+        Map<String, Object> normalized = new HashMap<>();
+        normalized.put("label", label);
+        normalized.put("extension_type", extensionType);
+        normalized.put("construction_kind", constructionKind);
+        normalized.put("floors_count", floorsCount);
+        normalized.put("start_floor_index", startFloorIndex);
+        normalized.put("vertical_anchor_type", verticalAnchorType);
+        normalized.put("anchor_floor_key", "GROUND".equals(verticalAnchorType) ? null : anchorFloorKey);
+        normalized.put("notes", notes);
+        return normalized;
+    }
+
     @PersistenceContext
     private EntityManager em;
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> floors(String blockId) {
-        return queryList("select * from floors where block_id = :blockId order by floor_number asc", Map.of("blockId", blockId));
+        return queryList("""
+            select f.*
+            from floors f
+            where f.block_id = :blockId
+               or f.extension_id in (select id from block_extensions where parent_block_id = :blockId)
+            order by f.index asc
+            """, Map.of("blockId", blockId));
     }
 
     @Transactional
@@ -52,12 +108,17 @@ public class RegistryJpaService {
 
         sets.add("updated_at = now()");
         String sql = "update floors set " + String.join(", ", sets) + " where id = :id";
-        execute(sql, params);
-        return Map.of("ok", true);
+        Query q = em.createNativeQuery(sql);
+        params.forEach(q::setParameter);
+        int affected = q.executeUpdate();
+        if (affected == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Floor not found");
+        }
+        return Map.of("ok", true, "updated", affected);
     }
 
     @Transactional
-    public Map<String, Object> updateFloorsBatch(List<Map<String, Object>> items) {
+    public Map<String, Object> updateFloorsBatch(List<Map<String, Object>> items, boolean strict) {
         int updated = 0;
         List<Map<String, Object>> failed = new ArrayList<>();
 
@@ -77,7 +138,11 @@ public class RegistryJpaService {
             }
         }
 
-        return Map.of("ok", true, "updated", updated, "failed", failed);
+        if (strict && !failed.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "One or more floors cannot be updated");
+        }
+
+        return Map.of("ok", failed.isEmpty(), "updated", updated, "failed", failed);
     }
 
     @Transactional
@@ -473,49 +538,70 @@ public class RegistryJpaService {
     @Transactional
     public Map<String, Object> createExtension(String blockId, Map<String, Object> body) {
         Map<String, Object> extensionData = mapFrom(body == null ? null : body.get("extensionData"));
+        Map<String, Object> normalized = normalizeExtensionPayload(extensionData);
         String id = UUID.randomUUID().toString();
 
         List<Map<String, Object>> blockRows = queryList("select building_id from building_blocks where id = :blockId", Map.of("blockId", blockId));
         if (blockRows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Block not found");
 
-        execute("""
-            insert into block_extensions (id, building_id, parent_block_id, extension_number, entrance_number, floors_count, units_count, updated_at)
-            values (:id, :buildingId, :blockId, :extensionNumber, :entranceNumber, :floorsCount, :unitsCount, now())
-            """, Map.of(
-            "id", id,
-            "buildingId", blockRows.get(0).get("building_id"),
-            "blockId", blockId,
-            "extensionNumber", toInt(extensionData.get("extensionNumber")),
-            "entranceNumber", toInt(extensionData.get("entranceNumber")),
-            "floorsCount", toInt(extensionData.get("floorsCount")),
-            "unitsCount", toInt(extensionData.get("unitsCount"))
-        ));
+        Map<String, Object> createParams = new HashMap<>();
+        createParams.put("id", id);
+        createParams.put("buildingId", blockRows.get(0).get("building_id"));
+        createParams.put("blockId", blockId);
+        createParams.put("label", normalized.get("label"));
+        createParams.put("extensionType", normalized.get("extension_type"));
+        createParams.put("constructionKind", normalized.get("construction_kind"));
+        createParams.put("floorsCount", normalized.get("floors_count"));
+        createParams.put("startFloorIndex", normalized.get("start_floor_index"));
+        createParams.put("verticalAnchorType", normalized.get("vertical_anchor_type"));
+        createParams.put("anchorFloorKey", normalized.get("anchor_floor_key"));
+        createParams.put("notes", normalized.get("notes"));
 
-        return Map.of("ok", true, "id", id);
+        execute("""
+            insert into block_extensions (id, building_id, parent_block_id, label, extension_type, construction_kind, floors_count, start_floor_index, vertical_anchor_type, anchor_floor_key, notes, updated_at)
+            values (:id, :buildingId, :blockId, :label, :extensionType, :constructionKind, :floorsCount, :startFloorIndex, :verticalAnchorType, :anchorFloorKey, :notes, now())
+            """, createParams);
+
+        List<Map<String, Object>> created = queryList("select * from block_extensions where id = :id", Map.of("id", id));
+        if (created.isEmpty()) throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to read created extension");
+        syncExtensionFloors(id);
+        return created.get(0);
     }
 
     @Transactional
     public Map<String, Object> updateExtension(String extensionId, Map<String, Object> body) {
         Map<String, Object> extensionData = mapFrom(body == null ? null : body.get("extensionData"));
+        Map<String, Object> normalized = normalizeExtensionPayload(extensionData);
 
         int count = execute("""
             update block_extensions
-            set extension_number = :extensionNumber,
-                entrance_number = :entranceNumber,
+            set label = :label,
+                extension_type = :extensionType,
+                construction_kind = :constructionKind,
                 floors_count = :floorsCount,
-                units_count = :unitsCount,
+                start_floor_index = :startFloorIndex,
+                vertical_anchor_type = :verticalAnchorType,
+                anchor_floor_key = :anchorFloorKey,
+                notes = :notes,
                 updated_at = now()
             where id = :extensionId
             """, Map.of(
             "extensionId", extensionId,
-            "extensionNumber", toInt(extensionData.get("extensionNumber")),
-            "entranceNumber", toInt(extensionData.get("entranceNumber")),
-            "floorsCount", toInt(extensionData.get("floorsCount")),
-            "unitsCount", toInt(extensionData.get("unitsCount"))
+            "label", normalized.get("label"),
+            "extensionType", normalized.get("extension_type"),
+            "constructionKind", normalized.get("construction_kind"),
+            "floorsCount", normalized.get("floors_count"),
+            "startFloorIndex", normalized.get("start_floor_index"),
+            "verticalAnchorType", normalized.get("vertical_anchor_type"),
+            "anchorFloorKey", normalized.get("anchor_floor_key"),
+            "notes", normalized.get("notes")
         ));
 
         if (count == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Extension not found");
-        return Map.of("ok", true, "id", extensionId);
+        List<Map<String, Object>> updated = queryList("select * from block_extensions where id = :id", Map.of("id", extensionId));
+        if (updated.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Extension not found");
+        syncExtensionFloors(extensionId);
+        return updated.get(0);
     }
 
     @Transactional
@@ -523,6 +609,57 @@ public class RegistryJpaService {
         int count = execute("delete from block_extensions where id = :extensionId", Map.of("extensionId", extensionId));
         if (count == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Extension not found");
         return Map.of("ok", true, "id", extensionId);
+    }
+
+    private void syncExtensionFloors(String extensionId) {
+        Map<String, Object> extension = queryList(
+            "select id, parent_block_id, floors_count, start_floor_index from block_extensions where id = :id",
+            Map.of("id", extensionId)
+        ).stream().findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Extension not found"));
+
+        int floorsCount = Math.max(1, toInt(extension.get("floors_count")));
+        int startFloorIndex = Math.max(1, toInt(extension.get("start_floor_index")));
+
+        List<Map<String, Object>> existing = queryList("select id, index from floors where extension_id = :extensionId", Map.of("extensionId", extensionId));
+        Map<Integer, String> existingByIndex = new HashMap<>();
+        for (Map<String, Object> row : existing) {
+            existingByIndex.put(toInt(row.get("index")), stringValOr(row.get("id"), ""));
+        }
+
+        Set<Integer> target = new HashSet<>();
+        for (int i = 0; i < floorsCount; i++) {
+            int idx = startFloorIndex + i;
+            target.add(idx);
+            String floorId = existingByIndex.getOrDefault(idx, UUID.randomUUID().toString());
+
+            execute("""
+                insert into floors(id, block_id, extension_id, index, floor_key, label, floor_type, parent_floor_index, basement_id, updated_at)
+                values (:id, null, :extensionId, :idx, :floorKey, :label, :floorType, null, null, now())
+                on conflict (id) do update
+                set block_id = excluded.block_id,
+                    extension_id = excluded.extension_id,
+                    index = excluded.index,
+                    floor_key = excluded.floor_key,
+                    label = excluded.label,
+                    floor_type = excluded.floor_type,
+                    parent_floor_index = excluded.parent_floor_index,
+                    basement_id = excluded.basement_id,
+                    updated_at = now()
+                """, Map.of(
+                "id", floorId,
+                "extensionId", extensionId,
+                "idx", idx,
+                "floorKey", "extension:" + extensionId + ":" + idx,
+                "label", idx + " этаж",
+                "floorType", "residential"
+            ));
+        }
+
+        for (Map<String, Object> row : existing) {
+            int idx = toInt(row.get("index"));
+            if (target.contains(idx)) continue;
+            execute("delete from floors where id = :id", Map.of("id", row.get("id")));
+        }
     }
 
     private List<Map<String, Object>> queryList(String sql, Map<String, Object> params) {

@@ -27,6 +27,14 @@ public class RegistryController {
         return registry.updateFloor(floorId, body);
     }
 
+    @PutMapping("/floors/batch")
+    public Map<String, Object> updateFloorsBatch(@RequestBody Map<String, Object> body) {
+        policy.require("registry", "mutate", "Role cannot mutate registry");
+        List<Map<String, Object>> items = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("items", List.of());
+        boolean strict = body != null && Boolean.TRUE.equals(body.get("strict"));
+        return registry.updateFloorsBatch(items, strict);
+    }
+
     @PostMapping("/blocks/{blockId}/floors/reconcile")
     public Map<String, Object> reconcileFloors(@PathVariable String blockId, @RequestBody Map<String, Object> body) {
         policy.require("registry", "mutate", "Role cannot mutate registry");
@@ -65,6 +73,29 @@ public class RegistryController {
     @PostMapping("/blocks/{blockId}/reconcile/preview")
     public Map<String, Object> previewReconcile(@PathVariable String blockId) {
         return registry.previewReconcileByBlock(blockId);
+    }
+
+    @GetMapping("/blocks/{blockId}/extensions")
+    public List<Map<String, Object>> extensions(@PathVariable String blockId) {
+        return registry.listExtensions(blockId);
+    }
+
+    @PostMapping("/blocks/{blockId}/extensions")
+    public Map<String, Object> createExtension(@PathVariable String blockId, @RequestBody Map<String, Object> body) {
+        policy.require("registry", "mutate", "Role cannot mutate registry");
+        return registry.createExtension(blockId, body);
+    }
+
+    @PutMapping("/extensions/{extensionId}")
+    public Map<String, Object> updateExtension(@PathVariable String extensionId, @RequestBody Map<String, Object> body) {
+        policy.require("registry", "mutate", "Role cannot mutate registry");
+        return registry.updateExtension(extensionId, body);
+    }
+
+    @DeleteMapping("/extensions/{extensionId}")
+    public Map<String, Object> deleteExtension(@PathVariable String extensionId) {
+        policy.require("registry", "mutate", "Role cannot mutate registry");
+        return registry.deleteExtension(extensionId);
     }
 
     @GetMapping("/blocks/{blockId}/units")
