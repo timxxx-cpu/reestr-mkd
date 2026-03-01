@@ -30,9 +30,21 @@ public class CompositionService {
         for (Map<String, Object> b : buildings) {
             String buildingId = String.valueOf(b.get("id"));
             List<Map<String, Object>> blocks = jdbc.queryForList(
-                "select id, label, type, floors_count, is_basement_block from building_blocks where building_id = ? order by label asc",
+                "select id, label, type, floors_count, is_basement_block, linked_block_ids from building_blocks where building_id = ? order by label asc",
                 buildingId
             );
+
+            for (Map<String, Object> block : blocks) {
+                String blockId = String.valueOf(block.get("id"));
+                List<Map<String, Object>> extensions = jdbc.queryForList(
+                    "select id, label, extension_type, floors_count, start_floor_index from block_extensions where parent_block_id = ? order by created_at asc",
+                    blockId
+                );
+                block.put("isBasementBlock", Boolean.TRUE.equals(block.get("is_basement_block")));
+                block.put("linkedBlockIds", block.get("linked_block_ids"));
+                block.put("extensions", extensions);
+            }
+
             b.put("blocks", blocks);
         }
         return buildings;

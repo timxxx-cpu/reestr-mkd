@@ -38,6 +38,17 @@ function parseNonNegativeIntOrNull(value) {
   return num;
 }
 
+
+function parseNullableDecimal(value, fieldName) {
+  if (value === '' || value === null || value === undefined) return null;
+  const normalized = typeof value === 'string' ? value.replace(',', '.').trim() : value;
+  const num = Number(normalized);
+  if (!Number.isFinite(num)) {
+    throw new Error(`${fieldName} must be a valid number or empty`);
+  }
+  return num;
+}
+
 function validateMatrixValues(values = {}) {
   const payload = {};
   const hasApts = Object.prototype.hasOwnProperty.call(values, 'apts');
@@ -72,9 +83,9 @@ function validateMatrixValues(values = {}) {
 
 function mapFloorUpdatesToPayload(updates = {}) {
   const payload = {};
-  if (updates.height !== undefined) payload.height = updates.height;
-  if (updates.areaProj !== undefined) payload.area_proj = updates.areaProj;
-  if (updates.areaFact !== undefined) payload.area_fact = updates.areaFact;
+  if (updates.height !== undefined) payload.height = parseNullableDecimal(updates.height, 'height');
+  if (updates.areaProj !== undefined) payload.area_proj = parseNullableDecimal(updates.areaProj, 'areaProj');
+  if (updates.areaFact !== undefined) payload.area_fact = parseNullableDecimal(updates.areaFact, 'areaFact');
   if (updates.isDuplex !== undefined) payload.is_duplex = updates.isDuplex;
   if (updates.label !== undefined) payload.label = updates.label;
   if (updates.type !== undefined) payload.floor_type = updates.type;

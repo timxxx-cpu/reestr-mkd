@@ -36,15 +36,15 @@ public class RegistryService {
 
         if (updates.containsKey("height")) {
             sets.add("height=?");
-            params.add(updates.get("height"));
+            params.add(parseNullableDecimal(updates.get("height"), "height"));
         }
         if (updates.containsKey("areaProj")) {
             sets.add("area_proj=?");
-            params.add(updates.get("areaProj"));
+            params.add(parseNullableDecimal(updates.get("areaProj"), "areaProj"));
         }
         if (updates.containsKey("areaFact")) {
             sets.add("area_fact=?");
-            params.add(updates.get("areaFact"));
+            params.add(parseNullableDecimal(updates.get("areaFact"), "areaFact"));
         }
         if (updates.containsKey("isDuplex")) {
             sets.add("is_duplex=?");
@@ -615,6 +615,19 @@ public class RegistryService {
         try { return Integer.parseInt(String.valueOf(value)); } catch (NumberFormatException e) { return 0; }
     }
 
+
+
+    private Double parseNullableDecimal(Object value, String fieldName) {
+        if (value == null) return null;
+        String raw = String.valueOf(value).trim();
+        if (raw.isEmpty()) return null;
+        raw = raw.replace(',', '.');
+        try {
+            return Double.parseDouble(raw);
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException(fieldName + " must be a valid number or empty");
+        }
+    }
 
     private String placeholders(int count) {
         return String.join(",", Collections.nCopies(count, "?"));

@@ -88,9 +88,9 @@ public class RegistryJpaService {
         Map<String, Object> params = new HashMap<>();
         params.put("id", floorId);
 
-        if (updates.containsKey("height")) { sets.add("height = :height"); params.put("height", updates.get("height")); }
-        if (updates.containsKey("areaProj")) { sets.add("area_proj = :areaProj"); params.put("areaProj", updates.get("areaProj")); }
-        if (updates.containsKey("areaFact")) { sets.add("area_fact = :areaFact"); params.put("areaFact", updates.get("areaFact")); }
+        if (updates.containsKey("height")) { sets.add("height = :height"); params.put("height", parseNullableDecimal(updates.get("height"), "height")); }
+        if (updates.containsKey("areaProj")) { sets.add("area_proj = :areaProj"); params.put("areaProj", parseNullableDecimal(updates.get("areaProj"), "areaProj")); }
+        if (updates.containsKey("areaFact")) { sets.add("area_fact = :areaFact"); params.put("areaFact", parseNullableDecimal(updates.get("areaFact"), "areaFact")); }
         if (updates.containsKey("isDuplex")) { sets.add("is_duplex = :isDuplex"); params.put("isDuplex", updates.get("isDuplex")); }
         if (updates.containsKey("label")) { sets.add("label = :label"); params.put("label", updates.get("label")); }
         if (updates.containsKey("type")) { sets.add("floor_type = :floorType"); params.put("floorType", updates.get("type")); }
@@ -741,6 +741,19 @@ public class RegistryJpaService {
         Map<String, Object> params = new HashMap<>();
         for (int i = 0; i < values.size(); i++) params.put(prefix + i, values.get(i));
         return params;
+    }
+
+
+    private Double parseNullableDecimal(Object value, String fieldName) {
+        if (value == null) return null;
+        String raw = String.valueOf(value).trim();
+        if (raw.isEmpty()) return null;
+        raw = raw.replace(',', '.');
+        try {
+            return Double.parseDouble(raw);
+        } catch (NumberFormatException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, fieldName + " must be a valid number or empty");
+        }
     }
 
     private int toInt(Object value) {
