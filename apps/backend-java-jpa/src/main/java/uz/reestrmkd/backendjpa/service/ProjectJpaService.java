@@ -42,36 +42,142 @@ public class ProjectJpaService {
         }
 
         List<Map<String, Object>> projectRows = queryList(
-            "select id, uj_code, name, land_plot_geojson from projects where scope_id = :scope order by updated_at desc",
+            "select id, uj_code, name, address, construction_status, land_plot_geojson from projects where scope_id = :scope order by updated_at desc",
+            Map.of("scope", scope)
+        );
+
+        List<Map<String, Object>> applicationRows = queryList(
+            "select project_id, status from applications where scope_id = :scope",
             Map.of("scope", scope)
         );
 
         List<Map<String, Object>> buildingRows = queryList(
-            "select id, project_id, label, building_code, footprint_geojson from buildings where project_id in (select id from projects where scope_id = :scope)",
+            "select id, project_id, label, house_number, category, building_code, footprint_geojson from buildings where project_id in (select id from projects where scope_id = :scope)",
             Map.of("scope", scope)
         );
+
+        List<Map<String, Object>> blockRows = queryList(
+            "select id, building_id, label, floors_count, footprint_geojson, is_basement_block from building_blocks where building_id in (select id from buildings where project_id in (select id from projects where scope_id = :scope))",
+            Map.of("scope", scope)
+        );
+
+        List<Map<String, Object>> floorRows = queryList(
+            "select id, block_id from floors where block_id in (select id from building_blocks where building_id in (select id from buildings where project_id in (select id from projects where scope_id = :scope)))",
+            Map.of("scope", scope)
+        );
+
+        List<Map<String, Object>> unitRows = queryList(
+            "select id, floor_id, unit_type from units where floor_id in (select id from floors where block_id in (select id from building_blocks where building_id in (select id from buildings where project_id in (select id from projects where scope_id = :scope))))",
+            Map.of("scope", scope)
+        );
+
+        Map<String, String> statusByProject = new LinkedHashMap<>();
+        for (Map<String, Object> row : applicationRows) {
+            String projectId = stringVal(row.get("project_id"));
+            if (projectId != null && !statusByProject.containsKey(projectId)) {
+                statusByProject.put(projectId, stringVal(row.get("status")));
+            }
+        }
+
+        Map<String, List<Map<String, Object>>> blocksByBuilding = new LinkedHashMap<>();
+        for (Map<String, Object> row : blockRows) {
+            String buildingId = stringVal(row.get("building_id"));
+            if (buildingId == null) continue;
+            blocksByBuilding.computeIfAbsent(buildingId, k -> new ArrayList<>()).add(row);
+        }
+
+        Map<String, List<Map<String, Object>>> floorsByBlock = new LinkedHashMap<>();
+        for (Map<String, Object> row : floorRows) {
+            String blockId = stringVal(row.get("block_id"));
+            if (blockId == null) continue;
+            floorsByBlock.computeIfAbsent(blockId, k -> new ArrayList<>()).add(row);
+        }
+
+        Map<String, List<Map<String, Object>>> unitsByFloor = new LinkedHashMap<>();
+        for (Map<String, Object> row : unitRows) {
+            String floorId = stringVal(row.get("floor_id"));
+            if (floorId == null) continue;
+            unitsByFloor.computeIfAbsent(floorId, k -> new ArrayList<>()).add(row);
+        }
 
         Map<String, List<Map<String, Object>>> buildingsByProject = new LinkedHashMap<>();
         for (Map<String, Object> row : buildingRows) {
             String projectId = stringVal(row.get("project_id"));
-            if (projectId == null) continue;
+            String buildingId = stringVal(row.get("id"));
+            if (projectId == null || buildingId == null) continue;
+
+            List<Map<String, Object>> blocks = blocksByBuilding.getOrDefault(buildingId, List.of());
+            List<Map<String, Object>> regularBlocks = blocks.stream()
+                .filter(block -> !Boolean.TRUE.equals(block.get("is_basement_block")))
+                .toList();
+            int floorsMax = 0;
+            List<Map<String, Object>> floors = new ArrayList<>();
+            for (Map<String, Object> block : regularBlocks) {
+                floorsMax = Math.max(floorsMax, toInt(block.get("floors_count")));
+                floors.addAll(floorsByBlock.getOrDefault(stringVal(block.get("id")), List.of()));
+            }
+
+            List<Map<String, Object>> units = new ArrayList<>();
+            for (Map<String, Object> floor : floors) {
+                units.addAll(unitsByFloor.getOrDefault(stringVal(floor.get("id")), List.of()));
+            }
+
+            int apartmentsCount = (int) units.stream()
+                .filter(unit -> "apartment".equals(stringVal(unit.get("unit_type"))))
+                .count();
+
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("id", row.get("id"));
             item.put("label", row.get("label"));
             item.put("buildingCode", row.get("building_code"));
+            item.put("houseNumber", row.get("house_number"));
+            item.put("house_number", row.get("house_number"));
+            item.put("category", row.get("category"));
+            item.put("blocksCount", regularBlocks.size());
+            item.put("floorsMax", floorsMax > 0 ? floorsMax : null);
+            item.put("unitsCount", units.size());
+            item.put("apartmentsCount", apartmentsCount);
+            item.put("address", row.get("house_number") == null ? null : "д. " + row.get("house_number"));
             item.put("geometry", row.get("footprint_geojson"));
+            item.put("blocks", regularBlocks.stream().map(block -> {
+                Map<String, Object> blockPayload = new LinkedHashMap<>();
+                blockPayload.put("id", block.get("id"));
+                blockPayload.put("label", block.get("label"));
+                blockPayload.put("floorsCount", toInt(block.get("floors_count")));
+                blockPayload.put("geometry", block.get("footprint_geojson"));
+                return blockPayload;
+            }).toList());
+
             buildingsByProject.computeIfAbsent(projectId, k -> new ArrayList<>()).add(item);
         }
 
         List<Map<String, Object>> items = new ArrayList<>();
         for (Map<String, Object> row : projectRows) {
             String projectId = stringVal(row.get("id"));
+            List<Map<String, Object>> projectBuildings = buildingsByProject.getOrDefault(projectId, List.of());
+
+            Map<String, Integer> categoryStats = new LinkedHashMap<>();
+            for (Map<String, Object> building : projectBuildings) {
+                String category = stringVal(building.get("category"));
+                if (category == null) category = "unknown";
+                categoryStats.put(category, categoryStats.getOrDefault(category, 0) + 1);
+            }
+
+            List<Map<String, Object>> buildingTypeStats = new ArrayList<>();
+            for (Map.Entry<String, Integer> entry : categoryStats.entrySet()) {
+                buildingTypeStats.add(Map.of("category", entry.getKey(), "count", entry.getValue()));
+            }
+
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("id", row.get("id"));
             item.put("ujCode", row.get("uj_code"));
             item.put("name", row.get("name"));
+            item.put("address", row.get("address"));
+            item.put("status", statusByProject.getOrDefault(projectId, stringVal(row.get("construction_status"))));
+            item.put("totalBuildings", projectBuildings.size());
+            item.put("buildingTypeStats", buildingTypeStats);
             item.put("landPlotGeometry", row.get("land_plot_geojson"));
-            item.put("buildings", buildingsByProject.getOrDefault(projectId, List.of()));
+            item.put("buildings", projectBuildings);
             items.add(item);
         }
 
@@ -564,6 +670,16 @@ public class ProjectJpaService {
             }
             blockParams.put("parentBlocks", toPgUuidArrayLiteral(new ArrayList<>(new LinkedHashSet<>(parentBlocks))));
 
+            Map<String, Object> buildingRow = queryOne("select b.footprint_geojson from buildings b join building_blocks bb on bb.building_id = b.id where bb.id = :id", Map.of("id", blockId));
+            Map<String, Object> blockGeometry = mapFrom(block.get("blockGeometry"));
+            if (blockGeometry.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Block geometry is required");
+            }
+            if (!isGeometryInsideGeometry(blockGeometry, mapFrom(buildingRow == null ? null : buildingRow.get("footprint_geojson")))) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Block geometry must be inside building geometry");
+            }
+            blockParams.put("footprintGeojson", toJson(blockGeometry));
+
             execute("""
                 update building_blocks
                 set floors_count = coalesce(:floorsCount, floors_count),
@@ -581,6 +697,7 @@ public class ProjectJpaService {
                     has_custom_address = :hasCustomAddress,
                     custom_house_number = :customHouseNumber,
                     address_id = coalesce(cast(:addressId as uuid), address_id),
+                    footprint_geojson = cast(:footprintGeojson as jsonb),
                     parent_blocks = cast(:parentBlocks as uuid[]),
                     updated_at = now()
                 where id = :blockId
@@ -1442,6 +1559,82 @@ public class ProjectJpaService {
     }
 
 
+
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value == null ? Map.of() : value);
+        } catch (JsonProcessingException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid geometry json");
+        }
+    }
+
+    private Map<String, Object> normalizeGeometry(Map<String, Object> geometry) {
+        if (geometry == null || geometry.isEmpty()) return Map.of();
+        Object type = geometry.get("type");
+        if ("MultiPolygon".equals(type)) return geometry;
+        if ("Polygon".equals(type)) {
+            Map<String, Object> next = new LinkedHashMap<>();
+            next.put("type", "MultiPolygon");
+            next.put("coordinates", List.of(geometry.get("coordinates")));
+            return next;
+        }
+        return Map.of();
+    }
+
+    private boolean pointInRing(List<Double> point, List<List<Double>> ring) {
+        if (point == null || ring == null || ring.isEmpty()) return false;
+        double x = point.get(0);
+        double y = point.get(1);
+        boolean inside = false;
+        for (int i = 0, j = ring.size() - 1; i < ring.size(); j = i++) {
+            List<Double> a = ring.get(i);
+            List<Double> b = ring.get(j);
+            if (a == null || b == null || a.size() < 2 || b.size() < 2) continue;
+            boolean intersect = ((a.get(1) > y) != (b.get(1) > y))
+                && (x < (b.get(0) - a.get(0)) * (y - a.get(1)) / ((b.get(1) - a.get(1)) == 0 ? Double.MIN_VALUE : (b.get(1) - a.get(1))) + a.get(0));
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean isGeometryInsideGeometry(Map<String, Object> innerRaw, Map<String, Object> outerRaw) {
+        Map<String, Object> inner = normalizeGeometry(innerRaw);
+        Map<String, Object> outer = normalizeGeometry(outerRaw);
+        if (inner.isEmpty() || outer.isEmpty()) return false;
+        List<List<List<List<Double>>>> innerCoords = (List<List<List<List<Double>>>>) inner.get("coordinates");
+        List<List<List<List<Double>>>> outerCoords = (List<List<List<List<Double>>>>) outer.get("coordinates");
+        if (innerCoords == null || outerCoords == null) return false;
+
+        List<List<Double>> vertices = new ArrayList<>();
+        for (List<List<List<Double>>> poly : innerCoords) {
+            if (poly != null && !poly.isEmpty() && poly.get(0) != null) vertices.addAll(poly.get(0));
+        }
+        if (vertices.isEmpty()) return false;
+
+        for (List<Double> point : vertices) {
+            boolean inAny = false;
+            for (List<List<List<Double>>> poly : outerCoords) {
+                if (poly == null || poly.isEmpty()) continue;
+                List<List<Double>> outerRing = poly.get(0);
+                if (!pointInRing(point, outerRing)) continue;
+                boolean inHole = false;
+                for (int h = 1; h < poly.size(); h++) {
+                    if (pointInRing(point, poly.get(h))) {
+                        inHole = true;
+                        break;
+                    }
+                }
+                if (!inHole) {
+                    inAny = true;
+                    break;
+                }
+            }
+            if (!inAny) return false;
+        }
+        return true;
+    }
 
     private String deriveBlockAddressId(String parentAddressId, String corpusNo) {
         if (parentAddressId == null || corpusNo == null || corpusNo.isBlank()) return null;

@@ -15,6 +15,7 @@ const FIELD_NAMES = {
   floorsTo: 'Этажность (по)',
   elevators: 'Лифты',
   customHouseNumber: 'Номер дома блока',
+  blockGeometry: 'Геометрия блока',
   inputs: 'Количество входов',
   vehicleEntries: 'Въезды',
   floorsCount: 'Количество этажей',
@@ -264,6 +265,14 @@ const getBuildingErrors = (building, buildingDetails, mode) => {
           description: `Здание выше 5 этажей (${floorsToCheck} эт.) обязано иметь лифт.`,
         });
       }
+    }
+
+
+    if (!cleanedDetails.blockGeometry || !cleanedDetails.blockGeometry.coordinates) {
+      errors.push({
+        title: contextTitle,
+        description: 'Геометрия блока обязательна и должна находиться внутри геометрии здания.',
+      });
     }
 
     if (

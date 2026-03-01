@@ -166,6 +166,10 @@ export const BuildingConfigSchema = z
 
     hasCustomAddress: z.boolean().optional(),
     customHouseNumber: z.string().optional(),
+    blockGeometry: z.object({
+      type: z.enum(['Polygon', 'MultiPolygon']),
+      coordinates: z.array(z.any()).min(1),
+    }).optional(),
 
     hasBasementFloor: z.boolean().optional(),
     hasAttic: z.boolean().optional(),

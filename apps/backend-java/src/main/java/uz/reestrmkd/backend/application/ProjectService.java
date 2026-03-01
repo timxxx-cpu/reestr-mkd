@@ -23,7 +23,7 @@ public class ProjectService {
         if (scope == null || scope.isBlank()) throw new IllegalArgumentException("Scope is required");
 
         var projectRows = jdbc.queryForList(
-            "select id, uj_code, name, land_plot_geojson from projects where scope_id = ? order by updated_at desc",
+            "select id, uj_code, name, address, construction_status, land_plot_geojson from projects where scope_id = ? order by updated_at desc",
             scope
         );
 
@@ -31,33 +31,149 @@ public class ProjectService {
             return Map.of("items", List.of());
         }
 
+        var applicationRows = jdbc.queryForList(
+            "select project_id, status from applications where scope_id = ?",
+            scope
+        );
+
         List<Object> projectIds = projectRows.stream().map(r -> r.get("id")).filter(Objects::nonNull).toList();
-        String placeholders = String.join(",", Collections.nCopies(projectIds.size(), "?"));
+        String projectPlaceholders = String.join(",", Collections.nCopies(projectIds.size(), "?"));
         var buildingRows = jdbc.queryForList(
-            "select id, project_id, label, building_code, footprint_geojson from buildings where project_id in (" + placeholders + ")",
+            "select id, project_id, label, house_number, category, building_code, footprint_geojson from buildings where project_id in (" + projectPlaceholders + ")",
             projectIds.toArray()
         );
+
+        List<Object> buildingIds = buildingRows.stream().map(r -> r.get("id")).filter(Objects::nonNull).toList();
+        Map<String, List<Map<String, Object>>> blocksByBuilding = new LinkedHashMap<>();
+        Map<String, List<Map<String, Object>>> floorsByBlock = new LinkedHashMap<>();
+        Map<String, List<Map<String, Object>>> unitsByFloor = new LinkedHashMap<>();
+
+        if (!buildingIds.isEmpty()) {
+            String buildingPlaceholders = String.join(",", Collections.nCopies(buildingIds.size(), "?"));
+            var blockRows = jdbc.queryForList(
+                "select id, building_id, label, floors_count, footprint_geojson, is_basement_block from building_blocks where building_id in (" + buildingPlaceholders + ")",
+                buildingIds.toArray()
+            );
+
+            for (Map<String, Object> block : blockRows) {
+                String buildingId = String.valueOf(block.get("building_id"));
+                blocksByBuilding.computeIfAbsent(buildingId, k -> new ArrayList<>()).add(block);
+            }
+
+            List<Object> blockIds = blockRows.stream().map(r -> r.get("id")).filter(Objects::nonNull).toList();
+            if (!blockIds.isEmpty()) {
+                String blockPlaceholders = String.join(",", Collections.nCopies(blockIds.size(), "?"));
+                var floorRows = jdbc.queryForList(
+                    "select id, block_id from floors where block_id in (" + blockPlaceholders + ")",
+                    blockIds.toArray()
+                );
+
+                for (Map<String, Object> floor : floorRows) {
+                    String blockId = String.valueOf(floor.get("block_id"));
+                    floorsByBlock.computeIfAbsent(blockId, k -> new ArrayList<>()).add(floor);
+                }
+
+                List<Object> floorIds = floorRows.stream().map(r -> r.get("id")).filter(Objects::nonNull).toList();
+                if (!floorIds.isEmpty()) {
+                    String floorPlaceholders = String.join(",", Collections.nCopies(floorIds.size(), "?"));
+                    var unitRows = jdbc.queryForList(
+                        "select id, floor_id, unit_type from units where floor_id in (" + floorPlaceholders + ")",
+                        floorIds.toArray()
+                    );
+
+                    for (Map<String, Object> unit : unitRows) {
+                        String floorId = String.valueOf(unit.get("floor_id"));
+                        unitsByFloor.computeIfAbsent(floorId, k -> new ArrayList<>()).add(unit);
+                    }
+                }
+            }
+        }
+
+        Map<String, String> statusByProject = new LinkedHashMap<>();
+        for (Map<String, Object> app : applicationRows) {
+            String projectId = String.valueOf(app.get("project_id"));
+            if (!statusByProject.containsKey(projectId)) {
+                statusByProject.put(projectId, app.get("status") == null ? null : String.valueOf(app.get("status")));
+            }
+        }
 
         Map<String, List<Map<String, Object>>> buildingsByProject = new LinkedHashMap<>();
         for (Map<String, Object> row : buildingRows) {
             String projectId = String.valueOf(row.get("project_id"));
-            buildingsByProject.computeIfAbsent(projectId, k -> new ArrayList<>()).add(Map.of(
-                "id", row.get("id"),
-                "label", row.get("label"),
-                "buildingCode", row.get("building_code"),
-                "geometry", row.get("footprint_geojson")
-            ));
+            String buildingId = String.valueOf(row.get("id"));
+
+            List<Map<String, Object>> blocks = blocksByBuilding.getOrDefault(buildingId, List.of());
+            List<Map<String, Object>> regularBlocks = blocks.stream()
+                .filter(block -> !Boolean.TRUE.equals(block.get("is_basement_block")))
+                .toList();
+            int floorsMax = 0;
+            List<Map<String, Object>> floors = new ArrayList<>();
+            for (Map<String, Object> block : regularBlocks) {
+                floorsMax = Math.max(floorsMax, toInt(block.get("floors_count")));
+                String blockId = String.valueOf(block.get("id"));
+                floors.addAll(floorsByBlock.getOrDefault(blockId, List.of()));
+            }
+
+            List<Map<String, Object>> units = new ArrayList<>();
+            for (Map<String, Object> floor : floors) {
+                units.addAll(unitsByFloor.getOrDefault(String.valueOf(floor.get("id")), List.of()));
+            }
+
+            int apartmentsCount = (int) units.stream()
+                .filter(unit -> "apartment".equals(String.valueOf(unit.get("unit_type"))))
+                .count();
+
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", row.get("id"));
+            item.put("label", row.get("label"));
+            item.put("buildingCode", row.get("building_code"));
+            item.put("houseNumber", row.get("house_number"));
+            item.put("house_number", row.get("house_number"));
+            item.put("category", row.get("category"));
+            item.put("blocksCount", regularBlocks.size());
+            item.put("floorsMax", floorsMax > 0 ? floorsMax : null);
+            item.put("unitsCount", units.size());
+            item.put("apartmentsCount", apartmentsCount);
+            item.put("address", row.get("house_number") == null ? null : "д. " + row.get("house_number"));
+            item.put("geometry", row.get("footprint_geojson"));
+            item.put("blocks", regularBlocks.stream().map(block -> {
+                Map<String, Object> blockPayload = new LinkedHashMap<>();
+                blockPayload.put("id", block.get("id"));
+                blockPayload.put("label", block.get("label"));
+                blockPayload.put("floorsCount", toInt(block.get("floors_count")));
+                blockPayload.put("geometry", block.get("footprint_geojson"));
+                return blockPayload;
+            }).toList());
+
+
+            buildingsByProject.computeIfAbsent(projectId, k -> new ArrayList<>()).add(item);
         }
 
         List<Map<String, Object>> items = new ArrayList<>();
         for (Map<String, Object> row : projectRows) {
             String projectId = String.valueOf(row.get("id"));
+            List<Map<String, Object>> projectBuildings = buildingsByProject.getOrDefault(projectId, List.of());
+            Map<String, Integer> categoryStats = new LinkedHashMap<>();
+            for (Map<String, Object> building : projectBuildings) {
+                String category = building.get("category") == null ? "unknown" : String.valueOf(building.get("category"));
+                categoryStats.put(category, categoryStats.getOrDefault(category, 0) + 1);
+            }
+
+            List<Map<String, Object>> buildingTypeStats = new ArrayList<>();
+            for (Map.Entry<String, Integer> entry : categoryStats.entrySet()) {
+                buildingTypeStats.add(Map.of("category", entry.getKey(), "count", entry.getValue()));
+            }
+
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("id", row.get("id"));
             item.put("ujCode", row.get("uj_code"));
             item.put("name", row.get("name"));
+            item.put("address", row.get("address"));
+            item.put("status", statusByProject.getOrDefault(projectId, row.get("construction_status") == null ? null : String.valueOf(row.get("construction_status"))));
+            item.put("totalBuildings", projectBuildings.size());
+            item.put("buildingTypeStats", buildingTypeStats);
             item.put("landPlotGeometry", row.get("land_plot_geojson"));
-            item.put("buildings", buildingsByProject.getOrDefault(projectId, List.of()));
+            item.put("buildings", projectBuildings);
             items.add(item);
         }
 
@@ -98,7 +214,30 @@ public class ProjectService {
 
     public Map<String, Object> context(String projectId, String scope) { return Map.of("projectId", projectId, "scope", scope); }
 
-    @Transactional public Map<String, Object> contextBuildingSave(String projectId, Map<String, Object> body) { return Map.of("ok", true); }
+    @Transactional
+    public Map<String, Object> contextBuildingSave(String projectId, Map<String, Object> body) {
+        Object raw = body == null ? null : body.get("buildingDetails");
+        if (!(raw instanceof Map<?, ?> details)) return Map.of("ok", true);
+
+        for (Map.Entry<?, ?> e : details.entrySet()) {
+            String key = e.getKey() == null ? null : String.valueOf(e.getKey());
+            if (key == null || key.contains("_features") || key.endsWith("_data")) continue;
+            String[] parts = key.split("_");
+            String blockId = parts.length == 0 ? null : parts[parts.length - 1];
+            if (blockId == null || blockId.length() != 36) continue;
+            if (!(e.getValue() instanceof Map<?, ?> block)) continue;
+
+            Object geometry = block.get("blockGeometry");
+            if (geometry == null) {
+                throw new IllegalArgumentException("Block geometry is required");
+            }
+            String geometryJson = toJson(geometry);
+
+            jdbc.update("update building_blocks set footprint_geojson = cast(? as jsonb), updated_at=now() where id=?", geometryJson, blockId);
+        }
+
+        return Map.of("ok", true);
+    }
     @Transactional public Map<String, Object> contextMetaSave(String projectId, Map<String, Object> body) { return Map.of("ok", true); }
     @Transactional
     public Map<String, Object> stepBlockStatusesSave(String projectId, Map<String, Object> body) {

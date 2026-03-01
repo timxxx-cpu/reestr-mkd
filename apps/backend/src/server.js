@@ -317,11 +317,18 @@ export async function buildServer() {
 
     const { data: projectsData, error: projectsError } = await supabase
       .from('projects')
-      .select('id, uj_code, name, land_plot_geojson')
+      .select('id, uj_code, name, address, construction_status, land_plot_geojson')
       .eq('scope_id', scope)
       .order('updated_at', { ascending: false });
 
     if (projectsError) return sendError(reply, 500, 'DB_ERROR', projectsError.message);
+
+    const { data: applicationsData, error: applicationsError } = await supabase
+      .from('applications')
+      .select('project_id, status')
+      .eq('scope_id', scope);
+
+    if (applicationsError) return sendError(reply, 500, 'DB_ERROR', applicationsError.message);
 
     const projectIds = (projectsData || []).map(item => item.id).filter(Boolean);
     let buildingsByProject = {};
@@ -329,32 +336,129 @@ export async function buildServer() {
     if (projectIds.length > 0) {
       const { data: buildingsData, error: buildingsError } = await supabase
         .from('buildings')
-        .select('id, project_id, label, building_code, footprint_geojson')
+        .select('id, project_id, label, house_number, category, building_code, footprint_geojson')
         .in('project_id', projectIds);
 
       if (buildingsError) return sendError(reply, 500, 'DB_ERROR', buildingsError.message);
 
+      const buildingIds = (buildingsData || []).map(item => item.id).filter(Boolean);
+      let blocksByBuilding = {};
+      let floorsByBlock = {};
+      let unitsByFloor = {};
+
+      if (buildingIds.length > 0) {
+        const { data: blocksData, error: blocksError } = await supabase
+          .from('building_blocks')
+          .select('id, building_id, label, type, floors_count, footprint_geojson, is_basement_block')
+          .in('building_id', buildingIds);
+
+        if (blocksError) return sendError(reply, 500, 'DB_ERROR', blocksError.message);
+
+        const blockIds = (blocksData || []).map(item => item.id).filter(Boolean);
+        blocksByBuilding = (blocksData || []).reduce((acc, block) => {
+          if (!acc[block.building_id]) acc[block.building_id] = [];
+          acc[block.building_id].push(block);
+          return acc;
+        }, {});
+
+        if (blockIds.length > 0) {
+          const { data: floorsData, error: floorsError } = await supabase
+            .from('floors')
+            .select('id, block_id')
+            .in('block_id', blockIds);
+
+          if (floorsError) return sendError(reply, 500, 'DB_ERROR', floorsError.message);
+
+          const floorIds = (floorsData || []).map(item => item.id).filter(Boolean);
+          floorsByBlock = (floorsData || []).reduce((acc, floor) => {
+            if (!acc[floor.block_id]) acc[floor.block_id] = [];
+            acc[floor.block_id].push(floor);
+            return acc;
+          }, {});
+
+          if (floorIds.length > 0) {
+            const { data: unitsData, error: unitsError } = await supabase
+              .from('units')
+              .select('id, floor_id, unit_type')
+              .in('floor_id', floorIds);
+
+            if (unitsError) return sendError(reply, 500, 'DB_ERROR', unitsError.message);
+
+            unitsByFloor = (unitsData || []).reduce((acc, unit) => {
+              if (!acc[unit.floor_id]) acc[unit.floor_id] = [];
+              acc[unit.floor_id].push(unit);
+              return acc;
+            }, {});
+          }
+        }
+      }
+
       buildingsByProject = (buildingsData || []).reduce((acc, item) => {
         const key = item.project_id;
         if (!acc[key]) acc[key] = [];
+
+        const buildingBlocks = blocksByBuilding[item.id] || [];
+        const blockIds = buildingBlocks.map(block => block.id).filter(Boolean);
+        const buildingFloors = blockIds.flatMap(blockId => floorsByBlock[blockId] || []);
+        const floorIds = buildingFloors.map(floor => floor.id).filter(Boolean);
+        const buildingUnits = floorIds.flatMap(floorId => unitsByFloor[floorId] || []);
+        const floorsMax = buildingBlocks.reduce((max, block) => Math.max(max, Number(block.floors_count || 0)), 0) || null;
+        const blocks = buildingBlocks
+          .filter(block => !block.is_basement_block)
+          .map(block => ({
+            id: block.id,
+            label: block.label || null,
+            type: block.type || null,
+            floorsCount: Number(block.floors_count || 0) || null,
+            geometry: block.footprint_geojson || null,
+          }));
+
         acc[key].push({
           id: item.id,
           label: item.label,
           buildingCode: item.building_code || null,
+          houseNumber: item.house_number || null,
+          house_number: item.house_number || null,
+          category: item.category || null,
+          blocksCount: blocks.length,
+          floorsMax,
+          unitsCount: buildingUnits.length,
+          apartmentsCount: buildingUnits.filter(unit => unit.unit_type === 'apartment').length,
+          address: item.house_number ? `д. ${item.house_number}` : null,
+          blocks,
           geometry: item.footprint_geojson || null,
         });
         return acc;
       }, {});
     }
 
+    const applicationStatusByProject = (applicationsData || []).reduce((acc, app) => {
+      if (!app?.project_id) return acc;
+      if (!acc[app.project_id]) acc[app.project_id] = app.status || null;
+      return acc;
+    }, {});
+
     return reply.send({
-      items: (projectsData || []).map(project => ({
-        id: project.id,
-        ujCode: project.uj_code,
-        name: project.name,
-        landPlotGeometry: project.land_plot_geojson || null,
-        buildings: buildingsByProject[project.id] || [],
-      })),
+      items: (projectsData || []).map(project => {
+        const projectBuildings = buildingsByProject[project.id] || [];
+        const categoryStats = projectBuildings.reduce((acc, building) => {
+          const category = building.category || 'unknown';
+          acc[category] = (acc[category] || 0) + 1;
+          return acc;
+        }, {});
+
+        return {
+          id: project.id,
+          ujCode: project.uj_code,
+          name: project.name,
+          address: project.address || null,
+          status: applicationStatusByProject[project.id] || project.construction_status || null,
+          totalBuildings: projectBuildings.length,
+          buildingTypeStats: Object.entries(categoryStats).map(([category, count]) => ({ category, count })),
+          landPlotGeometry: project.land_plot_geojson || null,
+          buildings: projectBuildings,
+        };
+      }),
     });
   });
 

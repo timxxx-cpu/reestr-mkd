@@ -10,3 +10,13 @@
 
 ## Цель размещения
 Модуль добавлен рядом с действующим `apps/backend` для изучения и последующего завершения переноса командой Java-разработки без переключения runtime текущего проекта.
+
+
+## Важно для карты всех ЖК
+- Endpoint `GET /api/v1/projects/map-overview` должен возвращать данные зданий не только с `geometry`, но и с номером дома для подписи внутри полигона: поддерживаются ключи `houseNumber` (предпочтительно) или `house_number` (legacy).
+- Для подписи внутри границ ЖК требуется корректное поле `name` у проекта (используется как текстовая метка).
+- Для карточек по клику backend map-overview также должен отдавать проектные поля `address/status/totalBuildings/buildingTypeStats[]` и по зданию `category/blocksCount/floorsMax/apartmentsCount/address`.
+
+- Для редактора блоков backend должен поддерживать `blockGeometry` (Polygon/MultiPolygon) и проверку, что геометрия блока полностью внутри геометрии здания при сохранении.
+
+- Для 3D-режима общей карты endpoint `GET /api/v1/projects/map-overview` должен возвращать `buildings[].blocks[]` с `geometry` и `floorsCount`; в UI 3D рендерится только выбранный в левой панели ЖК.

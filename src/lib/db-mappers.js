@@ -143,6 +143,7 @@ export const mapBuildingFromDB = (b, blocks = []) => {
     constructionType: normalizeParkingConstructionFromDb(b.construction_type),
     infraType: b.infra_type,
     hasNonResPart: b.has_non_res_part ?? nonResBlocksCount > 0,
+    geometry: b.footprint_geojson || null,
     blocks: (blocks || []).map(bl => ({
       id: bl.id,
       buildingId: b.id,
@@ -213,6 +214,7 @@ export const mapBlockDetailsFromDB = (b, block, blockMarkers = []) => {
     customHouseNumber: block.custom_house_number,
     addressId: block.address_id || null,
     effectiveAddressId: block.effective_address_id || block.address_id || null,
+    blockGeometry: block.footprint_geojson || null,
 
     foundation: constr.foundation || '',
     walls: constr.walls || '',

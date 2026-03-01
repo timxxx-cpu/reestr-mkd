@@ -76,8 +76,8 @@ Backend возвращает трассировочные заголовки, в
 ### Общая карта всех ЖК (рабочий стол)
 - **Frontend**: `ApiService.getProjectsMapOverview(scope)`.
 - **HTTP**: `GET /api/v1/projects/map-overview?scope=...`
-- **Response**: `{ items: [{ id, ujCode, name, landPlotGeometry, buildings: [{ id, label, buildingCode, geometry }] }] }`.
-- **Назначение**: единая карта всех ЖК со списком слева (UJ-код + название), масштабированием к выбранному ЖК и отображением контуров зданий внутри ЖК.
+- **Response**: `{ items: [{ id, ujCode, name, address?, status?, totalBuildings?, buildingTypeStats?, landPlotGeometry, buildings: [{ id, label, buildingCode, category?, houseNumber?, house_number?, blocksCount?, floorsMax?, apartmentsCount?, address?, geometry, blocks?: [{ id, label?, floorsCount, geometry }] }] }] }`.
+- **Назначение**: единая карта всех ЖК со списком слева (UJ-код + название), масштабированием к выбранному ЖК, отображением контуров/подписей и карточками деталей по клику на ЖК/здание (адрес, статус, типы, блоки, этажность, квартиры). Есть переключатель 2D/3D; в 3D отображается только выбранный на панели слева ЖК, а блоки рендерятся экструзией по формуле `floorsCount * 3м`.
 
 ### Счетчики по вкладкам
 - **Frontend**: `ApiService.getProjectsSummaryCounts({ scope, assignee })`.
@@ -163,6 +163,7 @@ Backend возвращает трассировочные заголовки, в
 ### Сохранение деталей зданий
 - **Frontend**: `ApiService.saveData(...buildingDetails...)`.
 - **HTTP**: `POST /api/v1/projects/:projectId/context-building-details/save`
+- **Важно**: для каждого блока требуется `buildingDetails["<buildingId>_<blockId>"].blockGeometry` (Polygon/MultiPolygon), и backend проверяет вхождение полигона блока в геометрию здания.
 - **Request body**: `{ buildingDetails }`.
 
 ### Сохранение статусов блоков шага
@@ -474,4 +475,5 @@ Backend возвращает трассировочные заголовки, в
 4. `GET /api/v1/blocks/:id/entrance-matrix` — массив строк с `floor_id`, `entrance_number`, `flats_count`, `commercial_count`, `mop_count`.
 5. `GET /api/v1/units/:id/explication` — объект unit + `rooms[]`.
 6. Все mutating endpoint-ы — корректный JSON ответ и единый JSON error-contract при ошибках.
-7. `GET /api/v1/projects/map-overview` — `{ items[] }` с геометрией границ ЖК (`landPlotGeometry`) и геометрией зданий (`buildings[].geometry`).
+7. `GET /api/v1/projects/map-overview` — `{ items[] }` с геометрией границ ЖК (`landPlotGeometry`), деталями ЖК (`address`, `status`, `totalBuildings`, `buildingTypeStats[]`) и деталями зданий (`buildings[].geometry`, `buildings[].houseNumber|house_number`, `category`, `blocksCount`, `floorsMax`, `apartmentsCount`, `address`, `blocks[]`), где `blocks[].geometry` и `blocks[].floorsCount` используются для 3D-экструзии.
+8. `POST /api/v1/projects/:projectId/context-building-details/save` — обязательна геометрия блока (`blockGeometry`) и правило валидации «блок внутри здания».
