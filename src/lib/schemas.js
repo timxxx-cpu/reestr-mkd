@@ -93,6 +93,7 @@ export const ComplexInfoSchema = z
     region: z.string().optional(),
     district: z.string().optional(),
     street: z.string().min(5, 'Укажите корректный адрес'),
+    addressId: z.string().uuid().nullish(),
     landmark: z.string().optional(),
     dateStartProject: z.string().nullish(),
     dateEndProject: z.string().nullish(),

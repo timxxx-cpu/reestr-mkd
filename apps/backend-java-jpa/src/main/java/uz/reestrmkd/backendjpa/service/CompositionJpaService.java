@@ -61,6 +61,8 @@ public class CompositionJpaService {
         params.put("buildingCode", buildingData.get("buildingCode"));
         params.put("label", buildingData.get("label"));
         params.put("houseNumber", buildingData.get("houseNumber"));
+        params.put("addressId", stringVal(buildingData.get("addressId")));
+        params.put("hasAddressId", buildingData.containsKey("addressId"));
         params.put("category", buildingData.get("category"));
         params.put("stage", buildingData.get("stage"));
         params.put("dateStart", buildingData.get("dateStart"));
@@ -70,11 +72,15 @@ public class CompositionJpaService {
         params.put("infraType", buildingData.get("infraType"));
         params.put("hasNonResPart", buildingData.get("hasNonResPart"));
         params.put("cadastreNumber", buildingData.get("cadastreNumber"));
+        if (!Boolean.TRUE.equals(params.get("hasAddressId"))) {
+            params.put("addressId", deriveBuildingAddressId(projectId, stringVal(buildingData.get("houseNumber"))));
+            params.put("hasAddressId", params.get("addressId") != null);
+        }
 
         execute("""
-            insert into buildings(id, project_id, building_code, label, house_number, category, stage, date_start, date_end,
+            insert into buildings(id, project_id, building_code, label, house_number, address_id, category, stage, date_start, date_end,
                                   construction_type, parking_type, infra_type, has_non_res_part, cadastre_number, updated_at)
-            values (:id,:projectId,:buildingCode,:label,:houseNumber,:category,:stage,:dateStart,:dateEnd,
+            values (:id,:projectId,:buildingCode,:label,:houseNumber,cast(:addressId as uuid),:category,:stage,:dateStart,:dateEnd,
                     :constructionType,:parkingType,:infraType,:hasNonResPart,:cadastreNumber,now())
             """, params);
 
@@ -89,6 +95,8 @@ public class CompositionJpaService {
         Map<String, Object> params = new HashMap<>();
         params.put("label", buildingData.get("label"));
         params.put("houseNumber", buildingData.get("houseNumber"));
+        params.put("addressId", stringVal(buildingData.get("addressId")));
+        params.put("hasAddressId", buildingData.containsKey("addressId"));
         params.put("category", buildingData.get("category"));
         params.put("stage", buildingData.get("stage"));
         params.put("dateStart", buildingData.get("dateStart"));
@@ -99,9 +107,16 @@ public class CompositionJpaService {
         params.put("hasNonResPart", buildingData.get("hasNonResPart"));
         params.put("cadastreNumber", buildingData.get("cadastreNumber"));
         params.put("buildingId", buildingId);
+        if (!Boolean.TRUE.equals(params.get("hasAddressId"))) {
+            String projectId = stringVal(queryScalar("select project_id from buildings where id = :id", Map.of("id", buildingId)));
+            params.put("addressId", deriveBuildingAddressId(projectId, stringVal(buildingData.get("houseNumber"))));
+            params.put("hasAddressId", params.get("addressId") != null);
+        }
 
         int updated = execute("""
-            update buildings set label=:label, house_number=:houseNumber, category=:category, stage=:stage,
+            update buildings set label=:label, house_number=:houseNumber,
+                address_id = case when :hasAddressId then cast(:addressId as uuid) else address_id end,
+                category=:category, stage=:stage,
                 date_start=:dateStart, date_end=:dateEnd, construction_type=:constructionType, parking_type=:parkingType,
                 infra_type=:infraType, has_non_res_part=:hasNonResPart, cadastre_number=:cadastreNumber, updated_at=now()
             where id=:buildingId
@@ -135,6 +150,30 @@ public class CompositionJpaService {
             Map.of("cadastreNumber", body.get("cadastreNumber"), "id", unitId));
         if (updated == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unit not found");
         return Map.of("ok", true);
+    }
+
+
+    private String deriveBuildingAddressId(String projectId, String houseNumber) {
+        if (projectId == null || projectId.isBlank() || houseNumber == null || houseNumber.isBlank()) return null;
+        String parentAddressId = stringVal(queryScalar("select address_id from projects where id = :id", Map.of("id", projectId)));
+        if (parentAddressId == null) return null;
+        List<Map<String, Object>> parents = queryList("select district, street, mahalla, city from addresses where id = :id", Map.of("id", parentAddressId));
+        if (parents.isEmpty()) return null;
+        Map<String, Object> parent = parents.get(0);
+        String id = UUID.randomUUID().toString();
+        execute("""
+            insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, full_address)
+            values (:id, 'Address', 0, cast(:district as text), cast(:street as uuid), cast(:mahalla as uuid), :city, :buildingNo, :fullAddress)
+            """, Map.of(
+            "id", id,
+            "district", stringVal(parent.get("district")),
+            "street", stringVal(parent.get("street")),
+            "mahalla", stringVal(parent.get("mahalla")),
+            "city", stringVal(parent.get("city")),
+            "buildingNo", houseNumber,
+            "fullAddress", ((parent.get("city") == null ? "" : String.valueOf(parent.get("city")) + ", ") + "д. " + houseNumber)
+        ));
+        return id;
     }
 
     private List<Map<String, Object>> queryList(String sql, Map<String, Object> params) {

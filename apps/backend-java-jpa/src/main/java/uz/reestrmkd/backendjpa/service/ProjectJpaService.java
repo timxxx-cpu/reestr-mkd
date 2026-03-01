@@ -504,6 +504,14 @@ public class ProjectJpaService {
             blockParams.put("hasRoofExpl", Boolean.TRUE.equals(block.get("hasExploitableRoof")));
             blockParams.put("hasCustomAddress", Boolean.TRUE.equals(block.get("hasCustomAddress")));
             blockParams.put("customHouseNumber", stringVal(block.get("customHouseNumber")));
+            blockParams.put("addressId", stringVal(block.get("addressId")));
+            if (blockParams.get("addressId") == null && Boolean.TRUE.equals(blockParams.get("hasCustomAddress"))) {
+                Map<String, Object> b = queryOne("select address_id from buildings where id = (select building_id from building_blocks where id = :id)", Map.of("id", blockId));
+                String baseAddressId = b == null ? null : stringVal(b.get("address_id"));
+                if (baseAddressId != null) {
+                    blockParams.put("addressId", deriveBlockAddressId(baseAddressId, stringVal(block.get("customHouseNumber"))));
+                }
+            }
             List<String> parentBlocks = new ArrayList<>();
             for (Object pb : toList(block.get("parentBlocks"))) {
                 if (pb != null) {
@@ -529,6 +537,7 @@ public class ProjectJpaService {
                     has_roof_expl = :hasRoofExpl,
                     has_custom_address = :hasCustomAddress,
                     custom_house_number = :customHouseNumber,
+                    address_id = coalesce(cast(:addressId as uuid), address_id),
                     parent_blocks = cast(:parentBlocks as uuid[]),
                     updated_at = now()
                 where id = :blockId
@@ -687,6 +696,20 @@ public class ProjectJpaService {
 
         Map<String, Object> complexInfo = mapFrom(body == null ? null : body.get("complexInfo"));
         if (!complexInfo.isEmpty()) {
+            Map<String, Object> projectParams = new HashMap<>();
+            projectParams.put("name", stringVal(complexInfo.get("name")));
+            projectParams.put("status", stringVal(complexInfo.get("status")));
+            projectParams.put("region", stringVal(complexInfo.get("region")));
+            projectParams.put("district", stringVal(complexInfo.get("district")));
+            projectParams.put("street", stringVal(complexInfo.get("street")));
+            projectParams.put("dateStartProject", complexInfo.get("dateStartProject"));
+            projectParams.put("dateEndProject", complexInfo.get("dateEndProject"));
+            projectParams.put("dateStartFact", complexInfo.get("dateStartFact"));
+            projectParams.put("dateEndFact", complexInfo.get("dateEndFact"));
+            projectParams.put("addressId", stringVal(complexInfo.get("addressId")));
+            projectParams.put("hasAddressId", complexInfo.containsKey("addressId"));
+            projectParams.put("projectId", projectId);
+
             execute("""
                 update projects
                 set name = coalesce(:name, name),
@@ -694,24 +717,14 @@ public class ProjectJpaService {
                     region = coalesce(:region, region),
                     district = coalesce(:district, district),
                     address = coalesce(:street, address),
+                    address_id = case when :hasAddressId then cast(:addressId as uuid) else address_id end,
                     date_start_project = :dateStartProject,
                     date_end_project = :dateEndProject,
                     date_start_fact = :dateStartFact,
                     date_end_fact = :dateEndFact,
                     updated_at = now()
                 where id = :projectId
-                """, Map.of(
-                "name", stringVal(complexInfo.get("name")),
-                "status", stringVal(complexInfo.get("status")),
-                "region", stringVal(complexInfo.get("region")),
-                "district", stringVal(complexInfo.get("district")),
-                "street", stringVal(complexInfo.get("street")),
-                "dateStartProject", complexInfo.get("dateStartProject"),
-                "dateEndProject", complexInfo.get("dateEndProject"),
-                "dateStartFact", complexInfo.get("dateStartFact"),
-                "dateEndFact", complexInfo.get("dateEndFact"),
-                "projectId", projectId
-            ));
+                """, projectParams);
         }
 
         Map<String, Object> applicationInfo = mapFrom(body == null ? null : body.get("applicationInfo"));
@@ -895,6 +908,7 @@ public class ProjectJpaService {
         complexInfo.put("region", project.get("region"));
         complexInfo.put("district", project.get("district"));
         complexInfo.put("street", project.get("address"));
+        complexInfo.put("addressId", project.get("address_id"));
         complexInfo.put("landmark", project.get("landmark"));
         complexInfo.put("dateStartProject", project.get("date_start_project"));
         complexInfo.put("dateEndProject", project.get("date_end_project"));
@@ -928,6 +942,8 @@ public class ProjectJpaService {
         params.put("region", info.get("region"));
         params.put("district", info.get("district"));
         params.put("street", info.get("street"));
+        params.put("addressId", stringVal(info.get("addressId")));
+        params.put("hasAddressId", info.containsKey("addressId"));
         params.put("landmark", info.get("landmark"));
         params.put("dateStartProject", info.get("dateStartProject"));
         params.put("dateEndProject", info.get("dateEndProject"));
@@ -944,6 +960,7 @@ public class ProjectJpaService {
                 region = :region,
                 district = :district,
                 address = :street,
+                address_id = case when :hasAddressId then cast(:addressId as uuid) else address_id end,
                 landmark = :landmark,
                 date_start_project = :dateStartProject,
                 date_end_project = :dateEndProject,
@@ -1105,6 +1122,9 @@ public class ProjectJpaService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> fullRegistry(String projectId) {
+        Map<String, Object> projectRow = queryOne("select address_id from projects where id = :projectId", Map.of("projectId", projectId));
+        String projectAddressId = projectRow == null ? null : stringVal(projectRow.get("address_id"));
+
         List<Map<String, Object>> buildings = queryList("select * from buildings where project_id = :projectId", Map.of("projectId", projectId));
         if (buildings.isEmpty()) {
             return Map.of("buildings", List.of(), "units", List.of());
@@ -1140,8 +1160,15 @@ public class ProjectJpaService {
             blockToBuilding.put(stringVal(block.get("id")), stringVal(block.get("building_id")));
         }
         Map<String, Object> buildingCodeById = new HashMap<>();
+        Map<String, String> buildingAddressById = new HashMap<>();
         for (Map<String, Object> b : buildings) {
-            buildingCodeById.put(stringVal(b.get("id")), b.get("building_code"));
+            String buildingId = stringVal(b.get("id"));
+            buildingCodeById.put(buildingId, b.get("building_code"));
+            buildingAddressById.put(buildingId, stringVal(b.get("address_id")));
+        }
+        Map<String, String> blockAddressById = new HashMap<>();
+        for (Map<String, Object> block : blocks) {
+            blockAddressById.put(stringVal(block.get("id")), stringVal(block.get("address_id")));
         }
 
         List<Map<String, Object>> payloadBuildings = new ArrayList<>();
@@ -1150,6 +1177,8 @@ public class ProjectJpaService {
             item.put("label", b.get("label"));
             item.put("houseNumber", b.get("house_number"));
             item.put("buildingCode", b.get("building_code"));
+            item.put("addressId", b.get("address_id"));
+            item.put("effectiveAddressId", b.get("address_id") == null ? projectAddressId : b.get("address_id"));
             payloadBuildings.add(item);
         }
 
@@ -1160,6 +1189,10 @@ public class ProjectJpaService {
             item.put("buildingId", block.get("building_id"));
             item.put("isBasementBlock", Boolean.TRUE.equals(block.get("is_basement_block")));
             item.put("linkedBlockIds", block.get("linked_block_ids"));
+            item.put("addressId", block.get("address_id"));
+            String blockBuildingId = stringVal(block.get("building_id"));
+            String blockAddressId = stringVal(block.get("address_id"));
+            item.put("effectiveAddressId", blockAddressId != null ? blockAddressId : (buildingAddressById.get(blockBuildingId) != null ? buildingAddressById.get(blockBuildingId) : projectAddressId));
             item.put("extensions", extensionsByBlockId.getOrDefault(stringVal(block.get("id")), List.of()).stream().map(ext -> {
                 Map<String, Object> extPayload = new LinkedHashMap<>();
                 extPayload.put("id", ext.get("id"));
@@ -1228,6 +1261,11 @@ public class ProjectJpaService {
             item.put("entranceId", u.get("entrance_id"));
             item.put("buildingId", buildingId);
             item.put("buildingCode", buildingCodeById.get(buildingId));
+            item.put("addressId", u.get("address_id"));
+            String unitAddressId = stringVal(u.get("address_id"));
+            String inheritedBlockAddress = blockId == null ? null : blockAddressById.get(blockId);
+            String inheritedBuildingAddress = buildingId == null ? null : buildingAddressById.get(buildingId);
+            item.put("effectiveAddressId", unitAddressId != null ? unitAddressId : (inheritedBlockAddress != null ? inheritedBlockAddress : (inheritedBuildingAddress != null ? inheritedBuildingAddress : projectAddressId)));
             item.put("cadastreNumber", u.get("cadastre_number"));
             item.put("explication", roomsByUnit.getOrDefault(unitId, List.of()));
             payloadUnits.add(item);
@@ -1361,6 +1399,26 @@ public class ProjectJpaService {
     }
 
 
+
+    private String deriveBlockAddressId(String parentAddressId, String corpusNo) {
+        if (parentAddressId == null || corpusNo == null || corpusNo.isBlank()) return null;
+        Map<String, Object> parent = queryOne("select district, street, mahalla, city, building_no from addresses where id = :id", Map.of("id", parentAddressId));
+        if (parent == null) return null;
+        String id = UUID.randomUUID().toString();
+        execute("""
+            insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, full_address)
+            values (:id, 'Address', 0, cast(:district as text), cast(:street as uuid), cast(:mahalla as uuid), :city, :buildingNo, :fullAddress)
+            """, Map.of(
+            "id", id,
+            "district", stringVal(parent.get("district")),
+            "street", stringVal(parent.get("street")),
+            "mahalla", stringVal(parent.get("mahalla")),
+            "city", stringVal(parent.get("city")),
+            "buildingNo", corpusNo,
+            "fullAddress", ((parent.get("city") == null ? "" : String.valueOf(parent.get("city")) + ", ") + "корп. " + corpusNo)
+        ));
+        return id;
+    }
 
     private Map<String, Object> bucket() {
         Map<String, Object> b = new LinkedHashMap<>();

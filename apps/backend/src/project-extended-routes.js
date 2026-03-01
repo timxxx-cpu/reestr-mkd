@@ -31,6 +31,64 @@ const normalizeBasementCommunications = communications => {
 };
 
 // Исправлен баг: building_id запрашивается один раз, а не три раза внутри Promise.all
+
+const buildFullAddressText = ({ regionName, districtName, mahallaName, streetName, buildingNo, apartmentNo }) => {
+  return [regionName, districtName, mahallaName, streetName, buildingNo ? `д. ${buildingNo}` : null, apartmentNo ? `кв. ${apartmentNo}` : null]
+    .filter(Boolean)
+    .join(', ');
+};
+
+const ensureAddressRecord = async (supabase, payload = {}) => {
+  const districtSoato = payload.districtSoato || null;
+  const streetId = payload.streetId || null;
+  const mahallaId = payload.mahallaId || null;
+  const buildingNo = payload.buildingNo || null;
+  const apartmentNo = payload.apartmentNo || null;
+
+  if (!districtSoato && !streetId && !mahallaId && !buildingNo && !apartmentNo) return null;
+
+  let regionName = payload.regionName || null;
+  let districtName = payload.districtName || null;
+  let streetName = payload.streetName || null;
+  let mahallaName = payload.mahallaName || null;
+
+  if (streetId && !streetName) {
+    const { data: street } = await supabase.from('streets').select('id, name').eq('id', streetId).maybeSingle();
+    streetName = street?.name || streetName;
+  }
+  if (mahallaId && !mahallaName) {
+    const { data: mahalla } = await supabase.from('makhallas').select('id, name').eq('id', mahallaId).maybeSingle();
+    mahallaName = mahalla?.name || mahallaName;
+  }
+  if (districtSoato && (!districtName || !regionName)) {
+    const { data: district } = await supabase.from('districts').select('name_ru, name_uz, region_id').eq('soato', districtSoato).maybeSingle();
+    districtName = districtName || district?.name_ru || district?.name_uz || null;
+    if (district?.region_id && !regionName) {
+      const { data: region } = await supabase.from('regions').select('name_ru, name_uz').eq('id', district.region_id).maybeSingle();
+      regionName = region?.name_ru || region?.name_uz || null;
+    }
+  }
+
+  const fullAddress = buildFullAddressText({ regionName, districtName, mahallaName, streetName, buildingNo, apartmentNo });
+
+  const addressPayload = {
+    id: payload.id || crypto.randomUUID(),
+    dtype: 'Address',
+    versionrev: 0,
+    full_address: fullAddress || null,
+    district: districtSoato,
+    mahalla: mahallaId,
+    street: streetId,
+    building_no: buildingNo,
+    apartment_no: apartmentNo,
+    city: regionName,
+  };
+
+  const { data, error } = await supabase.from('addresses').upsert(addressPayload, { onConflict: 'id' }).select('id, full_address').single();
+  if (error) throw error;
+  return data;
+};
+
 const syncFloorsForBlockWithGenerator = async (supabase, blockId) => {
   // Шаг 1: получаем building_id блока один раз
   const { data: blockMeta, error: blockMetaErr } = await supabase
@@ -416,6 +474,7 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
         has_roof_expl: !!details.hasExploitableRoof,
         has_custom_address: !!details.hasCustomAddress,
         custom_house_number: toNullIfEmpty(details.customHouseNumber),
+        address_id: details.addressId || null,
       };
 
       const { error: blockError } = await supabase.from('building_blocks').update(blockUpdate).eq('id', blockId);
@@ -519,7 +578,7 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
     if (!scope) return sendError(reply, 400, 'VALIDATION_ERROR', 'scope is required');
 
     if (complexInfo) {
-      const { error: projectUpdateError } = await supabase.from('projects').update({
+      const projectPatch = {
         name: complexInfo.name,
         construction_status: complexInfo.status,
         region: complexInfo.region,
@@ -530,7 +589,9 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
         date_start_fact: complexInfo.dateStartFact || null,
         date_end_fact: complexInfo.dateEndFact || null,
         updated_at: new Date().toISOString(),
-      }).eq('id', projectId);
+      };
+      if ('addressId' in complexInfo) projectPatch.address_id = complexInfo.addressId || null;
+      const { error: projectUpdateError } = await supabase.from('projects').update(projectPatch).eq('id', projectId);
 
       if (projectUpdateError) return sendError(reply, 500, 'DB_ERROR', projectUpdateError.message);
     }
@@ -854,6 +915,7 @@ app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) =>
       complexInfo: {
         name: project.name, ujCode: project.uj_code, status: project.construction_status,
         region: project.region, district: project.district, street: project.address, landmark: project.landmark,
+        addressId: project.address_id || null,
         dateStartProject: project.date_start_project, dateEndProject: project.date_end_project,
         dateStartFact: project.date_start_fact, dateEndFact: project.date_end_fact,
       },
@@ -896,6 +958,21 @@ app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) =>
       cadastre_number: formatComplexCadastre(cadastreData.number),
       updated_at: new Date().toISOString(),
     };
+    if ('addressId' in info) projectPatch.address_id = info.addressId || null;
+    if (!projectPatch.address_id && (info.districtSoato || info.streetId || info.mahallaId || info.buildingNo)) {
+      const createdAddress = await ensureAddressRecord(supabase, {
+        districtSoato: info.districtSoato,
+        streetId: info.streetId,
+        mahallaId: info.mahallaId,
+        buildingNo: info.buildingNo,
+        regionName: info.region,
+        districtName: info.district,
+        streetName: info.street,
+        mahallaName: info.mahalla,
+      });
+      projectPatch.address_id = createdAddress?.id || null;
+      if (createdAddress?.full_address) projectPatch.address = createdAddress.full_address;
+    }
     if (cadastreData.area !== undefined && cadastreData.area !== null && cadastreData.area !== '') {
       projectPatch.land_plot_area_m2 = Number(cadastreData.area);
     }
@@ -1128,6 +1205,10 @@ app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) =>
   app.get('/api/v1/projects/:projectId/full-registry', async (req, reply) => {
     const { projectId } = req.params;
 
+    const { data: projectRow, error: projectError } = await supabase.from('projects').select('address_id').eq('id', projectId).maybeSingle();
+    if (projectError) return sendError(reply, 500, 'DB_ERROR', projectError.message);
+    const projectAddressId = projectRow?.address_id || null;
+
     const { data: buildings, error: buildingsError } = await supabase.from('buildings').select('*').eq('project_id', projectId);
     if (buildingsError) return sendError(reply, 500, 'DB_ERROR', buildingsError.message);
     if (!buildings || !buildings.length) return reply.send({ buildings: [], units: [] });
@@ -1172,14 +1253,27 @@ app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) =>
     const floorToBlockMap = {};
     const blockToBuildingMap = {};
     const buildingCodeMap = {};
+    const buildingAddressMap = {};
+    const blockAddressMap = {};
 
     (floors || []).forEach(floor => { floorToBlockMap[floor.id] = floor.block_id; });
-    (blocks || []).forEach(block => { blockToBuildingMap[block.id] = block.building_id; });
-    (buildings || []).forEach(building => { buildingCodeMap[building.id] = building.building_code; });
+    (blocks || []).forEach(block => {
+      blockToBuildingMap[block.id] = block.building_id;
+      blockAddressMap[block.id] = block.address_id || null;
+    });
+    (buildings || []).forEach(building => {
+      buildingCodeMap[building.id] = building.building_code;
+      buildingAddressMap[building.id] = building.address_id || null;
+    });
 
     return reply.send({
       buildings: (buildings || []).map(building => ({
-        ...building, label: building.label, houseNumber: building.house_number, buildingCode: building.building_code,
+        ...building,
+        label: building.label,
+        houseNumber: building.house_number,
+        buildingCode: building.building_code,
+        addressId: building.address_id || null,
+        effectiveAddressId: building.address_id || projectAddressId,
       })),
       blocks: (blocks || []).map(block => ({
         ...block,
@@ -1187,6 +1281,8 @@ app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) =>
         buildingId: block.building_id,
         isBasementBlock: !!block.is_basement_block,
         linkedBlockIds: Array.isArray(block.linked_block_ids) ? block.linked_block_ids : [],
+        addressId: block.address_id || null,
+        effectiveAddressId: block.address_id || buildingAddressMap[block.building_id] || projectAddressId,
         extensions: (extensionsByBlockId[block.id] || []).map(ext => ({
           id: ext.id,
           label: ext.label,
@@ -1207,6 +1303,8 @@ app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) =>
           type: unit.unit_type, hasMezzanine: !!unit.has_mezzanine, mezzanineType: unit.mezzanine_type || null,
           area: unit.total_area, livingArea: unit.living_area, usefulArea: unit.useful_area, rooms: unit.rooms_count,
           floorId: unit.floor_id, entranceId: unit.entrance_id, buildingId, buildingCode,
+          addressId: unit.address_id || null,
+          effectiveAddressId: unit.address_id || blockAddressMap[blockId] || buildingAddressMap[buildingId] || projectAddressId,
           cadastreNumber: unit.cadastre_number,
           explication: (unit.rooms || []).map(room => ({
             id: room.id, type: room.room_type, label: room.name, area: room.area,

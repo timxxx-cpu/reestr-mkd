@@ -376,16 +376,24 @@ public class RegistryJpaService {
         params.put("hasMezzanine", body.get("hasMezzanine"));
         params.put("mezzanineType", body.get("mezzanineType"));
         params.put("status", body.get("status"));
+        params.put("addressId", stringValOr(body.get("addressId"), null));
+        params.put("hasAddressId", body.containsKey("addressId"));
+        if (!Boolean.TRUE.equals(params.get("hasAddressId"))) {
+            params.put("addressId", deriveUnitAddressId(stringValOr(body.get("floorId"), null), stringValOr(body.getOrDefault("number", body.get("num")), null)));
+            params.put("hasAddressId", params.get("addressId") != null);
+        }
 
         execute("""
             insert into units(id, floor_id, entrance_id, unit_code, number, unit_type, total_area, living_area, useful_area,
-                              rooms_count, has_mezzanine, mezzanine_type, status, updated_at)
-            values (:id,:floorId,:entranceId,:unitCode,:number,:type,:area,:livingArea,:usefulArea,:rooms,:hasMezzanine,:mezzanineType,:status,now())
+                              rooms_count, has_mezzanine, mezzanine_type, status, address_id, updated_at)
+            values (:id,:floorId,:entranceId,:unitCode,:number,:type,:area,:livingArea,:usefulArea,:rooms,:hasMezzanine,:mezzanineType,:status,
+                    case when :hasAddressId then cast(:addressId as uuid) else null end, now())
             on conflict (id) do update set
                 floor_id=excluded.floor_id, entrance_id=excluded.entrance_id, unit_code=excluded.unit_code,
                 number=excluded.number, unit_type=excluded.unit_type, total_area=excluded.total_area,
                 living_area=excluded.living_area, useful_area=excluded.useful_area, rooms_count=excluded.rooms_count,
-                has_mezzanine=excluded.has_mezzanine, mezzanine_type=excluded.mezzanine_type, status=excluded.status, updated_at=now()
+                has_mezzanine=excluded.has_mezzanine, mezzanine_type=excluded.mezzanine_type, status=excluded.status,
+                address_id = case when :hasAddressId then cast(:addressId as uuid) else units.address_id end, updated_at=now()
             """, params);
         return Map.of("id", id);
     }
@@ -684,6 +692,21 @@ public class RegistryJpaService {
         return Map.of();
     }
 
+
+
+    private Map<String, Object> queryOne(String sql, Map<String, Object> params) {
+        List<Map<String, Object>> rows = queryList(sql, params);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private Object queryScalar(String sql, Map<String, Object> params) {
+        Query query = em.createNativeQuery(sql);
+        params.forEach(query::setParameter);
+        @SuppressWarnings("unchecked")
+        List<Object> rows = query.getResultList();
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
     private Map<String, Object> tupleToMap(Tuple tuple) {
         Map<String, Object> row = new LinkedHashMap<>();
         tuple.getElements().forEach(e -> row.put(e.getAlias(), tuple.get(e)));
@@ -760,6 +783,41 @@ public class RegistryJpaService {
         if (value == null) return 0;
         if (value instanceof Number n) return n.intValue();
         try { return Integer.parseInt(String.valueOf(value)); } catch (NumberFormatException e) { return 0; }
+    }
+
+    private String deriveUnitAddressId(String floorId, String apartmentNo) {
+        if (floorId == null || floorId.isBlank() || apartmentNo == null || apartmentNo.isBlank()) return null;
+        Map<String, Object> floor = queryOne("select block_id from floors where id = :id", Map.of("id", floorId));
+        if (floor == null) return null;
+        String blockId = stringValOr(floor.get("block_id"), null);
+        Map<String, Object> block = queryOne("select building_id, address_id from building_blocks where id = :id", Map.of("id", blockId));
+        if (block == null) return null;
+        String baseAddressId = stringValOr(block.get("address_id"), null);
+        if (baseAddressId == null) {
+            Map<String, Object> b = queryOne("select project_id, address_id from buildings where id = :id", Map.of("id", block.get("building_id")));
+            baseAddressId = b == null ? null : stringValOr(b.get("address_id"), null);
+            if (baseAddressId == null && b != null) {
+                baseAddressId = stringValOr(queryScalar("select address_id from projects where id = :id", Map.of("id", b.get("project_id"))), null);
+            }
+        }
+        if (baseAddressId == null) return null;
+        Map<String, Object> parent = queryOne("select district, street, mahalla, city, building_no from addresses where id = :id", Map.of("id", baseAddressId));
+        if (parent == null) return null;
+        String id = UUID.randomUUID().toString();
+        execute("""
+            insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, apartment_no, full_address)
+            values (:id, 'Address', 0, cast(:district as text), cast(:street as uuid), cast(:mahalla as uuid), :city, :buildingNo, :apartmentNo, :fullAddress)
+            """, Map.of(
+            "id", id,
+            "district", stringValOr(parent.get("district"), null),
+            "street", stringValOr(parent.get("street"), null),
+            "mahalla", stringValOr(parent.get("mahalla"), null),
+            "city", stringValOr(parent.get("city"), null),
+            "buildingNo", stringValOr(parent.get("building_no"), null),
+            "apartmentNo", apartmentNo,
+            "fullAddress", ((parent.get("city") == null ? "" : String.valueOf(parent.get("city")) + ", ") + "кв. " + apartmentNo)
+        ));
+        return id;
     }
 
     private String stringValOr(Object value, String fallback) {

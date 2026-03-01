@@ -31,6 +31,42 @@ async function fetchAllPaged(queryFactory, pageSize = 1000) {
 
 
 
+
+
+async function inheritUnitAddressId(supabase, floorId, apartmentNo) {
+  if (!floorId || !apartmentNo) return null;
+  const { data: floor } = await supabase.from('floors').select('block_id').eq('id', floorId).maybeSingle();
+  if (!floor?.block_id) return null;
+  const { data: block } = await supabase.from('building_blocks').select('building_id, address_id').eq('id', floor.block_id).maybeSingle();
+  if (!block) return null;
+  let baseAddressId = block.address_id || null;
+  if (!baseAddressId && block.building_id) {
+    const { data: building } = await supabase.from('buildings').select('project_id, address_id').eq('id', block.building_id).maybeSingle();
+    baseAddressId = building?.address_id || null;
+    if (!baseAddressId && building?.project_id) {
+      const { data: project } = await supabase.from('projects').select('address_id').eq('id', building.project_id).maybeSingle();
+      baseAddressId = project?.address_id || null;
+    }
+  }
+  if (!baseAddressId) return null;
+  const { data: base } = await supabase.from('addresses').select('district, street, mahalla, building_no, city').eq('id', baseAddressId).maybeSingle();
+  if (!base) return null;
+  const payload = {
+    id: crypto.randomUUID(),
+    dtype: 'Address',
+    versionrev: 0,
+    district: base.district || null,
+    street: base.street || null,
+    mahalla: base.mahalla || null,
+    city: base.city || null,
+    building_no: base.building_no || null,
+    apartment_no: String(apartmentNo),
+    full_address: [base.city, base.building_no ? `д. ${base.building_no}` : null, `кв. ${apartmentNo}`].filter(Boolean).join(', '),
+  };
+  const { data, error } = await supabase.from('addresses').insert(payload).select('id').single();
+  if (error) return null;
+  return data?.id || null;
+}
 function parseNonNegativeIntOrNull(value) {
   if (value === '' || value === null || value === undefined) return null;
   const num = Number(value);
@@ -665,6 +701,7 @@ export function registerRegistryRoutes(app, { supabase }) {
       if (unitData.hasMezzanine !== undefined) patchPayload.has_mezzanine = !!unitData.hasMezzanine;
       if (unitData.mezzanineType !== undefined) patchPayload.mezzanine_type = unitData.mezzanineType || null;
       if (unitData.unitCode !== undefined) patchPayload.unit_code = unitData.unitCode;
+      if (unitData.addressId !== undefined) patchPayload.address_id = unitData.addressId || null;
 
       const { data, error } = await supabase.from('units').update(patchPayload).eq('id', unitData.id).select('*').single();
       if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
@@ -687,6 +724,10 @@ export function registerRegistryRoutes(app, { supabase }) {
         }
       }
 
+      const inheritedAddressId = unitData.addressId !== undefined
+        ? (unitData.addressId || null)
+        : await inheritUnitAddressId(supabase, unitData.floorId, unitData.num || unitData.number);
+
       const payload = {
         id: unitData.id || crypto.randomUUID(),
         floor_id: unitData.floorId,
@@ -701,6 +742,7 @@ export function registerRegistryRoutes(app, { supabase }) {
         useful_area: unitData.usefulArea || 0,
         rooms_count: unitData.rooms || 0,
         status: unitData.isSold ? 'sold' : 'free',
+        ...(inheritedAddressId !== undefined ? { address_id: inheritedAddressId } : {}),
         updated_at: new Date().toISOString(),
       };
 
@@ -910,7 +952,7 @@ export function registerRegistryRoutes(app, { supabase }) {
       }
     }
 
-    const payload = unitsList.map(u => {
+    const payload = await Promise.all(unitsList.map(async u => {
       let finalUnitCode = u.unitCode || null;
       if (!finalUnitCode && buildingCode && u.type) {
         const prefix = getUnitPrefix(u.type);
@@ -918,6 +960,10 @@ export function registerRegistryRoutes(app, { supabase }) {
         finalUnitCode = `${buildingCode}-${generateUnitCode(prefix, seq)}`;
         counters[prefix] = seq + 1;
       }
+
+      const inheritedAddressId = u.addressId !== undefined
+        ? (u.addressId || null)
+        : await inheritUnitAddressId(supabase, u.floorId, u.num || u.number);
 
       return {
         id: u.id || crypto.randomUUID(),
@@ -928,9 +974,10 @@ export function registerRegistryRoutes(app, { supabase }) {
         unit_code: finalUnitCode,
         total_area: u.area || 0,
         status: 'free',
+        ...(inheritedAddressId !== undefined ? { address_id: inheritedAddressId } : {}),
         updated_at: new Date().toISOString(),
       };
-    });
+    }));
 
     const { error } = await supabase.from('units').upsert(payload, { onConflict: 'id' });
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
