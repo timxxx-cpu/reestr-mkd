@@ -8,6 +8,8 @@ import java.util.*;
 
 @Service
 public class RegistryService {
+    private static final Set<String> EXTENSION_VERTICAL_ANCHORS = Set.of("GROUND", "BLOCK_FLOOR", "ROOF");
+    private static final Set<String> EXTENSION_CONSTRUCTION_KINDS = Set.of("capital", "light");
     private final JdbcTemplate jdbc;
 
     public RegistryService(JdbcTemplate jdbc) {
@@ -15,14 +17,102 @@ public class RegistryService {
     }
 
     public List<Map<String, Object>> floors(String blockId) {
-        return jdbc.queryForList("select * from floors where block_id = ? order by floor_number asc", blockId);
+        return jdbc.queryForList("""
+            select f.*
+            from floors f
+            where f.block_id = ?
+               or f.extension_id in (select id from block_extensions where parent_block_id = ?)
+            order by f.index asc
+            """, blockId, blockId);
     }
 
     @Transactional
     public Map<String, Object> updateFloor(String floorId, Map<String, Object> body) {
-        jdbc.update("update floors set floor_number=?, floor_type=?, updated_at=now() where id=?",
-            body.get("floorNumber"), body.get("floorType"), floorId);
-        return Map.of("ok", true);
+        Map<String, Object> updates = body == null ? Map.of() : asMap(body.get("updates"));
+        if (updates.isEmpty() && body != null) updates = body;
+
+        List<String> sets = new ArrayList<>();
+        List<Object> params = new ArrayList<>();
+
+        if (updates.containsKey("height")) {
+            sets.add("height=?");
+            params.add(updates.get("height"));
+        }
+        if (updates.containsKey("areaProj")) {
+            sets.add("area_proj=?");
+            params.add(updates.get("areaProj"));
+        }
+        if (updates.containsKey("areaFact")) {
+            sets.add("area_fact=?");
+            params.add(updates.get("areaFact"));
+        }
+        if (updates.containsKey("isDuplex")) {
+            sets.add("is_duplex=?");
+            params.add(updates.get("isDuplex"));
+        }
+        if (updates.containsKey("label")) {
+            sets.add("label=?");
+            params.add(updates.get("label"));
+        }
+        if (updates.containsKey("type")) {
+            sets.add("floor_type=?");
+            params.add(updates.get("type"));
+        }
+        if (updates.containsKey("isTechnical")) {
+            sets.add("is_technical=?");
+            params.add(updates.get("isTechnical"));
+        }
+        if (updates.containsKey("isCommercial")) {
+            sets.add("is_commercial=?");
+            params.add(updates.get("isCommercial"));
+        }
+
+        if (sets.isEmpty()) {
+            if (body != null && body.containsKey("floorNumber")) {
+                sets.add("floor_number=?");
+                params.add(body.get("floorNumber"));
+            }
+            if (body != null && body.containsKey("floorType")) {
+                sets.add("floor_type=?");
+                params.add(body.get("floorType"));
+            }
+        }
+
+        if (sets.isEmpty()) throw new IllegalArgumentException("updates are required");
+
+        sets.add("updated_at=now()");
+        String sql = "update floors set " + String.join(", ", sets) + " where id=?";
+        params.add(floorId);
+        int updated = jdbc.update(sql, params.toArray());
+        if (updated == 0) throw new NoSuchElementException("Floor not found");
+        return Map.of("ok", true, "updated", updated);
+    }
+
+    @Transactional
+    public Map<String, Object> updateFloorsBatch(List<Map<String, Object>> items, boolean strict) {
+        int updated = 0;
+        List<Map<String, Object>> failed = new ArrayList<>();
+
+        for (int i = 0; i < items.size(); i++) {
+            Map<String, Object> item = items.get(i);
+            String id = stringVal(item == null ? null : item.get("id"));
+            if (id == null || id.isBlank()) {
+                failed.add(Map.of("index", i, "reason", "id is required"));
+                continue;
+            }
+            try {
+                updateFloor(id, Map.of("updates", asMap(item == null ? null : item.get("updates"))));
+                updated += 1;
+            } catch (RuntimeException ex) {
+                failed.add(Map.of("index", i, "id", id, "reason", ex.getMessage() == null ? "Validation error" : ex.getMessage()));
+            }
+        }
+
+        if (strict && !failed.isEmpty()) {
+            throw new IllegalStateException("PARTIAL_UPDATE: " + failed);
+        }
+
+        return Map.of("ok", failed.isEmpty(), "updated", updated, "failed", failed);
     }
 
     @Transactional
@@ -258,6 +348,131 @@ public class RegistryService {
         return Map.of("ok", true, "items", saved);
     }
 
+
+    public List<Map<String, Object>> listExtensions(String blockId) {
+        return jdbc.queryForList("select * from block_extensions where parent_block_id = ? order by created_at asc", blockId);
+    }
+
+    @Transactional
+    public Map<String, Object> createExtension(String blockId, Map<String, Object> body) {
+        Map<String, Object> extensionData = asMap(body == null ? null : body.get("extensionData"));
+        Map<String, Object> normalized = normalizeExtensionPayload(extensionData);
+
+        List<Map<String, Object>> blockRows = jdbc.queryForList("select building_id from building_blocks where id = ?", blockId);
+        if (blockRows.isEmpty()) throw new NoSuchElementException("Block not found");
+        String id = UUID.randomUUID().toString();
+
+        jdbc.update("""
+            insert into block_extensions(id, building_id, parent_block_id, label, extension_type, construction_kind, floors_count, start_floor_index, vertical_anchor_type, anchor_floor_key, notes, updated_at)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())
+            """,
+            id,
+            blockRows.get(0).get("building_id"),
+            blockId,
+            normalized.get("label"),
+            normalized.get("extension_type"),
+            normalized.get("construction_kind"),
+            normalized.get("floors_count"),
+            normalized.get("start_floor_index"),
+            normalized.get("vertical_anchor_type"),
+            normalized.get("anchor_floor_key"),
+            normalized.get("notes")
+        );
+
+        syncExtensionFloors(id);
+        return jdbc.queryForMap("select * from block_extensions where id = ?", id);
+    }
+
+    @Transactional
+    public Map<String, Object> updateExtension(String extensionId, Map<String, Object> body) {
+        Map<String, Object> extensionData = asMap(body == null ? null : body.get("extensionData"));
+        Map<String, Object> normalized = normalizeExtensionPayload(extensionData);
+
+        int updated = jdbc.update("""
+            update block_extensions
+            set label = ?,
+                extension_type = ?,
+                construction_kind = ?,
+                floors_count = ?,
+                start_floor_index = ?,
+                vertical_anchor_type = ?,
+                anchor_floor_key = ?,
+                notes = ?,
+                updated_at = now()
+            where id = ?
+            """,
+            normalized.get("label"),
+            normalized.get("extension_type"),
+            normalized.get("construction_kind"),
+            normalized.get("floors_count"),
+            normalized.get("start_floor_index"),
+            normalized.get("vertical_anchor_type"),
+            normalized.get("anchor_floor_key"),
+            normalized.get("notes"),
+            extensionId
+        );
+
+        if (updated == 0) throw new NoSuchElementException("Extension not found");
+        syncExtensionFloors(extensionId);
+        return jdbc.queryForMap("select * from block_extensions where id = ?", extensionId);
+    }
+
+    @Transactional
+    public Map<String, Object> deleteExtension(String extensionId) {
+        int updated = jdbc.update("delete from block_extensions where id = ?", extensionId);
+        if (updated == 0) throw new NoSuchElementException("Extension not found");
+        return Map.of("ok", true, "id", extensionId);
+    }
+
+    private void syncExtensionFloors(String extensionId) {
+        Map<String, Object> extension = jdbc.queryForMap("select id, parent_block_id, floors_count, start_floor_index from block_extensions where id = ?", extensionId);
+        int floorsCount = Math.max(1, toInt(extension.get("floors_count")));
+        int startFloorIndex = Math.max(1, toInt(extension.get("start_floor_index")));
+
+        List<Map<String, Object>> existing = jdbc.queryForList("select id, index from floors where extension_id = ?", extensionId);
+        Map<Integer, String> existingByIndex = new HashMap<>();
+        for (Map<String, Object> row : existing) {
+            existingByIndex.put(toInt(row.get("index")), String.valueOf(row.get("id")));
+        }
+
+        Set<Integer> target = new HashSet<>();
+        for (int i = 0; i < floorsCount; i++) {
+            int idx = startFloorIndex + i;
+            target.add(idx);
+            String floorId = existingByIndex.getOrDefault(idx, UUID.randomUUID().toString());
+            jdbc.update("""
+                insert into floors(id, block_id, extension_id, index, floor_key, label, floor_type, parent_floor_index, basement_id, updated_at)
+                values (?, null, ?, ?, ?, ?, ?, null, null, now())
+                on conflict (id) do update set
+                    block_id = excluded.block_id,
+                    extension_id = excluded.extension_id,
+                    index = excluded.index,
+                    floor_key = excluded.floor_key,
+                    label = excluded.label,
+                    floor_type = excluded.floor_type,
+                    parent_floor_index = excluded.parent_floor_index,
+                    basement_id = excluded.basement_id,
+                    updated_at = now()
+                """,
+                floorId,
+                extensionId,
+                idx,
+                "extension:" + extensionId + ":" + idx,
+                idx + " этаж",
+                "residential"
+            );
+        }
+
+        List<String> deleteIds = new ArrayList<>();
+        for (Map<String, Object> row : existing) {
+            int idx = toInt(row.get("index"));
+            if (!target.contains(idx)) deleteIds.add(String.valueOf(row.get("id")));
+        }
+        if (!deleteIds.isEmpty()) {
+            jdbc.update("delete from floors where id in (" + placeholders(deleteIds.size()) + ")", deleteIds.toArray());
+        }
+    }
+
     public List<Map<String, Object>> commonAreas(String blockId) {
         return jdbc.queryForList("select * from common_areas where block_id = ? order by created_at asc", blockId);
     }
@@ -303,6 +518,53 @@ public class RegistryService {
     private Map<String, Object> asMap(Object value) {
         if (value instanceof Map<?, ?> map) return (Map<String, Object>) map;
         return Map.of();
+    }
+
+
+    private Map<String, Object> normalizeExtensionPayload(Map<String, Object> payload) {
+        String label = String.valueOf(payload.getOrDefault("label", "")).trim();
+        if (label.isEmpty()) throw new IllegalArgumentException("label is required");
+
+        int floorsCount = toInt(payload.get("floorsCount"));
+        if (floorsCount < 1) throw new IllegalArgumentException("floorsCount must be an integer >= 1");
+
+        int startFloorIndex = toInt(payload.get("startFloorIndex"));
+        if (startFloorIndex < 1) throw new IllegalArgumentException("startFloorIndex must be an integer >= 1");
+
+        String extensionType = String.valueOf(payload.getOrDefault("extensionType", "OTHER")).trim().toUpperCase(Locale.ROOT);
+        String constructionKind = String.valueOf(payload.getOrDefault("constructionKind", "capital")).trim().toLowerCase(Locale.ROOT);
+        if (!EXTENSION_CONSTRUCTION_KINDS.contains(constructionKind)) {
+            throw new IllegalArgumentException("constructionKind must be one of: capital, light");
+        }
+
+        String verticalAnchorType = String.valueOf(payload.getOrDefault("verticalAnchorType", "GROUND")).trim().toUpperCase(Locale.ROOT);
+        if (!EXTENSION_VERTICAL_ANCHORS.contains(verticalAnchorType)) {
+            throw new IllegalArgumentException("verticalAnchorType must be one of: GROUND, BLOCK_FLOOR, ROOF");
+        }
+
+        String anchorFloorRaw = payload.get("anchorFloorKey") == null ? null : String.valueOf(payload.get("anchorFloorKey")).trim();
+        String anchorFloorKey = anchorFloorRaw == null || anchorFloorRaw.isEmpty() ? null : anchorFloorRaw;
+
+        if ("GROUND".equals(verticalAnchorType) && anchorFloorKey != null) {
+            throw new IllegalArgumentException("anchorFloorKey must be null when verticalAnchorType=GROUND");
+        }
+        if (!"GROUND".equals(verticalAnchorType) && anchorFloorKey == null) {
+            throw new IllegalArgumentException("anchorFloorKey is required when verticalAnchorType is BLOCK_FLOOR or ROOF");
+        }
+
+        String notes = payload.get("notes") == null ? null : String.valueOf(payload.get("notes")).trim();
+        if (notes != null && notes.isEmpty()) notes = null;
+
+        Map<String, Object> normalized = new HashMap<>();
+        normalized.put("label", label);
+        normalized.put("extension_type", extensionType);
+        normalized.put("construction_kind", constructionKind);
+        normalized.put("floors_count", floorsCount);
+        normalized.put("start_floor_index", startFloorIndex);
+        normalized.put("vertical_anchor_type", verticalAnchorType);
+        normalized.put("anchor_floor_key", "GROUND".equals(verticalAnchorType) ? null : anchorFloorKey);
+        normalized.put("notes", notes);
+        return normalized;
     }
 
     private Map<String, Integer> validateMatrixValues(Map<String, Object> values) {

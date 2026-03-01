@@ -18,7 +18,8 @@ public class RegistryController {
     @PutMapping("/floors/batch")
     public Map<String,Object> floorsBatch(@RequestBody Map<String,Object> body){
         @SuppressWarnings("unchecked") List<Map<String, Object>> items = body == null ? List.of() : (List<Map<String, Object>>) body.getOrDefault("items", List.of());
-        return registry.updateFloorsBatch(items);
+        boolean strict = body != null && Boolean.TRUE.equals(body.get("strict"));
+        return registry.updateFloorsBatch(items, strict);
     }
     @PostMapping("/blocks/{blockId}/floors/reconcile")
     public Map<String,Object> floorsRec(@PathVariable String blockId, @RequestBody Map<String,Object> body){

@@ -4,9 +4,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 public class ProjectService {
@@ -57,7 +55,27 @@ public class ProjectService {
 
     @Transactional public Map<String, Object> contextBuildingSave(String projectId, Map<String, Object> body) { return Map.of("ok", true); }
     @Transactional public Map<String, Object> contextMetaSave(String projectId, Map<String, Object> body) { return Map.of("ok", true); }
-    @Transactional public Map<String, Object> stepBlockStatusesSave(String projectId, Map<String, Object> body) { return Map.of("ok", true); }
+    @Transactional
+    public Map<String, Object> stepBlockStatusesSave(String projectId, Map<String, Object> body) {
+        String scope = body == null || body.get("scope") == null ? "" : String.valueOf(body.get("scope")).trim();
+        int stepIndex = body == null ? -1 : toInt(body.get("stepIndex"));
+        if (scope.isBlank()) throw new IllegalArgumentException("scope is required");
+        if (stepIndex < 0) throw new IllegalArgumentException("stepIndex must be a non-negative number");
+
+        var appRows = jdbc.queryForList("select id from applications where project_id=? and scope_id=? limit 1", projectId, scope);
+        if (appRows.isEmpty()) throw new NoSuchElementException("Application not found");
+        String applicationId = String.valueOf(appRows.get(0).get("id"));
+
+        String statusesJson = toJson(body == null ? null : body.get("statuses"));
+        jdbc.update("""
+            insert into application_steps(application_id, step_index, block_statuses, updated_at)
+            values (?, ?, cast(? as jsonb), now())
+            on conflict (application_id, step_index) do update
+            set block_statuses=excluded.block_statuses, updated_at=now()
+            """, applicationId, stepIndex, statusesJson);
+
+        return Map.of("applicationId", applicationId, "stepIndex", stepIndex, "blockStatuses", body == null ? Map.of() : body.getOrDefault("statuses", Map.of()));
+    }
 
     public Map<String, Object> contextRegistryDetails(String projectId) { return Map.of("projectId", projectId); }
     public Map<String, Object> passport(String projectId) { return Map.of("projectId", projectId); }
@@ -113,6 +131,24 @@ public class ProjectService {
         jdbc.update("update basements set parking_places=?, updated_at=now() where id=? and level=?",
             body.get("parkingPlaces"), basementId, level);
         return Map.of("ok", true);
+    }
+
+    private int toInt(Object value) {
+        if (value == null) return -1;
+        if (value instanceof Number n) return n.intValue();
+        try { return Integer.parseInt(String.valueOf(value)); } catch (Exception e) { return -1; }
+    }
+
+    private String toJson(Object value) {
+        if (value == null) return "{}";
+        if (value instanceof Map || value instanceof List) {
+            try {
+                return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(value);
+            } catch (Exception e) {
+                throw new IllegalArgumentException("statuses must be valid json");
+            }
+        }
+        return String.valueOf(value);
     }
 
     public Map<String, Object> fullRegistry(String projectId) {

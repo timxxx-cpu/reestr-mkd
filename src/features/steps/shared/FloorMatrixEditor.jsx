@@ -110,7 +110,24 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
 
   const blockTargets = useMemo(() => {
     const blocks = Array.isArray(building?.blocks) ? building.blocks : [];
-    const base = blocks.map(block => ({ id: block.id, kind: 'block', block }));
+    const regularBlocks = blocks.filter(block => !block?.isBasementBlock);
+    const basementBlocks = blocks.filter(block => !!block?.isBasementBlock);
+
+    const base = regularBlocks.map(block => ({ id: block.id, kind: 'block', block }));
+
+    const basements = regularBlocks.flatMap(block =>
+      basementBlocks
+        .filter(baseBlock => Array.isArray(baseBlock?.linkedBlockIds) && baseBlock.linkedBlockIds.includes(block.id))
+        .map(baseBlock => ({
+          id: `basement-${block.id}-${baseBlock.id}`,
+          kind: 'basement',
+          parentBlockId: block.id,
+          parentBlock: block,
+          basementId: baseBlock.id,
+          label: baseBlock.label || 'Подвал',
+        }))
+    );
+
     const extensions = extensionTargets.map(item => ({
       id: item.id,
       kind: 'extension',
@@ -118,7 +135,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
       parentBlock: item.parentBlock,
       label: item.label,
     }));
-    return [...base, ...extensions];
+    return [...base, ...basements, ...extensions];
   }, [building, extensionTargets]);
 
   const [activeTargetId, setActiveTargetId] = useState(null);
@@ -135,6 +152,7 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
   const currentBlock = useMemo(() => {
     if (!activeTarget) return null;
     if (activeTarget.kind === 'block') return activeTarget.block;
+    if (activeTarget.kind === 'basement') return activeTarget.parentBlock || null;
     return activeTarget.parentBlock || null;
   }, [activeTarget]);
 
@@ -146,7 +164,10 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     if (activeTarget.kind === 'extension') {
       return floors.filter(f => f.extensionId === activeTarget.id);
     }
-    return floors.filter(f => !f.extensionId);
+    if (activeTarget.kind === 'basement') {
+      return floors.filter(f => f.basementId === activeTarget.basementId);
+    }
+    return floors.filter(f => !f.extensionId && !f.basementId);
   }, [floors, activeTarget]);
 
   const hiddenStylobateFloorsCount = useMemo(() => {
@@ -523,17 +544,20 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
         <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full shadow-inner border border-slate-700 custom-scrollbar">
           {blockTargets.map(target => {
             const isExtension = target.kind === 'extension';
-            const tabBlock = isExtension ? target.parentBlock : target.block;
+            const isBasement = target.kind === 'basement';
+            const tabBlock = (isExtension || isBasement) ? target.parentBlock : target.block;
             const label = isExtension
               ? `${tabBlock?.label || tabBlock?.tabLabel || 'Блок'} / ${target.label}`
-              : formatBlockSwitcherLabel({ building, block: tabBlock, buildingDetails });
+              : isBasement
+                ? `${tabBlock?.label || tabBlock?.tabLabel || 'Блок'} / ${target.label}`
+                : formatBlockSwitcherLabel({ building, block: tabBlock, buildingDetails });
 
             return (
               <DarkTabButton
                 key={`${target.kind}-${target.id}`}
                 active={activeTarget?.id === target.id}
                 onClick={() => setActiveTargetId(target.id)}
-                icon={isExtension ? Box : getBlockIcon(tabBlock?.type)}
+                icon={isExtension || isBasement ? Box : getBlockIcon(tabBlock?.type)}
               >
                 {label}
               </DarkTabButton>

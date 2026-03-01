@@ -288,6 +288,7 @@ public class ProjectJpaService {
         List<Map<String, Object>> constructions = blockIds.isEmpty() ? List.of() : queryList("select * from block_construction where block_id in (:blockIds)", Map.of("blockIds", blockIds));
         List<Map<String, Object>> engineering = blockIds.isEmpty() ? List.of() : queryList("select * from block_engineering where block_id in (:blockIds)", Map.of("blockIds", blockIds));
         List<Map<String, Object>> markers = blockIds.isEmpty() ? List.of() : queryList("select * from block_floor_markers where block_id in (:blockIds)", Map.of("blockIds", blockIds));
+        List<Map<String, Object>> extensions = blockIds.isEmpty() ? List.of() : queryList("select * from block_extensions where parent_block_id in (:blockIds) order by created_at asc", Map.of("blockIds", blockIds));
 
         Map<String, Map<String, Object>> constructionByBlock = new HashMap<>();
         for (Map<String, Object> row : constructions) constructionByBlock.put(stringVal(row.get("block_id")), row);
@@ -298,6 +299,13 @@ public class ProjectJpaService {
             String blockId = stringVal(row.get("block_id"));
             if (blockId == null) continue;
             markersByBlock.computeIfAbsent(blockId, k -> new ArrayList<>()).add(row);
+        }
+
+        Map<String, List<Map<String, Object>>> extensionsByBlock = new HashMap<>();
+        for (Map<String, Object> row : extensions) {
+            String blockId = stringVal(row.get("parent_block_id"));
+            if (blockId == null) continue;
+            extensionsByBlock.computeIfAbsent(blockId, k -> new ArrayList<>()).add(row);
         }
 
         Map<String, List<Map<String, Object>>> blocksByBuilding = new HashMap<>();
@@ -311,6 +319,7 @@ public class ProjectJpaService {
             item.put("block_construction", construction == null ? List.of() : List.of(construction));
             item.put("block_engineering", eng == null ? List.of() : List.of(eng));
             item.put("block_floor_markers", markersByBlock.getOrDefault(blockId, List.of()));
+            item.put("block_extensions", extensionsByBlock.getOrDefault(blockId, List.of()));
             blocksByBuilding.computeIfAbsent(buildingId, k -> new ArrayList<>()).add(item);
         }
 
