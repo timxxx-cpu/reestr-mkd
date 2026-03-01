@@ -182,6 +182,28 @@ const mergeBounds = boundsList => {
   return [[minLng, minLat], [maxLng, maxLat]];
 };
 
+const resolveFloorsCount = (block, building) => {
+  const blockFloorsRaw =
+    block?.floorsCount
+    ?? block?.floors_count
+    ?? block?.floors
+    ?? null;
+  const buildingFloorsRaw =
+    building?.floorsMax
+    ?? building?.floors_max
+    ?? building?.floorsCount
+    ?? building?.floors_count
+    ?? null;
+
+  const blockFloors = Number(blockFloorsRaw);
+  if (Number.isFinite(blockFloors) && blockFloors > 0) return Math.trunc(blockFloors);
+
+  const buildingFloors = Number(buildingFloorsRaw);
+  if (Number.isFinite(buildingFloors) && buildingFloors > 0) return Math.trunc(buildingFloors);
+
+  return 1;
+};
+
 export default function ProjectsOverviewMapModal({
   isOpen,
   projects = [],
@@ -241,20 +263,24 @@ export default function ProjectsOverviewMapModal({
       const blocks = Array.isArray(building?.blocks) ? building.blocks : [];
       return blocks
         .filter(block => !!block?.geometry)
-        .map(block => ({
-          type: 'Feature',
-          geometry: block.geometry,
-          properties: {
-            kind: 'block3d',
-            projectId: selectedProject.id,
-            buildingId: building.id,
-            buildingLabel: building.label,
-            blockId: block.id,
-            blockLabel: block.label,
-            floorsCount: Number(block.floorsCount || 0),
-            heightM: Math.max(1, Number(block.floorsCount || building.floorsMax || 1)) * 3,
-          },
-        }));
+        .map(block => {
+          const floorsCount = resolveFloorsCount(block, building);
+
+          return {
+            type: 'Feature',
+            geometry: block.geometry,
+            properties: {
+              kind: 'block3d',
+              projectId: selectedProject.id,
+              buildingId: building.id,
+              buildingLabel: building.label,
+              blockId: block.id,
+              blockLabel: block.label,
+              floorsCount,
+              heightM: floorsCount * 3,
+            },
+          };
+        });
     });
 
     return { type: 'FeatureCollection', features };
