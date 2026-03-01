@@ -614,7 +614,11 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
             has_lowcurrent: !!details.engineering.lowcurrent,
             has_sewerage: !!details.engineering.sewerage,
             has_gas: !!details.engineering.gas,
-            has_heating: !!details.engineering.heating,
+            has_heating_local: !!details.engineering.heatingLocal,
+            has_heating_central: !!details.engineering.heatingCentral,
+            has_internet: !!details.engineering.internet,
+            has_solar_panels: !!details.engineering.solarPanels,
+            has_heating: !!details.engineering.heatingLocal || !!details.engineering.heatingCentral,
           },
           { onConflict: 'block_id' }
         );

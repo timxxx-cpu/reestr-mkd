@@ -3,15 +3,18 @@ import {
   Zap,
   Droplets,
   Thermometer,
+  Building2,
   Flame,
   ArrowDownToLine,
   Fan,
   ShieldCheck,
   Wifi,
+  Globe,
+  Sun,
 } from 'lucide-react';
 import { Card, SectionTitle, useReadOnly } from '@components/ui/UIKit';
 
-export default function EngineeringCard({ details, updateDetail }) {
+export default function EngineeringCard({ details, updateDetail, layout = 'grid' }) {
   const isReadOnly = useReadOnly();
 
   const systems = [
@@ -40,10 +43,16 @@ export default function EngineeringCard({ details, updateDetail }) {
       color: 'bg-slate-100 text-slate-700 border-slate-200 ring-slate-400',
     },
     {
-      id: 'heating',
-      label: 'Отопление',
+      id: 'heatingLocal',
+      label: 'Отопление (лок.)',
       icon: Thermometer,
       color: 'bg-orange-50 text-orange-700 border-orange-200 ring-orange-400',
+    },
+    {
+      id: 'heatingCentral',
+      label: 'Отопление (центр.)',
+      icon: Building2,
+      color: 'bg-amber-50 text-amber-700 border-amber-200 ring-amber-400',
     },
     {
       id: 'ventilation',
@@ -69,6 +78,18 @@ export default function EngineeringCard({ details, updateDetail }) {
       icon: Wifi,
       color: 'bg-indigo-50 text-indigo-700 border-indigo-200 ring-indigo-400',
     },
+    {
+      id: 'internet',
+      label: 'Интернет',
+      icon: Globe,
+      color: 'bg-violet-50 text-violet-700 border-violet-200 ring-violet-400',
+    },
+    {
+      id: 'solarPanels',
+      label: 'Солнечные панели',
+      icon: Sun,
+      color: 'bg-lime-50 text-lime-700 border-lime-200 ring-lime-400',
+    },
   ];
 
   const toggleSystem = id => {
@@ -80,7 +101,13 @@ export default function EngineeringCard({ details, updateDetail }) {
   return (
     <Card className="p-5 shadow-sm">
       <SectionTitle icon={Zap}>Инженерные системы</SectionTitle>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
+      <div
+        className={
+          layout === 'horizontal'
+            ? 'flex flex-wrap gap-3 mt-4'
+            : 'grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4'
+        }
+      >
         {systems.map(sys => {
           const isActive = details.engineering?.[sys.id];
           const Icon = sys.icon;
@@ -92,6 +119,7 @@ export default function EngineeringCard({ details, updateDetail }) {
               onClick={() => toggleSystem(sys.id)}
               className={`
                                 relative flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all duration-200 group
+                                ${layout === 'horizontal' ? 'w-[108px] shrink-0' : ''}
                                 ${
                                   isActive
                                     ? `${sys.color} border-transparent shadow-sm ring-1`

@@ -51,9 +51,16 @@ export default function ParkingView({ building, typeInfo }) {
     engineering: {
       electricity: false,
       firefighting: false,
+      internet: false,
+      solarPanels: false,
       ventilation: false,
       hvs: false,
-      heating: false,
+      heatingLocal: false,
+      heatingCentral: false,
+      lowcurrent: false,
+      gvs: false,
+      sewerage: false,
+      gas: false,
     },
   };
 
