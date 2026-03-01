@@ -183,6 +183,16 @@ const getShortestSegment = points => {
   return minLength;
 };
 
+const getLeftBottomVertex = vertices => {
+  if (!Array.isArray(vertices) || !vertices.length) return null;
+  return vertices.reduce((best, point) => {
+    if (!best) return point;
+    if (point[0] < best[0]) return point;
+    if (point[0] === best[0] && point[1] < best[1]) return point;
+    return best;
+  }, null);
+};
+
 const gridStepPx = 24;
 
 const PointHandle = ({ cx, cy, index, isSelected, onPointerDown, onClick }) => (
@@ -309,6 +319,27 @@ export default function BlockCadEditorModal({
 
   const buildingOuterRing = useMemo(() => getOuterRingMeters(projected?.buildingMeters), [projected]);
   const buildingVertices = buildingOuterRing.slice(0, -1);
+  const startDraftVertex = useMemo(
+    () => getLeftBottomVertex(buildingVertices)?.map(round2) || null,
+    [buildingVertices]
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setHistory([]);
+    setRedoStack([]);
+    setSelectedPointIndex(null);
+    setDragIndex(null);
+    setLastSnap(null);
+    setError('');
+
+    if (!existingPoints.length && startDraftVertex) {
+      setDraftPoints([startDraftVertex]);
+      return;
+    }
+
+    setDraftPoints([]);
+  }, [isOpen, existingPoints, startDraftVertex]);
 
   const underlayUrls = useMemo(() => {
     const ring = getOuterRingGeo(buildingGeometry);
@@ -803,7 +834,7 @@ export default function BlockCadEditorModal({
               <button
                 onClick={() => {
                   setHistory(h => [...h, activePoints]);
-                  setDraftPoints([]);
+                  setDraftPoints(startDraftVertex ? [startDraftVertex] : []);
                   setError('');
                   setLastSnap(null);
                   setSelectedPointIndex(null);
