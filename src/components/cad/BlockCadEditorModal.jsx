@@ -32,6 +32,13 @@ const formatMeters = value => `${value.toFixed(2)} м`;
 const formatArea = value => `${value.toFixed(2)} м²`;
 const round2 = value => Math.round(value * 100) / 100;
 
+const getOuterRingGeo = geometry => {
+  if (!geometry || typeof geometry !== 'object') return [];
+  if (geometry.type === 'Polygon') return geometry.coordinates?.[0] || [];
+  if (geometry.type === 'MultiPolygon') return geometry.coordinates?.[0]?.[0] || [];
+  return [];
+};
+
 const calcPolygonAreaM2 = points => {
   if (!Array.isArray(points) || points.length < 3) return 0;
   let sum = 0;
@@ -227,6 +234,9 @@ export default function BlockCadEditorModal({
   const [templateDepth, setTemplateDepth] = useState(8);
   const [templateAngleDeg, setTemplateAngleDeg] = useState(0);
   const [templateSnapToBoundary, setTemplateSnapToBoundary] = useState(true);
+  const [showUnderlay, setShowUnderlay] = useState(false);
+  const [underlayProvider, setUnderlayProvider] = useState('google');
+  const [underlayOpacity, setUnderlayOpacity] = useState(0.55);
 
   const projected = useMemo(() => {
     if (!buildingGeometry) return null;
@@ -298,6 +308,21 @@ export default function BlockCadEditorModal({
     [projected]
   );
   const buildingVertices = buildingOuterRing.slice(0, -1);
+
+  const underlayUrls = useMemo(() => {
+    const ring = getOuterRingGeo(buildingGeometry);
+    if (!Array.isArray(ring) || !ring.length) return { google: '', osm: '' };
+    const [sumLng, sumLat] = ring.reduce(
+      (acc, point) => [acc[0] + (point?.[0] || 0), acc[1] + (point?.[1] || 0)],
+      [0, 0]
+    );
+    const centerLng = sumLng / ring.length;
+    const centerLat = sumLat / ring.length;
+    return {
+      google: `https://maps.google.com/maps?q=${centerLat},${centerLng}&t=k&z=20&output=embed`,
+      osm: `https://www.openstreetmap.org/export/embed.html?bbox=${centerLng - 0.001}%2C${centerLat - 0.001}%2C${centerLng + 0.001}%2C${centerLat + 0.001}&layer=mapnik&marker=${centerLat}%2C${centerLng}`,
+    };
+  }, [buildingGeometry]);
 
   const blockRingFromState = activePoints.length ? [...activePoints, activePoints[0]] : [];
   const buildingPolyline = toPointString(buildingOuterRing.map(([x, y]) => toScreen(x, y)));
@@ -517,7 +542,7 @@ export default function BlockCadEditorModal({
     }
 
     const meterGeometry = { type: 'Polygon', coordinates: [[...points, points[0]]] };
-    const unrotatedMeters = rotateGeometryInMeters(meterGeometry, projected.rotationDeg);
+    const unrotatedMeters = rotateGeometryInMeters(meterGeometry, -projected.rotationDeg);
     const resultGeo = geometryFromMeterPoints(unrotatedMeters, projected.origin);
     if (!isGeometryWithinGeometry(resultGeo, buildingGeometry)) {
       setError(
@@ -539,7 +564,7 @@ export default function BlockCadEditorModal({
     }
 
     const meterGeometry = { type: 'Polygon', coordinates: [[...points, points[0]]] };
-    const unrotatedMeters = rotateGeometryInMeters(meterGeometry, projected.rotationDeg);
+    const unrotatedMeters = rotateGeometryInMeters(meterGeometry, -projected.rotationDeg);
     const resultGeo = geometryFromMeterPoints(unrotatedMeters, projected.origin);
 
     if (!isGeometryWithinGeometry(resultGeo, buildingGeometry)) {
@@ -583,7 +608,7 @@ export default function BlockCadEditorModal({
         <div>
           <h3 className="font-semibold">CAD редактор блока</h3>
           <p className="text-xs text-slate-400">
-            Полноэкранный режим, подложка отключена, сетка 1 метр.
+            Полноэкранный режим, сетка 1 метр, опциональная картографическая подложка.
           </p>
         </div>
         <button
@@ -607,6 +632,45 @@ export default function BlockCadEditorModal({
               Повернуто на {Math.round((-projected?.rotationDeg || 0) * 10) / 10}° (длинная сторона
               горизонтальна)
             </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-700 p-2 space-y-2">
+            <div className="text-xs font-semibold">Подложка</div>
+            <label className="text-xs flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showUnderlay}
+                onChange={e => setShowUnderlay(e.target.checked)}
+              />
+              Показать подложку
+            </label>
+            {showUnderlay && (
+              <>
+                <label className="text-xs text-slate-300 block">
+                  Провайдер
+                  <select
+                    value={underlayProvider}
+                    onChange={e => setUnderlayProvider(e.target.value)}
+                    className="mt-1 w-full h-8 rounded bg-slate-900 border border-slate-700 px-2 text-xs"
+                  >
+                    <option value="google">Google Satellite</option>
+                    <option value="osm">OpenStreetMap</option>
+                  </select>
+                </label>
+                <label className="text-xs text-slate-300 block">
+                  Прозрачность: {Math.round(underlayOpacity * 100)}%
+                  <input
+                    type="range"
+                    min="0.2"
+                    max="1"
+                    step="0.05"
+                    value={underlayOpacity}
+                    onChange={e => setUnderlayOpacity(Number(e.target.value))}
+                    className="w-full"
+                  />
+                </label>
+              </>
+            )}
           </div>
 
           <div className="rounded-lg border border-slate-700 p-2 space-y-2">
@@ -777,10 +841,19 @@ export default function BlockCadEditorModal({
           </div>
         </div>
 
-        <div className="flex-1 p-4">
+        <div className="flex-1 p-4 relative">
+          {showUnderlay && underlayUrls[underlayProvider] && (
+            <iframe
+              title="CAD map underlay"
+              src={underlayUrls[underlayProvider]}
+              className="absolute inset-4 w-[calc(100%-2rem)] h-[calc(100%-2rem)] rounded-xl pointer-events-none border border-slate-800"
+              loading="lazy"
+              style={{ opacity: underlayOpacity }}
+            />
+          )}
           <svg
             viewBox={`0 0 ${viewport.w} ${viewport.h}`}
-            className="w-full h-full bg-slate-900 rounded-xl border border-slate-800"
+            className="w-full h-full rounded-xl border border-slate-800 relative"
             onClick={handleCanvasClick}
             onPointerMove={handlePointerMove}
             onPointerUp={() => setDragIndex(null)}
@@ -815,6 +888,7 @@ export default function BlockCadEditorModal({
               </pattern>
             </defs>
 
+            <rect x="0" y="0" width={viewport.w} height={viewport.h} fill={showUnderlay ? "rgba(2,6,23,0.35)" : "#0f172a"} />
             <rect x="0" y="0" width={viewport.w} height={viewport.h} fill="url(#meter-grid-10)" />
             {buildingPolyline && (
               <polyline
