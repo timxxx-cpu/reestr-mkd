@@ -16,6 +16,10 @@ const ALLOWED_CATALOG_TABLES = [
   'dict_unit_types',
   'dict_room_types',
   'dict_system_users',
+  'regions',
+  'districts',
+  'streets',
+  'makhallas',
 ];
 
 export function registerCatalogRoutes(app, { supabase }) {
@@ -27,16 +31,21 @@ export function registerCatalogRoutes(app, { supabase }) {
       return sendError(reply, 400, 'INVALID_TABLE', 'Таблица не разрешена');
     }
 
-    let query = supabase.from(table).select('*').order('sort_order', { ascending: true });
+    let query = supabase.from(table).select('*');
 
     if (table === 'dict_system_users') {
       query = query.order('name', { ascending: true });
+    } else if (table === 'regions' || table === 'districts') {
+      query = query.order('ordering', { ascending: true }).order('name_ru', { ascending: true });
+    } else if (table === 'streets' || table === 'makhallas') {
+      query = query.order('name', { ascending: true });
     } else {
-      query = query.order('label', { ascending: true });
+      query = query.order('sort_order', { ascending: true }).order('label', { ascending: true });
     }
 
     if (activeOnly === 'true') {
-      query = query.eq('is_active', true);
+      if (table.startsWith('dict_')) query = query.eq('is_active', true);
+      else query = query.eq('status', 1);
     }
 
     const { data, error } = await query;

@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { useDirectProjectInfo } from '@hooks/api/useDirectProjectInfo';
-import { Card, SectionTitle, Label, Input, Button, useReadOnly } from '@components/ui/UIKit';
+import { Card, SectionTitle, Label, Input, Select, Button, useReadOnly } from '@components/ui/UIKit';
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { useCatalog } from '@hooks/useCatalogs';
 import { createVirtualComplexCadastre, formatComplexCadastre } from '@lib/cadastre';
@@ -73,6 +73,13 @@ const PassportEditor = () => {
     region: '',
     district: '',
     street: '',
+    addressId: null,
+    regionSoato: '',
+    districtSoato: '',
+    streetId: '',
+    mahallaId: '',
+    mahalla: '',
+    buildingNo: '',
     landmark: '',
     dateStartProject: '',
     dateEndProject: '',
@@ -113,6 +120,13 @@ const PassportEditor = () => {
         region: safeComplexInfo.region || '',
         district: safeComplexInfo.district || '',
         street: safeComplexInfo.street || '',
+        addressId: safeComplexInfo.addressId || null,
+        regionSoato: safeComplexInfo.regionSoato || '',
+        districtSoato: safeComplexInfo.districtSoato || '',
+        streetId: safeComplexInfo.streetId || '',
+        mahallaId: safeComplexInfo.mahallaId || '',
+        mahalla: safeComplexInfo.mahalla || '',
+        buildingNo: safeComplexInfo.buildingNo || '',
         landmark: safeComplexInfo.landmark || '',
         dateStartProject: safeComplexInfo.dateStartProject || '',
         dateEndProject: safeComplexInfo.dateEndProject || '',
@@ -281,6 +295,43 @@ const PassportEditor = () => {
   };
 
   const { options: projectStatusOptions } = useCatalog('dict_project_statuses');
+  const { options: regionsOptions } = useCatalog('regions');
+  const { options: districtsOptions } = useCatalog('districts');
+  const { options: streetsOptions } = useCatalog('streets');
+  const { options: makhallasOptions } = useCatalog('makhallas');
+
+  const selectedRegion = useMemo(
+    () => (regionsOptions || []).find(r => String(r.soato || '') === String(localInfo.regionSoato || '')) || null,
+    [regionsOptions, localInfo.regionSoato]
+  );
+  const availableDistricts = useMemo(
+    () => (districtsOptions || []).filter(d => !selectedRegion || d.region_id === selectedRegion.id),
+    [districtsOptions, selectedRegion]
+  );
+  const availableStreets = useMemo(
+    () => (streetsOptions || []).filter(s => !localInfo.districtSoato || String(s.district_soato || '') === String(localInfo.districtSoato || '')),
+    [streetsOptions, localInfo.districtSoato]
+  );
+  const availableMakhallas = useMemo(
+    () => (makhallasOptions || []).filter(m => !localInfo.districtSoato || String(m.district_soato || '') === String(localInfo.districtSoato || '')),
+    [makhallasOptions, localInfo.districtSoato]
+  );
+
+  useEffect(() => {
+    const regionName = selectedRegion?.name_ru || selectedRegion?.name_uz || localInfo.region || '';
+    const selectedDistrict = availableDistricts.find(d => String(d.soato || '') === String(localInfo.districtSoato || ''));
+    const districtName = selectedDistrict?.name_ru || selectedDistrict?.name_uz || localInfo.district || '';
+    const selectedStreet = availableStreets.find(s => String(s.id || '') === String(localInfo.streetId || ''));
+    const streetName = selectedStreet?.name || '';
+    const selectedMahalla = availableMakhallas.find(m => String(m.id || '') === String(localInfo.mahallaId || ''));
+    const mahallaName = selectedMahalla?.name || localInfo.mahalla || '';
+    const fullStreet = [regionName, districtName, mahallaName, streetName, localInfo.buildingNo ? `д. ${localInfo.buildingNo}` : null].filter(Boolean).join(', ');
+    setLocalInfo(prev => {
+      const nextStreet = fullStreet || prev.street;
+      if (prev.region === regionName && prev.district === districtName && prev.mahalla === mahallaName && prev.street === nextStreet) return prev;
+      return { ...prev, region: regionName, district: districtName, mahalla: mahallaName, street: nextStreet };
+    });
+  }, [selectedRegion, availableDistricts, availableStreets, availableMakhallas, localInfo.districtSoato, localInfo.streetId, localInfo.mahallaId, localInfo.buildingNo]);
   const statusConfig = STATUS_CONFIG[localInfo.status] || STATUS_CONFIG['Проектный'];
   
   const saveStatusLabel = useMemo(() => {
@@ -422,37 +473,51 @@ const PassportEditor = () => {
                   />
                 </div>
                 <div>
-                  <Label>Адрес (Улица, дом)</Label>
-                  <Input
-                    value={localInfo.street}
-                    onChange={e => handleInfoChange('street', e.target.value)}
-                    placeholder="Введите адрес..."
-                    disabled={isReadOnly}
-                    className="mt-1"
-                  />
+                  <Label>Регион</Label>
+                  <Select value={localInfo.regionSoato || ''} onChange={e => handleInfoChange('regionSoato', e.target.value)} disabled={isReadOnly} className="mt-1">
+                    <option value="">Выберите регион</option>
+                    {(regionsOptions || []).map(r => <option key={r.id} value={r.soato}>{r.name_ru || r.name_uz || r.name_en || r.name_uk}</option>)}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Район</Label>
+                  <Select value={localInfo.districtSoato || ''} onChange={e => handleInfoChange('districtSoato', e.target.value)} disabled={isReadOnly} className="mt-1">
+                    <option value="">Выберите район</option>
+                    {availableDistricts.map(d => <option key={d.id} value={d.soato}>{d.name_ru || d.name_uz || d.name_en || d.name_uk}</option>)}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Махалля</Label>
+                  <Select value={localInfo.mahallaId || ''} onChange={e => handleInfoChange('mahallaId', e.target.value)} disabled={isReadOnly} className="mt-1">
+                    <option value="">Выберите махаллю</option>
+                    {availableMakhallas.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Улица</Label>
+                  <Select value={localInfo.streetId || ''} onChange={e => handleInfoChange('streetId', e.target.value)} disabled={isReadOnly} className="mt-1">
+                    <option value="">Выберите улицу</option>
+                    {availableStreets.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Дом</Label>
+                  <Input value={localInfo.buildingNo || ''} onChange={e => handleInfoChange('buildingNo', e.target.value)} placeholder="Номер дома" disabled={isReadOnly} className="mt-1" />
+                </div>
+                <div>
+                  <Label>Адрес (сформированный)</Label>
+                  <Input value={localInfo.street} onChange={e => handleInfoChange('street', e.target.value)} placeholder="Адрес" disabled={isReadOnly} className="mt-1" />
                 </div>
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <Label>Регион</Label>
-                  <Input
-                    value={localInfo.region}
-                    onChange={e => handleInfoChange('region', e.target.value)}
-                    placeholder="Область / Город"
-                    disabled={isReadOnly}
-                    className="mt-1"
-                  />
+                  <Label>Регион (текст)</Label>
+                  <Input value={localInfo.region} disabled className="mt-1" />
                 </div>
                 <div>
-                  <Label>Район</Label>
-                  <Input
-                    value={localInfo.district}
-                    onChange={e => handleInfoChange('district', e.target.value)}
-                    placeholder="Район"
-                    disabled={isReadOnly}
-                    className="mt-1"
-                  />
+                  <Label>Район (текст)</Label>
+                  <Input value={localInfo.district} disabled className="mt-1" />
                 </div>
                 <div>
                   <Label>Ориентир</Label>

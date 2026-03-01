@@ -1,4 +1,5 @@
 import { sendError, requirePolicyActor } from './http-helpers.js';
+import crypto from 'crypto';
 
 function mapBlockTypeToUi(dbType) {
   if (dbType === 'Ж') return 'residential';
@@ -65,6 +66,30 @@ function canHaveBasements(buildingData = {}) {
   return true;
 }
 
+
+
+async function inheritBuildingAddressId(supabase, projectId, houseNumber) {
+  if (!houseNumber) return null;
+  const { data: project } = await supabase.from('projects').select('address_id').eq('id', projectId).maybeSingle();
+  if (!project?.address_id) return null;
+  const { data: parent } = await supabase.from('addresses').select('district, street, mahalla, city').eq('id', project.address_id).maybeSingle();
+  if (!parent) return null;
+
+  const payload = {
+    id: crypto.randomUUID(),
+    dtype: 'Address',
+    versionrev: 0,
+    district: parent.district || null,
+    street: parent.street || null,
+    mahalla: parent.mahalla || null,
+    city: parent.city || null,
+    building_no: String(houseNumber),
+    full_address: [parent.city, `д. ${houseNumber}`].filter(Boolean).join(', '),
+  };
+  const { data, error } = await supabase.from('addresses').insert(payload).select('id').single();
+  if (error) return null;
+  return data?.id || null;
+}
 function getBuildingPrefix(category, hasMultipleBlocks = false) {
   if (category === 'residential' || category === 'residential_multiblock') {
     if (category === 'residential_multiblock') return 'ZM';
@@ -234,6 +259,7 @@ export function registerCompositionRoutes(app, { supabase }) {
         building_code: buildingCode,
         label: buildingData.label,
         house_number: buildingData.houseNumber,
+        address_id: buildingData.addressId || await inheritBuildingAddressId(supabase, projectId, buildingData.houseNumber),
         category: buildingData.category,
         construction_type: normalizedFields.constructionType,
         parking_type: normalizedFields.parkingType,
@@ -323,6 +349,7 @@ export function registerCompositionRoutes(app, { supabase }) {
       .update({
         label: buildingData.label,
         house_number: buildingData.houseNumber,
+        address_id: buildingData.addressId || await inheritBuildingAddressId(supabase, data.project_id, buildingData.houseNumber),
         construction_type: normalizedFields.constructionType,
         parking_type: normalizedFields.parkingType,
         infra_type: normalizedFields.infraType,

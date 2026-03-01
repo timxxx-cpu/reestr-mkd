@@ -54,6 +54,180 @@ drop table if exists dict_external_systems cascade;
 drop table if exists dict_application_statuses cascade;
 drop table if exists dict_project_statuses cascade;
 drop table if exists dict_system_users cascade;
+drop table if exists addresses cascade;
+drop table if exists makhallas cascade;
+drop table if exists streets cascade;
+drop table if exists districts cascade;
+drop table if exists regions cascade;
+
+-- -----------------------------
+-- ADDRESS REGISTRIES
+-- -----------------------------
+create table if not exists regions (
+  id uuid primary key default gen_random_uuid(),
+  name_uk text,
+  name_uz text,
+  name_en text,
+  name_ru text,
+  status integer default 1,
+  soato text unique,
+  cadastral_prefix text,
+  ordering integer default 1
+);
+
+create table if not exists districts (
+  id uuid primary key default gen_random_uuid(),
+  name_uz text,
+  name_uk text,
+  name_ru text,
+  name_en text,
+  ordering integer,
+  status integer default 1,
+  soato text unique,
+  region_id uuid references regions(id) on delete set null,
+  cadastral_prefix text
+);
+create index idx_districts_region on districts(region_id);
+create index idx_districts_status on districts(status);
+
+create table if not exists streets (
+  id uuid primary key default gen_random_uuid(),
+  status integer default 1,
+  name text,
+  district_soato text,
+  code text unique,
+  region_soato text,
+  street_type text,
+  foreign key (region_soato) references regions(soato) on delete set null,
+  foreign key (district_soato) references districts(soato) on delete set null
+);
+create index idx_streets_region_soato on streets(region_soato);
+create index idx_streets_district_soato on streets(district_soato);
+
+create table if not exists makhallas (
+  id uuid primary key default gen_random_uuid(),
+  name text,
+  code text unique,
+  region_soato text references regions(soato) on delete set null,
+  status integer default 1,
+  old_code text,
+  district_soato text references districts(soato) on delete set null
+);
+create index idx_makhallas_region_soato on makhallas(region_soato);
+create index idx_makhallas_district_soato on makhallas(district_soato);
+
+create table if not exists addresses (
+  dtype varchar(31) not null,
+  id uuid primary key default gen_random_uuid(),
+  versionrev integer not null,
+  address_line1 text,
+  address_line2 text,
+  city text,
+  description text,
+  full_address text,
+  po_box text,
+  postal_code text,
+  village text,
+  apartment_no text,
+  building_no text,
+  floor_no text,
+  cad_district text,
+  country text,
+  county text,
+  district text references districts(soato) on delete set null,
+  address_type text,
+  mahalla uuid references makhallas(id) on delete set null,
+  massive text,
+  street uuid references streets(id) on delete set null,
+  building_no_index varchar(20)
+);
+create index idx_addresses_postal_code on addresses(postal_code);
+create index idx_addresses_mahalla on addresses(mahalla);
+create index idx_addresses_street on addresses(street);
+
+-- -----------------------------
+-- DEFAULT ADDRESS REGISTRY DATA (TASHKENT)
+-- -----------------------------
+insert into regions (name_uk, name_uz, name_en, name_ru, status, soato, cadastral_prefix, ordering)
+values ('Toshkent shahri', 'Toshkent shahri', 'Tashkent city', 'Город Ташкент', 1, '1726', '01', 1)
+on conflict (soato) do update
+set name_uk = excluded.name_uk,
+    name_uz = excluded.name_uz,
+    name_en = excluded.name_en,
+    name_ru = excluded.name_ru,
+    status = excluded.status,
+    cadastral_prefix = excluded.cadastral_prefix,
+    ordering = excluded.ordering;
+
+insert into districts (name_uz, name_uk, name_ru, name_en, ordering, status, soato, region_id, cadastral_prefix)
+select
+  d.name_uz,
+  d.name_uk,
+  d.name_ru,
+  d.name_en,
+  d.ordering,
+  1,
+  d.soato,
+  r.id,
+  d.cadastral_prefix
+from regions r
+cross join (
+  values
+    ('Bektemir tumani', 'Bektemir tumani', 'Бектемирский район', 'Bektemir district', 1, '1726001', '0101'),
+    ('Chilonzor tumani', 'Chilonzor tumani', 'Чиланзарский район', 'Chilanzar district', 2, '1726002', '0102'),
+    ('Mirobod tumani', 'Mirobod tumani', 'Мирабадский район', 'Mirabad district', 3, '1726003', '0103'),
+    ('Mirzo Ulugʻbek tumani', 'Mirzo Ulugʻbek tumani', 'Мирзо-Улугбекский район', 'Mirzo-Ulugbek district', 4, '1726004', '0104'),
+    ('Olmazor tumani', 'Olmazor tumani', 'Алмазарский район', 'Almazar district', 5, '1726005', '0105'),
+    ('Sergeli tumani', 'Sergeli tumani', 'Сергелийский район', 'Sergeli district', 6, '1726006', '0106'),
+    ('Shayxontohur tumani', 'Shayxontohur tumani', 'Шайхантахурский район', 'Shaykhantakhur district', 7, '1726007', '0107'),
+    ('Uchtepa tumani', 'Uchtepa tumani', 'Учтепинский район', 'Uchtepa district', 8, '1726008', '0108'),
+    ('Yakkasaroy tumani', 'Yakkasaroy tumani', 'Яккасарайский район', 'Yakkasaray district', 9, '1726009', '0109'),
+    ('Yashnobod tumani', 'Yashnobod tumani', 'Яшнабадский район', 'Yashnabad district', 10, '1726010', '0110'),
+    ('Yunusobod tumani', 'Yunusobod tumani', 'Юнусабадский район', 'Yunusabad district', 11, '1726260', '0111'),
+    ('Yangihayot tumani', 'Yangihayot tumani', 'Янгиҳаётский район', 'Yangihayot district', 12, '1726012', '0112')
+) as d(name_uz, name_uk, name_ru, name_en, ordering, soato, cadastral_prefix)
+where r.soato = '1726'
+on conflict (soato) do update
+set name_uz = excluded.name_uz,
+    name_uk = excluded.name_uk,
+    name_ru = excluded.name_ru,
+    name_en = excluded.name_en,
+    ordering = excluded.ordering,
+    status = excluded.status,
+    region_id = excluded.region_id,
+    cadastral_prefix = excluded.cadastral_prefix;
+
+insert into streets (status, name, district_soato, code, region_soato, street_type)
+select
+  1,
+  format('Virtual Street %s', gs),
+  '1726260',
+  format('TSH-ST-%s', lpad(gs::text, 3, '0')),
+  '1726',
+  'street'
+from generate_series(1, 40) gs
+on conflict (code) do update
+set status = excluded.status,
+    name = excluded.name,
+    district_soato = excluded.district_soato,
+    region_soato = excluded.region_soato,
+    street_type = excluded.street_type;
+
+insert into makhallas (name, code, region_soato, status, old_code, district_soato)
+select
+  format('Virtual Makhalla %s', gs),
+  format('TSH-MH-%s', lpad(gs::text, 3, '0')),
+  '1726',
+  1,
+  null,
+  '1726260'
+from generate_series(1, 40) gs
+on conflict (code) do update
+set name = excluded.name,
+    region_soato = excluded.region_soato,
+    status = excluded.status,
+    old_code = excluded.old_code,
+    district_soato = excluded.district_soato;
 
 -- -----------------------------
 -- CORE
@@ -74,6 +248,7 @@ create table projects (
   date_start_fact date,
   date_end_fact date,
   integration_data jsonb default '{}'::jsonb,
+  address_id uuid references addresses(id) on delete set null,
   land_plot_geojson jsonb,
   land_plot_geom geometry(MultiPolygon, 3857),
   land_plot_area_m2 numeric(14,2),
@@ -84,6 +259,7 @@ create index idx_projects_scope on projects(scope_id);
 create index idx_projects_updated on projects(updated_at desc);
 create unique index idx_projects_uj_code on projects(uj_code) where uj_code is not null;
 create index idx_projects_land_plot_geom on projects using gist(land_plot_geom);
+create index idx_projects_address_id on projects(address_id);
 
 create table applications (
   id uuid primary key default gen_random_uuid(),
@@ -326,6 +502,7 @@ create table buildings (
   building_code text,
   label text not null,
   house_number text,
+  address_id uuid references addresses(id) on delete set null,
   category text not null,
   stage text,
   date_start date,
@@ -345,6 +522,7 @@ create table buildings (
 create index idx_buildings_project on buildings(project_id);
 create unique index idx_buildings_code on buildings(building_code) where building_code is not null;
 create index idx_buildings_footprint_geom on buildings using gist(building_footprint_geom);
+create index idx_buildings_address_id on buildings(address_id);
 
 create table project_geometry_candidates (
   id uuid primary key default gen_random_uuid(),
@@ -396,12 +574,14 @@ create table building_blocks (
   has_roof_expl boolean default false,
   has_custom_address boolean default false,
   custom_house_number text,
+  address_id uuid references addresses(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 create index idx_blocks_building on building_blocks(building_id);
 create index idx_blocks_is_basement on building_blocks(is_basement_block);
 create index idx_blocks_linked_basement_targets on building_blocks using gin(linked_block_ids);
+create index idx_blocks_address_id on building_blocks(address_id);
 alter table building_blocks add constraint chk_basement_depth_range
   check (not is_basement_block or (basement_depth is not null and basement_depth between 1 and 10));
 
@@ -696,6 +876,7 @@ create table units (
   rooms_count int default 0,
   status text default 'free',
   cadastre_number text,
+  address_id uuid references addresses(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   check (mezzanine_type in ('internal', 'external') or mezzanine_type is null),
@@ -708,6 +889,7 @@ create index idx_units_type on units(unit_type);
 -- Performance: composite index for units by floor and entrance queries
 create index idx_units_floor_entrance on units(floor_id, entrance_id);
 create unique index idx_units_code on units(unit_code) where unit_code is not null;
+create index idx_units_address_id on units(address_id);
 
 create or replace function validate_unit_extension_consistency()
 returns trigger

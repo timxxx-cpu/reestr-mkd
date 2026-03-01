@@ -228,7 +228,7 @@ export async function buildServer() {
 
     const { data: projectsData, error: projectsError } = await supabase
       .from('projects')
-      .select('id, uj_code, cadastre_number, name, region, address, construction_status, updated_at, created_at, buildings(count)')
+      .select('id, uj_code, cadastre_number, name, region, address, address_id, construction_status, updated_at, created_at, buildings(count)')
       .eq('scope_id', scope)
       .in('id', projectIds)
       .order('updated_at', { ascending: false });
@@ -273,6 +273,7 @@ export async function buildServer() {
           name: project.name,
           region: project.region,
           street: project.address,
+          addressId: project.address_id || null,
         },
         composition: Array(buildingsCount).fill(1),
       };
