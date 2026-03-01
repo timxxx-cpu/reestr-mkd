@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   SlidersHorizontal,
+  MapPinned,
 } from 'lucide-react';
 import {
   ROLES,
@@ -47,6 +48,7 @@ import InboxTable from './applications-dashboard/InboxTable';
 import { useApplicationsDashboardData } from './applications-dashboard/useApplicationsDashboardData';
 import { useInboxActions } from './applications-dashboard/useInboxActions';
 import { useProjectModerationActions } from './applications-dashboard/useProjectModerationActions';
+import ProjectsOverviewMapModal from '@components/maps/ProjectsOverviewMapModal';
 
 // --- КОМПОНЕНТ KPI КАРТОЧКИ ---
 function MetricCard({ label, value, icon: _Icon, color, isActive, onClick }) {
@@ -97,6 +99,9 @@ const ApplicationsDashboard = ({
   const [assigneeFilter, setAssigneeFilter] = useState(DASHBOARD_DEFAULTS.ASSIGNEE_FILTER); // all | mine
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
+  const [isProjectsMapOpen, setIsProjectsMapOpen] = useState(false);
+  const [projectsMapItems, setProjectsMapItems] = useState([]);
+  const [isProjectsMapLoading, setIsProjectsMapLoading] = useState(false);
 
   const [incomingApps, setIncomingApps] = useState([]);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
@@ -227,6 +232,26 @@ const ApplicationsDashboard = ({
   const onEmulateResubmission = () =>
     handleEmulateResubmission(buildResubmissionEmulatedApplication);
 
+
+  const handleOpenProjectsMap = useCallback(async () => {
+    setIsProjectsMapOpen(true);
+    if (!dbScope) {
+      setProjectsMapItems([]);
+      return;
+    }
+
+    setIsProjectsMapLoading(true);
+    try {
+      const payload = await ApiService.getProjectsMapOverview(dbScope);
+      setProjectsMapItems(Array.isArray(payload?.items) ? payload.items : []);
+    } catch (e) {
+      toast.error(e?.message || 'Не удалось загрузить карту проектов');
+      setProjectsMapItems([]);
+    } finally {
+      setIsProjectsMapLoading(false);
+    }
+  }, [dbScope, toast]);
+
   const onActionModalConfirm = async result => {
     const currentModal = actionModal;
     setActionModal(null);
@@ -246,6 +271,18 @@ const ApplicationsDashboard = ({
         />
       )}
 
+
+      {isProjectsMapOpen && (
+        <ProjectsOverviewMapModal
+          isOpen={isProjectsMapOpen}
+          projects={projectsMapItems}
+          onClose={() => setIsProjectsMapOpen(false)}
+          onBackToWorkdesk={() => {
+            setActiveTab('workdesk');
+            setIsProjectsMapOpen(false);
+          }}
+        />
+      )}
       {/* --- ШАПКА --- */}
       <div className="bg-slate-900 px-6 py-4 shadow-xl border-b border-slate-800 shrink-0">
         <div className="flex items-center justify-between gap-4">
@@ -309,6 +346,15 @@ const ApplicationsDashboard = ({
               <UserAvatar name={user.name} role={user.role} />
               <span className="text-xs font-bold text-slate-200">{user.name}</span>
             </div>
+
+            <button
+              onClick={handleOpenProjectsMap}
+              className="h-10 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 text-xs font-bold inline-flex items-center gap-2 hover:bg-slate-700"
+              title="Открыть общую карту ЖК"
+            >
+              <MapPinned size={14} />
+              {isProjectsMapLoading ? 'Загрузка...' : 'Карта ЖК'}
+            </button>
 
             <button
               onClick={() => setIsSidePanelOpen(v => !v)}

@@ -59,23 +59,20 @@ const BASEMAPS = {
   },
 };
 
-// Функция-помощник: проверяет, не в метрах ли координаты (EPSG:3857)
 const safeGeometryConvert = (geom) => {
   if (!geom || !geom.coordinates) return geom;
   try {
-    // Достаем первое попавшееся число из массива координат
     const firstCoordStr = JSON.stringify(geom.coordinates).match(/-?\d+\.?\d*/);
     if (firstCoordStr) {
       const val = Math.abs(parseFloat(firstCoordStr[0]));
-      // Если значение больше 180 (градусов не бывает > 180), значит это огромные числа в метрах
       if (val > 180) {
         return geometry3857To4326(geom);
       }
     }
   } catch (e) {
-    console.error("Coordinate check failed", e);
+    console.error('Coordinate check failed', e);
   }
-  return geom; // Возвращаем как есть (значит уже градусы EPSG:4326)
+  return geom;
 };
 
 const toFeatureCollection = (candidates = [], selectedId = null, activeId = null) => ({
@@ -94,7 +91,6 @@ const toFeatureCollection = (candidates = [], selectedId = null, activeId = null
       },
     })),
 });
-
 
 const toSingleFeatureCollection = (geometry, selectedId = null, activeId = null) => {
   if (!geometry) return { type: 'FeatureCollection', features: [] };
@@ -116,9 +112,40 @@ const toSingleFeatureCollection = (geometry, selectedId = null, activeId = null)
   };
 };
 
-// Утилита для расчета границ охвата (Bounding Box)
+const toDraftFeatureCollection = (draftPoints = []) => {
+  const points = Array.isArray(draftPoints) ? draftPoints : [];
+  if (!points.length) return { type: 'FeatureCollection', features: [] };
+
+  const features = points.map((point, idx) => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: point },
+    properties: { idx },
+  }));
+
+  if (points.length >= 2) {
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: points },
+      properties: { kind: 'line' },
+    });
+  }
+
+  if (points.length >= 3) {
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [[...points, points[0]]] },
+      properties: { kind: 'polygon' },
+    });
+  }
+
+  return { type: 'FeatureCollection', features };
+};
+
 function getBbox(featureCollection) {
-  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+  let minLng = Infinity;
+  let minLat = Infinity;
+  let maxLng = -Infinity;
+  let maxLat = -Infinity;
   let hasData = false;
 
   const traverse = (coords) => {
@@ -153,13 +180,16 @@ export const GeometryPickerMap = ({
   onSelect,
   height = 400,
   basemap = 'osm',
+  isDrawing = false,
+  draftPoints = [],
+  onDraftPointAdd,
 }) => {
   const mapRef = useRef(null);
   const didInitialSavedFitRef = useRef(false);
-  
+
   const sourceData = useMemo(() => {
     const collection = toFeatureCollection(candidates, selectedId, activeId);
-    
+
     if (savedGeometry) {
       collection.features.push({
         type: 'Feature',
@@ -173,9 +203,11 @@ export const GeometryPickerMap = ({
         },
       });
     }
-    
+
     return collection;
   }, [candidates, selectedId, activeId, savedGeometry]);
+
+  const draftData = useMemo(() => toDraftFeatureCollection(draftPoints), [draftPoints]);
 
   const initialView = useMemo(() => ({
     longitude: 69.2401,
@@ -211,7 +243,7 @@ export const GeometryPickerMap = ({
           mapRef.current.fitBounds(bounds, { padding: 50, duration: 1500, maxZoom: 18 });
         }
       } catch (err) {
-        console.warn("Не удалось изменить рамки карты", err);
+        console.warn('Не удалось изменить рамки карты', err);
       }
     }
   }, [candidates, sourceData, selectedId, activeId, fitToSavedOnOpen, savedGeometry]);
@@ -224,11 +256,14 @@ export const GeometryPickerMap = ({
         initialViewState={initialView}
         mapStyle={BASEMAPS[basemap]?.style || BASEMAPS.osm.style}
         style={{ width: '100%', height }}
-        interactiveLayerIds={['candidates-fill']}
+        interactiveLayerIds={isDrawing ? [] : ['candidates-fill']}
         onClick={evt => {
+          if (isDrawing) {
+            onDraftPointAdd?.([evt.lngLat.lng, evt.lngLat.lat]);
+            return;
+          }
           const feature = evt.features?.[0];
           const candidateId = feature?.properties?.candidateId;
-          // Игнорируем клик по уже сохраненной статичной геометрии
           if (candidateId && candidateId !== 'saved-geometry' && onSelect) {
             onSelect(candidateId);
           }
@@ -241,11 +276,11 @@ export const GeometryPickerMap = ({
             paint={{
               'fill-color': [
                 'case',
-                ['==', ['get', 'isSavedGeometry'], true], '#10b981', // Зеленый для геометрии из БД
-                ['==', ['get', 'isSelected'], true], '#10b981', 
-                ['==', ['get', 'isActive'], true], '#3b82f6',   
-                ['==', ['get', 'isAssigned'], true], '#f59e0b', 
-                '#94a3b8' 
+                ['==', ['get', 'isSavedGeometry'], true], '#10b981',
+                ['==', ['get', 'isSelected'], true], '#10b981',
+                ['==', ['get', 'isActive'], true], '#3b82f6',
+                ['==', ['get', 'isAssigned'], true], '#f59e0b',
+                '#94a3b8',
               ],
               'fill-opacity': ['case', ['==', ['get', 'isActive'], true], 0.6, 0.4],
             }}
@@ -256,15 +291,43 @@ export const GeometryPickerMap = ({
             paint={{
               'line-color': [
                 'case',
-                ['==', ['get', 'isSavedGeometry'], true], '#059669', // Темно-зеленый
-                ['==', ['get', 'isSelected'], true], '#059669', 
-                ['==', ['get', 'isActive'], true], '#2563eb',   
-                '#334155'
+                ['==', ['get', 'isSavedGeometry'], true], '#059669',
+                ['==', ['get', 'isSelected'], true], '#059669',
+                ['==', ['get', 'isActive'], true], '#2563eb',
+                '#334155',
               ],
               'line-width': ['case', ['==', ['get', 'isActive'], true], 3, 2],
             }}
           />
         </Source>
+
+        {!!draftData.features.length && (
+          <Source id="geometry-draft" type="geojson" data={draftData}>
+            <Layer
+              id="geometry-draft-fill"
+              type="fill"
+              filter={['==', ['geometry-type'], 'Polygon']}
+              paint={{ 'fill-color': '#0ea5e9', 'fill-opacity': 0.25 }}
+            />
+            <Layer
+              id="geometry-draft-line"
+              type="line"
+              filter={['==', ['geometry-type'], 'LineString']}
+              paint={{ 'line-color': '#0284c7', 'line-width': 2.5, 'line-dasharray': [2, 2] }}
+            />
+            <Layer
+              id="geometry-draft-points"
+              type="circle"
+              filter={['==', ['geometry-type'], 'Point']}
+              paint={{
+                'circle-color': '#0369a1',
+                'circle-stroke-color': '#e0f2fe',
+                'circle-stroke-width': 2,
+                'circle-radius': 5,
+              }}
+            />
+          </Source>
+        )}
       </Map>
     </div>
   );

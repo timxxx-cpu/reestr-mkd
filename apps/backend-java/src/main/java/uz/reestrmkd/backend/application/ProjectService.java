@@ -19,6 +19,51 @@ public class ProjectService {
         return Map.of("items", projects, "total", projects.size());
     }
 
+    public Map<String, Object> projectsMapOverview(String scope) {
+        if (scope == null || scope.isBlank()) throw new IllegalArgumentException("Scope is required");
+
+        var projectRows = jdbc.queryForList(
+            "select id, uj_code, name, land_plot_geojson from projects where scope_id = ? order by updated_at desc",
+            scope
+        );
+
+        if (projectRows.isEmpty()) {
+            return Map.of("items", List.of());
+        }
+
+        List<Object> projectIds = projectRows.stream().map(r -> r.get("id")).filter(Objects::nonNull).toList();
+        String placeholders = String.join(",", Collections.nCopies(projectIds.size(), "?"));
+        var buildingRows = jdbc.queryForList(
+            "select id, project_id, label, building_code, footprint_geojson from buildings where project_id in (" + placeholders + ")",
+            projectIds.toArray()
+        );
+
+        Map<String, List<Map<String, Object>>> buildingsByProject = new LinkedHashMap<>();
+        for (Map<String, Object> row : buildingRows) {
+            String projectId = String.valueOf(row.get("project_id"));
+            buildingsByProject.computeIfAbsent(projectId, k -> new ArrayList<>()).add(Map.of(
+                "id", row.get("id"),
+                "label", row.get("label"),
+                "buildingCode", row.get("building_code"),
+                "geometry", row.get("footprint_geojson")
+            ));
+        }
+
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (Map<String, Object> row : projectRows) {
+            String projectId = String.valueOf(row.get("id"));
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", row.get("id"));
+            item.put("ujCode", row.get("uj_code"));
+            item.put("name", row.get("name"));
+            item.put("landPlotGeometry", row.get("land_plot_geojson"));
+            item.put("buildings", buildingsByProject.getOrDefault(projectId, List.of()));
+            items.add(item);
+        }
+
+        return Map.of("items", items);
+    }
+
     public List<Map<String, Object>> externalApplications(String scope) {
         return List.of(Map.of(
             "id", "EXT-10001",

@@ -14,6 +14,7 @@ public class ProjectController {
     private final ProjectJpaService projects;
 
     @GetMapping("/projects") public Map<String, Object> projects(@RequestParam(required = false) String scope) { return projects.list(scope); }
+    @GetMapping("/projects/map-overview") public Map<String, Object> projectsMapOverview(@RequestParam(required = false) String scope) { return projects.mapOverview(scope); }
     @GetMapping("/external-applications") public Object ext(@RequestParam(required = false) String scope){ return projects.externalApplications(scope); }
     @GetMapping("/projects/summary-counts") public Map<String,Object> summary(@RequestParam(required = false) String scope){ return projects.summary(scope); }
     @GetMapping("/projects/{projectId}/application-id") public Map<String, Object> appId(@PathVariable String projectId, @RequestParam String scope) { return projects.appId(projectId, scope); }

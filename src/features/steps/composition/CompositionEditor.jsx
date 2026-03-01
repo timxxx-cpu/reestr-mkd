@@ -236,10 +236,13 @@ const BuildingModal = ({
   geometryCandidates = [],
   geometryError = '',
   complexGeometry = null,
+  onImportDrawnGeometry,
 }) => {
   const isReadOnly = useReadOnly();
   const [activeCandidateId, setActiveCandidateId] = useState(null);
   const [basemap, setBasemap] = useState('osm');
+  const [isDrawingGeometry, setIsDrawingGeometry] = useState(false);
+  const [draftPolygonPoints, setDraftPolygonPoints] = useState([]);
 
   useEscapeKey(() => setModal(m => ({ ...m, isOpen: false })));
 
@@ -269,6 +272,35 @@ const BuildingModal = ({
         {errors[field]}
       </span>
     ) : null;
+
+
+  const handleStartDrawGeometry = () => {
+    setActiveCandidateId(null);
+    setDraftPolygonPoints([]);
+    setIsDrawingGeometry(true);
+  };
+
+  const handleCancelDrawGeometry = () => {
+    setIsDrawingGeometry(false);
+    setDraftPolygonPoints([]);
+  };
+
+  const handleSaveDrawGeometry = async () => {
+    if (draftPolygonPoints.length < 3 || !onImportDrawnGeometry) return;
+    const candidateId = await onImportDrawnGeometry({
+      points: draftPolygonPoints,
+      scope: 'building',
+      label: 'Нарисованный контур здания',
+    });
+    if (candidateId) {
+      setModal(m => ({ ...m, geometryCandidateId: candidateId }));
+      setIsDrawingGeometry(false);
+      setDraftPolygonPoints([]);
+      setActiveCandidateId(null);
+    }
+  };
+
+
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -531,8 +563,39 @@ const BuildingModal = ({
                           <Trash2 size={14} className="mr-1.5" /> Открепить
                         </Button>
                       )}
-                      {!modal.geometryCandidateId && !activeCandidateId && (
+                      {!modal.geometryCandidateId && !activeCandidateId && !isDrawingGeometry && (
                         <span className="text-[11px] text-slate-500 font-medium px-1">Выберите полигон на карте</span>
+                      )}
+                      {!isReadOnly && !isDrawingGeometry && (
+                        <Button
+                          onClick={handleStartDrawGeometry}
+                          className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm h-8 px-3 text-xs"
+                        >
+                          Нарисовать полигон
+                        </Button>
+                      )}
+                      {!isReadOnly && isDrawingGeometry && (
+                        <>
+                          <Button
+                            onClick={handleSaveDrawGeometry}
+                            disabled={draftPolygonPoints.length < 3}
+                            className="bg-blue-600 text-white hover:bg-blue-500 shadow-sm h-8 px-3 text-xs"
+                          >
+                            Сохранить контур
+                          </Button>
+                          <Button
+                            onClick={() => setDraftPolygonPoints([])}
+                            className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm h-8 px-3 text-xs"
+                          >
+                            Очистить
+                          </Button>
+                          <Button
+                            onClick={handleCancelDrawGeometry}
+                            className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm h-8 px-3 text-xs"
+                          >
+                            Отмена
+                          </Button>
+                        </>
                       )}
                     </div>
                     <select 
@@ -551,7 +614,7 @@ const BuildingModal = ({
                   )}
 
                   {/* Action Banner when polygon is clicked */}
-                  {activeCandidateId && activeCandidateId !== modal.geometryCandidateId && !isReadOnly && (
+                  {activeCandidateId && activeCandidateId !== modal.geometryCandidateId && !isReadOnly && !isDrawingGeometry && (
                     <div className="flex items-center justify-between gap-3 p-2 px-3 bg-blue-600 rounded-lg shadow-md text-white animate-in slide-in-from-top-1">
                       <div className="text-xs font-medium">Контур выбран</div>
                       <div className="flex items-center gap-1.5">
@@ -585,11 +648,15 @@ const BuildingModal = ({
                       fitScopeKey={`${modal.editingId || 'new'}-${modal.isOpen}`}
                       onSelect={setActiveCandidateId}
                       basemap={basemap}
+                      isDrawing={isDrawingGeometry}
+                      draftPoints={draftPolygonPoints}
+                      onDraftPointAdd={point => setDraftPolygonPoints(prev => [...prev, point])}
                       height={450}
                     />
                   </div>
                   
                   <div className="text-[10px] text-slate-400 text-center flex items-center justify-center gap-4">
+                     {isDrawingGeometry && <div className="text-sky-600 font-semibold">Режим рисования: точек {draftPolygonPoints.length}</div>}
                      <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-500/80"></span> Выбрано для этого здания</div>
                      <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-blue-500/80"></span> Активный контур</div>
                      <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-500/80"></span> Занято другим</div>
@@ -631,6 +698,7 @@ const BuildingModal = ({
 
 const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, isDeleting }) => {
   if (!isOpen) return null;
+
 
   return createPortal(
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -764,6 +832,40 @@ const CompositionEditor = () => {
       active = false;
     };
   }, [projectId, isMutating]);
+
+
+  const importDrawnGeometryCandidate = async ({ points, scope = 'project', label = 'Нарисованный контур' }) => {
+    if (!projectId || !Array.isArray(points) || points.length < 3) return null;
+    setGeometryError('');
+    try {
+      const maxSourceIndex = geometryCandidates.reduce((max, item) => {
+        const val = Number(item?.sourceIndex ?? item?.source_index ?? 0);
+        return Number.isFinite(val) ? Math.max(max, val) : max;
+      }, 0);
+      const candidate = {
+        sourceIndex: maxSourceIndex + 1,
+        label,
+        properties: { source: 'manual-draw', scope },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[...points, points[0]]],
+        },
+      };
+      await ApiService.importProjectGeometryCandidates(projectId, [candidate]);
+      const items = await ApiService.getProjectGeometryCandidates(projectId);
+      const next = Array.isArray(items) ? items : [];
+      setGeometryCandidates(next);
+      return next.reduce((acc, item) => {
+        const val = Number(item?.sourceIndex ?? item?.source_index ?? -1);
+        if (!Number.isFinite(val)) return acc;
+        if (!acc || val > acc.sourceIndex) return { id: item.id, sourceIndex: val };
+        return acc;
+      }, null)?.id || null;
+    } catch (err) {
+      setGeometryError(err?.message || 'Не удалось сохранить нарисованный контур');
+      return null;
+    }
+  };
 
   const openPlanning = category => {
     let defaultName = TYPE_NAMES[category] || 'Новый объект';
@@ -1141,6 +1243,7 @@ const CompositionEditor = () => {
           geometryCandidates={geometryCandidates}
           geometryError={geometryError}
           complexGeometry={landPlot?.geometry || null}
+          onImportDrawnGeometry={importDrawnGeometryCandidate}
         />
       )}
       <DeleteConfirmationModal 

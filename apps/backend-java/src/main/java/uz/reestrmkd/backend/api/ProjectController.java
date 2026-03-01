@@ -15,6 +15,7 @@ public class ProjectController {
     public ProjectController(ProjectService projects, PolicyService policy) { this.projects = projects; this.policy = policy; }
 
     @GetMapping("/projects") public Map<String, Object> projects(@RequestParam Map<String,String> q) { return projects.projects(q.get("scope")); }
+    @GetMapping("/projects/map-overview") public Map<String, Object> projectsMapOverview(@RequestParam Map<String,String> q) { return projects.projectsMapOverview(q.get("scope")); }
     @GetMapping("/external-applications") public Object extApps(@RequestParam Map<String,String> q) { return projects.externalApplications(q.get("scope")); }
     @GetMapping("/projects/summary-counts") public Map<String, Object> summary(@RequestParam Map<String,String> q) { return projects.summaryCounts(q.get("scope")); }
     @GetMapping("/projects/{projectId}/application-id") public Map<String, Object> appId(@PathVariable String projectId, @RequestParam(required = false) String scope) { return projects.applicationId(projectId, scope); }

@@ -6,6 +6,39 @@
 - `поле_бд` -> `UI-поле` -> **русское название/разъяснение**.
 - Дополнительно указаны: тип данных, ограничения, индексы, значения по умолчанию.
 
+
+## 2.0 ADDRESS REGISTRIES — Регионы, районы и махалли
+
+### Таблица `regions` — Регионы
+
+**Назначение**: Справочник регионов для адресной иерархии и привязки объектов.
+
+**Ключевые поля геометрии (PostGIS)**:
+- `geom` — `geometry(MultiPolygon, 3857)`; граница региона в проекции Web Mercator.
+
+**Индексы**:
+- `idx_regions_geom` — GiST-индекс для пространственных выборок по границам регионов.
+
+### Таблица `districts` — Районы
+
+**Назначение**: Справочник районов, связанных с регионом (`region_id`) и SOATO-кодом.
+
+**Ключевые поля геометрии (PostGIS)**:
+- `geom` — `geometry(MultiPolygon, 3857)`; граница района в проекции Web Mercator.
+
+**Индексы**:
+- `idx_districts_geom` — GiST-индекс для пространственных выборок по границам районов.
+
+### Таблица `makhallas` — Махалли
+
+**Назначение**: Справочник махаллей внутри районов.
+
+**Ключевые поля геометрии (PostGIS)**:
+- `geom` — `geometry(MultiPolygon, 3857)`; граница махалли в проекции Web Mercator.
+
+**Индексы**:
+- `idx_makhallas_geom` — GiST-индекс для пространственных выборок по границам махаллей.
+
 ## 2.1 CORE — Основные таблицы проекта и заявки
 
 ### Таблица `projects` — Проект (Жилой комплекс)
@@ -253,6 +286,43 @@
 **Связи**:
 - Многие-к-одному с `projects` через `project_id`
 
+
+### Таблица `project_geometry_candidates` — Кандидаты геометрии проекта
+
+**Назначение**: Буфер импорта геометрии из внешних систем/файлов для выбора земельного участка и привязки контуров к зданиям.
+
+**Первичный ключ**: `id` (UUID)
+
+**Уникальные ключи**:
+- `(project_id, source_index)` — уникальный индекс кандидата в рамках проекта
+- частичный unique `(project_id) where is_selected_land_plot = true` — в проекте только один выбранный земельный участок
+- частичный unique `(project_id, assigned_building_id) where assigned_building_id is not null` — один кандидат на здание
+
+**Индексы**:
+- `idx_proj_geom_candidates_project` на `project_id`
+- `idx_proj_geom_candidates_geom` GiST на `geom`
+
+**Поля**:
+
+| Поле БД | Тип данных | Ограничения | UI-поле | Русское название | Когда заполняется | Откуда берется значение |
+|---------|-----------|-------------|---------|-----------------|------------------|------------------------|
+| `id` | UUID | PRIMARY KEY, NOT NULL, DEFAULT gen_random_uuid() | `geometryCandidates[].id` | **ID кандидата геометрии** | Импорт геометрии | Автоматически БД |
+| `project_id` | UUID | NOT NULL, FK -> projects(id) ON DELETE CASCADE, INDEX, UNIQUE(project_id, source_index) | (связь) | **Проект** | Импорт геометрии | ID текущего проекта |
+| `source_index` | INT | NOT NULL, UNIQUE(project_id, source_index) | `geometryCandidates[].sourceIndex` | **Порядковый номер из источника** | Импорт геометрии | Номер объекта во внешнем ответе |
+| `label` | TEXT | NULL | `geometryCandidates[].label` | **Подпись кандидата** | Импорт геометрии | Формируется из адреса/кадастра |
+| `properties` | JSONB | NOT NULL, DEFAULT '{}'::jsonb | `geometryCandidates[].properties` | **Служебные атрибуты источника** | Импорт геометрии | Из внешней системы |
+| `geom_geojson` | JSONB | NOT NULL | `geometryCandidates[].geojson` | **GeoJSON-мультиполигон** | Импорт геометрии | Из внешней системы |
+| `geom` | geometry(MultiPolygon, 3857) | NULL, GiST INDEX | (служебно) | **Геометрия PostGIS** | Импорт/нормализация | Вычисляется на backend |
+| `area_m2` | numeric(14,2) | NULL | `geometryCandidates[].areaM2` | **Площадь, м²** | Импорт/нормализация | Вычисляется на backend |
+| `is_selected_land_plot` | BOOLEAN | NOT NULL, DEFAULT false, partial UNIQUE(project_id) | `landPlotSelection` | **Выбран как земельный участок проекта** | Шаг `passport` | Выбор пользователя (`/land-plot/select`) |
+| `assigned_building_id` | UUID | NULL, partial UNIQUE(project_id, assigned_building_id) | `buildingGeometrySelection` | **Привязка к зданию** | Шаг `composition` | Выбор пользователя (`/buildings/:id/geometry/select`) |
+| `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата создания** | При импорте | Автоматически БД |
+| `updated_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата изменения** | При изменении | Автоматически при UPDATE |
+
+**Связи**:
+- Многие-к-одному с `projects` через `project_id`.
+- Логическая связь с `buildings` через `assigned_building_id` (строгий FK в схеме не задан).
+
 ## 2.2 BUILDINGS + BLOCKS — Здания, блоки и их характеристики
 
 ### Таблица `buildings` — Здания и сооружения
@@ -296,10 +366,9 @@
 
 **Связи**:
 - Многие-к-одному с `projects` через `project_id`
-- Один-ко-многим с `building_blocks` через `building_blocks.building_id`
-- Один-ко-многим с `basements` через `basements.building_id`
+- Один-ко-многим с `building_blocks` через `building_blocks.building_id` (в т.ч. подвальные блоки `is_basement_block=true`)
 
-**Правила удаления**: При удалении здания CASCADE удаляются все блоки, подвалы и связанные данные.
+**Правила удаления**: При удалении здания CASCADE удаляются все связанные блоки (включая подвальные) и дочерние данные.
 
 ### Таблица `building_blocks` — Блоки здания
 
@@ -447,63 +516,25 @@
 **Связи**:
 - Один-к-одному с `building_blocks` через `block_id`
 
-### Таблица `basements` — Подвалы
+### Подвальный контур в актуальной схеме (без отдельных таблиц `basements`/`basement_parking_levels`)
 
-**Назначение**: Хранит информацию о подвальных уровнях жилых зданий. Подвалы могут использоваться для паркинга или технических помещений.
+В текущей SQL-схеме (`db/reset_schema.sql`) отдельные таблицы `basements` и `basement_parking_levels` **не используются**. Подвальная модель хранится в `building_blocks` + `floors`:
 
-**Первичный ключ**: `id` (UUID)
+- признаки подвала и глубина: `building_blocks.is_basement_block`, `building_blocks.basement_depth`;
+- конфигурация уровней паркинга: `building_blocks.basement_parking_levels` (JSONB-объект);
+- инженерные признаки подвала: `building_blocks.basement_communications` (JSONB);
+- привязка этажа к подвалу: `floors.basement_id`, `floors.is_basement`.
 
-**Индексы**:
-- `idx_basements_building` на `building_id`
-- `idx_basements_block` на `block_id`
+**Ключевые ограничения и правила**:
+- `chk_basement_depth_range`: для подвального блока глубина обязательна и находится в диапазоне `1..10`.
+- Trigger `trg_validate_basement_block_rules` + function `validate_basement_block_rules()` проверяют:
+  - тип JSON в `basement_parking_levels` и `basement_communications`;
+  - границы уровней паркинга относительно глубины;
+  - допустимость подвальных блоков по категории/типу здания;
+  - ограничение на количество подвальных блоков для инфраструктуры.
 
-**Поля**:
-
-| Поле БД | Тип данных | Ограничения | UI-поле | Русское название | Когда заполняется | Откуда берется значение |
-|---------|-----------|-------------|---------|-----------------|------------------|------------------------|
-| `id` | UUID | PRIMARY KEY, NOT NULL, DEFAULT gen_random_uuid() | `basements[].id` | **ID подвала** | Шаг `registry_res` | Автоматически БД |
-| `building_id` | UUID | NOT NULL, FK -> buildings(id) ON DELETE CASCADE, INDEX | (связь) | **Здание** | Шаг `registry_res` | ID здания |
-| `block_id` | UUID | NOT NULL, FK -> building_blocks(id) ON DELETE CASCADE, INDEX | (связь) | **Блок** | Шаг `registry_res` | ID блока (блоки могут иметь свои подвалы) |
-| `depth` | INT | NOT NULL | `basements[].depth` | **Глубина (количество уровней)** | Шаг `registry_res` | Ввод пользователя (1, 2, 3... уровня) |
-| `has_parking` | BOOLEAN | NOT NULL, DEFAULT false | `basements[].hasParking` | **Есть паркинг в подвале** | Шаг `registry_res` или `parking_config` | Ввод пользователя (checkbox) |
-| `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата создания** | При создании | Автоматически БД |
-| `updated_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата изменения** | При изменении | Автоматически при UPDATE |
-
-**Примечания**:
-- Создается для жилых блоков, где установлен флаг `has_basement=true`
-- Каждый уровень подвала (depth) может иметь разную конфигурацию паркинга
-
-**Связи**:
-- Многие-к-одному с `buildings` через `building_id`
-- Многие-к-одному с `building_blocks` через `block_id`
-- Один-ко-многим с `basement_parking_levels` через `basement_parking_levels.basement_id`
-- Один-ко-многим с `floors` через `floors.basement_id` (SET NULL при удалении)
-
-### Таблица `basement_parking_levels` — Уровни подземного паркинга
-
-**Назначение**: Инвентаризация паркингов на каждом уровне подвала (какие уровни активны для паркинга).
-
-**Первичный ключ**: `id` (UUID)
-
-**Уникальные ключи**: `(basement_id, depth_level)` — один уровень на подвал
-
-**Поля**:
-
-| Поле БД | Тип данных | Ограничения | UI-поле | Русское название | Когда заполняется | Откуда берется значение |
-|---------|-----------|-------------|---------|-----------------|------------------|------------------------|
-| `id` | UUID | PRIMARY KEY, NOT NULL, DEFAULT gen_random_uuid() | (служебно) | **ID записи** | Шаг `parking_config` | Автоматически БД |
-| `basement_id` | UUID | NOT NULL, FK -> basements(id) ON DELETE CASCADE, UNIQUE(basement_id, depth_level) | (связь) | **Подвал** | Шаг `parking_config` | ID подвала |
-| `depth_level` | INT | NOT NULL, UNIQUE(basement_id, depth_level) | `parkingLevels[level]` | **Номер уровня (-1, -2, -3...)** | Шаг `parking_config` | Номер подземного уровня |
-| `is_enabled` | BOOLEAN | NOT NULL, DEFAULT false | `parkingLevels[level]` | **Уровень активен для паркинга** | Шаг `parking_config` | Ввод пользователя (checkbox) |
-| `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата создания** | При создании | Автоматически БД |
-| `updated_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | (служебно) | **Дата изменения** | При изменении | Автоматически при UPDATE |
-
-**Примечания**:
-- Позволяет гибко управлять тем, на каких уровнях размещается паркинг
-- Например: подвал глубиной 3 уровня, но паркинг только на -1 и -2
-
-**Связи**:
-- Многие-к-одному с `basements` через `basement_id`
+**Как это связано с API**:
+- `GET /api/v1/projects/:projectId/basements` и `PUT /api/v1/basements/:basementId/parking-levels/:level` — это API-представление, которое backend строит поверх данных `building_blocks`/`floors`, а не CRUD по отдельным таблицам `basements`.
 
 ### Таблица `block_floor_markers` — Маркеры этажей блока
 
@@ -567,7 +598,7 @@
 | `area_fact` | NUMERIC(14,2) | NULL | `floorData[*].areaFact` | **Фактическая площадь (м²)** | Шаг `floors` | Ввод пользователя (валидация расхождения max 15%) |
 | `is_duplex` | BOOLEAN | NULL, DEFAULT false | `floorData[*].isDuplex` | **Дуплексный этаж** | Шаг `floors` | Ввод пользователя (checkbox) |
 | `parent_floor_index` | INT | NULL, UNIQUE(...) | `floorData[*].parentFloorIndex` | **Родительский этаж** | Шаг `floors` | Для технических этажей - номер основного этажа |
-| `basement_id` | UUID | NULL, FK -> basements(id) ON DELETE SET NULL, UNIQUE(...) | `floorData[*].basementId` | **Подвал** | Шаг `floors` | ID подвала для подвальных этажей |
+| `basement_id` | UUID | NULL, FK -> building_blocks(id) ON DELETE SET NULL, UNIQUE(...) | `floorData[*].basementId` | **Подвальный блок-источник** | Шаг `floors` | ID подвального блока для подвальных этажей |
 | `is_technical` | BOOLEAN | NULL, DEFAULT false | `flags.isTechnical` | **Технический этаж** | Шаг `floors` | Флаг (из маркеров или ввод пользователя) |
 | `is_commercial` | BOOLEAN | NULL, DEFAULT false | `flags.isCommercial` | **Коммерческий этаж** | Шаг `floors` | Флаг (из маркеров или ввод пользователя) |
 | `is_stylobate` | BOOLEAN | NULL, DEFAULT false | `flags.isStylobate` | **Стилобат** | Шаг `floors` | Флаг для стилобатных этажей нежилых блоков |
@@ -586,7 +617,7 @@
 
 **Связи**:
 - Многие-к-одному с `building_blocks` через `block_id`
-- Многие-к-одному с `basements` через `basement_id` (SET NULL при удалении)
+- Многие-к-одному с `building_blocks` через `basement_id` (SET NULL при удалении)
 - Один-ко-многим с `entrance_matrix` через `entrance_matrix.floor_id`
 - Один-ко-многим с `units` через `units.floor_id`
 - Один-ко-многим с `common_areas` через `common_areas.floor_id`

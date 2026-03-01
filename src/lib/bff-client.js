@@ -128,6 +128,10 @@ async function request(path, options = {}) {
     return request(`/api/v1/projects?${params.toString()}`);
   },
 
+
+  getProjectsMapOverview: ({ scope }) =>
+    request(`/api/v1/projects/map-overview?scope=${encodeURIComponent(scope || '')}`),
+
   getProjectsSummaryCounts: (options = {}) => {
     const { scope, assignee } = options;
     const params = new URLSearchParams();

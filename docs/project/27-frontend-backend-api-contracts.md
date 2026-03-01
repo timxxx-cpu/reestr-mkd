@@ -1,6 +1,6 @@
 # Полная карта контрактов Frontend ↔ Backend (все варианты backend)
 
-Дата: 2026-03-01.
+Дата: 2026-03-01 (актуализировано по исходникам `apps/backend/src/*`, `apps/backend-java/*`, `apps/backend-java-jpa/*`, `src/lib/bff-client.js`).
 
 ## 1) Варианты backend и общий контракт API
 
@@ -11,7 +11,7 @@
 2. `apps/backend-java` (Spring Boot 3, Java 21, direct PostgreSQL).
 3. `apps/backend-java-jpa` (Spring Boot 3, Java 21, Hibernate JPA Repository).
 
-Во всех вариантах заявлено parity-покрытие route-surface: Java и Java-JPA повторяют карту маршрутов текущего BFF 1:1.
+Во всех вариантах поддерживается parity route-surface для прикладных `/api/v1/*`-маршрутов Node BFF. Дополнительно в Java/JPA есть служебный endpoint `GET /api/v1/ops/ping`, а в Node присутствует инфраструктурный `GET /health`.
 
 ---
 
@@ -51,7 +51,7 @@ Backend возвращает трассировочные заголовки, в
 
 ## 3) Карта API-контрактов: frontend-метод → HTTP endpoint → payload in/out
 
-Ниже перечислены все контракты, которые объявлены и реально используются фронтендом (через `ApiService`/`CatalogService`/workflow hooks).
+Ниже перечислены все контракты, объявленные во фронтенд-клиенте (`src/lib/bff-client.js`), и их фактическое покрытие в backend-вариантах.
 
 ## 3.1 Auth
 
@@ -72,6 +72,12 @@ Backend возвращает трассировочные заголовки, в
 - **Response** (2 поддерживаемых формата):
   1. Массив `Project[]` (legacy).
   2. Пагинированный объект `{ items, page, limit, total, totalPages }`.
+
+### Общая карта всех ЖК (рабочий стол)
+- **Frontend**: `ApiService.getProjectsMapOverview(scope)`.
+- **HTTP**: `GET /api/v1/projects/map-overview?scope=...`
+- **Response**: `{ items: [{ id, ujCode, name, landPlotGeometry, buildings: [{ id, label, buildingCode, geometry }] }] }`.
+- **Назначение**: единая карта всех ЖК со списком слева (UJ-код + название), масштабированием к выбранному ЖК и отображением контуров зданий внутри ЖК.
 
 ### Счетчики по вкладкам
 - **Frontend**: `ApiService.getProjectsSummaryCounts({ scope, assignee })`.
@@ -201,7 +207,7 @@ Backend возвращает трассировочные заголовки, в
   - `DELETE /api/v1/projects/:projectId/geometry-candidates/:candidateId`
   - `POST /api/v1/projects/:projectId/buildings/:buildingId/geometry/select` body `{ candidateId }`
   - `POST /api/v1/projects/:projectId/land-plot/select` body `{ candidateId }`
-  - `POST /api/v1/projects/:projectId/land-plot/unselect` body `{}`
+  - `POST /api/v1/projects/:projectId/land-plot/unselect` body `{}`/пустое тело
 
 ## 3.5 Состав комплекса (buildings/blocks)
 
@@ -327,7 +333,9 @@ Backend возвращает трассировочные заголовки, в
   - `acquireApplicationLock(applicationId, ttlMinutes)`
   - `refreshApplicationLock(applicationId, ttlMinutes)`
   - `releaseApplicationLock(applicationId)`
+  - `getApplicationLock(applicationId)`
 - **HTTP**:
+  - `GET /api/v1/applications/:applicationId/locks`
   - `POST /api/v1/applications/:applicationId/locks/acquire` body `{ ttlSeconds }`
   - `POST /api/v1/applications/:applicationId/locks/refresh` body `{ ttlSeconds }`
   - `POST /api/v1/applications/:applicationId/locks/release` body `{}`
@@ -436,17 +444,23 @@ Backend возвращает трассировочные заголовки, в
 
 ## 5.1 Node BFF (эталон контракта)
 
-`apps/backend` — референс route-map и фактическая боевая интеграция фронта.
+`apps/backend` — референс route-map и фактическая боевая интеграция фронта. По коду маршрутов в `apps/backend/src/*` доступно **85 endpoint-ов `/api/v1/*`**.
 
 ## 5.2 Java transfer
 
-`apps/backend-java` повторяет endpoint-map 1:1, но часть бизнес-логики обозначена как in-progress перенос в сервисный слой.
+`apps/backend-java` повторяет endpoint-map `/api/v1/*` Node BFF и содержит дополнительный service endpoint `GET /api/v1/ops/ping`.
 
 ## 5.3 Java JPA variant
 
-`apps/backend-java-jpa` также декларирует полное покрытие route-surface и добавляет JPA-based data access.
+`apps/backend-java-jpa` также покрывает endpoint-map `/api/v1/*` Node BFF, добавляет `GET /api/v1/ops/ping` и использует JPA-репозитории как слой data access.
 
 Вывод: фронтенд может работать с любым из 3 backend-вариантов без изменения URL/методов/headers, если соблюден единый JSON-контракт request/response и error-contract.
+
+### 5.4 Важные уточнения по route-coverage
+
+1. Route-manifest `apps/backend/route-manifest.json` содержит 80 маршрутов и может отставать от исходников; источником истины считаются route-объявления в `apps/backend/src/*`.
+2. В `src/lib/bff-client.js` присутствует legacy-метод `getBasementsByBuildingIds` (`GET /api/v1/basements?buildingIds=...`), но этот endpoint отсутствует в Node/Java/Java-JPA; для текущего потока используется `GET /api/v1/projects/:projectId/basements`.
+3. Критичные route-и, которые должны быть отражены в полной контрактной документации: `PUT /api/v1/floors/batch`, `PUT /api/v1/blocks/:blockId/entrance-matrix/batch`, `POST /api/v1/blocks/:blockId/reconcile/preview`, `POST /api/v1/projects/:projectId/land-plot/unselect`, `GET /api/v1/applications/:applicationId/locks`.
 
 ---
 
@@ -460,4 +474,4 @@ Backend возвращает трассировочные заголовки, в
 4. `GET /api/v1/blocks/:id/entrance-matrix` — массив строк с `floor_id`, `entrance_number`, `flats_count`, `commercial_count`, `mop_count`.
 5. `GET /api/v1/units/:id/explication` — объект unit + `rooms[]`.
 6. Все mutating endpoint-ы — корректный JSON ответ и единый JSON error-contract при ошибках.
-
+7. `GET /api/v1/projects/map-overview` — `{ items[] }` с геометрией границ ЖК (`landPlotGeometry`) и геометрией зданий (`buildings[].geometry`).

@@ -105,6 +105,8 @@ const PassportEditor = () => {
   const [isImportingGeometry, setIsImportingGeometry] = useState(false);
   const [geometryError, setGeometryError] = useState('');
   const [basemap, setBasemap] = useState('osm');
+  const [isDrawingGeometry, setIsDrawingGeometry] = useState(false);
+  const [draftPolygonPoints, setDraftPolygonPoints] = useState([]);
   const shpInputRef = useRef(null);
 
   useEffect(() => {
@@ -240,6 +242,54 @@ const PassportEditor = () => {
     } finally {
       setIsImportingGeometry(false);
       event.target.value = '';
+    }
+  };
+
+
+  const handleStartDrawGeometry = () => {
+    setGeometryError('');
+    setActiveCandidateId(null);
+    setDraftPolygonPoints([]);
+    setIsDrawingGeometry(true);
+  };
+
+  const handleCancelDrawGeometry = () => {
+    setIsDrawingGeometry(false);
+    setDraftPolygonPoints([]);
+  };
+
+  const handleAddDraftPoint = point => {
+    setDraftPolygonPoints(prev => [...prev, point]);
+  };
+
+  const handleSaveDrawnGeometry = async () => {
+    if (!projectId) return;
+    if (draftPolygonPoints.length < 3) {
+      setGeometryError('Для создания полигона укажите минимум 3 точки');
+      return;
+    }
+
+    try {
+      setGeometryError('');
+      const maxSourceIndex = geometryCandidates.reduce((max, item) => {
+        const val = Number(item?.sourceIndex ?? item?.source_index ?? 0);
+        return Number.isFinite(val) ? Math.max(max, val) : max;
+      }, 0);
+      const candidate = {
+        sourceIndex: maxSourceIndex + 1,
+        label: 'Нарисованный контур ЖК',
+        properties: { source: 'manual-draw', scope: 'project' },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[...draftPolygonPoints, draftPolygonPoints[0]]],
+        },
+      };
+      await ApiService.importProjectGeometryCandidates(projectId, [candidate]);
+      await reloadCandidates();
+      setIsDrawingGeometry(false);
+      setDraftPolygonPoints([]);
+    } catch (err) {
+      setGeometryError(err?.message || 'Не удалось сохранить нарисованный контур');
     }
   };
 
@@ -702,12 +752,45 @@ const PassportEditor = () => {
                 <div className="flex items-center gap-2">
                   <Button 
                     onClick={() => shpInputRef.current?.click()} 
-                    disabled={isReadOnly || isImportingGeometry}
+                    disabled={isReadOnly || isImportingGeometry || isDrawingGeometry}
                     className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-blue-600 shadow-sm h-8 px-3 text-xs"
                   >
                     {isImportingGeometry ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Plus size={14} className="mr-1.5 text-blue-500" />}
                     Импорт границ
                   </Button>
+
+                  {!isReadOnly && !isDrawingGeometry && (
+                    <Button
+                      onClick={handleStartDrawGeometry}
+                      className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-blue-600 shadow-sm h-8 px-3 text-xs"
+                    >
+                      Нарисовать полигон
+                    </Button>
+                  )}
+
+                  {!isReadOnly && isDrawingGeometry && (
+                    <>
+                      <Button
+                        onClick={handleSaveDrawnGeometry}
+                        disabled={draftPolygonPoints.length < 3}
+                        className="bg-blue-600 text-white hover:bg-blue-500 shadow-sm h-8 px-3 text-xs"
+                      >
+                        Сохранить контур
+                      </Button>
+                      <Button
+                        onClick={() => setDraftPolygonPoints([])}
+                        className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm h-8 px-3 text-xs"
+                      >
+                        Очистить
+                      </Button>
+                      <Button
+                        onClick={handleCancelDrawGeometry}
+                        className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm h-8 px-3 text-xs"
+                      >
+                        Отмена
+                      </Button>
+                    </>
+                  )}
                   
                   {landPlot?.geometry && !isReadOnly && (
                     <Button 
@@ -739,7 +822,7 @@ const PassportEditor = () => {
               )}
 
               {/* Action Banner when polygon is clicked */}
-              {activeCandidateId && !isReadOnly && (
+              {activeCandidateId && !isReadOnly && !isDrawingGeometry && (
                 <div className="flex items-center justify-between gap-3 p-2 px-3 bg-blue-600 rounded-lg shadow-md text-white animate-in slide-in-from-top-1">
                   <div className="text-xs font-medium">Контур выбран</div>
                   <div className="flex items-center gap-1.5">
@@ -769,11 +852,15 @@ const PassportEditor = () => {
                   savedGeometry={landPlot?.geometry}
                   onSelect={setActiveCandidateId}
                   basemap={basemap}
+                  isDrawing={isDrawingGeometry}
+                  draftPoints={draftPolygonPoints}
+                  onDraftPointAdd={handleAddDraftPoint}
                   height={400}
                 />
               </div>
               
               <div className="text-[10px] text-slate-400 text-center flex items-center justify-center gap-4">
+                 {isDrawingGeometry && <div className="text-sky-600 font-semibold">Режим рисования: точек {draftPolygonPoints.length}</div>}
                  <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-500/80"></span> Сохранено</div>
                  <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-blue-500/80"></span> Выбрано</div>
                  <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-500/80"></span> Занято</div>
