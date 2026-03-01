@@ -310,6 +310,54 @@ export async function buildServer() {
     });
   });
 
+
+  app.get('/api/v1/projects/map-overview', async (req, reply) => {
+    const { scope } = req.query;
+    if (!scope) return sendError(reply, 400, 'MISSING_SCOPE', 'Scope is required');
+
+    const { data: projectsData, error: projectsError } = await supabase
+      .from('projects')
+      .select('id, uj_code, name, land_plot_geojson')
+      .eq('scope_id', scope)
+      .order('updated_at', { ascending: false });
+
+    if (projectsError) return sendError(reply, 500, 'DB_ERROR', projectsError.message);
+
+    const projectIds = (projectsData || []).map(item => item.id).filter(Boolean);
+    let buildingsByProject = {};
+
+    if (projectIds.length > 0) {
+      const { data: buildingsData, error: buildingsError } = await supabase
+        .from('buildings')
+        .select('id, project_id, label, building_code, footprint_geojson')
+        .in('project_id', projectIds);
+
+      if (buildingsError) return sendError(reply, 500, 'DB_ERROR', buildingsError.message);
+
+      buildingsByProject = (buildingsData || []).reduce((acc, item) => {
+        const key = item.project_id;
+        if (!acc[key]) acc[key] = [];
+        acc[key].push({
+          id: item.id,
+          label: item.label,
+          buildingCode: item.building_code || null,
+          geometry: item.footprint_geojson || null,
+        });
+        return acc;
+      }, {});
+    }
+
+    return reply.send({
+      items: (projectsData || []).map(project => ({
+        id: project.id,
+        ujCode: project.uj_code,
+        name: project.name,
+        landPlotGeometry: project.land_plot_geojson || null,
+        buildings: buildingsByProject[project.id] || [],
+      })),
+    });
+  });
+
   app.get('/api/v1/projects/summary-counts', async (req, reply) => {
     const { scope } = req.query;
     if (!scope) return sendError(reply, 400, 'MISSING_SCOPE', 'Scope is required');

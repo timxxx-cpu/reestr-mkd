@@ -82,6 +82,12 @@ const LegacyApiService = {
    * @param {string} [params.scope]
    * @param {string} [params.assignee]
    */
+
+  getProjectsMapOverview: async scope => {
+    if (!scope) return { items: [] };
+    return BffClient.getProjectsMapOverview({ scope });
+  },
+
   getProjectsSummaryCounts: async ({ scope, assignee } = {}) => {
     if (!scope) {
       return {

@@ -35,6 +35,49 @@ public class ProjectJpaService {
         return Map.of("items", items, "total", items.size());
     }
 
+    @Transactional(readOnly = true)
+    public Map<String, Object> mapOverview(String scope) {
+        if (scope == null || scope.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Scope is required");
+        }
+
+        List<Map<String, Object>> projectRows = queryList(
+            "select id, uj_code, name, land_plot_geojson from projects where scope_id = :scope order by updated_at desc",
+            Map.of("scope", scope)
+        );
+
+        List<Map<String, Object>> buildingRows = queryList(
+            "select id, project_id, label, building_code, footprint_geojson from buildings where project_id in (select id from projects where scope_id = :scope)",
+            Map.of("scope", scope)
+        );
+
+        Map<String, List<Map<String, Object>>> buildingsByProject = new LinkedHashMap<>();
+        for (Map<String, Object> row : buildingRows) {
+            String projectId = stringVal(row.get("project_id"));
+            if (projectId == null) continue;
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", row.get("id"));
+            item.put("label", row.get("label"));
+            item.put("buildingCode", row.get("building_code"));
+            item.put("geometry", row.get("footprint_geojson"));
+            buildingsByProject.computeIfAbsent(projectId, k -> new ArrayList<>()).add(item);
+        }
+
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (Map<String, Object> row : projectRows) {
+            String projectId = stringVal(row.get("id"));
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", row.get("id"));
+            item.put("ujCode", row.get("uj_code"));
+            item.put("name", row.get("name"));
+            item.put("landPlotGeometry", row.get("land_plot_geojson"));
+            item.put("buildings", buildingsByProject.getOrDefault(projectId, List.of()));
+            items.add(item);
+        }
+
+        return Map.of("items", items);
+    }
+
     public Map<String, Object> appId(String projectId, String scope) {
         if (scope == null || scope.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "scope is required");

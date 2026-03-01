@@ -72,7 +72,8 @@ create table if not exists regions (
   status integer default 1,
   soato text unique,
   cadastral_prefix text,
-  ordering integer default 1
+  ordering integer default 1,
+  geom geometry(MultiPolygon, 3857)
 );
 
 create table if not exists districts (
@@ -85,10 +86,14 @@ create table if not exists districts (
   status integer default 1,
   soato text unique,
   region_id uuid references regions(id) on delete set null,
-  cadastral_prefix text
+  cadastral_prefix text,
+  geom geometry(MultiPolygon, 3857)
 );
+create index idx_regions_geom on regions using gist(geom);
+
 create index idx_districts_region on districts(region_id);
 create index idx_districts_status on districts(status);
+create index idx_districts_geom on districts using gist(geom);
 
 create table if not exists streets (
   id uuid primary key default gen_random_uuid(),
@@ -111,10 +116,12 @@ create table if not exists makhallas (
   region_soato text references regions(soato) on delete set null,
   status integer default 1,
   old_code text,
-  district_soato text references districts(soato) on delete set null
+  district_soato text references districts(soato) on delete set null,
+  geom geometry(MultiPolygon, 3857)
 );
 create index idx_makhallas_region_soato on makhallas(region_soato);
 create index idx_makhallas_district_soato on makhallas(district_soato);
+create index idx_makhallas_geom on makhallas using gist(geom);
 
 create table if not exists addresses (
   dtype varchar(31) not null,

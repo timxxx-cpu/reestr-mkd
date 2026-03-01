@@ -81,6 +81,11 @@
 
 10. [Система идентификаторов УЖ (UJ Identifier System)](./10-uj-identifier-system.md) ✨ **НОВЫЙ**
 
+10.1 [Полная карта контрактов Frontend ↔ Backend (все варианты backend)](./27-frontend-backend-api-contracts.md) ✨ **АКТУАЛИЗИРОВАНО**
+    - Полный список `/api/v1/*` контрактов из `src/lib/bff-client.js`
+    - Уточнения parity между Node, Java и Java-JPA
+    - Legacy/служебные исключения (`/health`, `/api/v1/ops/ping`, legacy `/api/v1/basements?buildingIds`)
+
 11. [Версионирование объектов и логика работы](./11-object-versioning.md) ✨ **НОВЫЙ**
     - Таблица `object_versions` и справочник `dict_version_statuses`
     - Операции API: создание/утверждение/отклонение/восстановление версий
@@ -138,19 +143,18 @@
 22. [План внедрения сущности пристроек блока (`block_extensions`)](./25-block-extensions-implementation-plan.md) ✨ **НОВЫЙ**
     - Доменная модель пристроек как отдельной сущности
     - Пошаговый план изменений БД, backend, frontend, валидаций и workflow
-    - Стратегия миграции и тестирования
+    - Стратегия миграции
 
 ## Ключевые особенности документации
 
-✅ **Полнота**: Описаны все таблицы, поля, связи, индексы  
-✅ **Практичность**: SQL-примеры, алгоритмы, формулы валидации  
-✅ **Русский язык**: Все термины переведены и объяснены  
-✅ **Роли и права**: Детальное описание кто, что и когда может делать  
-✅ **Workflow**: Полное описание машины состояний с примерами  
-✅ **Валидации**: Все правила с примерами ошибок  
-✅ **Трассируемость**: От UI-поля до БД и обратно  
-✅ **Справочники**: Полное описание всех справочных таблиц  
-✅ **Frontend guardrails**: legacy-пути `@components/editors/*` запрещены линтером, шаговые UI размещаются в `src/features/steps/*`  
+✅ **Полнота**: Описаны все таблицы, поля, связи, индексы
+✅ **Практичность**: SQL-примеры, алгоритмы, формулы валидации
+✅ **Русский язык**: Все термины переведены и объяснены
+✅ **Роли и права**: Детальное описание кто, что и когда может делать
+✅ **Workflow**: Полное описание машины состояний с примерами
+✅ **Валидации**: Все правила с примерами ошибок
+✅ **Трассируемость**: От UI-поля до БД и обратно
+✅ **Справочники**: Полное описание всех справочных таблиц
 
 ## Источники кода
 
@@ -162,43 +166,20 @@
 - **API**: `src/lib/api-service.js`, `src/lib/api/*`
 - **Контекст**: `src/context/project/*`
 - **Компоненты шагов**: `src/features/steps/*` (legacy `@components/editors/*` запрещён правилом `no-restricted-imports`)
-- **Проверка синхронизации шагов**: `scripts/check-step-registry-sync.mjs` (`npm run check:step-registry`)
-- **Пакет обязательных guardrails-проверок**: `npm run lint`, `npm run check:step-registry`, `npm run test:smoke`, `npm run test:backend-workflow-sync` (или единым запуском `npm run guardrails:all`)
 
 ## Как использовать документацию
 
 1. **Для разработчиков**: Начните с [01-overview-and-architecture.md](./01-overview-and-architecture.md), затем [02-database-structure.md](./02-database-structure.md)
 2. **Для аналитиков**: [05-workflow.md](./05-workflow.md) и [09-role-step-data-lifecycle.md](./09-role-step-data-lifecycle.md)
-3. **Для тестировщиков**: [07-validations.md](./07-validations.md) и [06-operational-flow.md](./06-operational-flow.md)
-4. **Для БД-специалистов**: [02-database-structure.md](./02-database-structure.md) и [03-er-and-integrity.md](./03-er-and-integrity.md)
-5. **Для интеграторов**: [10-uj-identifier-system.md](./10-uj-identifier-system.md), [08-integration-sync-and-migration.md](./08-integration-sync-and-migration.md), [11-object-versioning.md](./11-object-versioning.md)
+3. **Для БД-специалистов**: [02-database-structure.md](./02-database-structure.md) и [03-er-and-integrity.md](./03-er-and-integrity.md)
+4. **Для интеграторов**: [10-uj-identifier-system.md](./10-uj-identifier-system.md), [08-integration-sync-and-migration.md](./08-integration-sync-and-migration.md), [11-object-versioning.md](./11-object-versioning.md)
 
-
-## Текущий статус стабилизации `src/*`
-
-- CI guardrails workflow: `.github/workflows/guardrails.yml` запускает `npm run guardrails:all` на PR/push.
-
-- Этапы A–E из `docs/project/17-src-refactor-stabilization-plan.md` закрыты.
-- Критичные ошибки линтера в workflow/editor цепочке отсутствуют; в репозитории остаются отдельные warning-кейсы (например, `apps/backend/src/validation.js`, `src/features/steps/configurator/cards/GeneralBlockCard.jsx`), их устранение ведется отдельным треком.
-- Transition-комментарии миграции (`[FIX]`, `[NEW]`, `[REMOVED]`, `[CHANGED]`) очищены в `src/*`; для новых изменений используйте нейтральные смысловые комментарии.
-
-
-
-## Статус инициативы `block_extensions`
-
-- ✅ DB-контракт и базовая API/UI/validator-интеграция реализованы.
-- ✅ Добавлены регрессионные тесты для merge/dedupe/fallback/idempotency-контрактов.
-- ⚠️ В работе до полного завершения:
-  1. стабильный browser runtime/e2e smoke для extension CRUD + step-status в CI;
-  2. закрепление операционной практики API-only режима (`VITE_EXTENSIONS_LOCAL_FALLBACK_ENABLED=false`) и аварийного fallback только для диагностики.
-
-Подробный трек и статус по итерациям: `docs/project/25-block-extensions-implementation-plan.md`.
 
 ## Статус документации
 
-✅ **Завершено**: Все основные разделы документированы  
-✅ **Актуально**: Документация синхронизирована с текущими route-модулями backend и ключевыми доменами бизнес-логики; дата последней полной сверки: 2026-02-25.  
-✅ **Проверено**: Документация сверена с исходным кодом, workflow-логикой и актуальной схемой БД (включая lock-RPC и статусы версий CURRENT/PENDING/REJECTED/PREVIOUS)  
+✅ **Завершено**: Все основные разделы документированы
+✅ **Актуально**: Документация синхронизирована с текущими route-модулями backend и ключевыми доменами бизнес-логики; дата последней полной сверки: 2026-03-01.
+✅ **Проверено**: Документация сверена с исходным кодом, workflow-логикой и актуальной схемой БД (включая lock-RPC и статусы версий CURRENT/PENDING/REJECTED/PREVIOUS)
 
 ## Обратная связь
 
