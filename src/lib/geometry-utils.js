@@ -131,3 +131,131 @@ export const isGeometryWithinGeometry = (innerGeometry, outerGeometry) => {
 
   return vertices.every(point => outerPolygons.some(poly => pointInPolygonWithHoles(point, poly)));
 };
+
+const toRadians = deg => (deg * Math.PI) / 180;
+const toDegrees = rad => (rad * 180) / Math.PI;
+
+const normalizeAngleDeg = deg => {
+  let normalized = deg % 180;
+  if (normalized < 0) normalized += 180;
+  return normalized;
+};
+
+const getOuterRing = geometry => {
+  const multi = toMultiPolygonGeometry(geometry);
+  if (!multi) return [];
+  return multi.coordinates?.[0]?.[0] || [];
+};
+
+
+const projectRingToMeters = (ring = [], origin = null) => {
+  if (!ring.length || !origin) return [];
+  return ring.map(([lng, lat]) => [
+    (lng - origin.lng) * (origin.metersPerDegLng || 1),
+    (lat - origin.lat) * (origin.metersPerDegLat || 1),
+  ]);
+};
+
+export const projectGeometryToOriginMeters = (geometry, origin) => {
+  const ring = getOuterRing(geometry);
+  if (!ring.length || !origin) return null;
+  return {
+    type: 'Polygon',
+    coordinates: [projectRingToMeters(ring, origin)],
+  };
+};
+
+export const projectGeometryToLocalMeters = geometry => {
+  const ring = getOuterRing(geometry);
+  if (!ring.length) return null;
+
+  const [originLng, originLat] = ring[0];
+  const lat0 = toRadians(originLat);
+  const metersPerDegLat = 111320;
+  const metersPerDegLng = 111320 * Math.cos(lat0);
+
+  const projectedRing = projectRingToMeters(ring, {
+    lng: originLng,
+    lat: originLat,
+    metersPerDegLat,
+    metersPerDegLng,
+  });
+
+  return {
+    type: 'Polygon',
+    coordinates: [projectedRing],
+    origin: {
+      lng: originLng,
+      lat: originLat,
+      metersPerDegLat,
+      metersPerDegLng,
+    },
+  };
+};
+
+export const geometryFromMeterPoints = (geometryMeters, origin) => {
+  const multi = toMultiPolygonGeometry(geometryMeters);
+  if (!multi || !origin) return null;
+
+  return {
+    type: 'MultiPolygon',
+    coordinates: multi.coordinates.map(poly =>
+      poly.map(ring =>
+        ring.map(([x, y]) => [
+          origin.lng + x / (origin.metersPerDegLng || 1),
+          origin.lat + y / (origin.metersPerDegLat || 1),
+        ])
+      )
+    ),
+  };
+};
+
+export const rotateGeometryInMeters = (geometry, angleDeg = 0) => {
+  const multi = toMultiPolygonGeometry(geometry);
+  if (!multi) return null;
+
+  const angle = toRadians(angleDeg);
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+
+  return {
+    type: 'MultiPolygon',
+    coordinates: multi.coordinates.map(poly =>
+      poly.map(ring =>
+        ring.map(([x, y]) => [
+          x * cos - y * sin,
+          x * sin + y * cos,
+        ])
+      )
+    ),
+  };
+};
+
+export const getGeometryBoundsInMeters = geometry => {
+  const bounds = getGeometryBounds(geometry);
+  if (!bounds) return null;
+  const [minX, minY, maxX, maxY] = bounds;
+  return { minX, minY, maxX, maxY };
+};
+
+export const getNarrowAxisAngleDeg = geometry => {
+  const ring = getOuterRing(geometry);
+  if (ring.length < 2) return 0;
+
+  let shortestLength = Infinity;
+  let shortestAngle = 0;
+
+  for (let i = 0; i < ring.length - 1; i += 1) {
+    const [x1, y1] = ring[i] || [0, 0];
+    const [x2, y2] = ring[i + 1] || [0, 0];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy);
+    if (len > 0.05 && len < shortestLength) {
+      shortestLength = len;
+      shortestAngle = normalizeAngleDeg(toDegrees(Math.atan2(dy, dx)));
+    }
+  }
+
+  return shortestLength === Infinity ? 0 : shortestAngle;
+};
