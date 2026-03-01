@@ -31,6 +31,7 @@ import { useValidation } from '@hooks/useValidation';
 import { useCatalog } from '@hooks/useCatalogs';
 import { ApiService } from '@lib/api-service';
 import { GeometryPickerMap, BASEMAP_OPTIONS } from '@components/maps/GeometryPickerMap';
+import BuildingCadEditorModal from '@components/cad/BuildingCadEditorModal';
 
 const TYPE_NAMES = {
   residential: 'Обычный многоквартирный дом',
@@ -237,12 +238,15 @@ const BuildingModal = ({
   geometryError = '',
   complexGeometry = null,
   onImportDrawnGeometry,
+  projectId,
+  userProfile,
 }) => {
   const isReadOnly = useReadOnly();
   const [activeCandidateId, setActiveCandidateId] = useState(null);
   const [basemap, setBasemap] = useState('osm');
   const [isDrawingGeometry, setIsDrawingGeometry] = useState(false);
   const [draftPolygonPoints, setDraftPolygonPoints] = useState([]);
+  const [isCadEditorOpen, setIsCadEditorOpen] = useState(false);
 
   useEscapeKey(() => setModal(m => ({ ...m, isOpen: false })));
 
@@ -300,10 +304,37 @@ const BuildingModal = ({
     }
   };
 
+  const selectedCandidate = useMemo(
+    () => geometryCandidates.find(item => item.id === modal.geometryCandidateId) || null,
+    [geometryCandidates, modal.geometryCandidateId]
+  );
+
+  const handleSaveCadGeometry = async geometry => {
+    if (!geometry || !onImportDrawnGeometry) return;
+    const candidateId = await onImportDrawnGeometry({
+      geometry,
+      scope: 'building',
+      label: 'CAD контур здания',
+    });
+    if (!candidateId) return;
+
+    if (modal.editingId && projectId) {
+      await ApiService.selectBuildingGeometry(projectId, modal.editingId, candidateId, {
+        userName: userProfile?.name,
+        userRole: userProfile?.role,
+      });
+    }
+
+    setModal(m => ({ ...m, geometryCandidateId: candidateId }));
+    setIsCadEditorOpen(false);
+    setActiveCandidateId(null);
+  };
+
 
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-5xl max-h-[95vh] rounded-3xl shadow-2xl overflow-hidden ring-1 ring-white/20 animate-in zoom-in-95 duration-200 flex flex-col">
         
         {/* HEADER */}
@@ -574,6 +605,14 @@ const BuildingModal = ({
                           Нарисовать полигон
                         </Button>
                       )}
+                      {!isReadOnly && !isDrawingGeometry && modal.geometryCandidateId && (
+                        <Button
+                          onClick={() => setIsCadEditorOpen(true)}
+                          className="bg-slate-900 border-slate-900 text-white hover:bg-slate-800 shadow-sm h-8 px-3 text-xs"
+                        >
+                          CAD редактор
+                        </Button>
+                      )}
                       {!isReadOnly && isDrawingGeometry && (
                         <>
                           <Button
@@ -691,7 +730,16 @@ const BuildingModal = ({
           )}
         </div>
       </div>
-    </div>,
+      </div>
+      <BuildingCadEditorModal
+        isOpen={isCadEditorOpen}
+        onClose={() => setIsCadEditorOpen(false)}
+        boundaryGeometry={selectedCandidate?.geometry || null}
+        initialGeometry={selectedCandidate?.geometry || null}
+        onSave={handleSaveCadGeometry}
+        isReadOnly={isReadOnly || isSaving}
+      />
+    </>,
     document.body
   );
 };
@@ -834,8 +882,21 @@ const CompositionEditor = () => {
   }, [projectId, isMutating]);
 
 
-  const importDrawnGeometryCandidate = async ({ points, scope = 'project', label = 'Нарисованный контур' }) => {
-    if (!projectId || !Array.isArray(points) || points.length < 3) return null;
+  const importDrawnGeometryCandidate = async ({
+    points,
+    geometry,
+    scope = 'project',
+    label = 'Нарисованный контур',
+  }) => {
+    const drawnGeometry =
+      geometry ||
+      (Array.isArray(points) && points.length >= 3
+        ? {
+            type: 'Polygon',
+            coordinates: [[...points, points[0]]],
+          }
+        : null);
+    if (!projectId || !drawnGeometry) return null;
     setGeometryError('');
     try {
       const maxSourceIndex = geometryCandidates.reduce((max, item) => {
@@ -846,10 +907,7 @@ const CompositionEditor = () => {
         sourceIndex: maxSourceIndex + 1,
         label,
         properties: { source: 'manual-draw', scope },
-        geometry: {
-          type: 'Polygon',
-          coordinates: [[...points, points[0]]],
-        },
+        geometry: drawnGeometry,
       };
       await ApiService.importProjectGeometryCandidates(projectId, [candidate]);
       const items = await ApiService.getProjectGeometryCandidates(projectId);
@@ -1244,8 +1302,11 @@ const CompositionEditor = () => {
           geometryError={geometryError}
           complexGeometry={landPlot?.geometry || null}
           onImportDrawnGeometry={importDrawnGeometryCandidate}
+          projectId={projectId}
+          userProfile={userProfile}
         />
       )}
+
       <DeleteConfirmationModal 
         isOpen={!!deleteTargetId}
         onClose={() => setDeleteTargetId(null)}
