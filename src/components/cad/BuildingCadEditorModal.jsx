@@ -524,7 +524,7 @@ export default function BuildingCadEditorModal({
       type: 'Polygon',
       coordinates: [[...points, points[0]]],
     };
-    const unrotatedGeometryMeters = rotateGeometryInMeters(geometryMeters, projected.rotationDeg);
+    const unrotatedGeometryMeters = rotateGeometryInMeters(geometryMeters, -projected.rotationDeg);
     const geometry = geometryFromMeterPoints(unrotatedGeometryMeters, projected.origin);
 
     setError('');
