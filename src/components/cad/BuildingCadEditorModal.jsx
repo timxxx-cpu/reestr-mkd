@@ -22,7 +22,7 @@ import {
   rotateGeometryInMeters,
 } from '@lib/geometry-utils';
 
-const MAX_VERTEX_OFFSET_M = 2;
+const MAX_VERTEX_OFFSET_M = 10;
 const SNAP_THRESHOLD_M = 1.2;
 const MIN_SEGMENT_LENGTH_M = 0.3;
 
@@ -119,6 +119,7 @@ const toScreenProjector = (bounds, width, height) => {
   return {
     scale,
     toScreen: (x, y) => [x * scale + offsetX, offsetY - y * scale],
+    toWorld: (sx, sy) => [(sx - offsetX) / scale, (offsetY - sy) / scale],
   };
 };
 
@@ -197,6 +198,7 @@ export default function BuildingCadEditorModal({
   const [satelliteProvider, setSatelliteProvider] = useState('google');
   const [satelliteOpacity, setSatelliteOpacity] = useState(0.6);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
 
   const projected = useMemo(() => {
     if (!boundaryGeometry) return null;
@@ -234,6 +236,7 @@ export default function BuildingCadEditorModal({
     setIsClosed(Boolean(snapshot?.isClosed));
     setSelectedPointIndex(snapshot?.selectedPointIndex ?? null);
     setError('');
+    setWarning('');
   }, []);
 
   useEffect(() => {
@@ -246,6 +249,7 @@ export default function BuildingCadEditorModal({
       setSelectedPointIndex(null);
       setHistory([]);
       setRedoStack([]);
+      setWarning('');
       return;
     }
     const anchor = getLeftBottomVertex(referenceRing);
@@ -254,6 +258,7 @@ export default function BuildingCadEditorModal({
     setSelectedPointIndex(null);
     setHistory([]);
     setRedoStack([]);
+    setWarning('');
   }, [isOpen, projected, referenceRing]);
 
   const bounds = useMemo(() => {
@@ -374,14 +379,14 @@ export default function BuildingCadEditorModal({
         return {
           point,
           snap: null,
-          error: `Новая вершина должна быть не дальше ${MAX_VERTEX_OFFSET_M} м от вершины импортированной границы.`,
+          warning: `Вершина удалена от ближайшей вершины импортированной границы более чем на ${MAX_VERTEX_OFFSET_M} м (${formatMeters(nearestVertexDistance)}).`,
         };
       }
 
-      if (ignoreSnap) return { point, snap: null, error: '' };
+      if (ignoreSnap) return { point, snap: null, warning: '' };
       const snap = getNearestSnapPoint(point, referenceRing, snapMode);
-      if (!snap) return { point, snap: null, error: '' };
-      return { point: snap.point.map(round2), snap, error: '' };
+      if (!snap) return { point, snap: null, warning: '' };
+      return { point: snap.point.map(round2), snap, warning: '' };
     },
     [referenceRing, referenceVertices, snapMode]
   );
@@ -410,17 +415,42 @@ export default function BuildingCadEditorModal({
     const rad = (angle * Math.PI) / 180;
     const nextPoint = [round2(x + length * Math.cos(rad)), round2(y + length * Math.sin(rad))];
     const snapped = snapPoint(nextPoint);
-    if (snapped.error) {
-      setError(snapped.error);
-      return;
-    }
-
     pushHistory();
     setError('');
+    setWarning(snapped.warning || '');
     setPoints(prev => [...prev, snapped.point]);
     setSelectedPointIndex(points.length);
     setLastSnap(snapped.snap);
   };
+
+  const handleManualAddVertex = useCallback(
+    evt => {
+      if (isReadOnly || isClosed || !projector) return;
+      const svg = evt.currentTarget;
+      const rect = svg.getBoundingClientRect();
+      const [worldX, worldY] = projector.toWorld(evt.clientX - rect.left, evt.clientY - rect.top);
+      const clicked = [round2(worldX), round2(worldY)];
+
+      const nextPoint = points.length
+        ? (() => {
+            const [lastX, lastY] = points[points.length - 1];
+            const dx = clicked[0] - lastX;
+            const dy = clicked[1] - lastY;
+            if (Math.abs(dx) >= Math.abs(dy)) return [round2(clicked[0]), round2(lastY)];
+            return [round2(lastX), round2(clicked[1])];
+          })()
+        : clicked;
+
+      const snapped = snapPoint(nextPoint);
+      pushHistory();
+      setError('');
+      setWarning(snapped.warning || '');
+      setPoints(prev => [...prev, snapped.point]);
+      setSelectedPointIndex(points.length);
+      setLastSnap(snapped.snap);
+    },
+    [isClosed, isReadOnly, points, projector, pushHistory, snapPoint]
+  );
 
   const handleClosePolyline = () => {
     if (points.length < 3) {
@@ -434,6 +464,7 @@ export default function BuildingCadEditorModal({
     }
     pushHistory();
     setError('');
+    setWarning('');
     setIsClosed(true);
   };
 
@@ -496,6 +527,7 @@ export default function BuildingCadEditorModal({
     }
 
     setError('');
+    setWarning('');
     onSave?.(geometry);
   };
 
@@ -542,8 +574,8 @@ export default function BuildingCadEditorModal({
         <div className="p-4 grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 overflow-y-auto">
           <div className="space-y-3">
             <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded p-3">
-              Вершины нового контура должны быть в пределах {MAX_VERTEX_OFFSET_M} м от вершин
-              импортированной геометрии.
+              При ручном добавлении вершины на расстоянии более {MAX_VERTEX_OFFSET_M} м от
+              импортированной границы выводится предупреждение, но построение продолжается.
             </div>
 
             <div className="text-xs text-slate-700 border border-slate-200 rounded p-3 bg-white space-y-1">
@@ -710,9 +742,19 @@ export default function BuildingCadEditorModal({
               <Crosshair size={12} /> Hotkeys: Ctrl+Z / Ctrl+Shift+Z / Delete / Esc.
             </div>
 
+            <div className="text-[11px] text-slate-500">
+              Клик по чертежу добавляет вершину; сторона фиксируется строго по горизонтали или
+              вертикали (как в прямоугольниках).
+            </div>
+
             {error && (
               <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 flex items-start gap-2">
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}
+              </div>
+            )}
+            {!error && warning && (
+              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 flex items-start gap-2">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {warning}
               </div>
             )}
           </div>
@@ -731,7 +773,12 @@ export default function BuildingCadEditorModal({
                 }}
               />
             )}
-            <svg width="100%" viewBox={`0 0 ${width} ${height}`} className="w-full h-auto rounded relative">
+            <svg
+              width="100%"
+              viewBox={`0 0 ${width} ${height}`}
+              className="w-full h-auto rounded relative"
+              onClick={handleManualAddVertex}
+            >
               <defs>
                 <pattern id="building-grid" width="24" height="24" patternUnits="userSpaceOnUse">
                   <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#d1d5db" strokeWidth="1" />
