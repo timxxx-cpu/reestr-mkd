@@ -1,16 +1,7 @@
-import React, { useMemo, useState } from 'react';
-import { Settings2, MapPin, AlertCircle, Building, PenLine, Check, Undo2, Trash2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { Settings2, MapPin, AlertCircle, Building, MonitorUp } from 'lucide-react';
 import { Card, SectionTitle, Label, Input, useReadOnly } from '@components/ui/UIKit';
-import { GeometryPickerMap, BASEMAP_OPTIONS } from '@components/maps/GeometryPickerMap';
-import { isGeometryWithinGeometry } from '@lib/geometry-utils';
-
-const draftToPolygon = points => {
-  if (!Array.isArray(points) || points.length < 3) return null;
-  return {
-    type: 'Polygon',
-    coordinates: [[...points, points[0]]],
-  };
-};
+import BlockCadEditorModal from '@components/cad/BlockCadEditorModal';
 
 export default function GeneralBlockCard({
   details,
@@ -24,10 +15,7 @@ export default function GeneralBlockCard({
   const isResidential = currentBlock?.type === 'Ж';
   const canEditBlockAddress = String(building?.category || '').includes('residential');
 
-  const [isDrawingGeometry, setIsDrawingGeometry] = useState(false);
-  const [draftPoints, setDraftPoints] = useState([]);
-  const [basemap, setBasemap] = useState('osm');
-  const [geometryError, setGeometryError] = useState('');
+  const [isCadEditorOpen, setIsCadEditorOpen] = useState(false);
 
   const isInfra = building?.category === 'infrastructure' || currentBlock?.originalType === 'infrastructure';
   const isParking = building?.category === 'parking_separate' || currentBlock?.originalType === 'parking';
@@ -55,31 +43,6 @@ export default function GeneralBlockCard({
 
   const buildingGeometry = building?.geometry || null;
   const blockGeometry = details?.blockGeometry || null;
-  const blockGeometryCandidates = useMemo(() => {
-    if (!blockGeometry) return [];
-    return [{ id: 'block-geometry', geometry: blockGeometry }];
-  }, [blockGeometry]);
-
-  const saveDraftGeometry = () => {
-    const geometry = draftToPolygon(draftPoints);
-    if (!geometry) {
-      setGeometryError('Для геометрии блока нужно минимум 3 точки.');
-      return;
-    }
-    if (!buildingGeometry) {
-      setGeometryError('У здания отсутствует геометрия. Сначала задайте контур здания.');
-      return;
-    }
-    if (!isGeometryWithinGeometry(geometry, buildingGeometry)) {
-      setGeometryError('Геометрия блока должна полностью находиться внутри границ здания.');
-      return;
-    }
-
-    updateDetail('blockGeometry', geometry);
-    setGeometryError('');
-    setIsDrawingGeometry(false);
-    setDraftPoints([]);
-  };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -155,34 +118,31 @@ export default function GeneralBlockCard({
 
       <Card className="p-6 shadow-sm md:col-span-2">
         <SectionTitle icon={MapPin}>Геометрия блока <span className="text-red-500">*</span></SectionTitle>
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <select value={basemap} onChange={e => setBasemap(e.target.value)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700">
-            {BASEMAP_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-          </select>
-          <button disabled={isReadOnly} onClick={() => { setIsDrawingGeometry(v => !v); setGeometryError(''); }} className="h-9 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-50">
-            <PenLine size={14} /> {isDrawingGeometry ? 'Режим рисования: вкл' : 'Рисовать полигон'}
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex flex-col gap-3">
+          <p className="text-xs text-slate-600">
+            Редактирование контура выполняется в полноэкранном CAD редакторе без картографической подложки.
+            Контур здания автоматически разворачивается горизонтально по самой узкой стороне и отображается на метровой сетке.
+          </p>
+          <button
+            type="button"
+            disabled={isReadOnly || !buildingGeometry}
+            onClick={() => setIsCadEditorOpen(true)}
+            className="h-10 px-4 rounded-lg bg-slate-900 text-white text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            <MonitorUp size={16} /> Открыть CAD редактор (fullscreen)
           </button>
-          <button disabled={isReadOnly || draftPoints.length === 0} onClick={() => setDraftPoints(prev => prev.slice(0, -1))} className="h-9 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-50"><Undo2 size={14} /> Отменить точку</button>
-          <button disabled={isReadOnly || draftPoints.length === 0} onClick={() => setDraftPoints([])} className="h-9 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-50"><Trash2 size={14} /> Очистить</button>
-          <button disabled={isReadOnly || draftPoints.length < 3} onClick={saveDraftGeometry} className="h-9 px-3 rounded-lg bg-emerald-600 text-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-50"><Check size={14} /> Сохранить геометрию</button>
+          {!buildingGeometry && <p className="text-xs text-amber-600">У здания отсутствует контур. Сначала задайте геометрию здания.</p>}
+          {!details.blockGeometry && <p className="text-xs text-red-600">Геометрия блока обязательна для сохранения.</p>}
         </div>
 
-        <GeometryPickerMap
-          candidates={blockGeometryCandidates}
-          selectedId={blockGeometry ? 'block-geometry' : null}
-          savedGeometry={buildingGeometry}
-          fitToSavedOnOpen
-          fitScopeKey={building?.id}
-          basemap={basemap}
-          isDrawing={isDrawingGeometry}
-          draftPoints={draftPoints}
-          onDraftPointAdd={point => setDraftPoints(prev => [...prev, point])}
-          height={320}
+        <BlockCadEditorModal
+          isOpen={isCadEditorOpen}
+          onClose={() => setIsCadEditorOpen(false)}
+          buildingGeometry={buildingGeometry}
+          blockGeometry={blockGeometry}
+          onSave={geometry => updateDetail('blockGeometry', geometry)}
+          isReadOnly={isReadOnly}
         />
-
-        {!buildingGeometry && <p className="mt-2 text-xs text-amber-600">У здания отсутствует контур. Сначала задайте геометрию здания.</p>}
-        {geometryError && <p className="mt-2 text-xs text-red-600">{geometryError}</p>}
-        {!details.blockGeometry && <p className="mt-2 text-xs text-red-600">Геометрия блока обязательна для сохранения.</p>}
       </Card>
     </div>
   );
