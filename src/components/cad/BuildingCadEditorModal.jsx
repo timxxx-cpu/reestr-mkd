@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -16,7 +16,6 @@ import {
   geometryFromMeterPoints,
   getGeometryBoundsInMeters,
   getNarrowAxisAngleDeg,
-  isGeometryWithinGeometry,
   projectGeometryToLocalMeters,
   projectGeometryToOriginMeters,
   rotateGeometryInMeters,
@@ -199,6 +198,8 @@ export default function BuildingCadEditorModal({
   const [satelliteOpacity, setSatelliteOpacity] = useState(0.6);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
+  const dragStateRef = useRef(null);
+  const suppressClickRef = useRef(false);
 
   const projected = useMemo(() => {
     if (!boundaryGeometry) return null;
@@ -426,6 +427,10 @@ export default function BuildingCadEditorModal({
   const handleManualAddVertex = useCallback(
     evt => {
       if (isReadOnly || isClosed || !projector) return;
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false;
+        return;
+      }
       const svg = evt.currentTarget;
       const rect = svg.getBoundingClientRect();
       const [worldX, worldY] = projector.toWorld(evt.clientX - rect.left, evt.clientY - rect.top);
@@ -521,15 +526,86 @@ export default function BuildingCadEditorModal({
     };
     const unrotatedGeometryMeters = rotateGeometryInMeters(geometryMeters, projected.rotationDeg);
     const geometry = geometryFromMeterPoints(unrotatedGeometryMeters, projected.origin);
-    if (!isGeometryWithinGeometry(geometry, boundaryGeometry)) {
-      setError('Контур вышел за границы импортированного здания.');
-      return;
-    }
 
     setError('');
     setWarning('');
     onSave?.(geometry);
   };
+
+  const handleVertexPointerDown = useCallback(
+    (evt, index) => {
+      if (isReadOnly || !projector) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+
+      const svg = evt.currentTarget.ownerSVGElement;
+      if (!svg) return;
+
+      const rect = svg.getBoundingClientRect();
+      const [worldX, worldY] = projector.toWorld(evt.clientX - rect.left, evt.clientY - rect.top);
+      const startPoint = points[index];
+      if (!startPoint) return;
+
+      pushHistory();
+      setSelectedPointIndex(index);
+      suppressClickRef.current = false;
+      dragStateRef.current = {
+        index,
+        startPointer: [worldX, worldY],
+        startPoint,
+        axis: null,
+      };
+
+      evt.currentTarget.setPointerCapture?.(evt.pointerId);
+    },
+    [isReadOnly, points, projector, pushHistory]
+  );
+
+  const handleCanvasPointerMove = useCallback(
+    evt => {
+      if (isReadOnly || !projector || !dragStateRef.current) return;
+
+      const svg = evt.currentTarget;
+      const rect = svg.getBoundingClientRect();
+      const [worldX, worldY] = projector.toWorld(evt.clientX - rect.left, evt.clientY - rect.top);
+      const dragState = dragStateRef.current;
+      const [startX, startY] = dragState.startPointer;
+      const dx = worldX - startX;
+      const dy = worldY - startY;
+
+      if (!dragState.axis && (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01)) {
+        dragState.axis = Math.abs(dx) >= Math.abs(dy) ? 'horizontal' : 'vertical';
+      }
+      if (!dragState.axis) return;
+
+      suppressClickRef.current = true;
+
+      const [originX, originY] = dragState.startPoint;
+      let nextPoint =
+        dragState.axis === 'horizontal' ? [round2(worldX), round2(originY)] : [round2(originX), round2(worldY)];
+
+      if (snapMode.grid) {
+        nextPoint = [Math.round(nextPoint[0]), Math.round(nextPoint[1])];
+        setLastSnap({ type: 'grid', point: nextPoint, distance: 0 });
+      } else {
+        setLastSnap(null);
+      }
+
+      setPoints(prev => {
+        const next = [...prev];
+        next[dragState.index] = nextPoint;
+        return next;
+      });
+
+      setError('');
+    },
+    [isReadOnly, projector, snapMode.grid]
+  );
+
+  const handleCanvasPointerUp = useCallback(() => {
+    dragStateRef.current = null;
+  }, []);
+
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -778,6 +854,9 @@ export default function BuildingCadEditorModal({
               viewBox={`0 0 ${width} ${height}`}
               className="w-full h-auto rounded relative"
               onClick={handleManualAddVertex}
+              onPointerMove={handleCanvasPointerMove}
+              onPointerUp={handleCanvasPointerUp}
+              onPointerCancel={handleCanvasPointerUp}
             >
               <defs>
                 <pattern id="building-grid" width="24" height="24" patternUnits="userSpaceOnUse">
@@ -882,6 +961,8 @@ export default function BuildingCadEditorModal({
                         cy={cy}
                         r={selectedPointIndex === index ? 7 : 5}
                         fill={selectedPointIndex === index ? '#f59e0b' : '#047857'}
+                        style={{ cursor: isReadOnly ? 'default' : 'grab' }}
+                        onPointerDown={evt => handleVertexPointerDown(evt, index)}
                         onClick={evt => {
                           evt.stopPropagation();
                           setSelectedPointIndex(index);
