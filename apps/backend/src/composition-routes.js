@@ -131,7 +131,7 @@ export function registerCompositionRoutes(app, { supabase }) {
     const { projectId } = req.params;
     const { data, error } = await supabase
       .from('buildings')
-      .select('*, building_blocks (*)')
+      .select('*, building_blocks (*, block_extensions (*))')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true });
 
@@ -170,6 +170,17 @@ export function registerCompositionRoutes(app, { supabase }) {
             type: mapBlockTypeToUi(bl.type),
             originalType: bl.type,
             floorsCount: bl.floors_count,
+            isBasementBlock: !!bl.is_basement_block,
+            linkedBlockIds: Array.isArray(bl.linked_block_ids) ? bl.linked_block_ids : [],
+            extensions: Array.isArray(bl.block_extensions)
+              ? bl.block_extensions.map(ext => ({
+                  id: ext.id,
+                  label: ext.label,
+                  extensionType: ext.extension_type || null,
+                  floorsCount: ext.floors_count,
+                  startFloorIndex: ext.start_floor_index,
+                }))
+              : [],
           }))
           .sort((a, c) => a.label.localeCompare(c.label)),
         });

@@ -140,12 +140,14 @@ export const mapBuildingFromDB = (b, blocks = []) => {
     constructionType: normalizeParkingConstructionFromDb(b.construction_type),
     infraType: b.infra_type,
     hasNonResPart: b.has_non_res_part ?? nonResBlocksCount > 0,
-    blocks: activeBlocks.map(bl => ({
+    blocks: (blocks || []).map(bl => ({
       id: bl.id,
       buildingId: b.id,
       label: bl.label,
       type: mapDBTypeToUI(bl.type),
       index: 0,
+      isBasementBlock: !!bl.is_basement_block,
+      linkedBlockIds: Array.isArray(bl.linked_block_ids) ? bl.linked_block_ids : [],
       extensions: (Array.isArray(bl.block_extensions) ? bl.block_extensions : []).map(mapExtensionFromDB),
     })),
   };

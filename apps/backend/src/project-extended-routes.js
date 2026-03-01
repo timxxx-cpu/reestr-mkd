@@ -1139,6 +1139,19 @@ app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) =>
 
     const blIds = (blocks || []).map(block => block.id);
 
+    const { data: blockExtensions, error: blockExtensionsError } = blIds.length > 0
+      ? await supabase.from('block_extensions').select('*').in('parent_block_id', blIds)
+      : { data: [], error: null };
+    if (blockExtensionsError) return sendError(reply, 500, 'DB_ERROR', blockExtensionsError.message);
+
+    const extensionsByBlockId = (blockExtensions || []).reduce((acc, ext) => {
+      const key = ext.parent_block_id;
+      if (!key) return acc;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(ext);
+      return acc;
+    }, {});
+
     const { data: floors, error: floorsError } = await supabase.from('floors').select('*').in('block_id', blIds);
     if (floorsError) return sendError(reply, 500, 'DB_ERROR', floorsError.message);
 
@@ -1168,7 +1181,20 @@ app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) =>
       buildings: (buildings || []).map(building => ({
         ...building, label: building.label, houseNumber: building.house_number, buildingCode: building.building_code,
       })),
-      blocks: (blocks || []).map(block => ({ ...block, tabLabel: block.label, buildingId: block.building_id })),
+      blocks: (blocks || []).map(block => ({
+        ...block,
+        tabLabel: block.label,
+        buildingId: block.building_id,
+        isBasementBlock: !!block.is_basement_block,
+        linkedBlockIds: Array.isArray(block.linked_block_ids) ? block.linked_block_ids : [],
+        extensions: (extensionsByBlockId[block.id] || []).map(ext => ({
+          id: ext.id,
+          label: ext.label,
+          extensionType: ext.extension_type || null,
+          floorsCount: ext.floors_count,
+          startFloorIndex: ext.start_floor_index,
+        })),
+      })),
       floors: (floors || []).map(floor => ({ ...floor, blockId: floor.block_id, areaProj: floor.area_proj, areaFact: floor.area_fact })),
       entrances: (entrances || []).map(entrance => ({ id: entrance.id, blockId: entrance.block_id, number: entrance.number })),
       units: (units || []).map(unit => {

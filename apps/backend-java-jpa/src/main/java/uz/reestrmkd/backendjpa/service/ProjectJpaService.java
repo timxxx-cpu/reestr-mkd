@@ -1113,6 +1113,17 @@ public class ProjectJpaService {
         List<String> buildingIds = buildings.stream().map(r -> stringVal(r.get("id"))).filter(Objects::nonNull).toList();
         List<Map<String, Object>> blocks = queryList("select * from building_blocks where building_id in (:buildingIds)", Map.of("buildingIds", buildingIds));
         List<String> blockIds = blocks.stream().map(r -> stringVal(r.get("id"))).filter(Objects::nonNull).toList();
+        List<Map<String, Object>> extensions = blockIds.isEmpty() ? List.of() : queryList(
+            "select * from block_extensions where parent_block_id in (:blockIds) order by created_at asc",
+            Map.of("blockIds", blockIds)
+        );
+        Map<String, List<Map<String, Object>>> extensionsByBlockId = new HashMap<>();
+        for (Map<String, Object> ext : extensions) {
+            String parentBlockId = stringVal(ext.get("parent_block_id"));
+            if (parentBlockId == null) continue;
+            extensionsByBlockId.computeIfAbsent(parentBlockId, k -> new ArrayList<>()).add(ext);
+        }
+
         List<Map<String, Object>> floors = blockIds.isEmpty() ? List.of() : queryList("select * from floors where block_id in (:blockIds)", Map.of("blockIds", blockIds));
         List<Map<String, Object>> entrances = blockIds.isEmpty() ? List.of() : queryList("select id, block_id, number from entrances where block_id in (:blockIds)", Map.of("blockIds", blockIds));
         List<String> floorIds = floors.stream().map(r -> stringVal(r.get("id"))).filter(Objects::nonNull).toList();
@@ -1147,6 +1158,17 @@ public class ProjectJpaService {
             Map<String, Object> item = new LinkedHashMap<>(block);
             item.put("tabLabel", block.get("label"));
             item.put("buildingId", block.get("building_id"));
+            item.put("isBasementBlock", Boolean.TRUE.equals(block.get("is_basement_block")));
+            item.put("linkedBlockIds", block.get("linked_block_ids"));
+            item.put("extensions", extensionsByBlockId.getOrDefault(stringVal(block.get("id")), List.of()).stream().map(ext -> {
+                Map<String, Object> extPayload = new LinkedHashMap<>();
+                extPayload.put("id", ext.get("id"));
+                extPayload.put("label", ext.get("label"));
+                extPayload.put("extensionType", ext.get("extension_type"));
+                extPayload.put("floorsCount", ext.get("floors_count"));
+                extPayload.put("startFloorIndex", ext.get("start_floor_index"));
+                return extPayload;
+            }).toList());
             payloadBlocks.add(item);
         }
 
