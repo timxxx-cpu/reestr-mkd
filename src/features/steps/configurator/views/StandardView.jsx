@@ -105,13 +105,16 @@ export default function StandardView({ building, mode }) {
       engineering: {
         hvs: false,
         gvs: false,
-        heating: false,
+        heatingLocal: false,
+        heatingCentral: false,
         electricity: false,
         gas: false,
         sewerage: false,
         ventilation: false,
         firefighting: false,
         lowcurrent: false,
+        internet: false,
+        solarPanels: false,
       },
     }),
     []
@@ -440,6 +443,10 @@ export default function StandardView({ building, mode }) {
         <PhotoTab building={building} />
       ) : currentBlock ? (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start" key={currentBlock.id}>
+          <div className="xl:col-span-12">
+            <EngineeringCard details={details} updateDetail={updateDetail} layout="horizontal" />
+          </div>
+
           <div className="xl:col-span-3 space-y-6">
             <GeneralBlockCard
               details={details}
@@ -449,7 +456,6 @@ export default function StandardView({ building, mode }) {
               hasElevatorIssue={hasElevatorIssue}
               _errorBorder={errorBorder}
             />
-            <EngineeringCard details={details} updateDetail={updateDetail} />
           </div>
 
           <div className="xl:col-span-6 space-y-6">

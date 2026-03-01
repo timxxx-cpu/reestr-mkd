@@ -41,11 +41,15 @@ export default function InfrastructureView({ building }) {
     engineering: {
       hvs: false,
       gvs: false,
-      heating: false,
+      heatingLocal: false,
+      heatingCentral: false,
       electricity: false,
       sewerage: false,
       ventilation: false,
       firefighting: false,
+      lowcurrent: false,
+      internet: false,
+      solarPanels: false,
     },
   };
 

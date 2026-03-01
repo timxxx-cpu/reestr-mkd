@@ -817,8 +817,8 @@ public class ProjectJpaService {
             Map<String, Object> eng = mapFrom(block.get("engineering"));
             if (!eng.isEmpty()) {
                 execute("""
-                    insert into block_engineering(block_id, has_electricity, has_water, has_hot_water, has_ventilation, has_firefighting, has_lowcurrent, has_sewerage, has_gas, has_heating, updated_at)
-                    values (:blockId, :e, :w, :hw, :v, :f, :l, :s, :g, :h, now())
+                    insert into block_engineering(block_id, has_electricity, has_water, has_hot_water, has_ventilation, has_firefighting, has_lowcurrent, has_sewerage, has_gas, has_heating, has_heating_local, has_heating_central, has_internet, has_solar_panels, updated_at)
+                    values (:blockId, :e, :w, :hw, :v, :f, :l, :s, :g, :h, :hl, :hc, :i, :sp, now())
                     on conflict (block_id) do update
                     set has_electricity = excluded.has_electricity,
                         has_water = excluded.has_water,
@@ -829,6 +829,10 @@ public class ProjectJpaService {
                         has_sewerage = excluded.has_sewerage,
                         has_gas = excluded.has_gas,
                         has_heating = excluded.has_heating,
+                        has_heating_local = excluded.has_heating_local,
+                        has_heating_central = excluded.has_heating_central,
+                        has_internet = excluded.has_internet,
+                        has_solar_panels = excluded.has_solar_panels,
                         updated_at = now()
                     """, Map.of(
                     "blockId", blockId,
@@ -840,7 +844,11 @@ public class ProjectJpaService {
                     "l", Boolean.TRUE.equals(eng.get("lowcurrent")),
                     "s", Boolean.TRUE.equals(eng.get("sewerage")),
                     "g", Boolean.TRUE.equals(eng.get("gas")),
-                    "h", Boolean.TRUE.equals(eng.get("heating"))
+                    "h", Boolean.TRUE.equals(eng.get("heatingLocal")) || Boolean.TRUE.equals(eng.get("heatingCentral")),
+                    "hl", Boolean.TRUE.equals(eng.get("heatingLocal")),
+                    "hc", Boolean.TRUE.equals(eng.get("heatingCentral")),
+                    "i", Boolean.TRUE.equals(eng.get("internet")),
+                    "sp", Boolean.TRUE.equals(eng.get("solarPanels"))
                 ));
             }
         }

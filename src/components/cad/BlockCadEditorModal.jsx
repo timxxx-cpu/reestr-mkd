@@ -11,7 +11,6 @@ import {
   Magnet,
   Crosshair,
   Eraser,
-  Ruler,
 } from 'lucide-react';
 import {
   projectGeometryToLocalMeters,
@@ -97,37 +96,6 @@ const getNearestSnapPoint = (point, buildingRing = [], snapMode = {}) => {
   const candidate = candidates.sort((a, b) => a.distance - b.distance)[0];
   if (!candidate || candidate.distance > SNAP_THRESHOLD_M) return null;
   return candidate;
-};
-
-const getNearestBoundaryPoint = (point, buildingRing = []) => {
-  if (!Array.isArray(buildingRing) || buildingRing.length < 2) return point;
-  let best = null;
-  for (let i = 0; i < buildingRing.length - 1; i += 1) {
-    const projection = getPointToSegmentProjection(point, buildingRing[i], buildingRing[i + 1]);
-    if (!best || projection.distance < best.distance) best = projection;
-  }
-  return best?.point || point;
-};
-
-const rotateOffset = (x, y, angleDeg) => {
-  const angle = (angleDeg * Math.PI) / 180;
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  return [x * cos - y * sin, x * sin + y * cos];
-};
-
-const buildRectangleFromAnchor = (anchorPoint, width, depth, angleDeg) => {
-  const [ax, ay] = anchorPoint;
-  const vectors = [
-    [0, 0],
-    [width, 0],
-    [width, depth],
-    [0, depth],
-  ];
-  return vectors.map(([vx, vy]) => {
-    const [rx, ry] = rotateOffset(vx, vy, angleDeg);
-    return [round2(ax + rx), round2(ay + ry)];
-  });
 };
 
 const orient = (a, b, c) => {
@@ -246,11 +214,8 @@ export default function BlockCadEditorModal({
   const [error, setError] = useState('');
   const [snapMode, setSnapMode] = useState({ grid: true, vertex: true, edge: true });
   const [lastSnap, setLastSnap] = useState(null);
-
-  const [templateWidth, setTemplateWidth] = useState(12);
-  const [templateDepth, setTemplateDepth] = useState(8);
-  const [templateAngleDeg, setTemplateAngleDeg] = useState(0);
-  const [templateSnapToBoundary, setTemplateSnapToBoundary] = useState(true);
+  const [dragAxisMode, setDragAxisMode] = useState('free');
+  const [dragAnchorPoint, setDragAnchorPoint] = useState(null);
   const [showUnderlay, setShowUnderlay] = useState(false);
   const [underlayProvider, setUnderlayProvider] = useState('google');
   const [underlayOpacity, setUnderlayOpacity] = useState(0.55);
@@ -393,41 +358,6 @@ export default function BlockCadEditorModal({
     });
   }, [buildingVertices]);
 
-  const templateAnchor = useMemo(() => {
-    if (selectedPointIndex !== null && activePoints[selectedPointIndex])
-      return activePoints[selectedPointIndex];
-    if (activePoints.length) return activePoints[0];
-    if (buildingVertices.length) return buildingVertices[0];
-    return null;
-  }, [selectedPointIndex, activePoints, buildingVertices]);
-
-  const templatePreviewPoints = useMemo(() => {
-    if (!templateAnchor) return [];
-    const base = buildRectangleFromAnchor(
-      templateAnchor,
-      Number(templateWidth),
-      Number(templateDepth),
-      Number(templateAngleDeg)
-    );
-    if (templateSnapToBoundary) {
-      return base.map(point => getNearestBoundaryPoint(point, buildingOuterRing).map(round2));
-    }
-    return base;
-  }, [
-    templateAnchor,
-    templateWidth,
-    templateDepth,
-    templateAngleDeg,
-    templateSnapToBoundary,
-    buildingOuterRing,
-  ]);
-
-  const templatePreviewPolyline = toPointString(
-    templatePreviewPoints.length
-      ? [...templatePreviewPoints, templatePreviewPoints[0]].map(([x, y]) => toScreen(x, y))
-      : []
-  );
-
   const applyPointsUpdate = useCallback(
     updater => {
       setDraftPoints(prev => {
@@ -519,7 +449,16 @@ export default function BlockCadEditorModal({
     const px = clamp(evt.clientX - rect.left, 0, rect.width);
     const py = clamp(evt.clientY - rect.top, 0, rect.height);
     const [x, y] = toWorld(px, py);
-    const { point, snap } = snapPoint([x, y]);
+    const anchor = dragAnchorPoint || activePoints[dragIndex] || [x, y];
+    let constrainedPoint = [x, y];
+
+    if (dragAxisMode === 'x') {
+      constrainedPoint = [x, anchor[1]];
+    } else if (dragAxisMode === 'y') {
+      constrainedPoint = [anchor[0], y];
+    }
+
+    const { point, snap } = snapPoint(constrainedPoint);
 
     setDraftPoints(prev => {
       const base = prev.length ? prev : existingPoints;
@@ -537,6 +476,7 @@ export default function BlockCadEditorModal({
     setRedoStack([]);
     setDragIndex(idx);
     setSelectedPointIndex(idx);
+    setDragAnchorPoint(base[idx] || null);
   };
 
   const validatePoints = points => {
@@ -548,43 +488,6 @@ export default function BlockCadEditorModal({
       return `Слишком короткая сторона. Минимальная длина: ${formatMeters(MIN_SEGMENT_LENGTH_M)}.`;
     }
     return '';
-  };
-
-  const handleCreateByDimensions = () => {
-    if (isReadOnly) return;
-    if (!templateAnchor) {
-      setError('Нет опорной вершины. Выделите вершину блока или начните построение контура.');
-      return;
-    }
-
-    let points = buildRectangleFromAnchor(
-      templateAnchor,
-      Number(templateWidth),
-      Number(templateDepth),
-      Number(templateAngleDeg)
-    );
-    if (templateSnapToBoundary) {
-      points = points.map(point => getNearestBoundaryPoint(point, buildingOuterRing).map(round2));
-    }
-
-    const validationError = validatePoints(points);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    const meterGeometry = { type: 'Polygon', coordinates: [[...points, points[0]]] };
-    const unrotatedMeters = rotateGeometryInMeters(meterGeometry, -projected.rotationDeg);
-    const resultGeo = geometryFromMeterPoints(unrotatedMeters, projected.origin);
-    if (!isGeometryWithinGeometry(resultGeo, buildingGeometry)) {
-      setError(
-        'Геометрия по размерам вышла за границы здания. Измените угол/размеры или отключите прижатие.'
-      );
-      return;
-    }
-
-    applyPointsUpdate(() => points);
-    setError('');
   };
 
   const handleSave = () => {
@@ -613,6 +516,7 @@ export default function BlockCadEditorModal({
     const onKeyDown = evt => {
       if (evt.key === 'Escape') {
         setDragIndex(null);
+        setDragAnchorPoint(null);
         setSelectedPointIndex(null);
       }
       if (isReadOnly) return;
@@ -654,8 +558,8 @@ export default function BlockCadEditorModal({
       <div className="flex-1 flex min-h-0">
         <div className="w-[360px] border-r border-slate-800 p-4 space-y-3 overflow-y-auto">
           <div className="text-xs text-slate-400 leading-relaxed">
-            Клик добавляет точки. Перетаскивание двигает вершины. Есть snap к сетке/зданию,
-            undo/redo и удаление выбранной вершины.
+            Клик добавляет точки. Перетаскивание двигает вершины (с ограничением по X/Y при
+            выборе режима). Есть snap к сетке/зданию, undo/redo и удаление выбранной вершины.
           </div>
 
           <div className="text-xs">
@@ -745,67 +649,28 @@ export default function BlockCadEditorModal({
           </div>
 
           <div className="rounded-lg border border-slate-700 p-2 space-y-2">
-            <div className="text-xs font-semibold inline-flex items-center gap-2">
-              <Ruler size={12} /> Геометрия по размерам
+            <div className="text-xs font-semibold inline-flex items-center gap-2">Ограничение drag по оси</div>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => setDragAxisMode('free')}
+                className={`h-8 rounded border text-xs ${dragAxisMode === 'free' ? 'border-emerald-500 bg-emerald-900/30 text-emerald-200' : 'border-slate-700 hover:bg-slate-800'}`}
+              >
+                Свободно
+              </button>
+              <button
+                onClick={() => setDragAxisMode('x')}
+                className={`h-8 rounded border text-xs ${dragAxisMode === 'x' ? 'border-emerald-500 bg-emerald-900/30 text-emerald-200' : 'border-slate-700 hover:bg-slate-800'}`}
+              >
+                Только X
+              </button>
+              <button
+                onClick={() => setDragAxisMode('y')}
+                className={`h-8 rounded border text-xs ${dragAxisMode === 'y' ? 'border-emerald-500 bg-emerald-900/30 text-emerald-200' : 'border-slate-700 hover:bg-slate-800'}`}
+              >
+                Только Y
+              </button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="text-xs text-slate-300">
-                Ширина, м
-                <input
-                  type="number"
-                  min="0.5"
-                  step="0.1"
-                  value={templateWidth}
-                  onChange={e => setTemplateWidth(Number(e.target.value))}
-                  className="mt-1 w-full h-8 rounded bg-slate-900 border border-slate-700 px-2 text-xs"
-                />
-              </label>
-              <label className="text-xs text-slate-300">
-                Глубина, м
-                <input
-                  type="number"
-                  min="0.5"
-                  step="0.1"
-                  value={templateDepth}
-                  onChange={e => setTemplateDepth(Number(e.target.value))}
-                  className="mt-1 w-full h-8 rounded bg-slate-900 border border-slate-700 px-2 text-xs"
-                />
-              </label>
-            </div>
-            <label className="text-xs text-slate-300 block">
-              Поворот, °
-              <input
-                type="range"
-                min="-180"
-                max="180"
-                step="1"
-                value={templateAngleDeg}
-                onChange={e => setTemplateAngleDeg(Number(e.target.value))}
-                className="w-full"
-              />
-              <div className="text-[11px] text-slate-400">{templateAngleDeg}°</div>
-            </label>
-            <label className="text-xs flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={templateSnapToBoundary}
-                onChange={e => setTemplateSnapToBoundary(e.target.checked)}
-              />
-              Прижать вершины шаблона к границам здания
-            </label>
-            <div className="text-[11px] text-slate-400">
-              Опорная вершина:{' '}
-              {templateAnchor
-                ? `${templateAnchor[0].toFixed(2)}, ${templateAnchor[1].toFixed(2)}`
-                : 'не выбрана'}
-            </div>
-            <button
-              onClick={handleCreateByDimensions}
-              disabled={isReadOnly}
-              className="w-full h-9 rounded-lg border border-cyan-700 hover:bg-cyan-900/30 text-sm inline-flex items-center justify-center gap-2"
-            >
-              <Ruler size={14} /> Создать по размерам
-            </button>
+            <div className="text-[11px] text-slate-400">Ограничение применяется только во время перетаскивания вершины.</div>
           </div>
 
           {!isReadOnly && (
@@ -892,7 +757,10 @@ export default function BlockCadEditorModal({
             className="w-full h-full rounded-xl border border-slate-800 relative"
             onClick={handleCanvasClick}
             onPointerMove={handlePointerMove}
-            onPointerUp={() => setDragIndex(null)}
+            onPointerUp={() => {
+              setDragIndex(null);
+              setDragAnchorPoint(null);
+            }}
           >
             <defs>
               <pattern
@@ -931,15 +799,6 @@ export default function BlockCadEditorModal({
                 points={buildingPolyline}
                 fill="rgba(59, 130, 246, 0.09)"
                 stroke="#60a5fa"
-                strokeWidth="2"
-              />
-            )}
-            {templatePreviewPolyline && (
-              <polyline
-                points={templatePreviewPolyline}
-                fill="rgba(34,211,238,0.1)"
-                stroke="#22d3ee"
-                strokeDasharray="8 6"
                 strokeWidth="2"
               />
             )}

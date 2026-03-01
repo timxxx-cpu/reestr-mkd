@@ -785,9 +785,13 @@ create table block_engineering (
   has_sewerage boolean default false,
   has_gas boolean default false,
   has_heating boolean default false,
+  has_heating_local boolean default false,
+  has_heating_central boolean default false,
   has_ventilation boolean default false,
   has_firefighting boolean default false,
   has_lowcurrent boolean default false,
+  has_internet boolean default false,
+  has_solar_panels boolean default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

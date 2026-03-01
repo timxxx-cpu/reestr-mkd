@@ -36,7 +36,7 @@ export async function buildStepValidationResult(supabase, { projectId, stepId })
         is_basement_block, linked_block_ids, basement_depth, basement_has_parking, basement_parking_levels, basement_communications,
         has_custom_address, custom_house_number,
         block_construction (foundation, walls, slabs, roof, seismicity),
-        block_engineering (has_electricity, has_water, has_hot_water, has_sewerage, has_gas, has_heating, has_ventilation, has_firefighting, has_lowcurrent)
+        block_engineering (has_electricity, has_water, has_hot_water, has_sewerage, has_gas, has_heating_local, has_heating_central, has_ventilation, has_firefighting, has_lowcurrent, has_internet, has_solar_panels)
       )
     `)
     .eq('project_id', projectId);
