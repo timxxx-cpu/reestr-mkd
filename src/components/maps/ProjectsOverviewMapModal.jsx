@@ -50,7 +50,7 @@ const SAT_STYLE = {
   },
   layers: [{ id: 'sat', type: 'raster', source: 'sat' }],
 };
-
+/** @returns {any} */
 const getStyle = basemap => {
   if (basemap === 'googleSatellite') return SAT_STYLE;
   if (basemap === 'cartoLight') return CARTO_STYLE;
@@ -79,14 +79,13 @@ const formatStatus = status => {
   return map[String(status || '').trim()] || (status || '—');
 };
 
-// Умный парсер геометрии: извлекает чистый Polygon/MultiPolygon даже из строк и FeatureCollection
 const parseGeometry = (geom) => {
   if (!geom) return null;
   let parsed = geom;
   if (typeof parsed === 'string') {
     try { parsed = JSON.parse(parsed); } catch (e) { return null; }
   }
-  if (typeof parsed === 'string') { // Защита от двойного кодирования
+  if (typeof parsed === 'string') {
     try { parsed = JSON.parse(parsed); } catch (e) { return null; }
   }
   if (parsed?.type === 'FeatureCollection') return parsed.features?.[0]?.geometry || null;
@@ -170,7 +169,6 @@ const resolveFloorsCount = (block, building) => {
     return !isNaN(num) && num > 0 ? Math.trunc(num) : null;
   };
   
-  // 1. Ищем этажность блока (ПРИОРИТЕТ: floorsTo / floors_to)
   let f = parseFloors(block?.floorsTo) 
        ?? parseFloors(block?.floors_to) 
        ?? parseFloors(block?.floorsCount) 
@@ -178,7 +176,6 @@ const resolveFloorsCount = (block, building) => {
        ?? parseFloors(block?.floors);
   if (f) return f;
   
-  // 2. Если у блока нет, ищем у здания
   f = parseFloors(building?.floorsTo) 
    ?? parseFloors(building?.floors_to) 
    ?? parseFloors(building?.floorsMax) 
@@ -187,7 +184,6 @@ const resolveFloorsCount = (block, building) => {
    ?? parseFloors(building?.floors_count);
   if (f) return f;
   
-  // 3. Фолбэк, если вообще ничего нет
   return 5; 
 };
 
@@ -224,10 +220,8 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
     return toFeatureCollection(mapProjects, selectedProjectId);
   }, [projects, selectedProject, selectedProjectId, is3D]);
 
-  // Генерация 3D данных с готовой предрасчитанной высотой
   const blocks3DSourceData = useMemo(() => {
     if (!selectedProject) return { type: 'FeatureCollection', features: [] };
-
     
     const features = (selectedProject.buildings || []).flatMap(building => {
       const blocks = Array.isArray(building?.blocks) && building.blocks.length > 0 ? building.blocks : [building];
@@ -241,7 +235,7 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
         if (!geom) return null;
         
         const floorsCount = resolveFloorsCount(block, building);
-        const heightM = floorsCount * 3; // СТРОГО СЧИТАЕМ ВЫСОТУ ТУТ (1 этаж = 3 метра)
+        const heightM = floorsCount * 3;
 
         return {
           type: 'Feature',
@@ -252,7 +246,7 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
             buildingId: building.id,
             blockId: block.id || building.id,
             floorsCount: floorsCount,
-            heightM: heightM, // Передаем готовое число
+            heightM: heightM,
           },
         };
       }).filter(Boolean);
@@ -337,11 +331,12 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
         </aside>
 
         <div className="flex-1 relative bg-slate-100">
+          {/* Слой с кастомными кнопками (Слои, 2D/3D, Сброс вращения) - Оставляем в верхнем правом углу */}
           <div className="absolute top-3 right-3 z-20 flex items-center gap-2">
             <select
               value={basemap}
               onChange={e => setBasemap(e.target.value)}
-              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700"
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 shadow-sm"
             >
               {BASEMAP_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
@@ -369,7 +364,6 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
             ref={mapRef}
             mapLib={maplibregl}
             initialViewState={{ longitude: 69.2401, latitude: 41.2995, zoom: 10, pitch: 0 }}
-            // @ts-ignore
             mapStyle={getStyle(basemap)}
             style={{ width: '100%', height: '100%', cursor: 'pointer' }}
             dragRotate={is3D}
@@ -411,7 +405,8 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
               }
             }}
           >
-            <NavigationControl position="top-right" showCompass showZoom />
+            {/* ПЕРЕНЕСЕНО В ПРАВЫЙ НИЖНИЙ УГОЛ + visualizePitch (улучшает 3D-компас) */}
+            <NavigationControl position="bottom-right" showCompass showZoom visualizePitch={true} />
 
             <Source id="projects-overview" type="geojson" data={sourceData}>
               <Layer
@@ -499,9 +494,7 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
                   'fill-extrusion-color': '#4f46e5',
                   'fill-extrusion-opacity': is3D ? 0.9 : 0, 
                   'fill-extrusion-base': 0,
-                  // ВАЖНО: Вычисление высоты прямо средствами движка карты (floorsCount * 3).
-                  // Если этажей нет, используется 1 этаж (3 метра).
-                 'fill-extrusion-height': ['get', 'heightM']
+                  'fill-extrusion-height': ['get', 'heightM']
                 }}
               />
             </Source>
