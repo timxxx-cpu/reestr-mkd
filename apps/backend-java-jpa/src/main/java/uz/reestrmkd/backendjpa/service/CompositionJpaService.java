@@ -92,6 +92,17 @@ public class CompositionJpaService {
     public Map<String, Object> updateBuilding(String buildingId, Map<String, Object> body) {
         Map<String, Object> buildingData = unwrapBuildingData(body);
         String geometryCandidateId = requireGeometryCandidateId(buildingData);
+        
+        // 1. ИСПРАВЛЕНИЕ: Сначала получаем project_id текущего здания
+        String projectId = stringVal(queryScalar(
+            "select cast(project_id as text) from buildings where id = cast(:id as uuid)", 
+            Map.of("id", buildingId)
+        ));
+        
+        if (projectId == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Building not found");
+        }
+
         Map<String, Object> params = new HashMap<>();
         params.put("label", buildingData.get("label"));
         params.put("houseNumber", buildingData.get("houseNumber"));
@@ -107,25 +118,28 @@ public class CompositionJpaService {
         params.put("hasNonResPart", buildingData.get("hasNonResPart"));
         params.put("cadastreNumber", buildingData.get("cadastreNumber"));
         params.put("buildingId", buildingId);
+
+        // 2. Генерируем адрес, используя уже извлеченный projectId
         if (!Boolean.TRUE.equals(params.get("hasAddressId"))) {
-            String projectId = stringVal(queryScalar("select project_id from buildings where id = :id", Map.of("id", buildingId)));
             params.put("addressId", deriveBuildingAddressId(projectId, stringVal(buildingData.get("houseNumber"))));
             params.put("hasAddressId", params.get("addressId") != null);
         }
 
+        // 3. Обновляем данные здания
         int updated = execute("""
             update buildings set label=:label, house_number=:houseNumber,
                 address_id = case when :hasAddressId then cast(:addressId as uuid) else address_id end,
                 category=:category, stage=:stage,
-                date_start=:dateStart, date_end=:dateEnd, construction_type=:constructionType, parking_type=:parkingType,
-                infra_type=:infraType, has_non_res_part=:hasNonResPart, cadastre_number=:cadastreNumber, updated_at=now()
-            where id=:buildingId
+                date_start=cast(:dateStart as date), date_end=cast(:dateEnd as date), construction_type=:constructionType, parking_type=:parkingType,
+                infra_type=:infraType, has_non_res_part=cast(:hasNonResPart as boolean), cadastre_number=:cadastreNumber, updated_at=now()
+            where id=cast(:buildingId as uuid)
             """, params);
+
         if (updated == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Building not found");
 
-        String projectId = stringVal(queryScalar("select project_id from buildings where id = :id", Map.of("id", buildingId)));
-        if (projectId == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Building not found");
+        // 4. Привязываем/перезаписываем геометрию
         assignBuildingGeometry(projectId, buildingId, geometryCandidateId);
+        
         return Map.of("ok", true);
     }
 

@@ -270,13 +270,13 @@ const BuildingModal = ({
   const isMultiblockError =
     (modal.category === 'residential' && modal.resBlocks < 1) ||
     (modal.category === 'residential_multiblock' && (modal.resBlocks < 1 || modal.nonResBlocks < 1));
+    
   const ErrorMsg = ({ field }) =>
     errors[field] ? (
       <span className="text-[9px] text-red-500 font-bold ml-1 animate-in fade-in">
         {errors[field]}
       </span>
     ) : null;
-
 
   const handleStartDrawGeometry = () => {
     setActiveCandidateId(null);
@@ -330,15 +330,13 @@ const BuildingModal = ({
     setActiveCandidateId(null);
   };
 
-
-
   return createPortal(
     <>
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-5xl max-h-[95vh] rounded-3xl shadow-2xl overflow-hidden ring-1 ring-white/20 animate-in zoom-in-95 duration-200 flex flex-col">
+      {/* ПОЛНОЭКРАННАЯ ВЕРСТКА МОДАЛКИ */}
+      <div className="fixed inset-0 z-[100] bg-slate-50 flex flex-col animate-in zoom-in-95 duration-200">
         
         {/* HEADER */}
-        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/80 sticky top-0 z-10 backdrop-blur-md">
+        <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-white shadow-sm shrink-0 z-20">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
               <Building2 size={20} />
@@ -354,18 +352,18 @@ const BuildingModal = ({
           </div>
           <button
             onClick={() => setModal(m => ({ ...m, isOpen: false }))}
-            className="p-2 hover:bg-slate-200 rounded-full transition-colors bg-white shadow-sm border border-slate-200"
+            className="p-2 hover:bg-slate-100 rounded-full transition-colors border border-slate-200 text-slate-500 shadow-sm bg-white"
           >
-            <X size={18} className="text-slate-500" />
+            <X size={18} />
           </button>
         </div>
 
         {/* BODY */}
-        <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            
-            {/* ЛЕВАЯ КОЛОНКА: ДАННЫЕ */}
-            <div className="lg:col-span-5 space-y-6">
+        <div className="flex-1 overflow-hidden flex bg-slate-50">
+          
+          {/* ЛЕВАЯ КОЛОНКА: ДАННЫЕ (ФИКСИРОВАННАЯ ШИРИНА 450px) */}
+          <div className="w-[450px] shrink-0 bg-white border-r border-slate-200 overflow-y-auto p-6 shadow-sm z-10 custom-scrollbar">
+            <div className="space-y-6">
               
               {/* Блок Идентификации */}
               <div className="space-y-4">
@@ -572,149 +570,191 @@ const BuildingModal = ({
                 )}
               </div>
             </div>
+          </div>
 
-            {/* ПРАВАЯ КОЛОНКА: КАРТА */}
-            <div className="lg:col-span-7 flex flex-col min-h-[500px]">
-              <Card className="flex flex-col flex-1 shadow-sm border-slate-200/60 overflow-hidden h-full">
-                <div className="p-4 border-b border-slate-100 bg-white flex items-center justify-between">
-                  <SectionTitle icon={Layers} className="mb-0 text-base">Привязка к генплану</SectionTitle>
-                </div>
-                
-                <div className="p-4 bg-slate-50/50 flex flex-col gap-3 flex-1">
+          {/* ПРАВАЯ КОЛОНКА: КАРТА И СПИСОК КОНТУРОВ */}
+          <div className="flex-1 flex overflow-hidden p-4 gap-4 relative">
+            
+            {/* СПИСОК ИМПОРТИРОВАННЫХ КОНТУРОВ (SHP) */}
+            <div className="w-72 shrink-0 flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+              <div className="p-3 bg-slate-100/50 border-b border-slate-200 flex justify-between items-center">
+                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Объекты генплана</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-200 text-[10px] font-bold text-slate-600">
+                  {geometryCandidates.length}
+                </span>
+              </div>
+              <div className="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar bg-slate-50/30">
+                {geometryCandidates.length === 0 && (
+                  <div className="p-6 text-center text-xs text-slate-400">
+                    Нет доступных контуров на карте. Загрузите генплан или нарисуйте вручную.
+                  </div>
+                )}
+                {geometryCandidates.map(candidate => {
+                  const isActive = candidate.id === activeCandidateId;
+                  const isSelected = candidate.id === modal.geometryCandidateId;
                   
-                  {/* Map Controls */}
-                  <div className="flex flex-wrap gap-2 items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {modal.geometryCandidateId && !isReadOnly && (
-                        <Button 
-                          onClick={() => setModal(m => ({ ...m, geometryCandidateId: null }))}
-                          className="bg-white border-red-100 text-red-600 hover:bg-red-50 shadow-sm h-8 px-3 text-xs"
-                          title="Открепить геометрию"
-                        >
-                          <Trash2 size={14} className="mr-1.5" /> Открепить
-                        </Button>
-                      )}
-                      {!modal.geometryCandidateId && !activeCandidateId && !isDrawingGeometry && (
-                        <span className="text-[11px] text-slate-500 font-medium px-1">Выберите полигон на карте</span>
-                      )}
-                      {!isReadOnly && !isDrawingGeometry && (
-                        <Button
-                          onClick={handleStartDrawGeometry}
-                          className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm h-8 px-3 text-xs"
-                        >
-                          Нарисовать полигон
-                        </Button>
-                      )}
-                      {!isReadOnly && !isDrawingGeometry && modal.geometryCandidateId && (
-                        <Button
-                          onClick={() => setIsCadEditorOpen(true)}
-                          className="bg-slate-900 border-slate-900 text-white hover:bg-slate-800 shadow-sm h-8 px-3 text-xs"
-                        >
-                          CAD редактор
-                        </Button>
-                      )}
-                      {!isReadOnly && isDrawingGeometry && (
-                        <>
-                          <Button
-                            onClick={handleSaveDrawGeometry}
-                            disabled={draftPolygonPoints.length < 3}
-                            className="bg-blue-600 text-white hover:bg-blue-500 shadow-sm h-8 px-3 text-xs"
-                          >
-                            Сохранить контур
-                          </Button>
-                          <Button
-                            onClick={() => setDraftPolygonPoints([])}
-                            className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm h-8 px-3 text-xs"
-                          >
-                            Очистить
-                          </Button>
-                          <Button
-                            onClick={handleCancelDrawGeometry}
-                            className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm h-8 px-3 text-xs"
-                          >
-                            Отмена
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                    <select 
-                      value={basemap} 
-                      onChange={e => setBasemap(e.target.value)} 
-                      className="bg-white border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-600 shadow-sm outline-none focus:border-blue-500"
+                  return (
+                    <button
+                      key={candidate.id}
+                      onClick={() => setActiveCandidateId(candidate.id)}
+                      className={`w-full text-left px-3 py-2.5 rounded-lg text-xs transition-all border outline-none ${
+                        isActive 
+                          ? 'bg-blue-50 border-blue-300 text-blue-800 shadow-sm ring-1 ring-blue-500/20' 
+                          : isSelected 
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-800' 
+                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
                     >
-                      {BASEMAP_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                    </select>
-                  </div>
-
-                  {geometryError && (
-                    <div className="text-[11px] text-red-600 bg-red-50 p-2 rounded border border-red-100">
-                      {geometryError}
-                    </div>
-                  )}
-
-                  {/* Action Banner when polygon is clicked */}
-                  {activeCandidateId && activeCandidateId !== modal.geometryCandidateId && !isReadOnly && !isDrawingGeometry && (
-                    <div className="flex items-center justify-between gap-3 p-2 px-3 bg-blue-600 rounded-lg shadow-md text-white animate-in slide-in-from-top-1">
-                      <div className="text-xs font-medium">Контур выбран</div>
-                      <div className="flex items-center gap-1.5">
-                        <Button 
-                          onClick={() => {
-                            setModal(m => ({ ...m, geometryCandidateId: activeCandidateId }));
-                            setActiveCandidateId(null);
-                          }}
-                          className="bg-white text-blue-700 hover:bg-blue-50 h-7 px-3 text-[11px] font-bold"
-                        >
-                          Прикрепить
-                        </Button>
-                        <button 
-                          onClick={() => setActiveCandidateId(null)}
-                          className="h-7 w-7 flex items-center justify-center rounded border border-blue-400 hover:bg-blue-700 hover:border-blue-500 transition-colors"
-                        >
-                          <X size={12} />
-                        </button>
+                      <div className="font-semibold truncate">
+                        {candidate.label || `Контур #${candidate.sourceIndex}`}
                       </div>
-                    </div>
+                      
+                      {(isSelected || isActive) && (
+                         <div className="flex items-center gap-2 mt-1.5">
+                           {isSelected && <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 font-bold uppercase rounded">Прикреплен</span>}
+                           {isActive && !isSelected && <span className="text-[9px] px-1.5 py-0.5 bg-blue-100 text-blue-700 font-bold uppercase rounded">Выбран</span>}
+                         </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ОБЛАСТЬ САМОЙ КАРТЫ */}
+            <div className="flex-1 flex flex-col min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden relative">
+              
+              {/* Map Controls */}
+              <div className="p-3 border-b border-slate-100 bg-slate-50/80 flex flex-wrap gap-2 items-center justify-between shrink-0">
+                <div className="flex items-center gap-2">
+                  {modal.geometryCandidateId && !isReadOnly && (
+                    <Button 
+                      onClick={() => setModal(m => ({ ...m, geometryCandidateId: null }))}
+                      className="bg-white border-red-100 text-red-600 hover:bg-red-50 shadow-sm h-8 px-3 text-xs"
+                      title="Открепить геометрию"
+                    >
+                      <Trash2 size={14} className="mr-1.5" /> Открепить
+                    </Button>
                   )}
-
-                  {/* MAP */}
-                  <div className="flex-1 rounded-lg overflow-hidden border border-slate-200 shadow-inner bg-slate-100 relative min-h-[350px]">
-                    <GeometryPickerMap
-                      candidates={geometryCandidates}
-                      selectedId={modal.geometryCandidateId}
-                      activeId={activeCandidateId}
-                      savedGeometry={complexGeometry}
-                      fitToSavedOnOpen
-                      fitScopeKey={`${modal.editingId || 'new'}-${modal.isOpen}`}
-                      onSelect={setActiveCandidateId}
-                      basemap={basemap}
-                      isDrawing={isDrawingGeometry}
-                      draftPoints={draftPolygonPoints}
-                      onDraftPointAdd={point => setDraftPolygonPoints(prev => [...prev, point])}
-                      height={450}
-                    />
-                  </div>
-                  
-                  <div className="text-[10px] text-slate-400 text-center flex items-center justify-center gap-4">
-                     {isDrawingGeometry && <div className="text-sky-600 font-semibold">Режим рисования: точек {draftPolygonPoints.length}</div>}
-                     <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-500/80"></span> Выбрано для этого здания</div>
-                     <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-blue-500/80"></span> Активный контур</div>
-                     <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-500/80"></span> Занято другим</div>
-                     <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-700/80"></span> Граница жилого комплекса</div>
-                  </div>
-
+                  {!modal.geometryCandidateId && !activeCandidateId && !isDrawingGeometry && (
+                    <span className="text-[11px] text-slate-500 font-medium px-1">Выберите полигон из списка или на карте</span>
+                  )}
+                  {!isReadOnly && !isDrawingGeometry && (
+                    <Button
+                      onClick={handleStartDrawGeometry}
+                      className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm h-8 px-3 text-xs"
+                    >
+                      Нарисовать полигон
+                    </Button>
+                  )}
+                  {!isReadOnly && !isDrawingGeometry && modal.geometryCandidateId && (
+                    <Button
+                      onClick={() => setIsCadEditorOpen(true)}
+                      className="bg-slate-900 border-slate-900 text-white hover:bg-slate-800 shadow-sm h-8 px-3 text-xs"
+                    >
+                      CAD редактор
+                    </Button>
+                  )}
+                  {!isReadOnly && isDrawingGeometry && (
+                    <>
+                      <Button
+                        onClick={handleSaveDrawGeometry}
+                        disabled={draftPolygonPoints.length < 3}
+                        className="bg-blue-600 text-white hover:bg-blue-500 shadow-sm h-8 px-3 text-xs"
+                      >
+                        Сохранить контур
+                      </Button>
+                      <Button
+                        onClick={() => setDraftPolygonPoints([])}
+                        className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm h-8 px-3 text-xs"
+                      >
+                        Очистить
+                      </Button>
+                      <Button
+                        onClick={handleCancelDrawGeometry}
+                        className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm h-8 px-3 text-xs"
+                      >
+                        Отмена
+                      </Button>
+                    </>
+                  )}
                 </div>
-              </Card>
+                <select 
+                  value={basemap} 
+                  onChange={e => setBasemap(e.target.value)} 
+                  className="bg-white border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-600 shadow-sm outline-none focus:border-blue-500"
+                >
+                  {BASEMAP_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </select>
+              </div>
+
+              {geometryError && (
+                <div className="text-[11px] text-red-600 bg-red-50 p-2 border-b border-red-100 shrink-0">
+                  {geometryError}
+                </div>
+              )}
+
+              {/* Action Banner when polygon is clicked */}
+              {activeCandidateId && activeCandidateId !== modal.geometryCandidateId && !isReadOnly && !isDrawingGeometry && (
+                <div className="absolute top-16 left-1/2 -translate-x-1/2 z-10 flex items-center justify-between gap-3 p-2 px-3 bg-blue-600 rounded-lg shadow-lg text-white animate-in slide-in-from-top-4">
+                  <div className="text-xs font-medium">Контур выбран</div>
+                  <div className="flex items-center gap-1.5">
+                    <Button 
+                      onClick={() => {
+                        setModal(m => ({ ...m, geometryCandidateId: activeCandidateId }));
+                        setActiveCandidateId(null);
+                      }}
+                      className="bg-white text-blue-700 hover:bg-blue-50 h-7 px-3 text-[11px] font-bold shadow-sm"
+                    >
+                      Прикрепить
+                    </Button>
+                    <button 
+                      onClick={() => setActiveCandidateId(null)}
+                      className="h-7 w-7 flex items-center justify-center rounded border border-blue-400 hover:bg-blue-700 hover:border-blue-500 transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* MAP */}
+              <div className="flex-1 bg-slate-100 relative">
+                <GeometryPickerMap
+                  candidates={geometryCandidates}
+                  selectedId={modal.geometryCandidateId}
+                  activeId={activeCandidateId}
+                  savedGeometry={complexGeometry}
+                  fitToSavedOnOpen
+                  fitScopeKey={`${modal.editingId || 'new'}-${modal.isOpen}`}
+                  onSelect={setActiveCandidateId}
+                  basemap={basemap}
+                  isDrawing={isDrawingGeometry}
+                  draftPoints={draftPolygonPoints}
+                  onDraftPointAdd={point => setDraftPolygonPoints(prev => [...prev, point])}
+                  height="100%"
+                />
+              </div>
+              
+              <div className="p-2 bg-white border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-center gap-4 shrink-0">
+                 {isDrawingGeometry && <div className="text-sky-600 font-semibold">Режим рисования: точек {draftPolygonPoints.length}</div>}
+                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-500/80"></span> Выбрано для этого здания</div>
+                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-blue-500/80"></span> Активный контур</div>
+                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-500/80"></span> Занято другим</div>
+                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-700/80"></span> Граница жилого комплекса</div>
+              </div>
+
             </div>
           </div>
         </div>
 
         {/* FOOTER */}
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3 sticky bottom-0 z-10 backdrop-blur-md">
+        <div className="px-6 py-4 bg-white border-t border-slate-200 flex justify-end gap-3 shrink-0 z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <Button
             variant="ghost"
             onClick={() => setModal(m => ({ ...m, isOpen: false }))}
             disabled={isReadOnly || isSaving}
-            className="text-slate-600 hover:bg-slate-200"
+            className="text-slate-600 hover:bg-slate-100"
           >
             {isReadOnly ? 'Закрыть' : 'Отмена'}
           </Button>
@@ -722,7 +762,7 @@ const BuildingModal = ({
             <Button
               onClick={onCommit}
               disabled={!isValid || isMultiblockError || isSaving || !modal.geometryCandidateId}
-              className={`shadow-lg px-8 ${!isValid || isMultiblockError || !modal.geometryCandidateId ? 'opacity-50 cursor-not-allowed bg-slate-400' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-200'}`}
+              className={`shadow-md px-8 ${!isValid || isMultiblockError || !modal.geometryCandidateId ? 'opacity-50 cursor-not-allowed bg-slate-400' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
             >
               {isSaving ? <Loader2 size={16} className="animate-spin mr-2" /> : <Save size={16} className="mr-2" />}
               {isSaving ? 'Сохранение...' : 'Сохранить'}
@@ -730,7 +770,7 @@ const BuildingModal = ({
           )}
         </div>
       </div>
-      </div>
+      
       <BuildingCadEditorModal
         isOpen={isCadEditorOpen}
         onClose={() => setIsCadEditorOpen(false)}

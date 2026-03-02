@@ -328,7 +328,7 @@ export function registerCompositionRoutes(app, { supabase }) {
     return reply.send(insertedBuilding);
   });
 
-  app.put('/api/v1/buildings/:buildingId', async (req, reply) => {
+ app.put('/api/v1/buildings/:buildingId', async (req, reply) => {
     const actor = requirePolicyActor(req, reply, {
       module: 'composition',
       action: 'mutate',
@@ -344,12 +344,27 @@ export function registerCompositionRoutes(app, { supabase }) {
 
     if (!geometryCandidateId) return sendError(reply, 400, 'VALIDATION_ERROR', 'Geometry candidate is required for building save');
 
+    // 1. ИСПРАВЛЕНИЕ: Сначала получаем существующее здание, чтобы узнать его project_id
+    const { data: existingBuilding, error: getBuildingError } = await supabase
+      .from('buildings')
+      .select('project_id, category, parking_type, construction_type')
+      .eq('id', buildingId)
+      .single();
+
+    if (getBuildingError || !existingBuilding) {
+      return sendError(reply, 500, 'DB_ERROR', getBuildingError?.message || 'Здание не найдено');
+    }
+
+    const projectId = existingBuilding.project_id;
+    const resolvedAddressId = buildingData.addressId || await inheritBuildingAddressId(supabase, projectId, buildingData.houseNumber);
+
+    // 2. Теперь спокойно обновляем данные здания
     const { data, error } = await supabase
       .from('buildings')
       .update({
         label: buildingData.label,
         house_number: buildingData.houseNumber,
-        address_id: buildingData.addressId || await inheritBuildingAddressId(supabase, data.project_id, buildingData.houseNumber),
+        address_id: resolvedAddressId,
         construction_type: normalizedFields.constructionType,
         parking_type: normalizedFields.parkingType,
         infra_type: normalizedFields.infraType,
@@ -361,12 +376,16 @@ export function registerCompositionRoutes(app, { supabase }) {
 
     if (error) return sendError(reply, 500, 'DB_ERROR', error.message);
 
+    // 3. Вызываем функцию привязки геометрии
     const { error: assignGeomError } = await supabase.rpc('assign_building_geometry_from_candidate', {
       p_project_id: data.project_id,
       p_building_id: buildingId,
       p_candidate_id: geometryCandidateId,
     });
+    
     if (assignGeomError) return sendError(reply, 400, 'GEOMETRY_VALIDATION_ERROR', assignGeomError.message);
+
+    // ... далее остается ваш текущий код: if (blocksData) { const { data: existingBlocks ...
 
     if (blocksData) {
       const { data: existingBlocks, error: existingError } = await supabase

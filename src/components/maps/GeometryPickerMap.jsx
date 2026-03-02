@@ -112,6 +112,7 @@ const toSingleFeatureCollection = (geometry, selectedId = null, activeId = null)
   };
 };
 
+// TS-Fix: Добавлены поля idx и kind ко всем объектам черновика
 const toDraftFeatureCollection = (draftPoints = []) => {
   const points = Array.isArray(draftPoints) ? draftPoints : [];
   if (!points.length) return { type: 'FeatureCollection', features: [] };
@@ -119,14 +120,14 @@ const toDraftFeatureCollection = (draftPoints = []) => {
   const features = points.map((point, idx) => ({
     type: 'Feature',
     geometry: { type: 'Point', coordinates: point },
-    properties: { idx },
+    properties: { idx, kind: 'point' },
   }));
 
   if (points.length >= 2) {
     features.push({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: points },
-      properties: { kind: 'line' },
+      properties: { idx: -1, kind: 'line' },
     });
   }
 
@@ -134,7 +135,7 @@ const toDraftFeatureCollection = (draftPoints = []) => {
     features.push({
       type: 'Feature',
       geometry: { type: 'Polygon', coordinates: [[...points, points[0]]] },
-      properties: { kind: 'polygon' },
+      properties: { idx: -1, kind: 'polygon' },
     });
   }
 
@@ -178,7 +179,7 @@ export const GeometryPickerMap = ({
   fitToSavedOnOpen = false,
   fitScopeKey = null,
   onSelect,
-  height = 400,
+  height,
   basemap = 'osm',
   isDrawing = false,
   draftPoints = [],
@@ -222,25 +223,41 @@ export const GeometryPickerMap = ({
   useEffect(() => {
     if (!mapRef.current || sourceData.features.length === 0) return;
 
+    // 1. Ищем кандидата, на которого кликнули в списке (activeId)
+    const activeCandidate = activeId
+      ? candidates.find(item => item?.id === activeId && item?.geometry)
+      : null;
+
+    // 2. Ищем кандидата, который уже прикреплен к зданию (selectedId)
     const selectedCandidate = selectedId
       ? candidates.find(item => item?.id === selectedId && item?.geometry)
       : null;
 
     const shouldFitSavedNow = fitToSavedOnOpen && savedGeometry && !didInitialSavedFitRef.current;
+    
+    // 3. Выбираем, на чем сфокусировать карту. ПРИОРИТЕТ:
+    // - Сохраненная геометрия (при открытии)
+    // - Активный кандидат (кликнули в списке)
+    // - Выбранный кандидат (прикреплен)
+    // - Все полигоны (по умолчанию)
     const focusedCollection = shouldFitSavedNow
       ? toSingleFeatureCollection(savedGeometry, 'saved-geometry', null)
-      : selectedCandidate?.geometry
-        ? toSingleFeatureCollection(selectedCandidate.geometry, selectedId, activeId)
-        : sourceData;
+      : activeCandidate?.geometry
+        ? toSingleFeatureCollection(activeCandidate.geometry, null, activeId)
+        : selectedCandidate?.geometry
+          ? toSingleFeatureCollection(selectedCandidate.geometry, selectedId, activeId)
+          : sourceData;
 
     const bounds = getBbox(focusedCollection);
     if (bounds) {
       try {
         if (shouldFitSavedNow) didInitialSavedFitRef.current = true;
+        
         if (bounds[0][0] === bounds[1][0] && bounds[0][1] === bounds[1][1]) {
           mapRef.current.flyTo({ center: bounds[0], zoom: 17, duration: 1500 });
         } else {
-          mapRef.current.fitBounds(bounds, { padding: 50, duration: 1500, maxZoom: 18 });
+          // Вызываем fitBounds - карта полетит к выбранному объекту
+          mapRef.current.fitBounds(bounds, { padding: 80, duration: 1200, maxZoom: 18 });
         }
       } catch (err) {
         console.warn('Не удалось изменить рамки карты', err);
@@ -249,13 +266,14 @@ export const GeometryPickerMap = ({
   }, [candidates, sourceData, selectedId, activeId, fitToSavedOnOpen, savedGeometry]);
 
   return (
-    <div className="w-full rounded-xl border border-slate-200 overflow-hidden relative">
+    // TS-Fix: Высота обрабатывается здесь, позволяя прокидывать и 100% и 400
+    <div className="w-full rounded-xl border border-slate-200 overflow-hidden relative" style={{ height: height || 400 }}>
       <Map
         ref={mapRef}
         mapLib={maplibregl}
         initialViewState={initialView}
         mapStyle={BASEMAPS[basemap]?.style || BASEMAPS.osm.style}
-        style={{ width: '100%', height }}
+        style={{ width: '100%', height: '100%' }}
         interactiveLayerIds={isDrawing ? [] : ['candidates-fill']}
         onClick={evt => {
           if (isDrawing) {

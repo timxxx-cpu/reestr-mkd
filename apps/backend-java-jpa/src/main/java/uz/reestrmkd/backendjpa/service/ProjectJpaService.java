@@ -670,14 +670,38 @@ public class ProjectJpaService {
             }
             blockParams.put("parentBlocks", toPgUuidArrayLiteral(new ArrayList<>(new LinkedHashSet<>(parentBlocks))));
 
-            Map<String, Object> buildingRow = queryOne("select b.footprint_geojson from buildings b join building_blocks bb on bb.building_id = b.id where bb.id = :id", Map.of("id", blockId));
-            Map<String, Object> blockGeometry = mapFrom(block.get("blockGeometry"));
-            if (blockGeometry.isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Block geometry is required");
+            Map<String, Object> buildingRow = queryOne("select b.footprint_geojson from buildings b join building_blocks bb on bb.building_id = b.id where bb.id = cast(:id as uuid)", Map.of("id", blockId));
+            Map<String, Object> blockGeometry = normalizeGeometry(mapFrom(block.get("blockGeometry")));
+            
+            // Если геометрия передана, проверяем и сохраняем её
+            if (!blockGeometry.isEmpty()) {
+                if (buildingRow != null && buildingRow.get("footprint_geojson") != null) {
+                    Boolean isCovered = (Boolean) queryScalar(
+                        "select check_geojson_coveredby(cast(:inner as jsonb), cast(:outer as jsonb))",
+                        Map.of("inner", toJson(blockGeometry), "outer", toJson(buildingRow.get("footprint_geojson")))
+                    );
+                    if (!Boolean.TRUE.equals(isCovered)) {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Block geometry must be inside building geometry");
+                    }
+                }
+                blockParams.put("footprintGeojson", toJson(blockGeometry));
+                blockParams.put("hasGeometryUpdate", true);
+            } else {
+                blockParams.put("footprintGeojson", null);
+                blockParams.put("hasGeometryUpdate", false);
             }
-            if (!isGeometryInsideGeometry(blockGeometry, mapFrom(buildingRow == null ? null : buildingRow.get("footprint_geojson")))) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Block geometry must be inside building geometry");
+            
+            // ВАЖНОЕ ИСПРАВЛЕНИЕ: Вызов SQL-функции для проверки вхождения полигонов
+            if (buildingRow != null && buildingRow.get("footprint_geojson") != null) {
+                Boolean isCovered = (Boolean) queryScalar(
+                    "select check_geojson_coveredby(cast(:inner as jsonb), cast(:outer as jsonb))",
+                    Map.of("inner", toJson(blockGeometry), "outer", toJson(buildingRow.get("footprint_geojson")))
+                );
+                if (!Boolean.TRUE.equals(isCovered)) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Block geometry must be inside building geometry");
+                }
             }
+            
             blockParams.put("footprintGeojson", toJson(blockGeometry));
 
             execute("""
@@ -697,10 +721,10 @@ public class ProjectJpaService {
                     has_custom_address = :hasCustomAddress,
                     custom_house_number = :customHouseNumber,
                     address_id = coalesce(cast(:addressId as uuid), address_id),
-                    footprint_geojson = cast(:footprintGeojson as jsonb),
+                    footprint_geojson = case when cast(:hasGeometryUpdate as boolean) then cast(:footprintGeojson as jsonb) else footprint_geojson end,
                     parent_blocks = cast(:parentBlocks as uuid[]),
                     updated_at = now()
-                where id = :blockId
+                where id = cast(:blockId as uuid)
                 """, blockParams);
 
             Integer entrancesCountRaw = nullableInt(blockParams.get("entrancesCount"));
@@ -1641,60 +1665,7 @@ public class ProjectJpaService {
         return Map.of();
     }
 
-    private boolean pointInRing(List<Double> point, List<List<Double>> ring) {
-        if (point == null || ring == null || ring.isEmpty()) return false;
-        double x = point.get(0);
-        double y = point.get(1);
-        boolean inside = false;
-        for (int i = 0, j = ring.size() - 1; i < ring.size(); j = i++) {
-            List<Double> a = ring.get(i);
-            List<Double> b = ring.get(j);
-            if (a == null || b == null || a.size() < 2 || b.size() < 2) continue;
-            boolean intersect = ((a.get(1) > y) != (b.get(1) > y))
-                && (x < (b.get(0) - a.get(0)) * (y - a.get(1)) / ((b.get(1) - a.get(1)) == 0 ? Double.MIN_VALUE : (b.get(1) - a.get(1))) + a.get(0));
-            if (intersect) inside = !inside;
-        }
-        return inside;
-    }
-
-    @SuppressWarnings("unchecked")
-    private boolean isGeometryInsideGeometry(Map<String, Object> innerRaw, Map<String, Object> outerRaw) {
-        Map<String, Object> inner = normalizeGeometry(innerRaw);
-        Map<String, Object> outer = normalizeGeometry(outerRaw);
-        if (inner.isEmpty() || outer.isEmpty()) return false;
-        List<List<List<List<Double>>>> innerCoords = (List<List<List<List<Double>>>>) inner.get("coordinates");
-        List<List<List<List<Double>>>> outerCoords = (List<List<List<List<Double>>>>) outer.get("coordinates");
-        if (innerCoords == null || outerCoords == null) return false;
-
-        List<List<Double>> vertices = new ArrayList<>();
-        for (List<List<List<Double>>> poly : innerCoords) {
-            if (poly != null && !poly.isEmpty() && poly.get(0) != null) vertices.addAll(poly.get(0));
-        }
-        if (vertices.isEmpty()) return false;
-
-        for (List<Double> point : vertices) {
-            boolean inAny = false;
-            for (List<List<List<Double>>> poly : outerCoords) {
-                if (poly == null || poly.isEmpty()) continue;
-                List<List<Double>> outerRing = poly.get(0);
-                if (!pointInRing(point, outerRing)) continue;
-                boolean inHole = false;
-                for (int h = 1; h < poly.size(); h++) {
-                    if (pointInRing(point, poly.get(h))) {
-                        inHole = true;
-                        break;
-                    }
-                }
-                if (!inHole) {
-                    inAny = true;
-                    break;
-                }
-            }
-            if (!inAny) return false;
-        }
-        return true;
-    }
-private Map<String, String> ensureAddressRecord(String addressId, String districtSoatoRaw, String streetIdRaw, String mahallaIdRaw, 
+    private Map<String, String> ensureAddressRecord(String addressId, String districtSoatoRaw, String streetIdRaw, String mahallaIdRaw, 
                                                     String buildingNoRaw, String apartmentNoRaw,
                                                     String regionName, String districtName, 
                                                     String streetName, String mahallaName) {

@@ -596,6 +596,40 @@ create index idx_blocks_footprint_geom on building_blocks using gist(block_footp
 alter table building_blocks add constraint chk_basement_depth_range
   check (not is_basement_block or (basement_depth is not null and basement_depth between 1 and 10));
 
+-- Функция для точной проверки вхождения полигонов через PostGIS
+create or replace function check_geojson_coveredby(inner_geojson jsonb, outer_geojson jsonb)
+returns boolean
+language sql immutable
+as $$
+  select st_coveredby(
+    st_multi(st_setsrid(st_geomfromgeojson(inner_geojson::text), 3857)),
+    st_multi(st_setsrid(st_geomfromgeojson(outer_geojson::text), 3857))
+  );
+$$;
+
+-- Триггер для авто-заполнения PostGIS-полей блока при сохранении GeoJSON
+create or replace function sync_block_geometry()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.footprint_geojson is not null and new.footprint_geojson::text <> '{}' then
+    new.block_footprint_geom := st_multi(st_setsrid(st_geomfromgeojson(new.footprint_geojson::text), 3857));
+    new.block_footprint_area_m2 := round(st_area(new.block_footprint_geom)::numeric, 2);
+  else
+    new.block_footprint_geom := null;
+    new.block_footprint_area_m2 := null;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_sync_block_geometry on building_blocks;
+create trigger trg_sync_block_geometry
+  before insert or update of footprint_geojson
+  on building_blocks
+  for each row
+  execute function sync_block_geometry();
 
 create or replace function validate_basement_block_rules()
 returns trigger
