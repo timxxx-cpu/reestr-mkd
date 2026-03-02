@@ -87,8 +87,9 @@ export default function GeneralBlockCard({
           </div>
 
           <div className="space-y-4 mt-auto">
-            <label className={`flex items-start gap-3 group ${isReadOnly ? 'opacity-50' : 'cursor-pointer'}`}>
+            <label htmlFor="custom-address-checkbox" className={`flex items-start gap-3 group ${isReadOnly ? 'opacity-50' : 'cursor-pointer'}`}>
               <input
+                id="custom-address-checkbox"
                 type="checkbox"
                 checked={details.hasCustomAddress || false}
                 onChange={e => updateDetail('hasCustomAddress', e.target.checked)}

@@ -141,9 +141,7 @@ export async function buildStepValidationResult(supabase, { projectId, stepId })
   if (normalizedStepId === 'basement_inventory') {
     allBuildings.forEach(building => {
       const basementBlocks = (building.building_blocks || []).filter(blk => blk.is_basement_block === true);
-      const regularBlocks = (building.building_blocks || []).filter(blk => !blk.is_basement_block);
-      const isMultiblockResidential = building.category?.includes('residential') && regularBlocks.length > 1;
-
+      
       basementBlocks.forEach(block => {
         const title = getEntityTitle(building, block);
         const depth = Number.parseInt(block.basement_depth || 1, 10);

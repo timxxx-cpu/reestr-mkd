@@ -152,7 +152,7 @@ const PassportEditor = () => {
     setParticipantDrafts(participants || {});
   }, [participants]);
 
-  const reloadCandidates = async () => {
+  const reloadCandidates = React.useCallback(async () => {
     if (!projectId) return;
     try {
       const items = await ApiService.getProjectGeometryCandidates(projectId);
@@ -162,11 +162,11 @@ const PassportEditor = () => {
     } catch (err) {
       setGeometryError('Не удалось загрузить геометрию участка');
     }
-  };
+  }, [projectId]);
 
   useEffect(() => {
     reloadCandidates();
-  }, [projectId]);
+  }, [reloadCandidates]);
 
   
 
@@ -404,7 +404,6 @@ const PassportEditor = () => {
     if (isSaving) return 'Сохранение...';
     if (saveError) return 'Ошибка';
     if (lastSavedAt) return `Сохранено: ${lastSavedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
-    return '';
     return 'Автосохранение';
   }, [isReadOnly, isSaving, saveError, lastSavedAt]);
 
