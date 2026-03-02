@@ -1135,6 +1135,7 @@ public class ProjectJpaService {
         // Логика идемпотентного создания/обновления адреса
         if (info.get("districtSoato") != null || info.get("streetId") != null || info.get("mahallaId") != null || info.get("buildingNo") != null) {
             Map<String, String> createdAddress = ensureAddressRecord(
+                addressId,
                 stringVal(info.get("districtSoato")),
                 stringVal(info.get("streetId")),
                 stringVal(info.get("mahallaId")),
@@ -1693,89 +1694,12 @@ public class ProjectJpaService {
         }
         return true;
     }
-private Map<String, String> ensureAddressRecord(String districtSoato, String streetId, String mahallaId, 
-                                                    String buildingNo, String apartmentNo,
-                                                    String regionName, String districtName, 
-                                                    String streetName, String mahallaName) {
-        if (districtSoato == null && streetId == null && mahallaId == null && buildingNo == null && apartmentNo == null) {
-            return null;
-        }
-
-        // 1. Поиск существующего адреса (чтобы не плодить дубликаты)
-        StringBuilder sql = new StringBuilder("select id, full_address from addresses where dtype = 'Address'");
-        Map<String, Object> params = new HashMap<>();
-
-        if (districtSoato != null) { sql.append(" and district = :district"); params.put("district", districtSoato); } else { sql.append(" and district is null"); }
-        if (streetId != null) { sql.append(" and street = cast(:street as uuid)"); params.put("street", streetId); } else { sql.append(" and street is null"); }
-        if (mahallaId != null) { sql.append(" and mahalla = cast(:mahalla as uuid)"); params.put("mahalla", mahallaId); } else { sql.append(" and mahalla is null"); }
-        if (buildingNo != null) { sql.append(" and building_no = :buildingNo"); params.put("buildingNo", buildingNo); } else { sql.append(" and building_no is null"); }
-        if (apartmentNo != null) { sql.append(" and apartment_no = :apartmentNo"); params.put("apartmentNo", apartmentNo); } else { sql.append(" and apartment_no is null"); }
-
-        Map<String, Object> existing = queryOne(sql.toString(), params);
-        if (existing != null) {
-            Map<String, String> res = new HashMap<>();
-            res.put("id", stringVal(existing.get("id")));
-            res.put("full_address", stringVal(existing.get("full_address")));
-            return res;
-        }
-
-        // 2. Если не найден - формируем тексты и создаем новый
-        if (streetId != null && streetName == null) {
-            Map<String, Object> s = queryOne("select name from streets where id = cast(:id as uuid)", Map.of("id", streetId));
-            if (s != null) streetName = stringVal(s.get("name"));
-        }
-        if (mahallaId != null && mahallaName == null) {
-            Map<String, Object> m = queryOne("select name from makhallas where id = cast(:id as uuid)", Map.of("id", mahallaId));
-            if (m != null) mahallaName = stringVal(m.get("name"));
-        }
-        if (districtSoato != null && (districtName == null || regionName == null)) {
-            Map<String, Object> d = queryOne("select name_ru, name_uz, region_id from districts where soato = :soato", Map.of("soato", districtSoato));
-            if (d != null) {
-                if (districtName == null) districtName = stringValOr(d.get("name_ru"), stringVal(d.get("name_uz")));
-                if (regionName == null && d.get("region_id") != null) {
-                    Map<String, Object> r = queryOne("select name_ru, name_uz from regions where id = cast(:id as uuid)", Map.of("id", stringVal(d.get("region_id"))));
-                    if (r != null) regionName = stringValOr(r.get("name_ru"), stringVal(r.get("name_uz")));
-                }
-            }
-        }
-
-        List<String> addressParts = new ArrayList<>();
-        if (regionName != null && !regionName.isBlank()) addressParts.add(regionName);
-        if (districtName != null && !districtName.isBlank()) addressParts.add(districtName);
-        if (mahallaName != null && !mahallaName.isBlank()) addressParts.add(mahallaName);
-        if (streetName != null && !streetName.isBlank()) addressParts.add(streetName);
-        if (buildingNo != null && !buildingNo.isBlank()) addressParts.add("д. " + buildingNo);
-        if (apartmentNo != null && !apartmentNo.isBlank()) addressParts.add("кв. " + apartmentNo);
-
-        String fullAddress = String.join(", ", addressParts);
-        if (fullAddress.isBlank()) fullAddress = null;
-        String id = UUID.randomUUID().toString();
-
-        execute("""
-            insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, apartment_no, full_address)
-            values (:id, 'Address', 0, cast(:district as text), cast(:street as uuid), cast(:mahalla as uuid), :city, :buildingNo, :apartmentNo, :fullAddress)
-            """, Map.of(
-            "id", id,
-            "district", districtSoato,
-            "street", streetId,
-            "mahalla", mahallaId,
-            "city", regionName,
-            "buildingNo", buildingNo,
-            "apartmentNo", apartmentNo,
-            "fullAddress", fullAddress
-        ));
-
-        Map<String, String> res = new HashMap<>();
-        res.put("id", id);
-        res.put("full_address", fullAddress);
-        return res;
-    }
-    private Map<String, String> ensureAddressRecord(String districtSoatoRaw, String streetIdRaw, String mahallaIdRaw, 
+private Map<String, String> ensureAddressRecord(String addressId, String districtSoatoRaw, String streetIdRaw, String mahallaIdRaw, 
                                                     String buildingNoRaw, String apartmentNoRaw,
                                                     String regionName, String districtName, 
                                                     String streetName, String mahallaName) {
         
-        // Нормализация пустых строк в null, чтобы БД и хэш работали корректно
+        // Нормализация пустых строк в null
         String districtSoato = districtSoatoRaw != null && !districtSoatoRaw.isBlank() ? districtSoatoRaw : null;
         String streetId = streetIdRaw != null && !streetIdRaw.isBlank() ? streetIdRaw : null;
         String mahallaId = mahallaIdRaw != null && !mahallaIdRaw.isBlank() ? mahallaIdRaw : null;
@@ -1785,10 +1709,6 @@ private Map<String, String> ensureAddressRecord(String districtSoato, String str
         if (districtSoato == null && streetId == null && mahallaId == null && buildingNo == null && apartmentNo == null) {
             return null;
         }
-
-        // Генерируем детерминированный ID (хэш) на основе уникальных параметров адреса
-        String key = String.format("%s|%s|%s|%s|%s", districtSoato, streetId, mahallaId, buildingNo, apartmentNo);
-        String id = java.util.UUID.nameUUIDFromBytes(key.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
 
         // Подтягиваем названия для красивого full_address, если они не переданы
         if (streetId != null && streetName == null) {
@@ -1821,9 +1741,7 @@ private Map<String, String> ensureAddressRecord(String districtSoato, String str
         String fullAddress = String.join(", ", addressParts);
         if (fullAddress.isBlank()) fullAddress = null;
 
-        // Используем HashMap для безопасности null значений (Map.of падает при null)
         Map<String, Object> dbParams = new HashMap<>();
-        dbParams.put("id", id);
         dbParams.put("district", districtSoato);
         dbParams.put("street", streetId);
         dbParams.put("mahalla", mahallaId);
@@ -1832,25 +1750,38 @@ private Map<String, String> ensureAddressRecord(String districtSoato, String str
         dbParams.put("apartmentNo", apartmentNo);
         dbParams.put("fullAddress", fullAddress);
 
-        // Идемпотентный Upsert
-        execute("""
-            insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, apartment_no, full_address)
-            values (:id, 'Address', 0, cast(:district as text), cast(:street as uuid), cast(:mahalla as uuid), cast(:city as text), cast(:buildingNo as text), cast(:apartmentNo as text), cast(:fullAddress as text))
-            on conflict (id) do update
-            set district = excluded.district,
-                street = excluded.street,
-                mahalla = excluded.mahalla,
-                city = excluded.city,
-                building_no = excluded.building_no,
-                apartment_no = excluded.apartment_no,
-                full_address = excluded.full_address
-            """, dbParams);
+        String targetId = addressId;
+
+        if (targetId != null && !targetId.isBlank()) {
+            // Если у проекта уже есть адрес — обновляем его (UPDATE)
+            dbParams.put("id", targetId);
+            execute("""
+                update addresses
+                set district = cast(:district as text),
+                    street = cast(:street as uuid),
+                    mahalla = cast(:mahalla as uuid),
+                    city = cast(:city as text),
+                    building_no = cast(:buildingNo as text),
+                    apartment_no = cast(:apartmentNo as text),
+                    full_address = cast(:fullAddress as text)
+                where id = cast(:id as uuid)
+                """, dbParams);
+        } else {
+            // Иначе создаем новую запись адреса (INSERT)
+            targetId = java.util.UUID.randomUUID().toString();
+            dbParams.put("id", targetId);
+            execute("""
+                insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, apartment_no, full_address)
+                values (cast(:id as uuid), 'Address', 0, cast(:district as text), cast(:street as uuid), cast(:mahalla as uuid), cast(:city as text), cast(:buildingNo as text), cast(:apartmentNo as text), cast(:fullAddress as text))
+                """, dbParams);
+        }
 
         Map<String, String> res = new HashMap<>();
-        res.put("id", id);
+        res.put("id", targetId);
         res.put("full_address", fullAddress);
         return res;
     }
+    
 private String deriveBlockAddressId(String parentAddressId, String corpusNoRaw) {
         String corpusNo = corpusNoRaw != null && !corpusNoRaw.isBlank() ? corpusNoRaw : null;
         if (parentAddressId == null || corpusNo == null) return null;

@@ -84,19 +84,27 @@ const ensureAddressRecord = async (supabase, payload = {}) => {
 
   if (!districtSoato && !streetId && !mahallaId && !buildingNo && !apartmentNo) return null;
 
-  // Генерируем детерминированный UUID на основе уникальных параметров адреса
-  const key = `${districtSoato}|${streetId}|${mahallaId}|${buildingNo}|${apartmentNo}`;
-  const hash = crypto.createHash('md5').update(key).digest('hex');
-  const deterministicId = `${hash.substring(0,8)}-${hash.substring(8,12)}-4${hash.substring(13,16)}-8${hash.substring(17,20)}-${hash.substring(20,32)}`;
+  let targetId = payload.addressId; // <-- ДОБАВЛЕНО: берем ID, если он передан
 
-  // Быстрый поиск - если адрес с таким хэшем уже есть, просто возвращаем его
-  const { data: existingAddress } = await supabase.from('addresses')
-    .select('id, full_address')
-    .eq('id', deterministicId)
-    .maybeSingle();
-    
-  if (existingAddress) {
-    return existingAddress;
+  // Если ID не передан, генерируем детерминированный UUID на основе уникальных параметров
+  if (!targetId) {
+    const key = `${districtSoato}|${streetId}|${mahallaId}|${buildingNo}|${apartmentNo}`;
+    const hash = crypto.createHash('md5').update(key).digest('hex');
+    targetId = `${hash.substring(0,8)}-${hash.substring(8,12)}-4${hash.substring(13,16)}-8${hash.substring(17,20)}-${hash.substring(20,32)}`;
+  }
+
+  // Быстрый поиск - если адрес с таким ID/хэшем уже есть, можно сразу вернуть,
+  // НО если это явное обновление существующего addressId, нам нужно его обновить!
+  // Поэтому если передан addressId, мы пропускаем "ранний возврат", чтобы сделать UPSERT ниже.
+  if (!payload.addressId) {
+      const { data: existingAddress } = await supabase.from('addresses')
+        .select('id, full_address')
+        .eq('id', targetId)
+        .maybeSingle();
+        
+      if (existingAddress) {
+        return existingAddress;
+      }
   }
 
   // Если нет - подтягиваем недостающие названия для красивой строки адреса
@@ -125,7 +133,7 @@ const ensureAddressRecord = async (supabase, payload = {}) => {
   const fullAddress = buildFullAddressText({ regionName, districtName, mahallaName, streetName, buildingNo, apartmentNo });
 
   const addressPayload = {
-    id: deterministicId, // Используем детерминированный ID
+    id: targetId, // <-- ИЗМЕНЕНО: используем targetId
     dtype: 'Address',
     versionrev: 0,
     full_address: fullAddress || null,
@@ -137,11 +145,11 @@ const ensureAddressRecord = async (supabase, payload = {}) => {
     city: regionName,
   };
 
-  // Идемпотентный Upsert (ON CONFLICT (id) DO UPDATE)
+  // Идемпотентный Upsert (ON CONFLICT (id) DO UPDATE) - теперь он реально обновит!
   const { data, error } = await supabase.from('addresses').upsert(addressPayload, { onConflict: 'id' }).select('id, full_address').single();
   if (error) throw error;
   return data;
-};
+};;
 
 const syncFloorsForBlockWithGenerator = async (supabase, blockId) => {
   // Шаг 1: получаем building_id блока один раз
@@ -1069,6 +1077,7 @@ app.get('/api/v1/projects/:projectId/passport', async (req, reply) => {
     };
       if (info.districtSoato || info.streetId || info.mahallaId || info.buildingNo) {
       const createdAddress = await ensureAddressRecord(supabase, {
+        addressId: info.addressId || null,
         districtSoato: info.districtSoato,
         streetId: info.streetId,
         mahallaId: info.mahallaId,
