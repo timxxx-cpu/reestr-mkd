@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import process from 'node:process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,12 +20,68 @@ const javaPort = String(process.env.JAVA_JPA_BACKEND_PORT || '8789');
 const nodeUrl = `http://127.0.0.1:${nodePort}`;
 const javaUrl = `http://127.0.0.1:${javaPort}`;
 
-function run(cmd, args, opts = {}) {
-  const child = spawn(cmd, args, {
-    cwd: opts.cwd || repoRoot,
-    env: { ...process.env, ...(opts.env || {}) },
-    stdio: opts.stdio || 'pipe',
-  });
+function resolveBin(name, envOverride) {
+  const override = process.env[envOverride];
+  if (override && override.trim()) return override.trim();
+
+  if (process.platform !== 'win32') return name;
+
+  const candidates = name === 'npm' ? ['npm.cmd', 'npm'] : ['mvn.cmd', 'mvn'];
+  for (const candidate of candidates) {
+    const res = spawnSync('where', [candidate], { encoding: 'utf8' });
+    if (res.status === 0 && res.stdout) {
+      const line = res.stdout.split(/\r?\n/).map((v) => v.trim()).find(Boolean);
+      if (line) return line;
+    }
+  }
+  return null;
+}
+
+function runSafe(bin, args, opts = {}) {
+  const resolved = resolveBin(bin, bin === 'npm' ? 'NPM_BIN' : 'JAVA_MVN_BIN');
+  if (!resolved) {
+    const envName = bin === 'npm' ? 'NPM_BIN' : 'JAVA_MVN_BIN';
+    throw new Error(
+      `Cannot find executable for ${bin}. Add it to PATH or set ${envName} to full path (example: C:\\apache-maven\\bin\\mvn.cmd).`
+    );
+  }
+
+  const isWin = process.platform === 'win32';
+  const env = { ...process.env, ...(opts.env || {}) };
+  if (isWin && env.JAVA_HOME && /[\\/]bin[\\/]*$/i.test(env.JAVA_HOME)) {
+    // Maven expects JAVA_HOME to point to JDK root, not to .../bin.
+    env.JAVA_HOME = env.JAVA_HOME.replace(/[\\/]bin[\\/]*$/i, '');
+    if (env.Path && !env.Path.toLowerCase().includes(env.JAVA_HOME.toLowerCase())) {
+      env.Path = `${env.JAVA_HOME}\\bin;${env.Path}`;
+    }
+  }
+  const cwd = opts.cwd || repoRoot;
+  const stdio = opts.stdio || 'pipe';
+
+  let child;
+  if (isWin) {
+    const quoteWin = (value) => {
+      const s = String(value);
+      if (/^[A-Za-z0-9_./:-]+$/.test(s)) return s;
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const command = [quoteWin(resolved), ...args.map(quoteWin)].join(' ');
+    // NOTE: use shell command string on Windows (without args array) to avoid
+    // EINVAL/ENOENT and path-with-spaces issues in PowerShell/cmd.
+    child = spawn(command, {
+      cwd,
+      env,
+      stdio,
+      shell: true,
+    });
+  } else {
+    child = spawn(resolved, args, {
+      cwd,
+      env,
+      stdio,
+      shell: false,
+    });
+  }
   return child;
 }
 
@@ -52,41 +108,44 @@ function pipeLogs(prefix, child) {
 }
 
 async function main() {
-  const nodeProc = run('npm', ['run', 'dev'], {
-    cwd: path.join(repoRoot, 'apps/backend'),
-    env: {
-      PORT: nodePort,
-      HOST: '0.0.0.0',
-    },
-  });
-  pipeLogs('node', nodeProc);
-
-  const javaProc = run('mvn', ['spring-boot:run', '-q'], {
-    cwd: path.join(repoRoot, 'apps/backend-java-jpa'),
-    env: {
-      PORT: javaPort,
-      HOST: '0.0.0.0',
-      AUTH_MODE: process.env.AUTH_MODE || 'jwt',
-      JWT_SECRET: process.env.JWT_SECRET || 'my_super_secret_dev_key_12345!@#',
-      DB_URL: process.env.DB_URL,
-      DB_USER: process.env.DB_USER,
-      DB_PASSWORD: process.env.DB_PASSWORD,
-    },
-  });
-  pipeLogs('java-jpa', javaProc);
+  let nodeProc = null;
+  let javaProc = null;
 
   const stop = () => {
-    nodeProc.kill('SIGTERM');
-    javaProc.kill('SIGTERM');
+    nodeProc?.kill('SIGTERM');
+    javaProc?.kill('SIGTERM');
   };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
 
   try {
+    nodeProc = runSafe('npm', ['run', 'dev'], {
+      cwd: path.join(repoRoot, 'apps/backend'),
+      env: {
+        PORT: nodePort,
+        HOST: '0.0.0.0',
+      },
+    });
+    pipeLogs('node', nodeProc);
+
+    javaProc = runSafe('mvn', ['spring-boot:run', '-q'], {
+      cwd: path.join(repoRoot, 'apps/backend-java-jpa'),
+      env: {
+        PORT: javaPort,
+        HOST: '0.0.0.0',
+        AUTH_MODE: process.env.AUTH_MODE || 'jwt',
+        JWT_SECRET: process.env.JWT_SECRET || 'my_super_secret_dev_key_12345!@#',
+        DB_URL: process.env.DB_URL,
+        DB_USER: process.env.DB_USER,
+        DB_PASSWORD: process.env.DB_PASSWORD,
+      },
+    });
+    pipeLogs('java-jpa', javaProc);
+
     await waitForHttp(`${nodeUrl}/health`);
     await waitForHttp(`${javaUrl}/api/v1/ops/ping`);
 
-    const checker = run('npm', ['run', 'check:backend-jpa-functional-parity'], {
+    const checker = runSafe('npm', ['run', 'check:backend-jpa-functional-parity'], {
       cwd: repoRoot,
       env: {
         NODE_BACKEND_URL: nodeUrl,
@@ -96,7 +155,10 @@ async function main() {
       stdio: 'inherit',
     });
 
-    const exitCode = await new Promise((resolve) => checker.on('exit', resolve));
+    const exitCode = await new Promise((resolve, reject) => {
+      checker.on('error', reject);
+      checker.on('exit', resolve);
+    });
     stop();
     process.exit(exitCode ?? 1);
   } catch (error) {

@@ -1,9 +1,9 @@
 {
   "variables": {
-    "APP_ID": "",
-    "PROJECT_ID": "",
+    "APP_ID": "ec2cfeca-5e08-4565-bc9a-cdf8704c81a5",
+    "PROJECT_ID": "b525a6d3-0375-4953-8a19-dfe5e5b1920d",
     "BLOCK_ID": "",
-    "SCOPE_ID": ""
+    "SCOPE_ID": "shared_dev_env"
   },
   "scenarios": [
     {
