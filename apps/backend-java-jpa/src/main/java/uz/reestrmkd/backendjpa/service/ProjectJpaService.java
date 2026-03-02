@@ -848,6 +848,22 @@ public class ProjectJpaService {
 
             Map<String, Object> eng = mapFrom(block.get("engineering"));
             if (!eng.isEmpty()) {
+                Map<String, Object> engParams = new LinkedHashMap<>();
+                engParams.put("blockId", blockId);
+                engParams.put("e", Boolean.TRUE.equals(eng.get("electricity")));
+                engParams.put("w", Boolean.TRUE.equals(eng.get("hvs")));
+                engParams.put("hw", Boolean.TRUE.equals(eng.get("gvs")));
+                engParams.put("v", Boolean.TRUE.equals(eng.get("ventilation")));
+                engParams.put("f", Boolean.TRUE.equals(eng.get("firefighting")));
+                engParams.put("l", Boolean.TRUE.equals(eng.get("lowcurrent")));
+                engParams.put("s", Boolean.TRUE.equals(eng.get("sewerage")));
+                engParams.put("g", Boolean.TRUE.equals(eng.get("gas")));
+                engParams.put("h", Boolean.TRUE.equals(eng.get("heatingLocal")) || Boolean.TRUE.equals(eng.get("heatingCentral")));
+                engParams.put("hl", Boolean.TRUE.equals(eng.get("heatingLocal")));
+                engParams.put("hc", Boolean.TRUE.equals(eng.get("heatingCentral")));
+                engParams.put("i", Boolean.TRUE.equals(eng.get("internet")));
+                engParams.put("sp", Boolean.TRUE.equals(eng.get("solarPanels")));
+
                 execute("""
                     insert into block_engineering(block_id, has_electricity, has_water, has_hot_water, has_ventilation, has_firefighting, has_lowcurrent, has_sewerage, has_gas, has_heating, has_heating_local, has_heating_central, has_internet, has_solar_panels, updated_at)
                     values (:blockId, :e, :w, :hw, :v, :f, :l, :s, :g, :h, :hl, :hc, :i, :sp, now())
@@ -866,22 +882,7 @@ public class ProjectJpaService {
                         has_internet = excluded.has_internet,
                         has_solar_panels = excluded.has_solar_panels,
                         updated_at = now()
-                    """, Map.of(
-                    "blockId", blockId,
-                    "e", Boolean.TRUE.equals(eng.get("electricity")),
-                    "w", Boolean.TRUE.equals(eng.get("hvs")),
-                    "hw", Boolean.TRUE.equals(eng.get("gvs")),
-                    "v", Boolean.TRUE.equals(eng.get("ventilation")),
-                    "f", Boolean.TRUE.equals(eng.get("firefighting")),
-                    "l", Boolean.TRUE.equals(eng.get("lowcurrent")),
-                    "s", Boolean.TRUE.equals(eng.get("sewerage")),
-                    "g", Boolean.TRUE.equals(eng.get("gas")),
-                    "h", Boolean.TRUE.equals(eng.get("heatingLocal")) || Boolean.TRUE.equals(eng.get("heatingCentral")),
-                    "hl", Boolean.TRUE.equals(eng.get("heatingLocal")),
-                    "hc", Boolean.TRUE.equals(eng.get("heatingCentral")),
-                    "i", Boolean.TRUE.equals(eng.get("internet")),
-                    "sp", Boolean.TRUE.equals(eng.get("solarPanels"))
-                ));
+                    """, engParams);
             }
         }
 
@@ -1794,3 +1795,135 @@ private String deriveBlockAddressId(String parentAddressId, String corpusNoRaw) 
             
         return id;
     }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mapFrom(Object value) {
+        if (value instanceof Map<?, ?> raw) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            raw.forEach((k, v) -> out.put(String.valueOf(k), v));
+            return out;
+        }
+        return new LinkedHashMap<>();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> toMapList(Object value) {
+        if (!(value instanceof List<?> list)) return List.of();
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> map) {
+                Map<String, Object> converted = new LinkedHashMap<>();
+                map.forEach((k, v) -> converted.put(String.valueOf(k), v));
+                out.add(converted);
+            }
+        }
+        return out;
+    }
+
+    private List<?> toList(Object value) {
+        if (value instanceof List<?> list) return list;
+        return List.of();
+    }
+
+    private Integer nullableInt(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number n) return n.intValue();
+        try {
+            String text = String.valueOf(value).trim();
+            if (text.isEmpty()) return null;
+            return Integer.parseInt(text);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private int normalizeDepth(Integer depth) {
+        if (depth == null) return 0;
+        return Math.max(0, depth);
+    }
+
+    private double toDouble(Object value) {
+        if (value == null) return 0d;
+        if (value instanceof Number n) return n.doubleValue();
+        try {
+            return Double.parseDouble(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            return 0d;
+        }
+    }
+
+    private void incBucket(Map<String, Object> bucket, double areaToAdd) {
+        double currentArea = toDouble(bucket.get("area"));
+        int currentCount = toInt(bucket.get("count"));
+        bucket.put("area", currentArea + areaToAdd);
+        bucket.put("count", currentCount + 1);
+    }
+
+    private Map<String, Object> objectToMap(Object value) {
+        return mapFrom(value);
+    }
+
+    private Object queryScalar(String sql, Map<String, Object> params) {
+        Query query = em.createNativeQuery(sql);
+        params.forEach(query::setParameter);
+        List<?> rows = query.getResultList();
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private String toPgUuidArrayLiteral(List<?> values) {
+        if (values == null || values.isEmpty()) return "{}";
+        List<String> parts = new ArrayList<>();
+        for (Object value : values) {
+            if (value == null) continue;
+            String text = String.valueOf(value).trim();
+            if (!text.isEmpty()) parts.add(text);
+        }
+        if (parts.isEmpty()) return "{}";
+        return "{" + String.join(",", parts) + "}";
+    }
+
+    private Map<String, Object> bucket() {
+        Map<String, Object> bucket = new LinkedHashMap<>();
+        bucket.put("area", 0d);
+        bucket.put("count", 0);
+        return bucket;
+    }
+
+    private double progressPercent(Object dateStart, Object dateEnd) {
+        if (dateStart == null || dateEnd == null) return 0d;
+        try {
+            Instant start = parseInstant(dateStart);
+            Instant end = parseInstant(dateEnd);
+            Instant now = Instant.now();
+            if (!end.isAfter(start)) return 100d;
+            if (now.isBefore(start)) return 0d;
+            if (now.isAfter(end)) return 100d;
+            double total = end.toEpochMilli() - start.toEpochMilli();
+            double done = now.toEpochMilli() - start.toEpochMilli();
+            return Math.max(0d, Math.min(100d, (done / total) * 100d));
+        } catch (Exception ex) {
+            return 0d;
+        }
+    }
+
+    private Instant parseInstant(Object value) {
+        if (value instanceof Instant instant) return instant;
+        if (value instanceof java.sql.Timestamp ts) return ts.toInstant();
+        if (value instanceof java.util.Date date) return date.toInstant();
+        return Instant.parse(String.valueOf(value));
+    }
+
+    private Set<String> toMarkerSet(Object value, boolean technical) {
+        Set<String> out = new LinkedHashSet<>();
+        for (Object item : toList(value)) {
+            String marker = String.valueOf(item == null ? "" : item).trim();
+            if (marker.isEmpty()) continue;
+            if (technical && marker.matches("^-?\\d+$")) {
+                out.add(marker + "-Т");
+            } else {
+                out.add(marker);
+            }
+        }
+        return out;
+    }
+}

@@ -1,0 +1,79 @@
+{
+  "variables": {
+    "APP_ID": "",
+    "PROJECT_ID": "",
+    "BLOCK_ID": "",
+    "SCOPE_ID": ""
+  },
+  "scenarios": [
+    {
+      "name": "error-contracts",
+      "ignorePaths": [],
+      "sequence": [
+        {
+          "name": "projects-list-missing-scope",
+          "request": {
+            "method": "GET",
+            "path": "/api/v1/projects"
+          }
+        },
+        {
+          "name": "external-applications-unauthorized",
+          "request": {
+            "method": "GET",
+            "path": "/api/v1/external-applications?scope={{SCOPE_ID}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "payload-validation",
+      "sequence": [
+        {
+          "name": "validation-step-missing-fields",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/projects/{{PROJECT_ID}}/validation/step",
+            "headers": {
+              "x-user-id": "parity-user",
+              "x-user-role": "admin"
+            },
+            "body": {}
+          }
+        }
+      ]
+    },
+    {
+      "name": "workflow-and-db-side-effects",
+      "ignorePaths": [
+        "updatedAt",
+        "createdAt",
+        "updated_at",
+        "created_at"
+      ],
+      "sequence": [
+        {
+          "name": "assign-technician",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/applications/{{APP_ID}}/workflow/assign-technician",
+            "headers": {
+              "x-user-id": "parity-user",
+              "x-user-role": "admin"
+            },
+            "body": {
+              "technicianId": "parity-tech"
+            }
+          }
+        },
+        {
+          "name": "get-locks-after-workflow",
+          "request": {
+            "method": "GET",
+            "path": "/api/v1/applications/{{APP_ID}}/locks"
+          }
+        }
+      ]
+    }
+  ]
+}
