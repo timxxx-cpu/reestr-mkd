@@ -638,15 +638,23 @@ public class ProjectJpaService {
 
             Map<String, Object> block = mapFrom(entry.getValue());
             Map<String, Object> blockParams = new HashMap<>();
+            
+            // Сначала вычисляем значение floorsTo, чтобы переиспользовать его
+            Integer floorsToValue = nullableInt(block.get("floorsTo"));
+            Integer floorsCountValue = nullableInt(block.get("floorsCount"));
+
             blockParams.put("blockId", blockId);
-            blockParams.put("floorsCount", nullableInt(block.get("floorsCount")));
+            
+            // Берем значение из floorsTo, если его нет - оставляем старое поведение как фолбэк
+            blockParams.put("floorsCount", floorsToValue != null ? floorsToValue : floorsCountValue);
+            
             blockParams.put("entrancesCount", nullableInt(block.get("entrances")) == null ? nullableInt(block.get("inputs")) : nullableInt(block.get("entrances")));
             blockParams.put("elevatorsCount", nullableInt(block.get("elevators")));
             blockParams.put("vehicleEntries", nullableInt(block.get("vehicleEntries")));
             blockParams.put("levelsDepth", nullableInt(block.get("levelsDepth")));
             blockParams.put("lightStructureType", stringVal(block.get("lightStructureType")));
             blockParams.put("floorsFrom", nullableInt(block.get("floorsFrom")));
-            blockParams.put("floorsTo", nullableInt(block.get("floorsTo")));
+            blockParams.put("floorsTo", floorsToValue);
             blockParams.put("hasBasement", Boolean.TRUE.equals(block.get("hasBasementFloor")));
             blockParams.put("hasAttic", Boolean.TRUE.equals(block.get("hasAttic")));
             blockParams.put("hasLoft", Boolean.TRUE.equals(block.get("hasLoft")));

@@ -521,9 +521,11 @@ export function registerProjectExtendedRoutes(app, { supabase }) {
           }
         }
       }
+      
+      const floorsToValue = toIntOrNull(details.floorsTo);
 
       const blockUpdate = {
-        floors_count: toIntOrNull(details.floorsCount),
+        floors_count: floorsToValue !== null ? floorsToValue : toIntOrNull(details.floorsCount),
         entrances_count: toIntOrNull(details.entrances || details.inputs),
         elevators_count: toIntOrNull(details.elevators),
         vehicle_entries: toIntOrNull(details.vehicleEntries),
