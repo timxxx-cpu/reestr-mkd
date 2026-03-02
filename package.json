@@ -19,7 +19,11 @@
     "format:check": "prettier --check \"src/**/*.{js,jsx}\"",
     "cutover:smoke": "node scripts/cutover-smoke.mjs",
     "cutover:legacy-check": "node scripts/legacy-critical-path-check.mjs",
-    "check:step-registry": "node scripts/check-step-registry-sync.mjs"
+    "check:step-registry": "node scripts/check-step-registry-sync.mjs",
+    "check:backend-jpa-parity": "node scripts/check-backend-jpa-parity.mjs",
+    "check:backend-jpa-functional-parity": "node scripts/check-backend-jpa-functional-parity.mjs",
+    "test:backend-jpa-parity-tooling": "node --test tests/parity/check-backend-jpa-functional-parity.test.mjs",
+    "run:backend-jpa-e2e-parity": "node scripts/run-backend-jpa-e2e-parity.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.93.3",
