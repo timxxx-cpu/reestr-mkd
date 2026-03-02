@@ -1040,7 +1040,21 @@ public class ProjectJpaService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> passport(String projectId) {
-        Map<String, Object> project = queryOne("select * from projects where id = :projectId", Map.of("projectId", projectId));
+        // Джойним адреса и справочники для получения полных кодов
+        Map<String, Object> project = queryOne("""
+            select p.*, 
+                   a.district as addr_district, 
+                   a.street as addr_street, 
+                   a.mahalla as addr_mahalla, 
+                   a.building_no as addr_building_no,
+                   r.soato as addr_region_soato
+            from projects p 
+            left join addresses a on a.id = p.address_id 
+            left join districts d on d.soato = a.district
+            left join regions r on r.id = d.region_id
+            where p.id = :projectId
+            """, Map.of("projectId", projectId));
+
         if (project == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found");
         var participants = queryList("select * from project_participants where project_id = :projectId", Map.of("projectId", projectId));
         var docs = queryList("select * from project_documents where project_id = :projectId order by doc_date desc", Map.of("projectId", projectId));
@@ -1082,6 +1096,13 @@ public class ProjectJpaService {
         complexInfo.put("dateEndProject", project.get("date_end_project"));
         complexInfo.put("dateStartFact", project.get("date_start_fact"));
         complexInfo.put("dateEndFact", project.get("date_end_fact"));
+        
+        // Новые поля из таблицы addresses
+        complexInfo.put("regionSoato", project.get("addr_region_soato"));
+        complexInfo.put("districtSoato", project.get("addr_district"));
+        complexInfo.put("streetId", project.get("addr_street"));
+        complexInfo.put("mahallaId", project.get("addr_mahalla"));
+        complexInfo.put("buildingNo", project.get("addr_building_no"));
 
         Map<String, Object> cadastre = new LinkedHashMap<>();
         cadastre.put("number", project.get("cadastre_number"));
@@ -1100,18 +1121,46 @@ public class ProjectJpaService {
         );
     }
 
-    @Transactional
+   @Transactional
     public Map<String, Object> updatePassport(String projectId, Map<String, Object> body) {
         Map<String, Object> info = mapFrom(body == null ? null : body.get("info"));
         Map<String, Object> cadastreData = mapFrom(body == null ? null : body.get("cadastreData"));
         Map<String, Object> params = new HashMap<>();
+
+        String addressId = stringVal(info.get("addressId"));
+        if (addressId != null && addressId.isBlank()) addressId = null;
+        boolean hasAddressId = (addressId != null);
+        String street = stringVal(info.get("street"));
+
+        // Логика идемпотентного создания/обновления адреса
+        if (info.get("districtSoato") != null || info.get("streetId") != null || info.get("mahallaId") != null || info.get("buildingNo") != null) {
+            Map<String, String> createdAddress = ensureAddressRecord(
+                stringVal(info.get("districtSoato")),
+                stringVal(info.get("streetId")),
+                stringVal(info.get("mahallaId")),
+                stringVal(info.get("buildingNo")),
+                null,
+                stringVal(info.get("region")),
+                stringVal(info.get("district")),
+                null, // streetName подтянется из БД
+                stringVal(info.get("mahalla"))
+            );
+            if (createdAddress != null) {
+                addressId = createdAddress.get("id");
+                hasAddressId = true;
+                if (createdAddress.get("full_address") != null) {
+                    street = createdAddress.get("full_address");
+                }
+            }
+        }
+
         params.put("name", info.get("name"));
         params.put("status", info.get("status"));
         params.put("region", info.get("region"));
         params.put("district", info.get("district"));
-        params.put("street", info.get("street"));
-        params.put("addressId", stringVal(info.get("addressId")));
-        params.put("hasAddressId", info.containsKey("addressId"));
+        params.put("street", street);
+        params.put("addressId", addressId);
+        params.put("hasAddressId", hasAddressId);
         params.put("landmark", info.get("landmark"));
         params.put("dateStartProject", info.get("dateStartProject"));
         params.put("dateEndProject", info.get("dateEndProject"));
@@ -1139,6 +1188,7 @@ public class ProjectJpaService {
                 updated_at = now()
             where id = :projectId
             """, params);
+            
         Map<String, Object> row = queryOne("select * from projects where id = :projectId", Map.of("projectId", projectId));
         if (row == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found");
         return row;
@@ -1643,144 +1693,194 @@ public class ProjectJpaService {
         }
         return true;
     }
+private Map<String, String> ensureAddressRecord(String districtSoato, String streetId, String mahallaId, 
+                                                    String buildingNo, String apartmentNo,
+                                                    String regionName, String districtName, 
+                                                    String streetName, String mahallaName) {
+        if (districtSoato == null && streetId == null && mahallaId == null && buildingNo == null && apartmentNo == null) {
+            return null;
+        }
 
-    private String deriveBlockAddressId(String parentAddressId, String corpusNo) {
-        if (parentAddressId == null || corpusNo == null || corpusNo.isBlank()) return null;
-        Map<String, Object> parent = queryOne("select district, street, mahalla, city, building_no from addresses where id = :id", Map.of("id", parentAddressId));
-        if (parent == null) return null;
+        // 1. Поиск существующего адреса (чтобы не плодить дубликаты)
+        StringBuilder sql = new StringBuilder("select id, full_address from addresses where dtype = 'Address'");
+        Map<String, Object> params = new HashMap<>();
+
+        if (districtSoato != null) { sql.append(" and district = :district"); params.put("district", districtSoato); } else { sql.append(" and district is null"); }
+        if (streetId != null) { sql.append(" and street = cast(:street as uuid)"); params.put("street", streetId); } else { sql.append(" and street is null"); }
+        if (mahallaId != null) { sql.append(" and mahalla = cast(:mahalla as uuid)"); params.put("mahalla", mahallaId); } else { sql.append(" and mahalla is null"); }
+        if (buildingNo != null) { sql.append(" and building_no = :buildingNo"); params.put("buildingNo", buildingNo); } else { sql.append(" and building_no is null"); }
+        if (apartmentNo != null) { sql.append(" and apartment_no = :apartmentNo"); params.put("apartmentNo", apartmentNo); } else { sql.append(" and apartment_no is null"); }
+
+        Map<String, Object> existing = queryOne(sql.toString(), params);
+        if (existing != null) {
+            Map<String, String> res = new HashMap<>();
+            res.put("id", stringVal(existing.get("id")));
+            res.put("full_address", stringVal(existing.get("full_address")));
+            return res;
+        }
+
+        // 2. Если не найден - формируем тексты и создаем новый
+        if (streetId != null && streetName == null) {
+            Map<String, Object> s = queryOne("select name from streets where id = cast(:id as uuid)", Map.of("id", streetId));
+            if (s != null) streetName = stringVal(s.get("name"));
+        }
+        if (mahallaId != null && mahallaName == null) {
+            Map<String, Object> m = queryOne("select name from makhallas where id = cast(:id as uuid)", Map.of("id", mahallaId));
+            if (m != null) mahallaName = stringVal(m.get("name"));
+        }
+        if (districtSoato != null && (districtName == null || regionName == null)) {
+            Map<String, Object> d = queryOne("select name_ru, name_uz, region_id from districts where soato = :soato", Map.of("soato", districtSoato));
+            if (d != null) {
+                if (districtName == null) districtName = stringValOr(d.get("name_ru"), stringVal(d.get("name_uz")));
+                if (regionName == null && d.get("region_id") != null) {
+                    Map<String, Object> r = queryOne("select name_ru, name_uz from regions where id = cast(:id as uuid)", Map.of("id", stringVal(d.get("region_id"))));
+                    if (r != null) regionName = stringValOr(r.get("name_ru"), stringVal(r.get("name_uz")));
+                }
+            }
+        }
+
+        List<String> addressParts = new ArrayList<>();
+        if (regionName != null && !regionName.isBlank()) addressParts.add(regionName);
+        if (districtName != null && !districtName.isBlank()) addressParts.add(districtName);
+        if (mahallaName != null && !mahallaName.isBlank()) addressParts.add(mahallaName);
+        if (streetName != null && !streetName.isBlank()) addressParts.add(streetName);
+        if (buildingNo != null && !buildingNo.isBlank()) addressParts.add("д. " + buildingNo);
+        if (apartmentNo != null && !apartmentNo.isBlank()) addressParts.add("кв. " + apartmentNo);
+
+        String fullAddress = String.join(", ", addressParts);
+        if (fullAddress.isBlank()) fullAddress = null;
         String id = UUID.randomUUID().toString();
+
         execute("""
-            insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, full_address)
-            values (:id, 'Address', 0, cast(:district as text), cast(:street as uuid), cast(:mahalla as uuid), :city, :buildingNo, :fullAddress)
+            insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, apartment_no, full_address)
+            values (:id, 'Address', 0, cast(:district as text), cast(:street as uuid), cast(:mahalla as uuid), :city, :buildingNo, :apartmentNo, :fullAddress)
             """, Map.of(
             "id", id,
-            "district", stringVal(parent.get("district")),
-            "street", stringVal(parent.get("street")),
-            "mahalla", stringVal(parent.get("mahalla")),
-            "city", stringVal(parent.get("city")),
-            "buildingNo", corpusNo,
-            "fullAddress", ((parent.get("city") == null ? "" : String.valueOf(parent.get("city")) + ", ") + "корп. " + corpusNo)
+            "district", districtSoato,
+            "street", streetId,
+            "mahalla", mahallaId,
+            "city", regionName,
+            "buildingNo", buildingNo,
+            "apartmentNo", apartmentNo,
+            "fullAddress", fullAddress
         ));
+
+        Map<String, String> res = new HashMap<>();
+        res.put("id", id);
+        res.put("full_address", fullAddress);
+        return res;
+    }
+    private Map<String, String> ensureAddressRecord(String districtSoatoRaw, String streetIdRaw, String mahallaIdRaw, 
+                                                    String buildingNoRaw, String apartmentNoRaw,
+                                                    String regionName, String districtName, 
+                                                    String streetName, String mahallaName) {
+        
+        // Нормализация пустых строк в null, чтобы БД и хэш работали корректно
+        String districtSoato = districtSoatoRaw != null && !districtSoatoRaw.isBlank() ? districtSoatoRaw : null;
+        String streetId = streetIdRaw != null && !streetIdRaw.isBlank() ? streetIdRaw : null;
+        String mahallaId = mahallaIdRaw != null && !mahallaIdRaw.isBlank() ? mahallaIdRaw : null;
+        String buildingNo = buildingNoRaw != null && !buildingNoRaw.isBlank() ? buildingNoRaw : null;
+        String apartmentNo = apartmentNoRaw != null && !apartmentNoRaw.isBlank() ? apartmentNoRaw : null;
+
+        if (districtSoato == null && streetId == null && mahallaId == null && buildingNo == null && apartmentNo == null) {
+            return null;
+        }
+
+        // Генерируем детерминированный ID (хэш) на основе уникальных параметров адреса
+        String key = String.format("%s|%s|%s|%s|%s", districtSoato, streetId, mahallaId, buildingNo, apartmentNo);
+        String id = java.util.UUID.nameUUIDFromBytes(key.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+
+        // Подтягиваем названия для красивого full_address, если они не переданы
+        if (streetId != null && streetName == null) {
+            Map<String, Object> s = queryOne("select name from streets where id = cast(:id as uuid)", Map.of("id", streetId));
+            if (s != null) streetName = stringVal(s.get("name"));
+        }
+        if (mahallaId != null && mahallaName == null) {
+            Map<String, Object> m = queryOne("select name from makhallas where id = cast(:id as uuid)", Map.of("id", mahallaId));
+            if (m != null) mahallaName = stringVal(m.get("name"));
+        }
+        if (districtSoato != null && (districtName == null || regionName == null)) {
+            Map<String, Object> d = queryOne("select name_ru, name_uz, region_id from districts where soato = :soato", Map.of("soato", districtSoato));
+            if (d != null) {
+                if (districtName == null) districtName = stringValOr(d.get("name_ru"), stringVal(d.get("name_uz")));
+                if (regionName == null && d.get("region_id") != null) {
+                    Map<String, Object> r = queryOne("select name_ru, name_uz from regions where id = cast(:id as uuid)", Map.of("id", stringVal(d.get("region_id"))));
+                    if (r != null) regionName = stringValOr(r.get("name_ru"), stringVal(r.get("name_uz")));
+                }
+            }
+        }
+
+        List<String> addressParts = new ArrayList<>();
+        if (regionName != null && !regionName.isBlank()) addressParts.add(regionName);
+        if (districtName != null && !districtName.isBlank()) addressParts.add(districtName);
+        if (mahallaName != null && !mahallaName.isBlank()) addressParts.add(mahallaName);
+        if (streetName != null && !streetName.isBlank()) addressParts.add(streetName);
+        if (buildingNo != null && !buildingNo.isBlank()) addressParts.add("д. " + buildingNo);
+        if (apartmentNo != null && !apartmentNo.isBlank()) addressParts.add("кв. " + apartmentNo);
+
+        String fullAddress = String.join(", ", addressParts);
+        if (fullAddress.isBlank()) fullAddress = null;
+
+        // Используем HashMap для безопасности null значений (Map.of падает при null)
+        Map<String, Object> dbParams = new HashMap<>();
+        dbParams.put("id", id);
+        dbParams.put("district", districtSoato);
+        dbParams.put("street", streetId);
+        dbParams.put("mahalla", mahallaId);
+        dbParams.put("city", regionName);
+        dbParams.put("buildingNo", buildingNo);
+        dbParams.put("apartmentNo", apartmentNo);
+        dbParams.put("fullAddress", fullAddress);
+
+        // Идемпотентный Upsert
+        execute("""
+            insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, apartment_no, full_address)
+            values (:id, 'Address', 0, cast(:district as text), cast(:street as uuid), cast(:mahalla as uuid), cast(:city as text), cast(:buildingNo as text), cast(:apartmentNo as text), cast(:fullAddress as text))
+            on conflict (id) do update
+            set district = excluded.district,
+                street = excluded.street,
+                mahalla = excluded.mahalla,
+                city = excluded.city,
+                building_no = excluded.building_no,
+                apartment_no = excluded.apartment_no,
+                full_address = excluded.full_address
+            """, dbParams);
+
+        Map<String, String> res = new HashMap<>();
+        res.put("id", id);
+        res.put("full_address", fullAddress);
+        return res;
+    }
+private String deriveBlockAddressId(String parentAddressId, String corpusNoRaw) {
+        String corpusNo = corpusNoRaw != null && !corpusNoRaw.isBlank() ? corpusNoRaw : null;
+        if (parentAddressId == null || corpusNo == null) return null;
+        
+        Map<String, Object> parent = queryOne("select district, street, mahalla, city, building_no from addresses where id = cast(:id as uuid)", Map.of("id", parentAddressId));
+        if (parent == null) return null;
+
+        String districtSoato = stringVal(parent.get("district"));
+        String streetId = stringVal(parent.get("street"));
+        String mahallaId = stringVal(parent.get("mahalla"));
+        
+        // Генерируем детерминированный ID для корпуса
+        String key = String.format("%s|%s|%s|%s|%s", districtSoato, streetId, mahallaId, corpusNo, null);
+        String id = java.util.UUID.nameUUIDFromBytes(key.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+
+        Map<String, Object> dbParams = new HashMap<>();
+        dbParams.put("id", id);
+        dbParams.put("district", districtSoato);
+        dbParams.put("street", streetId);
+        dbParams.put("mahalla", mahallaId);
+        dbParams.put("city", stringVal(parent.get("city")));
+        dbParams.put("buildingNo", corpusNo);
+        dbParams.put("fullAddress", ((parent.get("city") == null ? "" : String.valueOf(parent.get("city")) + ", ") + "корп. " + corpusNo));
+
+        execute("""
+            insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, full_address)
+            values (:id, 'Address', 0, cast(:district as text), cast(:street as uuid), cast(:mahalla as uuid), cast(:city as text), cast(:buildingNo as text), cast(:fullAddress as text))
+            on conflict (id) do update
+            set full_address = excluded.full_address
+            """, dbParams);
+            
         return id;
     }
-
-    private Map<String, Object> bucket() {
-        Map<String, Object> b = new LinkedHashMap<>();
-        b.put("area", 0d);
-        b.put("count", 0);
-        return b;
-    }
-
-    private void incBucket(Map<String, Object> bucket, double area) {
-        bucket.put("area", toDouble(bucket.get("area")) + area);
-        bucket.put("count", toInt(bucket.get("count")) + 1);
-    }
-
-    private double toDouble(Object value) {
-        if (value == null) return 0d;
-        if (value instanceof Number n) return n.doubleValue();
-        try {
-            return Double.parseDouble(String.valueOf(value));
-        } catch (NumberFormatException e) {
-            return 0d;
-        }
-    }
-
-    private double progressPercent(Object dateStart, Object dateEnd) {
-        try {
-            if (dateStart == null || dateEnd == null) return 0d;
-            java.time.Instant start = java.time.Instant.parse(String.valueOf(dateStart));
-            java.time.Instant end = java.time.Instant.parse(String.valueOf(dateEnd));
-            long startMs = start.toEpochMilli();
-            long endMs = end.toEpochMilli();
-            long nowMs = java.time.Instant.now().toEpochMilli();
-            if (endMs <= startMs || nowMs <= startMs) return 0d;
-            if (nowMs >= endMs) return 100d;
-            return ((double) (nowMs - startMs) / (double) (endMs - startMs)) * 100d;
-        } catch (Exception ignored) {
-            return 0d;
-        }
-    }
-
-    private Integer nullableInt(Object value) {
-        if (value == null) return null;
-        if (value instanceof Number n) return n.intValue();
-        String str = String.valueOf(value);
-        if (str.isBlank()) return null;
-        try { return Integer.parseInt(str); } catch (NumberFormatException e) { return null; }
-    }
-
-    private List<Map<String, Object>> toMapList(Object value) {
-        if (!(value instanceof List<?> list)) return List.of();
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (Object item : list) {
-            if (item instanceof Map<?, ?>) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> m = (Map<String, Object>) item;
-                out.add(m);
-            }
-        }
-        return out;
-    }
-
-    private String toPgUuidArrayLiteral(List<String> uuids) {
-        if (uuids == null || uuids.isEmpty()) return "{}";
-        return "{" + String.join(",", uuids) + "}";
-    }
-
-    private Set<String> toMarkerSet(Object value, boolean technical) {
-        if (!(value instanceof List<?> list)) return Set.of();
-        Set<String> result = new LinkedHashSet<>();
-        for (Object raw : list) {
-            if (raw == null) continue;
-            if (technical) {
-                String str = String.valueOf(raw);
-                if (str.contains("-Т")) result.add(str);
-                else {
-                    Integer parsed = nullableInt(raw);
-                    if (parsed != null) result.add(parsed + "-Т");
-                }
-            } else {
-                result.add(String.valueOf(raw));
-            }
-        }
-        return result;
-    }
-
-    private int normalizeDepth(int depth) {
-        if (depth < 1) return 1;
-        return Math.min(depth, 10);
-    }
-
-    private List<?> toList(Object value) {
-        if (value instanceof List<?> list) return list;
-        if (value instanceof Object[] arr) return Arrays.asList(arr);
-        return List.of();
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> objectToMap(Object value) {
-        if (value == null) return Map.of();
-        if (value instanceof Map<?, ?> map) return (Map<String, Object>) map;
-        try {
-            return objectMapper.readValue(String.valueOf(value), Map.class);
-        } catch (Exception ignored) {
-            return Map.of();
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> mapFrom(Object value) {
-        if (value instanceof Map<?, ?> map) return (Map<String, Object>) map;
-        return Map.of();
-    }
-
-    private String toJson(Object value) {
-        try {
-            if (value instanceof String s) return s;
-            return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("Failed to serialize JSON payload", e);
-        }
-    }
-}

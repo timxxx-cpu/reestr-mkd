@@ -98,8 +98,7 @@ const PassportEditor = () => {
   const [isInitialDataLoaded, setIsInitialDataLoaded] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [saveError, setSaveError] = useState('');
-  const [isAutoSaving, setIsAutoSaving] = useState(false);
-  
+    
   const [geometryCandidates, setGeometryCandidates] = useState([]);
   const [selectedLandPlotCandidateId, setSelectedLandPlotCandidateId] = useState(null);
   const [isImportingGeometry, setIsImportingGeometry] = useState(false);
@@ -169,28 +168,7 @@ const PassportEditor = () => {
     reloadCandidates();
   }, [projectId]);
 
-  useEffect(() => {
-    if (!isInitialDataLoaded || isReadOnly) return;
-
-    let isActive = true;
-    const timer = setTimeout(async () => {
-      try {
-        setIsAutoSaving(true);
-        setSaveError('');
-        await updateProjectInfo({ info: localInfo, cadastreData: localCadastre });
-        if (isActive) setLastSavedAt(new Date());
-      } catch (err) {
-        if (isActive) setSaveError(err?.message || 'Не удалось выполнить автосохранение');
-      } finally {
-        if (isActive) setIsAutoSaving(false);
-      }
-    }, 1500);
-
-    return () => {
-      isActive = false;
-      clearTimeout(timer);
-    };
-  }, [localInfo, localCadastre, updateProjectInfo, isReadOnly, isInitialDataLoaded]);
+  
 
   const handleInfoChange = (field, value) => setLocalInfo(prev => ({ ...prev, [field]: value }));
   const handleCadastreChange = (field, value) =>
@@ -423,11 +401,12 @@ const PassportEditor = () => {
   
   const saveStatusLabel = useMemo(() => {
     if (isReadOnly) return 'Режим просмотра';
-    if (isSaving || isAutoSaving) return 'Сохранение...';
+    if (isSaving) return 'Сохранение...';
     if (saveError) return 'Ошибка';
     if (lastSavedAt) return `Сохранено: ${lastSavedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+    return '';
     return 'Автосохранение';
-  }, [isReadOnly, isSaving, isAutoSaving, saveError, lastSavedAt]);
+  }, [isReadOnly, isSaving, saveError, lastSavedAt]);
 
   const dateWarnings = useMemo(() => {
     const warnings = [];
@@ -494,10 +473,10 @@ const PassportEditor = () => {
               <div className="w-px h-4 bg-white/10 mx-0.5" />
               <Button
                 onClick={handleManualSave}
-                disabled={isReadOnly || isSaving || isAutoSaving}
+                disabled={isReadOnly || isSaving}
                 className="bg-blue-600 hover:bg-blue-500 text-white h-8 px-4 text-xs shadow"
               >
-                {isSaving || isAutoSaving ? (
+                {isSaving ? (
                   <Loader2 size={14} className="animate-spin mr-1.5" />
                 ) : (
                   <Save size={14} className="mr-1.5" />
@@ -506,7 +485,7 @@ const PassportEditor = () => {
               </Button>
             </div>
             <div className={`mt-1.5 text-[10px] font-medium flex items-center gap-1.5 ${saveError ? 'text-red-400' : 'text-slate-400'}`}>
-              <div className={`w-1.5 h-1.5 rounded-full ${isAutoSaving ? 'bg-blue-400 animate-pulse' : saveError ? 'bg-red-400' : 'bg-emerald-400'}`} />
+              {saveStatusLabel && <div className={`w-1.5 h-1.5 rounded-full ${isSaving ? 'bg-blue-400 animate-pulse' : saveError ? 'bg-red-400' : 'bg-emerald-400'}`} />}
               {saveStatusLabel}
             </div>
           </div>

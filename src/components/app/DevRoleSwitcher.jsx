@@ -14,7 +14,8 @@ export const DevRoleSwitcher = ({ disabled }) => {
   if (!activePersona) return null;
 
   return (
-    <div className="fixed top-20 right-6 z-50 flex flex-col items-end pointer-events-none">
+    // Заменили top-20 на bottom-6
+    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none">
       {!disabled && (
         <div
           className={`

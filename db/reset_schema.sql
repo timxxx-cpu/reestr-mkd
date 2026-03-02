@@ -1566,7 +1566,7 @@ begin
   return query
   select p_project_id, v_candidate.area_m2;
 end;
-$$
+$$;
 
 create or replace function assign_building_geometry_from_candidate(
   p_project_id uuid,

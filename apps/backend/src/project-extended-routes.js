@@ -75,18 +75,35 @@ const buildFullAddressText = ({ regionName, districtName, mahallaName, streetNam
 };
 
 const ensureAddressRecord = async (supabase, payload = {}) => {
-  const districtSoato = payload.districtSoato || null;
-  const streetId = payload.streetId || null;
-  const mahallaId = payload.mahallaId || null;
-  const buildingNo = payload.buildingNo || null;
-  const apartmentNo = payload.apartmentNo || null;
+  // Нормализация пустых строк в null
+  const districtSoato = payload.districtSoato?.trim() || null;
+  const streetId = payload.streetId?.trim() || null;
+  const mahallaId = payload.mahallaId?.trim() || null;
+  const buildingNo = payload.buildingNo?.trim() || null;
+  const apartmentNo = payload.apartmentNo?.trim() || null;
 
   if (!districtSoato && !streetId && !mahallaId && !buildingNo && !apartmentNo) return null;
 
-  let regionName = payload.regionName || null;
-  let districtName = payload.districtName || null;
-  let streetName = payload.streetName || null;
-  let mahallaName = payload.mahallaName || null;
+  // Генерируем детерминированный UUID на основе уникальных параметров адреса
+  const key = `${districtSoato}|${streetId}|${mahallaId}|${buildingNo}|${apartmentNo}`;
+  const hash = crypto.createHash('md5').update(key).digest('hex');
+  const deterministicId = `${hash.substring(0,8)}-${hash.substring(8,12)}-4${hash.substring(13,16)}-8${hash.substring(17,20)}-${hash.substring(20,32)}`;
+
+  // Быстрый поиск - если адрес с таким хэшем уже есть, просто возвращаем его
+  const { data: existingAddress } = await supabase.from('addresses')
+    .select('id, full_address')
+    .eq('id', deterministicId)
+    .maybeSingle();
+    
+  if (existingAddress) {
+    return existingAddress;
+  }
+
+  // Если нет - подтягиваем недостающие названия для красивой строки адреса
+  let regionName = payload.regionName?.trim() || null;
+  let districtName = payload.districtName?.trim() || null;
+  let streetName = payload.streetName?.trim() || null;
+  let mahallaName = payload.mahallaName?.trim() || null;
 
   if (streetId && !streetName) {
     const { data: street } = await supabase.from('streets').select('id, name').eq('id', streetId).maybeSingle();
@@ -108,7 +125,7 @@ const ensureAddressRecord = async (supabase, payload = {}) => {
   const fullAddress = buildFullAddressText({ regionName, districtName, mahallaName, streetName, buildingNo, apartmentNo });
 
   const addressPayload = {
-    id: payload.id || crypto.randomUUID(),
+    id: deterministicId, // Используем детерминированный ID
     dtype: 'Address',
     versionrev: 0,
     full_address: fullAddress || null,
@@ -120,6 +137,7 @@ const ensureAddressRecord = async (supabase, payload = {}) => {
     city: regionName,
   };
 
+  // Идемпотентный Upsert (ON CONFLICT (id) DO UPDATE)
   const { data, error } = await supabase.from('addresses').upsert(addressPayload, { onConflict: 'id' }).select('id, full_address').single();
   if (error) throw error;
   return data;
@@ -961,11 +979,20 @@ app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) =>
     if (error) return sendError(reply, 400, 'GEOMETRY_VALIDATION_ERROR', error.message);
     return reply.send({ ok: true, areaM2: (data || [])[0]?.building_footprint_area_m2 || null });
   });
-  app.get('/api/v1/projects/:projectId/passport', async (req, reply) => {
+app.get('/api/v1/projects/:projectId/passport', async (req, reply) => {
     const { projectId } = req.params;
 
     const [projectRes, participantsRes, docsRes] = await Promise.all([
-      supabase.from('projects').select('*').eq('id', projectId).maybeSingle(),
+      // Добавлено чтение связанных полей адреса
+      supabase.from('projects').select(`
+        *,
+        addresses:address_id (
+          district,
+          street,
+          mahalla,
+          building_no
+        )
+      `).eq('id', projectId).maybeSingle(),
       supabase.from('project_participants').select('*').eq('project_id', projectId),
       supabase.from('project_documents').select('*').eq('project_id', projectId).order('doc_date', { ascending: false }),
     ]);
@@ -976,6 +1003,17 @@ app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) =>
     if (docsRes.error) return sendError(reply, 500, 'DB_ERROR', docsRes.error.message);
 
     const project = projectRes.data;
+    
+    // Подтягиваем код региона по коду района
+    let regionSoato = null;
+    if (project.addresses?.district) {
+      const { data: dist } = await supabase.from('districts').select('region_id').eq('soato', project.addresses.district).maybeSingle();
+      if (dist?.region_id) {
+        const { data: reg } = await supabase.from('regions').select('soato').eq('id', dist.region_id).maybeSingle();
+        regionSoato = reg?.soato || null;
+      }
+    }
+
     return reply.send({
       complexInfo: {
         name: project.name, ujCode: project.uj_code, status: project.construction_status,
@@ -983,6 +1021,12 @@ app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) =>
         addressId: project.address_id || null,
         dateStartProject: project.date_start_project, dateEndProject: project.date_end_project,
         dateStartFact: project.date_start_fact, dateEndFact: project.date_end_fact,
+        // Передаем данные адреса во фронтенд:
+        regionSoato: regionSoato,
+        districtSoato: project.addresses?.district || null,
+        streetId: project.addresses?.street || null,
+        mahallaId: project.addresses?.mahalla || null,
+        buildingNo: project.addresses?.building_no || null,
       },
       cadastre: { number: project.cadastre_number, area: project.land_plot_area_m2 },
       landPlot: {
@@ -1023,8 +1067,7 @@ app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) =>
       cadastre_number: formatComplexCadastre(cadastreData.number),
       updated_at: new Date().toISOString(),
     };
-    if ('addressId' in info) projectPatch.address_id = info.addressId || null;
-    if (!projectPatch.address_id && (info.districtSoato || info.streetId || info.mahallaId || info.buildingNo)) {
+      if (info.districtSoato || info.streetId || info.mahallaId || info.buildingNo) {
       const createdAddress = await ensureAddressRecord(supabase, {
         districtSoato: info.districtSoato,
         streetId: info.streetId,
@@ -1032,11 +1075,13 @@ app.post('/api/v1/projects/:projectId/land-plot/unselect', async (req, reply) =>
         buildingNo: info.buildingNo,
         regionName: info.region,
         districtName: info.district,
-        streetName: info.street,
+        streetName: null,
         mahallaName: info.mahalla,
       });
       projectPatch.address_id = createdAddress?.id || null;
       if (createdAddress?.full_address) projectPatch.address = createdAddress.full_address;
+    } else if ('addressId' in info) {
+      projectPatch.address_id = info.addressId || null;
     }
     if (cadastreData.area !== undefined && cadastreData.area !== null && cadastreData.area !== '') {
       projectPatch.land_plot_area_m2 = Number(cadastreData.area);
