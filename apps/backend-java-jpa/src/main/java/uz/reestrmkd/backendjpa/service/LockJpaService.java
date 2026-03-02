@@ -1,142 +1,107 @@
 package uz.reestrmkd.backendjpa.service;
 
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
-import jakarta.persistence.Query;
-import jakarta.persistence.Tuple;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.sql.Timestamp;
-import java.time.Instant;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class LockJpaService {
-    @PersistenceContext
-    private EntityManager em;
+
+    private final NamedParameterJdbcTemplate jdbc;
 
     @Transactional(readOnly = true)
     public Map<String, Object> get(String applicationId) {
-        List<Map<String, Object>> rows = queryList("""
-            select owner_user_id, owner_role, expires_at from application_locks where application_id = :applicationId
-            """, Map.of("applicationId", applicationId));
-        if (rows.isEmpty()) return Map.of("locked", false, "ownerUserId", null, "ownerRole", null, "expiresAt", null);
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            select owner_user_id, owner_role, expires_at 
+            from application_locks 
+            where application_id = cast(:appId as uuid)
+            """, Map.of("appId", applicationId));
+            
+        if (rows.isEmpty()) {
+            return Map.of("locked", false, "ownerUserId", null, "ownerRole", null, "expiresAt", null);
+        }
+        
         Map<String, Object> row = rows.get(0);
         return Map.of(
             "locked", true,
             "ownerUserId", row.get("owner_user_id"),
             "ownerRole", row.get("owner_role"),
-            "expiresAt", row.get("expires_at")
+            "expiresAt", row.get("expires_at") != null ? row.get("expires_at").toString() : null
         );
     }
 
     @Transactional
     public Map<String, Object> acquire(String applicationId, String userId, String role, Integer ttlSecondsRaw) {
         int ttl = Math.max(60, ttlSecondsRaw == null ? 1200 : ttlSecondsRaw);
-        ensureApplicationExists(applicationId);
-        Instant now = Instant.now();
-        Instant exp = now.plusSeconds(ttl);
 
-        List<Map<String, Object>> rows = queryList("""
-            select owner_user_id, expires_at from application_locks
-            where application_id = :applicationId
-            for update
-            """, Map.of("applicationId", applicationId));
+        jdbc.update("delete from application_locks where application_id = cast(:appId as uuid)", Map.of("appId", applicationId));
+        
+        // Вызываем надежную функцию БД, которая внутри сама делает ON CONFLICT и пишет аудит
+        List<Map<String, Object>> result = jdbc.queryForList("""
+            select ok, reason, message, expires_at 
+            from acquire_application_lock(cast(:appId as uuid), :userId, :role, :ttl)
+            """, Map.of("appId", applicationId, "userId", userId, "role", role, "ttl", ttl));
 
-        if (rows.isEmpty()) {
-            execute("""
-                insert into application_locks(application_id, owner_user_id, owner_role, expires_at)
-                values (:applicationId, :userId, :role, :expiresAt)
-                """, Map.of("applicationId", applicationId, "userId", userId, "role", role, "expiresAt", Timestamp.from(exp)));
-            return Map.of("ok", true, "reason", "LOCK_ACQUIRED", "message", "Lock acquired", "expiresAt", exp.toString());
+        if (result.isEmpty()) throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "RPC failed");
+        
+        Map<String, Object> row = result.get(0);
+        if (!Boolean.TRUE.equals(row.get("ok"))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, String.valueOf(row.get("message")));
         }
-
-        Map<String, Object> row = rows.get(0);
-        Instant currentExp = toInstant(row.get("expires_at"));
-        String owner = String.valueOf(row.get("owner_user_id"));
-        if (currentExp != null && currentExp.isAfter(now) && !userId.equals(owner)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Application is locked by another user");
-        }
-
-        execute("""
-            update application_locks set owner_user_id=:userId, owner_role=:role, expires_at=:expiresAt
-            where application_id=:applicationId
-            """, Map.of("userId", userId, "role", role, "expiresAt", Timestamp.from(exp), "applicationId", applicationId));
-
-        return Map.of("ok", true, "reason", "LOCK_REACQUIRED", "message", "Lock reacquired", "expiresAt", exp.toString());
+        
+        return Map.of(
+            "ok", true, 
+            "reason", row.get("reason"), 
+            "message", row.get("message"), 
+            "expiresAt", row.get("expires_at") != null ? row.get("expires_at").toString() : null
+        );
     }
 
     @Transactional
     public Map<String, Object> refresh(String applicationId, String userId, Integer ttlSecondsRaw) {
         int ttl = Math.max(60, ttlSecondsRaw == null ? 1200 : ttlSecondsRaw);
-        Instant now = Instant.now();
-        Instant exp = now.plusSeconds(ttl);
+        
+        List<Map<String, Object>> result = jdbc.queryForList("""
+            select ok, reason, message, expires_at 
+            from refresh_application_lock(cast(:appId as uuid), :userId, :ttl)
+            """, Map.of("appId", applicationId, "userId", userId, "ttl", ttl));
 
-        List<Map<String, Object>> rows = queryList("""
-            select owner_user_id, expires_at from application_locks where application_id = :applicationId for update
-            """, Map.of("applicationId", applicationId));
-
-        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Lock not found");
-
-        Map<String, Object> row = rows.get(0);
-        String owner = String.valueOf(row.get("owner_user_id"));
-        Instant currentExp = toInstant(row.get("expires_at"));
-
-        if (!userId.equals(owner)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Lock owned by another user");
-        if (currentExp != null && currentExp.isBefore(now)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Lock expired");
-
-        execute("update application_locks set expires_at = :exp where application_id=:app", Map.of("exp", Timestamp.from(exp), "app", applicationId));
-        return Map.of("ok", true, "reason", "LOCK_REFRESHED", "message", "Lock refreshed", "expiresAt", exp.toString());
+        if (result.isEmpty()) throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "RPC failed");
+        
+        Map<String, Object> row = result.get(0);
+        if (!Boolean.TRUE.equals(row.get("ok"))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, String.valueOf(row.get("message")));
+        }
+        
+        return Map.of(
+            "ok", true, 
+            "reason", row.get("reason"), 
+            "message", row.get("message"), 
+            "expiresAt", row.get("expires_at") != null ? row.get("expires_at").toString() : null
+        );
     }
 
     @Transactional
     public Map<String, Object> release(String applicationId, String userId) {
-        List<Map<String, Object>> rows = queryList("""
-            select owner_user_id from application_locks where application_id = :applicationId for update
-            """, Map.of("applicationId", applicationId));
+        List<Map<String, Object>> result = jdbc.queryForList("""
+            select ok, reason, message 
+            from release_application_lock(cast(:appId as uuid), :userId)
+            """, Map.of("appId", applicationId, "userId", userId));
 
-        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Lock not found");
-
-        String owner = String.valueOf(rows.get(0).get("owner_user_id"));
-        if (!userId.equals(owner)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Lock owned by another user");
-
-        execute("delete from application_locks where application_id = :applicationId", Map.of("applicationId", applicationId));
-        return Map.of("ok", true, "reason", "LOCK_RELEASED", "message", "Lock released");
-    }
-
-    private void ensureApplicationExists(String applicationId) {
-        List<Map<String, Object>> rows = queryList("select id from applications where id = :id", Map.of("id", applicationId));
-        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Application not found");
-    }
-
-    private List<Map<String, Object>> queryList(String sql, Map<String, Object> params) {
-        Query query = em.createNativeQuery(sql, Tuple.class);
-        params.forEach(query::setParameter);
-        @SuppressWarnings("unchecked")
-        List<Tuple> tuples = query.getResultList();
-        List<Map<String, Object>> rows = new ArrayList<>();
-        for (Tuple tuple : tuples) {
-            Map<String, Object> row = new LinkedHashMap<>();
-            tuple.getElements().forEach(e -> row.put(e.getAlias(), tuple.get(e)));
-            rows.add(row);
+        if (result.isEmpty()) throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "RPC failed");
+        
+        Map<String, Object> row = result.get(0);
+        if (!Boolean.TRUE.equals(row.get("ok"))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, String.valueOf(row.get("message")));
         }
-        return rows;
-    }
-
-    private int execute(String sql, Map<String, Object> params) {
-        Query query = em.createNativeQuery(sql);
-        params.forEach(query::setParameter);
-        return query.executeUpdate();
-    }
-
-    private Instant toInstant(Object value) {
-        if (value == null) return null;
-        if (value instanceof Timestamp ts) return ts.toInstant();
-        return null;
+        
+        return Map.of("ok", true, "reason", row.get("reason"), "message", row.get("message"));
     }
 }
