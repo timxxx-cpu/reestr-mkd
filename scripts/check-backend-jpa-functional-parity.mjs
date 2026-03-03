@@ -91,8 +91,35 @@ function sortObject(value) {
   return value;
 }
 
+// ДОБАВЛЕНА НОВАЯ ФУНКЦИЯ:
+function parseJsonStrings(value) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    // Проверяем, похожа ли строка на JSON объект или массив
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return parseJsonStrings(parsed); // Рекурсивно проверяем вложенные свойства
+      } catch {
+        // Возвращаем оригинальное значение, если это не валидный JSON
+      }
+    }
+  }
+  if (Array.isArray(value)) return value.map(parseJsonStrings);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = parseJsonStrings(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+// ОБНОВЛЕННАЯ ФУНКЦИЯ:
 function normalize(payload, ignoredPaths = []) {
-  const copy = structuredClone(payload);
+  let copy = structuredClone(payload);
+  copy = parseJsonStrings(copy); // Применяем парсинг строк перед нормализацией
   for (const p of [...defaultIgnorePaths, ...ignoredPaths]) deleteByPath(copy, p);
   return sortObject(copy);
 }
