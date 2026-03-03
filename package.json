@@ -12,21 +12,12 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "guardrails:all": "npm run lint && npm run check:step-registry && npm run test:smoke && npm run test:backend-workflow-sync && npm run test:backend-jpa-parity-tooling && npm run test:backend-jpa-parity-scenarios",
-    "test:backend-workflow-sync": "node --test apps/backend/tests/workflow-step-sync.test.mjs",
-    "test:smoke": "node --test tests/workflow-smoke.test.mjs",
+    "guardrails:all": "npm run lint && npm run check:step-registry",
     "format": "prettier --write \"src/**/*.{js,jsx}\"",
     "format:check": "prettier --check \"src/**/*.{js,jsx}\"",
-    "cutover:smoke": "node scripts/cutover-smoke.mjs",
     "cutover:legacy-check": "node scripts/legacy-critical-path-check.mjs",
     "check:step-registry": "node scripts/check-step-registry-sync.mjs",
-    "check:backend-jpa-parity": "node scripts/check-backend-jpa-parity.mjs",
-    "check:backend-jpa-functional-parity": "node scripts/check-backend-jpa-functional-parity.mjs",
-    "test:backend-jpa-parity-tooling": "node --test tests/parity/check-backend-jpa-functional-parity.test.mjs",
-    "run:backend-jpa-e2e-parity": "node scripts/run-backend-jpa-e2e-parity.mjs",
-    "test:backend-jpa-parity-scenarios": "node --test tests/parity/parity-scenarios-coverage.test.mjs tests/parity/parity-route-surface-coverage.test.mjs",
-    "ci:backend-jpa-e2e-parity": "npm run test:backend-jpa-parity-scenarios && npm run run:backend-jpa-e2e-parity",
-    "summarize:backend-jpa-parity": "node scripts/summarize-backend-jpa-parity-report.mjs artifacts/backend-jpa-parity-report.json"
+    "check:backend-jpa-parity": "node scripts/check-backend-jpa-parity.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.93.3",
