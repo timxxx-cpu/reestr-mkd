@@ -115,7 +115,7 @@ function waitForHttp(url, timeoutMs = 120000) {
       setTimeout(check, 1000);
     };
     check();
-  });
+});
 }
 
 function pipeLogs(prefix, child) {

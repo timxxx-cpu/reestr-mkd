@@ -8,7 +8,10 @@
   "scenarios": [
     {
       "name": "error-contracts",
-      "ignorePaths": [],
+     "ignorePaths": [
+        "details.timestamp",
+        "details.path"
+      ],
       "sequence": [
         {
           "name": "projects-list-missing-scope",
@@ -322,6 +325,16 @@
             "body": {}
           }
         }
+      ],
+      "ignorePaths": [
+        "snapshot.createdAt",
+        "snapshot.updatedAt",
+        "snapshot.*.timestamp",
+        "createdAt",
+        "updatedAt",
+        "approvedAt",
+        "declinedAt",
+        "restoredAt"
       ]
     }
   ]
