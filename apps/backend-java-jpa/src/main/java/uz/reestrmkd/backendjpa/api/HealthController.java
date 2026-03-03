@@ -8,5 +8,5 @@ import java.util.Map;
 @RestController
 public class HealthController {
     @GetMapping("/health")
-    public Map<String, Object> health() { return Map.of("ok", true, "backend", "jpa"); }
+    public Map<String, Object> health() { return Map.of("ok", true); }
 }

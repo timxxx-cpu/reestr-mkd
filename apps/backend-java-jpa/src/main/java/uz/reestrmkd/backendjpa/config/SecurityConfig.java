@@ -1,6 +1,7 @@
 package uz.reestrmkd.backendjpa.config;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -19,6 +20,8 @@ import java.util.List;
 @Slf4j
 @Configuration
 public class SecurityConfig {
+     @Value("${app.auth-mode:jwt}")
+    private String authMode;
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http, JwtAuthFilter jwtAuthFilter, IdempotencyFilter idempotencyFilter) throws Exception {
         log.info("Security Filter Chain");
@@ -26,12 +29,16 @@ public class SecurityConfig {
             .cors(Customizer.withDefaults())
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                .requestMatchers("/actuator/**", "/api/v1/auth/login","/api/v1/catalogs/dict_system_users").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/v1/projects", "/api/v1/applications/*/locks", "/api/v1/versions/*/snapshot").permitAll()
-                .anyRequest().authenticated()
-            )
+            .authorizeHttpRequests(auth -> {
+                auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll();
+                auth.requestMatchers("/actuator/**", "/api/v1/auth/login", "/api/v1/catalogs/dict_system_users").permitAll();
+                auth.requestMatchers(HttpMethod.GET, "/api/v1/projects", "/api/v1/applications/*/locks", "/api/v1/versions/*/snapshot").permitAll();
+                if ("dev".equalsIgnoreCase(authMode)) {
+                    auth.anyRequest().permitAll();
+                } else {
+                    auth.anyRequest().authenticated();
+                }
+            })
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterAfter(idempotencyFilter, JwtAuthFilter.class);
 

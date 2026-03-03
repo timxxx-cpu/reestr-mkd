@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-03-03T13:13:52.579Z",
+  "generatedAt": "2026-03-03T14:44:04.647Z",
   "scenarioFile": "tests/parity/backend-functional-parity.scenarios.json",
   "totals": {
-    "scenarios": 9,
-    "steps": 22,
+    "scenarios": 10,
+    "steps": 95,
     "failures": 0
   },
   "mismatches": []

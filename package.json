@@ -24,7 +24,7 @@
     "check:backend-jpa-functional-parity": "node scripts/check-backend-jpa-functional-parity.mjs",
     "test:backend-jpa-parity-tooling": "node --test tests/parity/check-backend-jpa-functional-parity.test.mjs",
     "run:backend-jpa-e2e-parity": "node scripts/run-backend-jpa-e2e-parity.mjs",
-    "test:backend-jpa-parity-scenarios": "node --test tests/parity/parity-scenarios-coverage.test.mjs",
+    "test:backend-jpa-parity-scenarios": "node --test tests/parity/parity-scenarios-coverage.test.mjs tests/parity/parity-route-surface-coverage.test.mjs",
     "ci:backend-jpa-e2e-parity": "npm run test:backend-jpa-parity-scenarios && npm run run:backend-jpa-e2e-parity",
     "summarize:backend-jpa-parity": "node scripts/summarize-backend-jpa-parity-report.mjs artifacts/backend-jpa-parity-report.json"
   },

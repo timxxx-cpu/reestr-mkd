@@ -156,6 +156,8 @@ const mismatches = [];
 for (const scenario of scenarios.scenarios) {
   const ignoredPaths = scenario.ignorePaths || [];
   const sequence = scenario.sequence || [];
+  const scenarioAssertStatus = scenario.assertStatus !== false;
+  const scenarioAssertBody = scenario.assertBody !== false;
 
   for (const step of sequence) {
     stepsTotal += 1;
@@ -165,8 +167,11 @@ for (const scenario of scenarios.scenarios) {
     const nodeBody = normalize(nodeRes.body, ignoredPaths);
     const javaBody = normalize(javaRes.body, ignoredPaths);
 
-    const sameStatus = nodeRes.status === javaRes.status;
-    const sameBody = JSON.stringify(nodeBody) === JSON.stringify(javaBody);
+    const assertStatus = step.assertStatus ?? scenarioAssertStatus;
+    const assertBody = step.assertBody ?? scenarioAssertBody;
+
+    const sameStatus = !assertStatus || nodeRes.status === javaRes.status;
+    const sameBody = !assertBody || JSON.stringify(nodeBody) === JSON.stringify(javaBody);
 
     if (!sameStatus || !sameBody) {
       failures += 1;

@@ -101,13 +101,14 @@ function runSafe(bin, args, opts = {}) {
   return child;
 }
 
-function waitForHttp(url, timeoutMs = 120000) {
+function waitForHttp(url, timeoutMs = 120000, acceptedStatuses = null) {
   const started = Date.now();
   return new Promise((resolve, reject) => {
     const check = async () => {
       try {
         const res = await fetch(url);
-        if (res.status < 500) return resolve();
+        if (acceptedStatuses && acceptedStatuses.includes(res.status)) return resolve();
+        if (!acceptedStatuses && res.status < 500) return resolve();
       } catch {}
       if (Date.now() - started > timeoutMs) {
         return reject(new Error(`Timeout waiting for ${url}`));
@@ -164,8 +165,14 @@ async function main() {
     });
     pipeLogs('java-jpa', javaProc);
 
-    await waitForHttp(`${nodeUrl}/health`);
-    await waitForHttp(`${javaUrl}/api/v1/ops/ping`);
+    await waitForHttp(`${nodeUrl}/health`, 120000, [200]);
+
+    // Java JPA readiness: first try /health, then /api/v1/ops/ping as fallback.
+    try {
+      await waitForHttp(`${javaUrl}/health`, 120000, [200]);
+    } catch {
+      await waitForHttp(`${javaUrl}/api/v1/ops/ping`, 120000, [200]);
+    }
 
     const checker = runSafe('npm', ['run', 'check:backend-jpa-functional-parity'], {
       cwd: repoRoot,

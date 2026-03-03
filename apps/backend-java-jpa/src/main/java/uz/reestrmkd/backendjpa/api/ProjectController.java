@@ -1,7 +1,9 @@
 package uz.reestrmkd.backendjpa.api;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import uz.reestrmkd.backendjpa.api.error.ApiErrorException;
 import uz.reestrmkd.backendjpa.service.ProjectJpaService;
 
 import java.util.List;
@@ -32,7 +34,13 @@ public class ProjectController {
         return projects.list(scope, status, workflowSubstatus, assignee, search, page, limit, actorUserId, actorRole);
     }
     @GetMapping("/projects/map-overview") public Map<String, Object> projectsMapOverview(@RequestParam(required = false) String scope) { return projects.mapOverview(scope); }
-    @GetMapping("/external-applications") public Object ext(@RequestParam(required = false) String scope){ return projects.externalApplications(scope); }
+     @GetMapping("/external-applications")
+    public Object ext(@RequestParam(required = false) String scope, org.springframework.security.core.Authentication authentication){
+        if (authentication == null || authentication.getName() == null || authentication.getName().isBlank()) {
+            throw new ApiErrorException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Auth context required");
+        }
+        return projects.externalApplications(scope);
+    }
     @GetMapping("/projects/summary-counts") public Map<String,Object> summary(@RequestParam(required = false) String scope){ return projects.summary(scope); }
     @GetMapping("/projects/{projectId}/application-id") public Map<String, Object> appId(@PathVariable String projectId, @RequestParam String scope) { return projects.appId(projectId, scope); }
     @PostMapping("/projects/{projectId}/validation/step") public Map<String,Object> validate(@PathVariable String projectId,@RequestBody Map<String,Object> body){ return projects.validateStep(projectId, body); }

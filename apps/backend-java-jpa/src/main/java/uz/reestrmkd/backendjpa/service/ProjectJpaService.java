@@ -163,7 +163,7 @@ public class ProjectJpaService {
             complexInfo.put("addressId", project.getAddressId());
             item.put("complexInfo", complexInfo);
             item.put("composition", java.util.Collections.nCopies(buildingsCountByProject.getOrDefault(project.getId(), 0), 1));
-            item.put("availableActions", buildProjectAvailableActions(actorRole, projectStatus, actorUserId));
+            item.put("availableActions", buildProjectAvailableActions(actorRole, app, actorUserId));
             mapped.add(item);
         }
 
@@ -2055,20 +2055,38 @@ public class ProjectJpaService {
         };
     }
 
-    private List<String> buildProjectAvailableActions(String actorRole, String status, String actorUserId) {
+    private List<String> buildProjectAvailableActions(String actorRole, uz.reestrmkd.backendjpa.domain.ApplicationEntity app, String actorUserId) {
         List<String> actions = new ArrayList<>();
-        if (status == null) return actions;
         actions.add("view");
-        if (actorRole != null && !actorRole.isBlank()) {
-            String role = actorRole.toLowerCase(Locale.ROOT);
-            if ("admin".equals(role) || "supervisor".equals(role) || "technician".equals(role)) {
-                actions.add("edit");
-            }
-            if (("admin".equals(role) || "supervisor".equals(role)) && actorUserId != null && !actorUserId.isBlank()) {
-                actions.add("assign");
-            }
+
+        String role = actorRole == null ? "" : actorRole.toLowerCase(Locale.ROOT);
+        boolean isAdmin = "admin".equals(role);
+        boolean isBranchManager = "branch_manager".equals(role);
+        boolean isTechnician = "technician".equals(role);
+        boolean isController = "controller".equals(role);
+
+        String status = app == null ? null : app.getStatus();
+        String substatus = app == null ? "DRAFT" : stringValOr(app.getWorkflowSubstatus(), "DRAFT");
+        String assigneeName = app == null ? null : app.getAssigneeName();
+
+        boolean isCompleted = "COMPLETED".equals(status);
+        boolean isDeclined = "DECLINED".equals(status);
+        boolean isPendingDecline = "PENDING_DECLINE".equals(substatus);
+        boolean isAssigned = assigneeName == null || assigneeName.isBlank() || Objects.equals(assigneeName, actorUserId);
+
+        if (!isCompleted && !isDeclined && (isAdmin || isBranchManager)) actions.add("reassign");
+        if (isAdmin) actions.add("delete");
+        if ((isAdmin || isBranchManager || isController) && !isCompleted) actions.add("decline");
+        if (isPendingDecline && (isAdmin || isBranchManager)) actions.add("return_from_decline");
+
+        boolean canTechnicianEdit = isTechnician && isAssigned && Set.of("DRAFT", "REVISION", "RETURNED_BY_MANAGER", "INTEGRATION").contains(substatus);
+        boolean canControllerEdit = isController && "REVIEW".equals(substatus);
+
+        if (!isCompleted && !isDeclined && (canTechnicianEdit || canControllerEdit || isAdmin)) {
+            actions.add("edit");
         }
-        return actions;
+
+        return actions.stream().distinct().toList();
     }
 
     private Map<String, Object> normalizeGeometry(Map<String, Object> geometry) {

@@ -44,9 +44,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         if (HttpMethod.GET.matches(method)) {
-            return uri.equals("/api/v1/projects")
-                || uri.matches("^/api/v1/applications/[^/]+/locks$")
-                || uri.matches("^/api/v1/versions/[^/]+/snapshot$");
+            return uri.matches("^/api/v1/applications/[^/]+/locks$")
+                 || uri.matches("^/api/v1/versions/[^/]+/snapshot$");
         }
 
         return false;
@@ -54,45 +53,62 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
-        throws ServletException, IOException {
-        String authz = request.getHeader("Authorization");
-        if (authz != null && authz.startsWith("Bearer ")) {
-            String token = authz.substring(7).trim();
-            try {
-                Map<String, Object> payload = jwtService.verify(token, jwtSecret);
-                String userId = payload.get("sub") == null ? null : String.valueOf(payload.get("sub"));
-                String role = payload.get("role") == null ? "user" : String.valueOf(payload.get("role"));
-                authenticate(userId, role);
-                request.setAttribute("auth.userId", userId);
-                request.setAttribute("auth.role", role);
-            } catch (RuntimeException ex) {
-                unauthorized(response, "UNAUTHORIZED", "JWT auth failed: " + String.valueOf(ex.getMessage()));
-                return;
-            }
-        } else if ("dev".equalsIgnoreCase(authMode)) {
-            String userId = request.getHeader("X-User-Id");
-            String role = request.getHeader("X-User-Role");
-            if (userId != null && !userId.isBlank()) {
-                String resolvedRole = (role == null || role.isBlank()) ? "user" : role;
-                authenticate(userId, resolvedRole);
-                request.setAttribute("auth.userId", userId);
-                request.setAttribute("auth.role", resolvedRole);
+       throws ServletException, IOException {
+        // В DEV-режиме приоритет отдаём явным заголовкам роли/пользователя,
+        // чтобы role switcher в UI мог переключать роль после логина.
+        if ("dev".equalsIgnoreCase(authMode)) {
+            String devUserId = request.getHeader("X-User-Id");
+            String devRole = request.getHeader("X-User-Role");
+            if (devUserId != null && !devUserId.isBlank() && devRole != null && !devRole.isBlank()) {
+                authenticate(devUserId, devRole);
+                request.setAttribute("auth.userId", devUserId);
+                request.setAttribute("auth.role", devRole);
             }
         }
 
         if (SecurityContextHolder.getContext().getAuthentication() == null) {
-            unauthorized(response, "UNAUTHORIZED", missingAuthMessage(request));
-            return;
+            String authz = request.getHeader("Authorization");
+            if (authz != null && authz.startsWith("Bearer ")) {
+                String token = authz.substring(7).trim();
+                try {
+                    Map<String, Object> payload = jwtService.verify(token, jwtSecret);
+                    String userId = payload.get("sub") == null ? null : String.valueOf(payload.get("sub"));
+                    String role = payload.get("role") == null ? "user" : String.valueOf(payload.get("role"));
+                    authenticate(userId, role);
+                    request.setAttribute("auth.userId", userId);
+                    request.setAttribute("auth.role", role);
+                } catch (RuntimeException ex) {
+                    unauthorized(response, "UNAUTHORIZED", "JWT auth failed: " + String.valueOf(ex.getMessage()));
+                    return;
+                }
+            } else if ("dev".equalsIgnoreCase(authMode)) {
+                String userId = request.getHeader("X-User-Id");
+                String role = request.getHeader("X-User-Role");
+                if (userId != null && !userId.isBlank()) {
+                    String resolvedRole = (role == null || role.isBlank()) ? "user" : role;
+                    authenticate(userId, resolvedRole);
+                    request.setAttribute("auth.userId", userId);
+                    request.setAttribute("auth.role", resolvedRole);
+                }
+            }
+        }
+
+        if (SecurityContextHolder.getContext().getAuthentication() == null) {
+            if (!"dev".equalsIgnoreCase(authMode)) {
+                unauthorized(response, "UNAUTHORIZED", missingAuthMessage(request));
+                return;
+            }
         }
 
         if (isMutation(request) && request.getAttribute("auth.role") == null) {
-            forbidden(response, "FORBIDDEN", "Policy actor role is required");
+            unauthorized(response, "UNAUTHORIZED", missingAuthMessage(request));
             return;
         }
 
         filterChain.doFilter(request, response);
     }
 
+ 
     private String missingAuthMessage(HttpServletRequest request) {
         if ("dev".equalsIgnoreCase(authMode)) {
             String uri = request.getRequestURI();

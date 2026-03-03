@@ -117,6 +117,39 @@ class ProjectJpaServiceTest {
         assertEquals(1, res.get("totalPages"));
     }
 
+    
+    @Test
+    void list_admin_receives_node_like_available_actions() {
+        ProjectEntity p1 = new ProjectEntity();
+        p1.setId("p1");
+        p1.setScopeId("shared_dev_env");
+        p1.setName("Alpha");
+        p1.setConstructionStatus("in_progress");
+
+        ApplicationEntity a1 = new ApplicationEntity();
+        a1.setId("a1");
+        a1.setProjectId("p1");
+        a1.setScopeId("shared_dev_env");
+        a1.setStatus("IN_PROGRESS");
+        a1.setWorkflowSubstatus("DRAFT");
+        a1.setAssigneeName("tech-1");
+
+        when(applications.findByScopeId("shared_dev_env")).thenReturn(List.of(a1));
+        when(projects.findByScopeIdOrderByIdDesc("shared_dev_env")).thenReturn(List.of(p1));
+        when(buildingsRepo.findByProjectIdIn(org.mockito.ArgumentMatchers.anyList())).thenReturn(List.of());
+
+        Map<String, Object> res = service.list("shared_dev_env", null, null, null, null, 1, 10, "admin-1", "admin");
+
+        Map<?, ?> item = (Map<?, ?>) ((List<?>) res.get("items")).get(0);
+        List<?> actions = (List<?>) item.get("availableActions");
+
+        assertEquals(true, actions.contains("view"));
+        assertEquals(true, actions.contains("edit"));
+        assertEquals(true, actions.contains("reassign"));
+        assertEquals(true, actions.contains("delete"));
+        assertEquals(true, actions.contains("decline"));
+    }
+
     @Test
     void list_assignee_mine_requires_actor() {
         ApplicationEntity a1 = new ApplicationEntity();
