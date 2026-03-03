@@ -2,5 +2,12 @@ package uz.reestrmkd.backendjpa.repo;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import uz.reestrmkd.backendjpa.domain.BlockConstructionEntity;
+
+import java.util.List;
+import java.util.Optional;
+
 public interface BlockConstructionRepository extends JpaRepository<BlockConstructionEntity, String> {
-java.util.Optional<uz.reestrmkd.backendjpa.domain.BlockConstructionEntity> findByBlockId(String blockId);} 
+    Optional<BlockConstructionEntity> findByBlockId(String blockId);
+
+    List<BlockConstructionEntity> findByBlockIdIn(List<String> blockIds);
+}

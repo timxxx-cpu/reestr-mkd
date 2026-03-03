@@ -93,7 +93,6 @@ public class CompositionJpaService {
         Map<String, Object> buildingData = unwrapBuildingData(body);
         String geometryCandidateId = requireGeometryCandidateId(buildingData);
         
-        // 1. ИСПРАВЛЕНИЕ: Сначала получаем project_id текущего здания
         String projectId = stringVal(queryScalar(
             "select cast(project_id as text) from buildings where id = cast(:id as uuid)", 
             Map.of("id", buildingId)
@@ -119,13 +118,11 @@ public class CompositionJpaService {
         params.put("cadastreNumber", buildingData.get("cadastreNumber"));
         params.put("buildingId", buildingId);
 
-        // 2. Генерируем адрес, используя уже извлеченный projectId
         if (!Boolean.TRUE.equals(params.get("hasAddressId"))) {
             params.put("addressId", deriveBuildingAddressId(projectId, stringVal(buildingData.get("houseNumber"))));
             params.put("hasAddressId", params.get("addressId") != null);
         }
 
-        // 3. Обновляем данные здания
         int updated = execute("""
             update buildings set label=:label, house_number=:houseNumber,
                 address_id = case when :hasAddressId then cast(:addressId as uuid) else address_id end,
@@ -137,7 +134,6 @@ public class CompositionJpaService {
 
         if (updated == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Building not found");
 
-        // 4. Привязываем/перезаписываем геометрию
         assignBuildingGeometry(projectId, buildingId, geometryCandidateId);
         
         return Map.of("ok", true);

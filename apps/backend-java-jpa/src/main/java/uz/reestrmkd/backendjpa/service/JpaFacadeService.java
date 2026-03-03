@@ -8,7 +8,8 @@ import org.springframework.transaction.annotation.Transactional;
 import uz.reestrmkd.backendjpa.repo.ApplicationRepository;
 import uz.reestrmkd.backendjpa.repo.ProjectRepository;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -52,7 +53,11 @@ public class JpaFacadeService {
     @Transactional
     public Map<String, Object> setProjectIntegration(String projectId, String status) {
         var p = projects.findById(projectId).orElseThrow();
-        p.setIntegrationStatus(status);
+        Map<String, Object> integration = p.getIntegrationData() == null
+            ? new HashMap<>()
+            : new HashMap<>(p.getIntegrationData());
+        integration.put("status", status);
+        p.setIntegrationData(integration);
         projects.save(p);
         return Map.of("ok", true);
     }

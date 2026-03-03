@@ -1,8 +1,10 @@
 import fs from 'node:fs';
+import path from 'node:path';
 
 const nodeBase = process.env.NODE_BACKEND_URL;
 const javaBase = process.env.JAVA_JPA_BACKEND_URL;
 const scenarioPath = process.env.PARITY_SCENARIOS || 'tests/parity/backend-functional-parity.scenarios.json';
+const reportPath = process.env.PARITY_REPORT_PATH || 'tests/parity/.last-functional-parity-report.json';
 
 if (!fs.existsSync(scenarioPath)) {
   console.error(`Scenario file not found: ${scenarioPath}`);
@@ -16,6 +18,7 @@ if (!nodeBase || !javaBase) {
 
 const scenarios = JSON.parse(fs.readFileSync(scenarioPath, 'utf8'));
 const context = { ...(scenarios.variables || {}) };
+const defaultIgnorePaths = (process.env.PARITY_IGNORE_PATHS || 'requestId,timestamp').split(',').map(v => v.trim()).filter(Boolean);
 
 function fillTemplate(value) {
   if (typeof value === 'string') {
@@ -28,12 +31,12 @@ function fillTemplate(value) {
   return value;
 }
 
-function getByPath(obj, path) {
-  return path.split('.').reduce((acc, key) => (acc == null ? undefined : acc[key]), obj);
+function getByPath(obj, pathExpr) {
+  return pathExpr.split('.').reduce((acc, key) => (acc == null ? undefined : acc[key]), obj);
 }
 
-function deleteByPath(obj, path) {
-  const parts = path.split('.');
+function deleteByPath(obj, pathExpr) {
+  const parts = pathExpr.split('.');
   const last = parts.pop();
   let cursor = obj;
   for (const p of parts) {
@@ -43,10 +46,22 @@ function deleteByPath(obj, path) {
   if (cursor && typeof cursor === 'object' && last in cursor) delete cursor[last];
 }
 
+function sortObject(value) {
+  if (Array.isArray(value)) return value.map(sortObject);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const key of Object.keys(value).sort()) {
+      out[key] = sortObject(value[key]);
+    }
+    return out;
+  }
+  return value;
+}
+
 function normalize(payload, ignoredPaths = []) {
   const copy = structuredClone(payload);
-  for (const p of ignoredPaths) deleteByPath(copy, p);
-  return copy;
+  for (const p of [...defaultIgnorePaths, ...ignoredPaths]) deleteByPath(copy, p);
+  return sortObject(copy);
 }
 
 async function call(baseUrl, req) {
@@ -75,12 +90,15 @@ async function call(baseUrl, req) {
 }
 
 let failures = 0;
+let stepsTotal = 0;
+const mismatches = [];
 
 for (const scenario of scenarios.scenarios) {
   const ignoredPaths = scenario.ignorePaths || [];
   const sequence = scenario.sequence || [];
 
   for (const step of sequence) {
+    stepsTotal += 1;
     const nodeRes = await call(nodeBase, step.request);
     const javaRes = await call(javaBase, step.request);
 
@@ -92,6 +110,22 @@ for (const scenario of scenarios.scenarios) {
 
     if (!sameStatus || !sameBody) {
       failures += 1;
+      const mismatch = {
+        scenario: scenario.name,
+        step: step.name,
+        request: step.request,
+        status: {
+          node: nodeRes.status,
+          java: javaRes.status,
+          same: sameStatus,
+        },
+        body: {
+          same: sameBody,
+          node: nodeBody,
+          java: javaBody,
+        },
+      };
+      mismatches.push(mismatch);
       console.error(`\n[FAIL] ${scenario.name} / ${step.name}`);
       if (!sameStatus) console.error(`  status: node=${nodeRes.status}, java-jpa=${javaRes.status}`);
       if (!sameBody) {
@@ -103,12 +137,27 @@ for (const scenario of scenarios.scenarios) {
     }
 
     if (step.capture) {
-      for (const [varName, path] of Object.entries(step.capture)) {
-        context[varName] = getByPath(nodeRes.body, path);
+      for (const [varName, pathExpr] of Object.entries(step.capture)) {
+        context[varName] = getByPath(nodeRes.body, pathExpr);
       }
     }
   }
 }
+
+const report = {
+  generatedAt: new Date().toISOString(),
+  scenarioFile: scenarioPath,
+  totals: {
+    scenarios: scenarios.scenarios?.length || 0,
+    steps: stepsTotal,
+    failures,
+  },
+  mismatches,
+};
+
+fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+console.log(`\nParity report written: ${reportPath}`);
 
 if (failures > 0) {
   console.error(`\nFunctional parity check failed: ${failures} mismatch(es)`);

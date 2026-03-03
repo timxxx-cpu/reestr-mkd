@@ -28,6 +28,27 @@ public class JwtService {
         }
     }
 
+
+
+    public Map<String, Object> verify(String token, String secret) {
+        try {
+            String[] parts = token.split("\\.");
+            if (parts.length != 3) throw new IllegalArgumentException("Malformed token");
+            String expected = sign(parts[0] + "." + parts[1], secret == null ? "" : secret);
+            if (!expected.equals(parts[2])) throw new IllegalArgumentException("Bad signature");
+            byte[] bodyBytes = Base64.getUrlDecoder().decode(parts[1]);
+            Map<String, Object> payload = mapper.readValue(bodyBytes, Map.class);
+            Object exp = payload.get("exp");
+            long now = System.currentTimeMillis() / 1000L;
+            if (exp instanceof Number n && n.longValue() < now) {
+                throw new IllegalArgumentException("Token expired");
+            }
+            return payload;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private String enc(Map<String, Object> obj) throws Exception {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(mapper.writeValueAsBytes(obj));
     }

@@ -2,6 +2,9 @@ package uz.reestrmkd.backendjpa.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
@@ -21,6 +24,10 @@ public class ProjectGeometryCandidateEntity extends BaseEntity {
     @Column(name = "project_id", nullable = false)
     private String projectId;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "project_id", insertable = false, updatable = false)
+    private ProjectEntity project;
+
     @Column(name = "source_index", nullable = false)
     private Integer sourceIndex;
 
@@ -35,7 +42,6 @@ public class ProjectGeometryCandidateEntity extends BaseEntity {
     @Column(name = "geom_geojson", columnDefinition = "jsonb", nullable = false)
     private Map<String, Object> geomGeojson;
 
-    // Вот она, магия hibernate-spatial!
     @Column(name = "geom")
     private MultiPolygon geom;
 
@@ -47,4 +53,8 @@ public class ProjectGeometryCandidateEntity extends BaseEntity {
 
     @Column(name = "assigned_building_id")
     private String assignedBuildingId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assigned_building_id", insertable = false, updatable = false)
+    private BuildingEntity assignedBuilding;
 }

@@ -1,0 +1,71 @@
+name: Backend JPA E2E Parity
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'
+
+jobs:
+  parity-e2e:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+      SPRING_DATASOURCE_USERNAME: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+      SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD }}
+      AUTH_MODE: dev
+      PARITY_SCENARIOS: tests/parity/backend-functional-parity.scenarios.json
+      PARITY_REPORT_PATH: artifacts/backend-jpa-parity-report.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          missing=0
+          for key in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SPRING_DATASOURCE_URL SPRING_DATASOURCE_USERNAME SPRING_DATASOURCE_PASSWORD; do
+            if [ -z "${!key}" ]; then
+              echo "Missing required secret: $key"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "E2E parity gate cannot run without required secrets."
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: npm ci --prefix apps/backend
+
+      - name: Run backend JPA E2E parity gate
+        run: npm run ci:backend-jpa-e2e-parity
+
+      - name: Summarize parity report
+        if: always()
+        run: npm run summarize:backend-jpa-parity
+
+      - name: Upload parity report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jpa-parity-report
+          path: artifacts/backend-jpa-parity-report.json
+          if-no-files-found: warn
