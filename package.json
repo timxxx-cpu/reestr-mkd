@@ -16,8 +16,7 @@
     "format": "prettier --write \"src/**/*.{js,jsx}\"",
     "format:check": "prettier --check \"src/**/*.{js,jsx}\"",
     "cutover:legacy-check": "node scripts/legacy-critical-path-check.mjs",
-    "check:step-registry": "node scripts/check-step-registry-sync.mjs",
-    "check:backend-jpa-parity": "node scripts/check-backend-jpa-parity.mjs"
+    "check:step-registry": "node scripts/check-step-registry-sync.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.93.3",
