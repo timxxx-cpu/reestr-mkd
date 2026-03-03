@@ -37,6 +37,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String uri = request.getRequestURI();
         return uri.startsWith("/actuator")
             || uri.equals("/api/v1/auth/login")
+            || uri.equals("/api/v1/catalogs/dict_system_users")
             || uri.equals("/api/v1/health");
     }
 
