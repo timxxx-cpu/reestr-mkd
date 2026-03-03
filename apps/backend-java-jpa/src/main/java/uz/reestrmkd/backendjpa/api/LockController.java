@@ -1,7 +1,9 @@
 package uz.reestrmkd.backendjpa.api;
 
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -41,12 +43,24 @@ public class LockController {
     }
 
     @PostMapping("/release")
-    public Map<String, Object> release(
+     public ResponseEntity<Map<String, Object>> release(
             @PathVariable String applicationId,
-            Authentication authentication
+   Authentication authentication,
+            HttpServletRequest request
     ){
+        if (request.getContentType() != null
+            && request.getContentType().toLowerCase().contains("application/json")
+            && request.getContentLengthLong() == 0) {
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("statusCode", 400);
+            body.put("code", "FST_ERR_CTP_EMPTY_JSON_BODY");
+            body.put("error", "Bad Request");
+            body.put("message", "Body cannot be empty when content-type is set to 'application/json'");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+        }
+
         String userId = authUser(authentication);
-        return service.release(applicationId, userId);
+        return ResponseEntity.ok(service.release(applicationId, userId));
     }
 
     private String authUser(Authentication authentication) {

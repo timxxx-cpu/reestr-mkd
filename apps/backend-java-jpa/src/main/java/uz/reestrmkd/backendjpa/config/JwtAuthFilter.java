@@ -35,10 +35,22 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String uri = request.getRequestURI();
-        return uri.startsWith("/actuator")
+        String method = request.getMethod();
+
+        if (uri.startsWith("/actuator")
             || uri.equals("/api/v1/auth/login")
             || uri.equals("/api/v1/catalogs/dict_system_users")
-            || uri.equals("/api/v1/health");
+            || uri.equals("/api/v1/health")) {
+            return true;
+        }
+
+        if (HttpMethod.GET.matches(method)) {
+            return uri.equals("/api/v1/projects")
+                || uri.matches("^/api/v1/applications/[^/]+/locks$")
+                || uri.matches("^/api/v1/versions/[^/]+/snapshot$");
+        }
+
+        return false;
     }
 
     @Override
@@ -70,7 +82,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         if (SecurityContextHolder.getContext().getAuthentication() == null) {
-            unauthorized(response, "UNAUTHORIZED", "Missing Bearer token");
+            unauthorized(response, "UNAUTHORIZED", missingAuthMessage(request));
             return;
         }
 
@@ -82,6 +94,17 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    private String missingAuthMessage(HttpServletRequest request) {
+        if ("dev".equalsIgnoreCase(authMode)) {
+            String uri = request.getRequestURI();
+            if ("/api/v1/external-applications".equals(uri)) {
+                return "Auth context required";
+            }
+            return "Missing auth context";
+        }
+        return "Missing Bearer token";
+    }
+    
     private boolean isMutation(HttpServletRequest request) {
         String method = request.getMethod().toUpperCase(Locale.ROOT);
         return HttpMethod.POST.matches(method)

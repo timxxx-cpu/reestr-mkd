@@ -26,16 +26,24 @@ public class LockJpaService {
             """, Map.of("appId", applicationId));
             
         if (rows.isEmpty()) {
-            return Map.of("locked", false, "ownerUserId", null, "ownerRole", null, "expiresAt", null);
+         Map<String, Object> empty = new java.util.LinkedHashMap<>();
+            empty.put("locked", false);
+            empty.put("ownerUserId", null);
+            empty.put("ownerRole", null);
+            empty.put("expiresAt", null);
+            return empty;
         }
-        
+
         Map<String, Object> row = rows.get(0);
-        return Map.of(
-            "locked", true,
-            "ownerUserId", row.get("owner_user_id"),
-            "ownerRole", row.get("owner_role"),
-            "expiresAt", row.get("expires_at") != null ? row.get("expires_at").toString() : null
-        );
+        Object expiresAt = formatApiTimestamp(row.get("expires_at"));
+        boolean locked = expiresAt != null;
+
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("locked", locked);
+        out.put("ownerUserId", locked ? row.get("owner_user_id") : null);
+        out.put("ownerRole", locked ? row.get("owner_role") : null);
+        out.put("expiresAt", expiresAt);
+        return out;
     }
 
     @Transactional
@@ -59,7 +67,7 @@ public class LockJpaService {
             "ok", true, 
             "reason", row.get("reason"), 
             "message", row.get("message"), 
-            "expiresAt", row.get("expires_at") != null ? row.get("expires_at").toString() : null
+            "expiresAt", formatApiTimestamp(row.get("expires_at"))
         );
     }
 
@@ -83,7 +91,7 @@ public class LockJpaService {
             "ok", true, 
             "reason", row.get("reason"), 
             "message", row.get("message"), 
-            "expiresAt", row.get("expires_at") != null ? row.get("expires_at").toString() : null
+            "expiresAt", formatApiTimestamp(row.get("expires_at"))
         );
     }
 
@@ -102,6 +110,19 @@ public class LockJpaService {
         }
         
         return Map.of("ok", true, "reason", row.get("reason"), "message", row.get("message"));
+    }
+
+    
+    private String formatApiTimestamp(Object value) {
+        if (value == null) return null;
+        if (value instanceof java.time.Instant instant) return instant.toString().replace("Z", "+00:00");
+        if (value instanceof java.time.OffsetDateTime odt) return odt.toInstant().toString().replace("Z", "+00:00");
+        if (value instanceof java.time.LocalDateTime ldt) return ldt.atZone(java.time.ZoneId.systemDefault()).toInstant().toString().replace("Z", "+00:00");
+        if (value instanceof java.sql.Timestamp ts) return ts.toInstant().toString().replace("Z", "+00:00");
+        String s = String.valueOf(value);
+        if (s.contains(" ")) s = s.replace(" ", "T");
+        if (s.endsWith("Z")) s = s.substring(0, s.length() - 1) + "+00:00";
+        return s;
     }
 
     private ApiErrorException mapLockError(Map<String, Object> row) {

@@ -212,12 +212,13 @@ public class WorkflowJpaService {
         int currentStage = toInt(app.get("current_stage"));
         String currentStatus = strOr(app.get("status"), "IN_PROGRESS");
 
-        updateApp(applicationId, currentStep, "IN_PROGRESS", "RETURNED_BY_MANAGER", currentStage, Map.of(
-            "requested_decline_reason", null,
-            "requested_decline_step", null,
-            "requested_decline_by", null,
-            "requested_decline_at", null
-        ));
+             Map<String, Object> clearedDeclineRequest = new LinkedHashMap<>();
+        clearedDeclineRequest.put("requested_decline_reason", null);
+        clearedDeclineRequest.put("requested_decline_step", null);
+        clearedDeclineRequest.put("requested_decline_by", null);
+        clearedDeclineRequest.put("requested_decline_at", null);
+
+        updateApp(applicationId, currentStep, "IN_PROGRESS", "RETURNED_BY_MANAGER", currentStage, clearedDeclineRequest);
 
         String comment = body == null || body.get("comment") == null ? "Return from decline" : String.valueOf(body.get("comment"));
         String historyEventId = addHistory(applicationId, "RETURN_FROM_DECLINE", currentStatus, "IN_PROGRESS", actorUserId, comment);

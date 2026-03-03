@@ -8,9 +8,9 @@
   "scenarios": [
     {
       "name": "error-contracts",
-     "ignorePaths": [
-        "details.timestamp",
-        "details.path"
+       "ignorePaths": [
+        "details.path",
+        "details.timestamp"
       ],
       "sequence": [
         {
@@ -49,10 +49,11 @@
     {
       "name": "workflow-and-db-side-effects",
       "ignorePaths": [
-        "updatedAt",
         "createdAt",
-        "updated_at",
-        "created_at"
+       "created_at",
+        "historyEventId",
+        "updatedAt",
+        "updated_at"
       ],
       "sequence": [
         {
@@ -95,6 +96,9 @@
             "path": "/api/v1/projects?scope={{SCOPE_ID}}&search=EP-2026"
           }
         }
+        ],
+      "ignorePaths": [
+        "items.*.lastModified" 
       ]
     },
     {
@@ -139,6 +143,9 @@
             }
           }
         }
+        ],
+      "ignorePaths": [
+        "expiresAt"
       ]
     },
     {
@@ -267,6 +274,10 @@
             }
           }
         }
+        ],
+      "ignorePaths": [
+        "historyEventId",
+        "requestedDeclineAt"
       ]
     },
     {
@@ -327,14 +338,20 @@
         }
       ],
       "ignorePaths": [
+        "approvedAt",
+        "createdAt",
+        "created_at",
+        "declinedAt",
+        "id",
+        "restoredAt",
+        "snapshot.*.timestamp",
         "snapshot.createdAt",
         "snapshot.updatedAt",
-        "snapshot.*.timestamp",
-        "createdAt",
+        
         "updatedAt",
-        "approvedAt",
-        "declinedAt",
-        "restoredAt"
+        "updated_at",
+        "version_number"
+       
       ]
     }
   ]

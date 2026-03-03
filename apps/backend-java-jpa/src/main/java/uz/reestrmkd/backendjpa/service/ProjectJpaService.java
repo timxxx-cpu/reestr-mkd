@@ -133,19 +133,19 @@ public class ProjectJpaService {
             applicationInfo.put("externalSource", app == null ? null : app.getExternalSource());
             applicationInfo.put("externalId", app == null ? null : app.getExternalId());
             applicationInfo.put("applicant", app == null ? null : app.getApplicant());
-            applicationInfo.put("submissionDate", app != null && app.getSubmissionDate() != null ? app.getSubmissionDate().toString() : null);
+            applicationInfo.put("submissionDate", app == null ? null : formatApiTimestamp(app.getSubmissionDate()));
             applicationInfo.put("assigneeName", app == null ? null : app.getAssigneeName());
             applicationInfo.put("currentStage", app == null ? null : app.getCurrentStage());
             applicationInfo.put("currentStepIndex", app == null ? null : app.getCurrentStep());
             applicationInfo.put("requestedDeclineReason", app == null ? null : app.getRequestedDeclineReason());
             applicationInfo.put("requestedDeclineStep", app == null ? null : app.getRequestedDeclineStep());
             applicationInfo.put("requestedDeclineBy", app == null ? null : app.getRequestedDeclineBy());
-            applicationInfo.put("requestedDeclineAt", app != null && app.getRequestedDeclineAt() != null ? app.getRequestedDeclineAt().toString() : null);
+            applicationInfo.put("requestedDeclineAt", app == null ? null : formatApiTimestamp(app.getRequestedDeclineAt()));
 
             String projectStatus = normalizeProjectStatusFromDb(project.getConstructionStatus());
-            String lastModified = app != null && app.getUpdatedAt() != null
-                ? app.getUpdatedAt().toString()
-                : (project.getUpdatedAt() != null ? project.getUpdatedAt().toString() : null);
+            String lastModified = app !=null
+                ? formatApiTimestamp(app.getUpdatedAt())
+                : formatApiTimestamp(project.getUpdatedAt());
 
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("id", project.getId());
@@ -169,14 +169,14 @@ public class ProjectJpaService {
 
         if (search != null && !search.isBlank()) {
             String lower = search.toLowerCase(Locale.ROOT);
-            mapped = mapped.stream().filter(pj ->
+            mapped = new ArrayList<>(mapped.stream().filter(pj ->
                 containsIgnoreCase(pj.get("name"), lower)
                     || containsIgnoreCase(pj.get("ujCode"), lower)
                     || containsIgnoreCase(((Map<String, Object>) pj.get("applicationInfo")).get("internalNumber"), lower)
                     || containsIgnoreCase(((Map<String, Object>) pj.get("applicationInfo")).get("externalId"), lower)
                     || containsIgnoreCase(((Map<String, Object>) pj.get("complexInfo")).get("street"), lower)
                     || containsIgnoreCase(((Map<String, Object>) pj.get("applicationInfo")).get("assigneeName"), lower)
-            ).toList();
+            ).toList());
         }
 
         mapped.sort((a, b) -> {
@@ -620,7 +620,7 @@ public class ProjectJpaService {
             applicationInfo.put("requestedDeclineReason", app.getRequestedDeclineReason());
             applicationInfo.put("requestedDeclineStep", app.getRequestedDeclineStep());
             applicationInfo.put("requestedDeclineBy", app.getRequestedDeclineBy());
-            applicationInfo.put("requestedDeclineAt", app.getRequestedDeclineAt() != null ? app.getRequestedDeclineAt().toString() : null);
+            applicationInfo.put("requestedDeclineAt", formatApiTimestamp(app.getRequestedDeclineAt()));
 
             // Шаги
             applicationSteps.findByApplicationIdOrderByStepIndexAsc(app.getId())
@@ -2001,6 +2001,28 @@ public class ProjectJpaService {
         }
     }
 
+
+    private String formatApiTimestamp(Object value) {
+        if (value == null) return null;
+
+        if (value instanceof java.time.Instant instant) {
+            return instant.toString().replace("Z", "+00:00");
+        }
+        if (value instanceof java.time.OffsetDateTime odt) {
+            return odt.toInstant().toString().replace("Z", "+00:00");
+        }
+        if (value instanceof java.time.LocalDateTime ldt) {
+            return ldt.atZone(java.time.ZoneId.systemDefault()).toInstant().toString().replace("Z", "+00:00");
+        }
+        if (value instanceof java.sql.Timestamp ts) {
+            return ts.toInstant().toString().replace("Z", "+00:00");
+        }
+
+        String s = String.valueOf(value);
+        if (s.contains(" ")) s = s.replace(" ", "T");
+        if (s.endsWith("Z")) s = s.substring(0, s.length() - 1) + "+00:00";
+        return s;
+    }
     private String stringVal(Object value) {
         return value == null ? null : String.valueOf(value);
     }
@@ -2029,7 +2051,7 @@ public class ProjectJpaService {
             case "completed" -> "COMPLETED";
             case "approved", "ready_for_operation" -> "READY_FOR_OPERATION";
             case "in_progress", "new", "draft" -> "IN_PROGRESS";
-            default -> status.toUpperCase(Locale.ROOT);
+            default -> status;
         };
     }
 

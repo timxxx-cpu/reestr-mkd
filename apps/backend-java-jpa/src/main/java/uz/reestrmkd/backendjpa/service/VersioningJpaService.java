@@ -33,7 +33,7 @@ public class VersioningJpaService {
         }
         return queryList("""
             select * from object_versions
-            where entity_type = :entityType and entity_id = :entityId
+            where entity_type = :entityType and entity_id = cast(:entityId as uuid)
             order by version_number desc
             """, Map.of("entityType", normalizedType, "entityId", normalizedId));
     }
@@ -48,7 +48,7 @@ public class VersioningJpaService {
 
         List<Map<String, Object>> latestRows = queryList("""
             select version_number from object_versions
-            where entity_type = :entityType and entity_id = :entityId
+            where entity_type = :entityType and entity_id = cast(:entityId as uuid)
             order by version_number desc limit 1
             """, Map.of("entityType", entityType, "entityId", entityId));
         int versionNumber = latestRows.isEmpty() ? 1 : toInt(latestRows.get(0).get("version_number")) + 1;
@@ -56,13 +56,13 @@ public class VersioningJpaService {
         execute("""
             update object_versions
             set version_status = 'PREVIOUS', updated_at = now()
-            where entity_type = :entityType and entity_id = :entityId and version_status = 'PENDING'
+             where entity_type = :entityType and entity_id = cast(:entityId as uuid) and version_status = 'PENDING'
             """, Map.of("entityType", entityType, "entityId", entityId));
 
         String id = stringValOr(body.get("id"), UUID.randomUUID().toString());
         execute("""
             insert into object_versions (id, entity_type, entity_id, version_number, version_status, snapshot_data, created_by, application_id, updated_at)
-            values (:id, :entityType, :entityId, :versionNumber, 'PENDING', cast(:snapshot as jsonb), :createdBy, :applicationId, now())
+           values (cast(:id as uuid), :entityType, :entityId, :versionNumber, 'PENDING', cast(:snapshot as jsonb), :createdBy, :applicationId, now())
             """, Map.of(
             "id", id,
             "entityType", entityType,
@@ -110,9 +110,9 @@ public class VersioningJpaService {
 
     @Transactional(readOnly = true)
     public Object snapshot(String versionId) {
-        Map<String, Object> row = queryOne("select snapshot_data from object_versions where id = :versionId", Map.of("versionId", versionId));
+      Map<String, Object> row = queryOne("select snapshot_data::text as snapshot_data from object_versions where id = :versionId", Map.of("versionId", versionId));
         if (row == null) return Map.of();
-        return row.get("snapshot_data");
+        return normalizeSnapshotValue(row.get("snapshot_data"));
     }
 
     @Transactional
@@ -122,7 +122,7 @@ public class VersioningJpaService {
         execute("""
             update object_versions
             set version_status = 'PREVIOUS', updated_at = now()
-            where entity_type = :entityType and entity_id = :entityId and version_status = 'PENDING' and id <> :versionId
+           where entity_type = :entityType and entity_id = cast(:entityId as uuid) and version_status = 'PENDING' and id <> :versionId
             """, Map.of("entityType", current.get("entity_type"), "entityId", current.get("entity_id"), "versionId", versionId));
 
         execute("""
@@ -162,8 +162,39 @@ public class VersioningJpaService {
 
     private Map<String, Object> tupleToMap(Tuple tuple) {
         Map<String, Object> row = new LinkedHashMap<>();
-        tuple.getElements().forEach(e -> row.put(e.getAlias(), tuple.get(e)));
+            tuple.getElements().forEach(e -> {
+            String alias = e.getAlias();
+            Object value = tuple.get(e);
+            if ("snapshot_data".equals(alias)) {
+                row.put(alias, normalizeSnapshotValue(value));
+            } else {
+                row.put(alias, value);
+            }
+        });
         return row;
+    }
+
+    private Object normalizeSnapshotValue(Object value) {
+        if (value == null) return null;
+        if (value instanceof Map<?, ?> || value instanceof List<?>) return value;
+
+        if (value instanceof String s) {
+            try {
+                return objectMapper.readValue(s, Object.class);
+            } catch (JsonProcessingException ignored) {
+                return s;
+            }
+        }
+
+        String asString = String.valueOf(value);
+        if (asString.startsWith("{") || asString.startsWith("[")) {
+            try {
+                return objectMapper.readValue(asString, Object.class);
+            } catch (JsonProcessingException ignored) {
+                return value;
+            }
+        }
+        return value;
     }
 
     private String toJson(Object value) {

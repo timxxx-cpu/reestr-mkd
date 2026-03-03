@@ -1,6 +1,7 @@
 package uz.reestrmkd.backendjpa.api.error;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -24,14 +25,30 @@ public class ApiExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleStatus(ResponseStatusException ex, HttpServletRequest request) {
         HttpStatus status = HttpStatus.valueOf(ex.getStatusCode().value());
         String reason = ex.getReason() == null ? status.getReasonPhrase() : ex.getReason();
-        String code = normalizeCode(reason, status);
+        String code = normalizeCode(reason, status, request);
         return ResponseEntity.status(status).body(payload(code, reason, null, request));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleUnexpected(Exception ex, HttpServletRequest request) {
+        Throwable root = rootCause(ex);
+        String uri = request.getRequestURI();
+
+        if ("/api/v1/units/upsert".equals(uri) && (ex instanceof DataAccessException || root instanceof java.sql.SQLException)) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(payload("DB_ERROR", "Cannot coerce the result to a single JSON object", null, request));
+        }
+
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
             .body(payload("INTERNAL_ERROR", "Internal server error", null, request));
+    }
+
+    private Throwable rootCause(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     private Map<String, Object> payload(String code, String message, Object details, HttpServletRequest request) {
@@ -46,7 +63,19 @@ public class ApiExceptionHandler {
         return payload;
     }
 
-    private String normalizeCode(String reason, HttpStatus status) {
+    private String normalizeCode(String reason, HttpStatus status, HttpServletRequest request) {
+        if (reason != null && reason.matches("[A-Z0-9_]+")) return reason;
+        
+        String uri = request.getRequestURI();
+        if (status == HttpStatus.BAD_REQUEST && reason != null) {
+            if ("scope is required".equalsIgnoreCase(reason) && "/api/v1/projects".equals(uri)) {
+                return "MISSING_SCOPE";
+            }
+            if (reason.toLowerCase(Locale.ROOT).contains("required")) {
+                return "VALIDATION_ERROR";
+            }
+        }
+        
         if (reason != null && reason.matches("[A-Z0-9_]+")) return reason;
         return status.name().toUpperCase(Locale.ROOT);
     }

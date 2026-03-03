@@ -36,14 +36,47 @@ function getByPath(obj, pathExpr) {
 }
 
 function deleteByPath(obj, pathExpr) {
-  const parts = pathExpr.split('.');
-  const last = parts.pop();
-  let cursor = obj;
-  for (const p of parts) {
-    if (cursor == null || typeof cursor !== 'object') return;
-    cursor = cursor[p];
+const parts = pathExpr.split('.').filter(Boolean);
+
+  function removeAt(target, index) {
+    if (target == null) return;
+    if (index >= parts.length) return;
+
+    const part = parts[index];
+    const isLast = index === parts.length - 1;
+
+    if (part === '*') {
+      if (Array.isArray(target)) {
+        for (const item of target) removeAt(item, index + 1);
+      } else if (typeof target === 'object') {
+        for (const value of Object.values(target)) removeAt(value, index + 1);
+      }
+      return;
+    }
+
+    if (Array.isArray(target)) {
+      const arrayIndex = Number(part);
+      if (Number.isInteger(arrayIndex) && arrayIndex >= 0 && arrayIndex < target.length) {
+        if (isLast) {
+          delete target[arrayIndex];
+        } else {
+          removeAt(target[arrayIndex], index + 1);
+        }
+      }
+      return;
+    }
+
+    if (typeof target !== 'object') return;
+
+    if (isLast) {
+      if (part in target) delete target[part];
+      return;
+    }
+
+    if (part in target) removeAt(target[part], index + 1);
   }
-  if (cursor && typeof cursor === 'object' && last in cursor) delete cursor[last];
+  
+  removeAt(obj, 0)
 }
 
 function sortObject(value) {
