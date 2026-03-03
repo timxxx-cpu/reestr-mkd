@@ -39,9 +39,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         if (uri.startsWith("/actuator")
             || uri.equals("/api/v1/auth/login")
-            || uri.equals("/api/v1/catalogs/dict_system_users")
-            || uri.equals("/api/v1/health")) {
-            return true;
+            || uri.equals("/api/v1/catalogs/dict_system_users")) {
+          return true;
         }
 
         if (HttpMethod.GET.matches(method)) {
@@ -67,7 +66,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 request.setAttribute("auth.userId", userId);
                 request.setAttribute("auth.role", role);
             } catch (RuntimeException ex) {
-                unauthorized(response, "UNAUTHORIZED", "JWT auth failed: invalid token");
+                unauthorized(response, "UNAUTHORIZED", "JWT auth failed: " + String.valueOf(ex.getMessage()));
                 return;
             }
         } else if ("dev".equalsIgnoreCase(authMode)) {
@@ -104,7 +103,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
         return "Missing Bearer token";
     }
-    
+
     private boolean isMutation(HttpServletRequest request) {
         String method = request.getMethod().toUpperCase(Locale.ROOT);
         return HttpMethod.POST.matches(method)

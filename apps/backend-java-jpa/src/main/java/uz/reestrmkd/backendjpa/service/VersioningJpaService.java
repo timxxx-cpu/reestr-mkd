@@ -60,18 +60,19 @@ public class VersioningJpaService {
             """, Map.of("entityType", entityType, "entityId", entityId));
 
         String id = stringValOr(body.get("id"), UUID.randomUUID().toString());
+        Map<String, Object> insertParams = new LinkedHashMap<>();
+        insertParams.put("id", id);
+        insertParams.put("entityType", entityType);
+        insertParams.put("entityId", entityId);
+        insertParams.put("versionNumber", versionNumber);
+        insertParams.put("snapshot", toJson(body.getOrDefault("snapshotData", Map.of())));
+        insertParams.put("createdBy", stringVal(body.get("createdBy")));
+        insertParams.put("applicationId", stringVal(body.get("applicationId")));
+
         execute("""
             insert into object_versions (id, entity_type, entity_id, version_number, version_status, snapshot_data, created_by, application_id, updated_at)
            values (cast(:id as uuid), :entityType, :entityId, :versionNumber, 'PENDING', cast(:snapshot as jsonb), :createdBy, :applicationId, now())
-            """, Map.of(
-            "id", id,
-            "entityType", entityType,
-            "entityId", entityId,
-            "versionNumber", versionNumber,
-            "snapshot", toJson(body.getOrDefault("snapshotData", Map.of())),
-            "createdBy", stringVal(body.get("createdBy")),
-            "applicationId", stringVal(body.get("applicationId"))
-        ));
+         """, insertParams);
 
         return getById(id);
     }

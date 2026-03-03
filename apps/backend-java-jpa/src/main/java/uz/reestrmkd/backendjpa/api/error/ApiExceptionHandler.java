@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Instant;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -59,7 +58,6 @@ public class ApiExceptionHandler {
         payload.put("message", message);
         payload.put("details", details);
         payload.put("requestId", requestId);
-        payload.put("timestamp", Instant.now().toString());
         return payload;
     }
 

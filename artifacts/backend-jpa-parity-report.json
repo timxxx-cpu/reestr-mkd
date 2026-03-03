@@ -1,58 +1,10 @@
 {
-  "generatedAt": "2026-03-03T11:15:49.576Z",
+  "generatedAt": "2026-03-03T13:13:52.579Z",
   "scenarioFile": "tests/parity/backend-functional-parity.scenarios.json",
   "totals": {
     "scenarios": 9,
     "steps": 22,
-    "failures": 1
+    "failures": 0
   },
-  "mismatches": [
-    {
-      "scenario": "versioning-flow",
-      "step": "version-create",
-      "request": {
-        "method": "POST",
-        "path": "/api/v1/versions",
-        "headers": {
-          "x-user-id": "parity-tech",
-          "x-user-role": "technician"
-        },
-        "body": {
-          "entityType": "project",
-          "entityId": "{{PROJECT_ID}}",
-          "snapshotData": {
-            "parity": true,
-            "v": 1
-          }
-        }
-      },
-      "status": {
-        "node": 200,
-        "java": 500,
-        "same": false
-      },
-      "body": {
-        "same": false,
-        "node": {
-          "application_id": null,
-          "approved_by": null,
-          "created_by": "parity-tech",
-          "decline_reason": null,
-          "declined_by": null,
-          "entity_id": "b525a6d3-0375-4953-8a19-dfe5e5b1920d",
-          "entity_type": "project",
-          "snapshot_data": {
-            "parity": true,
-            "v": 1
-          },
-          "version_status": "PENDING"
-        },
-        "java": {
-          "code": "INTERNAL_ERROR",
-          "details": null,
-          "message": "Internal server error"
-        }
-      }
-    }
-  ]
+  "mismatches": []
 }

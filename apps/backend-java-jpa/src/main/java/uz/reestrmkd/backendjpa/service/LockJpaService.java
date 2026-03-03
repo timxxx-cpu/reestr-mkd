@@ -5,7 +5,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 import uz.reestrmkd.backendjpa.api.error.ApiErrorException;
 
 import java.util.List;
@@ -56,7 +55,7 @@ public class LockJpaService {
             from acquire_application_lock(cast(:appId as uuid), :userId, :role, :ttl)
             """, Map.of("appId", applicationId, "userId", userId, "role", role, "ttl", ttl));
 
-        if (result.isEmpty()) throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "RPC failed");
+        if (result.isEmpty()) throw new ApiErrorException(HttpStatus.INTERNAL_SERVER_ERROR, "EMPTY_RPC_RESPONSE", "No response from lock RPC");
         
         Map<String, Object> row = result.get(0);
         if (!Boolean.TRUE.equals(row.get("ok"))) {
@@ -80,7 +79,7 @@ public class LockJpaService {
             from refresh_application_lock(cast(:appId as uuid), :userId, :ttl)
             """, Map.of("appId", applicationId, "userId", userId, "ttl", ttl));
 
-        if (result.isEmpty()) throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "RPC failed");
+        if (result.isEmpty()) throw new ApiErrorException(HttpStatus.INTERNAL_SERVER_ERROR, "EMPTY_RPC_RESPONSE", "No response from lock RPC");
         
         Map<String, Object> row = result.get(0);
         if (!Boolean.TRUE.equals(row.get("ok"))) {
@@ -102,7 +101,7 @@ public class LockJpaService {
             from release_application_lock(cast(:appId as uuid), :userId)
             """, Map.of("appId", applicationId, "userId", userId));
 
-        if (result.isEmpty()) throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "RPC failed");
+        if (result.isEmpty()) throw new ApiErrorException(HttpStatus.INTERNAL_SERVER_ERROR, "EMPTY_RPC_RESPONSE", "No response from lock RPC");
         
         Map<String, Object> row = result.get(0);
         if (!Boolean.TRUE.equals(row.get("ok"))) {
@@ -115,18 +114,46 @@ public class LockJpaService {
     
     private String formatApiTimestamp(Object value) {
         if (value == null) return null;
-        if (value instanceof java.time.Instant instant) return instant.toString().replace("Z", "+00:00");
-        if (value instanceof java.time.OffsetDateTime odt) return odt.toInstant().toString().replace("Z", "+00:00");
-        if (value instanceof java.time.LocalDateTime ldt) return ldt.atZone(java.time.ZoneId.systemDefault()).toInstant().toString().replace("Z", "+00:00");
-        if (value instanceof java.sql.Timestamp ts) return ts.toInstant().toString().replace("Z", "+00:00");
-        String s = String.valueOf(value);
-        if (s.contains(" ")) s = s.replace(" ", "T");
-        if (s.endsWith("Z")) s = s.substring(0, s.length() - 1) + "+00:00";
-        return s;
+        String s;
+        if (value instanceof java.time.Instant instant) {
+            s = instant.toString().replace("Z", "+00:00");
+        } else if (value instanceof java.time.OffsetDateTime odt) {
+            s = odt.toInstant().toString().replace("Z", "+00:00");
+        } else if (value instanceof java.time.LocalDateTime ldt) {
+            s = ldt.atZone(java.time.ZoneId.systemDefault()).toInstant().toString().replace("Z", "+00:00");
+        } else if (value instanceof java.sql.Timestamp ts) {
+            s = ts.toInstant().toString().replace("Z", "+00:00");
+        } else {
+            s = String.valueOf(value);
+            if (s.contains(" ")) s = s.replace(" ", "T");
+            if (s.endsWith("Z")) s = s.substring(0, s.length() - 1) + "+00:00";
+        }
+
+        return trimFractionalTrailingZeros(s);
+    }
+
+    private String trimFractionalTrailingZeros(String timestamp) {
+        int plus = timestamp.indexOf('+');
+        if (plus <= 0) return timestamp;
+        String main = timestamp.substring(0, plus);
+        String zone = timestamp.substring(plus);
+
+        int dot = main.indexOf('.');
+        if (dot < 0) return timestamp;
+
+        String prefix = main.substring(0, dot);
+        String fraction = main.substring(dot + 1);
+        while (fraction.endsWith("0")) {
+            fraction = fraction.substring(0, fraction.length() - 1);
+        }
+        if (fraction.isEmpty()) {
+            return prefix + zone;
+        }
+        return prefix + "." + fraction + zone;
     }
 
     private ApiErrorException mapLockError(Map<String, Object> row) {
-        String reason = row.get("reason") == null ? "LOCK_CONFLICT" : String.valueOf(row.get("reason")).toUpperCase();
+        String reason = row.get("reason") == null ? "LOCK_ERROR" : String.valueOf(row.get("reason")).toUpperCase();
         String message = row.get("message") == null ? "Lock operation failed" : String.valueOf(row.get("message"));
         return switch (reason) {
             case "NOT_FOUND" -> new ApiErrorException(HttpStatus.NOT_FOUND, "NOT_FOUND", message, row);
