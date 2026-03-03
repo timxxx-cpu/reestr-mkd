@@ -2,6 +2,10 @@ package uz.reestrmkd.backendjpa.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
@@ -11,6 +15,8 @@ import org.locationtech.jts.geom.MultiPolygon;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 @Getter
@@ -21,6 +27,16 @@ public class BuildingEntity extends BaseEntity {
 
     @Column(name = "project_id", nullable = false)
     private String projectId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "project_id", insertable = false, updatable = false)
+    private ProjectEntity project;
+
+    @OneToMany(mappedBy = "building", fetch = FetchType.LAZY)
+    private List<BuildingBlockEntity> blocks = new ArrayList<>();
+
+    @OneToMany(mappedBy = "assignedBuilding", fetch = FetchType.LAZY)
+    private List<ProjectGeometryCandidateEntity> assignedGeometryCandidates = new ArrayList<>();
 
     @Column(name = "building_code", unique = true)
     private String buildingCode;

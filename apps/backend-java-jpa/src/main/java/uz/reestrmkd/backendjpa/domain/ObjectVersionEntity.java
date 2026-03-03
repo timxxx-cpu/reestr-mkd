@@ -2,6 +2,9 @@ package uz.reestrmkd.backendjpa.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
@@ -46,4 +49,8 @@ public class ObjectVersionEntity extends BaseEntity {
 
     @Column(name = "application_id")
     private String applicationId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "application_id", insertable = false, updatable = false)
+    private ApplicationEntity application;
 }

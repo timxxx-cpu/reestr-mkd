@@ -13,7 +13,24 @@ import java.util.Map;
 public class ProjectController {
     private final ProjectJpaService projects;
 
-    @GetMapping("/projects") public Map<String, Object> projects(@RequestParam(required = false) String scope) { return projects.list(scope); }
+    @GetMapping("/projects")
+    public Map<String, Object> projects(
+        @RequestParam(required = false) String scope,
+        @RequestParam(required = false) String status,
+        @RequestParam(required = false) String workflowSubstatus,
+        @RequestParam(required = false) String assignee,
+        @RequestParam(required = false) String search,
+        @RequestParam(required = false) Integer page,
+        @RequestParam(required = false) Integer limit,
+        org.springframework.security.core.Authentication authentication
+    ) {
+        String actorUserId = authentication == null ? null : authentication.getName();
+        String actorRole = (authentication == null || authentication.getAuthorities() == null || authentication.getAuthorities().isEmpty())
+            ? null
+            : authentication.getAuthorities().iterator().next().getAuthority();
+        if (actorRole != null && actorRole.startsWith("ROLE_")) actorRole = actorRole.substring(5).toLowerCase();
+        return projects.list(scope, status, workflowSubstatus, assignee, search, page, limit, actorUserId, actorRole);
+    }
     @GetMapping("/projects/map-overview") public Map<String, Object> projectsMapOverview(@RequestParam(required = false) String scope) { return projects.mapOverview(scope); }
     @GetMapping("/external-applications") public Object ext(@RequestParam(required = false) String scope){ return projects.externalApplications(scope); }
     @GetMapping("/projects/summary-counts") public Map<String,Object> summary(@RequestParam(required = false) String scope){ return projects.summary(scope); }
@@ -55,7 +72,10 @@ public class ProjectController {
     @DeleteMapping("/projects/{projectId}") public Map<String,Object> delProject(@PathVariable String projectId,@RequestParam(required=false) String scope){ return projects.deleteProject(projectId, scope); }
 
     @GetMapping("/projects/{projectId}/integration-status") public Map<String,Object> integrationGet(@PathVariable String projectId){ return projects.integrationGet(projectId); }
-    @PutMapping("/projects/{projectId}/integration-status") public Map<String, Object> integration(@PathVariable String projectId, @RequestBody Map<String, Object> body) { return projects.integrationStatus(projectId, String.valueOf(body.get("integrationStatus"))); }
+    @PutMapping("/projects/{projectId}/integration-status")
+    public Map<String, Object> integration(@PathVariable String projectId, @RequestBody Map<String, Object> body) {
+        return projects.integrationStatus(projectId, body);
+    }
     @GetMapping("/projects/{projectId}/parking-counts") public Map<String,Object> parking(@PathVariable String projectId){ return projects.parkingCounts(projectId); }
     @GetMapping("/registry/buildings-summary") public Object buildingsSummary(){ return projects.buildingsSummary(); }
 

@@ -2,6 +2,11 @@ package uz.reestrmkd.backendjpa.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
@@ -10,6 +15,7 @@ import org.hibernate.type.SqlTypes;
 import org.locationtech.jts.geom.MultiPolygon;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -21,6 +27,31 @@ public class BuildingBlockEntity extends BaseEntity {
 
     @Column(name = "building_id", nullable = false)
     private String buildingId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "building_id", insertable = false, updatable = false)
+    private BuildingEntity building;
+
+    @OneToMany(mappedBy = "block", fetch = FetchType.LAZY)
+    private List<FloorEntity> floors = new ArrayList<>();
+
+    @OneToMany(mappedBy = "block", fetch = FetchType.LAZY)
+    private List<EntranceEntity> entrances = new ArrayList<>();
+
+    @OneToMany(mappedBy = "block", fetch = FetchType.LAZY)
+    private List<BlockFloorMarkerEntity> floorMarkers = new ArrayList<>();
+
+    @OneToMany(mappedBy = "block", fetch = FetchType.LAZY)
+    private List<EntranceMatrixEntity> entranceMatrix = new ArrayList<>();
+
+    @OneToMany(mappedBy = "parentBlock", fetch = FetchType.LAZY)
+    private List<BlockExtensionEntity> extensions = new ArrayList<>();
+
+    @OneToOne(mappedBy = "block", fetch = FetchType.LAZY)
+    private BlockConstructionEntity construction;
+
+    @OneToOne(mappedBy = "block", fetch = FetchType.LAZY)
+    private BlockEngineeringEntity engineering;
 
     @Column(name = "label", nullable = false)
     private String label;
@@ -52,7 +83,6 @@ public class BuildingBlockEntity extends BaseEntity {
     @Column(name = "light_structure_type")
     private String lightStructureType;
 
-    // Маппинг массива PostgreSQL (uuid[]) в Java List
     @JdbcTypeCode(SqlTypes.ARRAY)
     @Column(name = "parent_blocks", columnDefinition = "uuid[]")
     private List<String> parentBlocks;

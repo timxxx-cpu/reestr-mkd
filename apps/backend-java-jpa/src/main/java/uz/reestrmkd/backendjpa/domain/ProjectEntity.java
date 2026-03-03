@@ -2,6 +2,8 @@ package uz.reestrmkd.backendjpa.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
@@ -10,6 +12,8 @@ import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 @Getter
@@ -17,6 +21,21 @@ import java.util.Map;
 @Entity
 @Table(name = "projects")
 public class ProjectEntity extends BaseEntity {
+
+    @OneToMany(mappedBy = "project", fetch = FetchType.LAZY)
+    private List<BuildingEntity> buildings = new ArrayList<>();
+
+    @OneToMany(mappedBy = "project", fetch = FetchType.LAZY)
+    private List<ApplicationEntity> applications = new ArrayList<>();
+
+    @OneToMany(mappedBy = "project", fetch = FetchType.LAZY)
+    private List<ProjectParticipantEntity> participants = new ArrayList<>();
+
+    @OneToMany(mappedBy = "project", fetch = FetchType.LAZY)
+    private List<ProjectDocumentEntity> documents = new ArrayList<>();
+
+    @OneToMany(mappedBy = "project", fetch = FetchType.LAZY)
+    private List<ProjectGeometryCandidateEntity> geometryCandidates = new ArrayList<>();
 
     @Column(name = "scope_id", nullable = false)
     private String scopeId;
@@ -60,9 +79,6 @@ public class ProjectEntity extends BaseEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "integration_data", columnDefinition = "jsonb")
     private Map<String, Object> integrationData;
-
-    // УБРАЛИ ОШИБОЧНОЕ ПОЛЕ:
-    // private String integrationStatus;
 
     @Column(name = "address_id")
     private String addressId;

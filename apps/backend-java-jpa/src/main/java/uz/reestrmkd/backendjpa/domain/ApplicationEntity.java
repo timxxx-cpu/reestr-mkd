@@ -2,6 +2,11 @@ package uz.reestrmkd.backendjpa.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
@@ -9,6 +14,8 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 @Getter
@@ -19,6 +26,25 @@ public class ApplicationEntity extends BaseEntity {
 
     @Column(name = "project_id", nullable = false)
     private String projectId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "project_id", insertable = false, updatable = false)
+    private ProjectEntity project;
+
+    @OneToMany(mappedBy = "application", fetch = FetchType.LAZY)
+    private List<ApplicationStepEntity> steps = new ArrayList<>();
+
+    @OneToMany(mappedBy = "application", fetch = FetchType.LAZY)
+    private List<ApplicationHistoryEntity> history = new ArrayList<>();
+
+    @OneToOne(mappedBy = "application", fetch = FetchType.LAZY)
+    private ApplicationLockEntity lock;
+
+    @OneToMany(mappedBy = "application", fetch = FetchType.LAZY)
+    private List<ApplicationLockAuditEntity> lockAudit = new ArrayList<>();
+
+    @OneToMany(mappedBy = "application", fetch = FetchType.LAZY)
+    private List<ObjectVersionEntity> versions = new ArrayList<>();
 
     @Column(name = "scope_id", nullable = false)
     private String scopeId;

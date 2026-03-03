@@ -2,6 +2,9 @@ package uz.reestrmkd.backendjpa.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
@@ -15,7 +18,11 @@ public class ApplicationLockAuditEntity extends BaseEntity {
     @Column(name = "application_id", nullable = false)
     private String applicationId;
 
-    @Column(name = "action", nullable = false) // ACQUIRE | REFRESH | RELEASE | DENY
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "application_id", insertable = false, updatable = false)
+    private ApplicationEntity application;
+
+    @Column(name = "action", nullable = false)
     private String action;
 
     @Column(name = "actor_user_id")
