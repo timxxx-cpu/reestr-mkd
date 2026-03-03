@@ -8,7 +8,10 @@
   "scenarios": [
     {
       "name": "error-contracts",
-      "ignorePaths": [],
+      "ignorePaths": [
+        "details.timestamp",
+        "details.path"
+      ],
       "sequence": [
         {
           "name": "projects-list-missing-scope",
@@ -62,7 +65,7 @@
               "x-user-role": "admin"
             },
             "body": {
-              "technicianId": "parity-tech"
+              "assigneeUserId": "parity-tech"
             }
           }
         },
@@ -73,6 +76,265 @@
             "path": "/api/v1/applications/{{APP_ID}}/locks"
           }
         }
+      ]
+    },
+    {
+      "name": "project-list-filters",
+      "sequence": [
+        {
+          "name": "projects-filter-status-substatus",
+          "request": {
+            "method": "GET",
+            "path": "/api/v1/projects?scope={{SCOPE_ID}}&status=IN_PROGRESS&workflowSubstatus=DRAFT&page=1&limit=10"
+          }
+        },
+        {
+          "name": "projects-filter-search",
+          "request": {
+            "method": "GET",
+            "path": "/api/v1/projects?scope={{SCOPE_ID}}&search=EP-2026"
+          }
+        }
+      ]
+    },
+    {
+      "name": "locks-race-cases",
+      "sequence": [
+        {
+          "name": "lock-acquire-first",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/applications/{{APP_ID}}/locks/acquire",
+            "headers": {
+              "x-user-id": "parity-user",
+              "x-user-role": "admin"
+            },
+            "body": {
+              "ttlSeconds": 120
+            }
+          }
+        },
+        {
+          "name": "lock-acquire-second-same-user",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/applications/{{APP_ID}}/locks/acquire",
+            "headers": {
+              "x-user-id": "parity-user",
+              "x-user-role": "admin"
+            },
+            "body": {
+              "ttlSeconds": 120
+            }
+          }
+        },
+        {
+          "name": "lock-release",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/applications/{{APP_ID}}/locks/release",
+            "headers": {
+              "x-user-id": "parity-user",
+              "x-user-role": "admin"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "registry-upsert-idempotency",
+      "sequence": [
+        {
+          "name": "registry-unit-upsert-first",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/units/upsert",
+            "headers": {
+              "x-user-id": "parity-user",
+              "x-user-role": "admin",
+              "x-idempotency-key": "parity-unit-upsert-1"
+            },
+            "body": {
+              "id": "11111111-1111-1111-1111-111111111111",
+              "floorId": "22222222-2222-2222-2222-222222222222",
+              "unitNumber": "P-1",
+              "unitType": "parking_place"
+            }
+          }
+        },
+        {
+          "name": "registry-unit-upsert-repeat-same-key",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/units/upsert",
+            "headers": {
+              "x-user-id": "parity-user",
+              "x-user-role": "admin",
+              "x-idempotency-key": "parity-unit-upsert-1"
+            },
+            "body": {
+              "id": "11111111-1111-1111-1111-111111111111",
+              "floorId": "22222222-2222-2222-2222-222222222222",
+              "unitNumber": "P-1",
+              "unitType": "parking_place"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "auth-policy-negative",
+      "sequence": [
+        {
+          "name": "workflow-without-auth",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/applications/{{APP_ID}}/workflow/assign-technician",
+            "body": {
+              "technicianId": "parity-tech"
+            }
+          }
+        },
+        {
+          "name": "locks-acquire-without-auth",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/applications/{{APP_ID}}/locks/acquire",
+            "body": {
+              "ttlSeconds": 120
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "workflow-decline-chain",
+      "sequence": [
+        {
+          "name": "workflow-request-decline",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/applications/{{APP_ID}}/workflow/request-decline",
+            "headers": {
+              "x-user-id": "parity-user",
+              "x-user-role": "branch_manager"
+            },
+            "body": {
+              "reason": "parity decline request",
+              "stepIndex": 2
+            }
+          }
+        },
+        {
+          "name": "workflow-decline-controller",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/applications/{{APP_ID}}/workflow/decline",
+            "headers": {
+              "x-user-id": "parity-controller",
+              "x-user-role": "controller"
+            },
+            "body": {
+              "reason": "parity decline"
+            }
+          }
+        },
+        {
+          "name": "workflow-return-from-decline",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/applications/{{APP_ID}}/workflow/return-from-decline",
+            "headers": {
+              "x-user-id": "parity-user",
+              "x-user-role": "branch_manager"
+            },
+            "body": {
+              "comment": "parity return"
+            }
+          }
+        },
+        {
+          "name": "workflow-restore",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/applications/{{APP_ID}}/workflow/restore",
+            "headers": {
+              "x-user-id": "parity-admin",
+              "x-user-role": "admin"
+            },
+            "body": {
+              "comment": "parity restore"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "versioning-flow",
+      "sequence": [
+        {
+          "name": "version-create",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/versions",
+            "headers": {
+              "x-user-id": "parity-tech",
+              "x-user-role": "technician"
+            },
+            "body": {
+              "entityType": "project",
+              "entityId": "{{PROJECT_ID}}",
+              "snapshotData": {
+                "parity": true,
+                "v": 1
+              }
+            }
+          },
+          "capture": {
+            "VERSION_ID": "id"
+          }
+        },
+        {
+          "name": "version-approve",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/versions/{{VERSION_ID}}/approve",
+            "headers": {
+              "x-user-id": "parity-controller",
+              "x-user-role": "controller"
+            },
+            "body": {}
+          }
+        },
+        {
+          "name": "version-snapshot",
+          "request": {
+            "method": "GET",
+            "path": "/api/v1/versions/{{VERSION_ID}}/snapshot"
+          }
+        },
+        {
+          "name": "version-restore",
+          "request": {
+            "method": "POST",
+            "path": "/api/v1/versions/{{VERSION_ID}}/restore",
+            "headers": {
+              "x-user-id": "parity-manager",
+              "x-user-role": "branch_manager"
+            },
+            "body": {}
+          }
+        }
+      ],
+      "ignorePaths": [
+        "snapshot.createdAt",
+        "snapshot.updatedAt",
+        "snapshot.*.timestamp",
+        "createdAt",
+        "updatedAt",
+        "approvedAt",
+        "declinedAt",
+        "restoredAt"
       ]
     }
   ]

@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import uz.reestrmkd.backendjpa.api.error.ApiErrorException;
 
 import java.util.List;
 import java.util.Map;
@@ -41,8 +42,6 @@ public class LockJpaService {
     public Map<String, Object> acquire(String applicationId, String userId, String role, Integer ttlSecondsRaw) {
         int ttl = Math.max(60, ttlSecondsRaw == null ? 1200 : ttlSecondsRaw);
 
-        jdbc.update("delete from application_locks where application_id = cast(:appId as uuid)", Map.of("appId", applicationId));
-        
         // Вызываем надежную функцию БД, которая внутри сама делает ON CONFLICT и пишет аудит
         List<Map<String, Object>> result = jdbc.queryForList("""
             select ok, reason, message, expires_at 
@@ -53,7 +52,7 @@ public class LockJpaService {
         
         Map<String, Object> row = result.get(0);
         if (!Boolean.TRUE.equals(row.get("ok"))) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, String.valueOf(row.get("message")));
+            throw mapLockError(row);
         }
         
         return Map.of(
@@ -77,7 +76,7 @@ public class LockJpaService {
         
         Map<String, Object> row = result.get(0);
         if (!Boolean.TRUE.equals(row.get("ok"))) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, String.valueOf(row.get("message")));
+            throw mapLockError(row);
         }
         
         return Map.of(
@@ -99,9 +98,22 @@ public class LockJpaService {
         
         Map<String, Object> row = result.get(0);
         if (!Boolean.TRUE.equals(row.get("ok"))) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, String.valueOf(row.get("message")));
+            throw mapLockError(row);
         }
         
         return Map.of("ok", true, "reason", row.get("reason"), "message", row.get("message"));
     }
+
+    private ApiErrorException mapLockError(Map<String, Object> row) {
+        String reason = row.get("reason") == null ? "LOCK_CONFLICT" : String.valueOf(row.get("reason")).toUpperCase();
+        String message = row.get("message") == null ? "Lock operation failed" : String.valueOf(row.get("message"));
+        return switch (reason) {
+            case "NOT_FOUND" -> new ApiErrorException(HttpStatus.NOT_FOUND, "NOT_FOUND", message, row);
+            case "LOCKED" -> new ApiErrorException(HttpStatus.CONFLICT, "LOCKED", message, row);
+            case "ASSIGNEE_MISMATCH" -> new ApiErrorException(HttpStatus.FORBIDDEN, "ASSIGNEE_MISMATCH", message, row);
+            case "OWNER_MISMATCH" -> new ApiErrorException(HttpStatus.CONFLICT, "OWNER_MISMATCH", message, row);
+            default -> new ApiErrorException(HttpStatus.CONFLICT, reason, message, row);
+        };
+    }
+
 }

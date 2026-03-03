@@ -105,3 +105,53 @@ test('functional parity checker fails for mismatched response', async () => {
     await fs.rm(scenarioFile, { force: true });
   }
 });
+
+
+test('functional parity checker normalizes snapshot json strings and wildcard ignore paths', async () => {
+  const scenarioFile = path.resolve('tests/parity/.tmp-scenario-normalize.json');
+  await fs.writeFile(
+    scenarioFile,
+    JSON.stringify({
+      scenarios: [
+        {
+          name: 'normalize',
+          ignorePaths: ['items.*.timestamp'],
+          sequence: [{ name: 'snapshot', request: { method: 'GET', path: '/snapshot' } }],
+        },
+      ],
+    })
+  );
+
+  const left = await startServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        snapshotData: { ok: true, nested: { v: 1 } },
+        items: [{ timestamp: '2026-03-03T01:02:03.000Z' }],
+      })
+    );
+  });
+  const right = await startServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        snapshotData: '{"ok":true,"nested":{"v":1}}',
+        items: [{ timestamp: '2026-03-03T12:13:14Z' }],
+      })
+    );
+  });
+
+  try {
+    const result = await runChecker({
+      NODE_BACKEND_URL: left.baseUrl,
+      JAVA_JPA_BACKEND_URL: right.baseUrl,
+      PARITY_SCENARIOS: scenarioFile,
+    });
+    assert.equal(result.code, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /Functional parity check passed/);
+  } finally {
+    left.server.close();
+    right.server.close();
+    await fs.rm(scenarioFile, { force: true });
+  }
+});
