@@ -1,4 +1,8 @@
+server:
+  port: 8787
 spring:
+  profiles:
+    active: dev
   datasource:
     url: ${DB_URL}
     username: ${DB_USER}
@@ -6,7 +10,7 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: validate
+      ddl-auto: update
     properties:
       hibernate:
         jdbc:
@@ -24,6 +28,7 @@ spring:
     properties:
       hibernate:
         "[format_sql]": true
+       
 
 logging:
   level:

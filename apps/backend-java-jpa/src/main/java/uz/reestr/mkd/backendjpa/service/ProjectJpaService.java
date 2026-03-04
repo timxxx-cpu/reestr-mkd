@@ -161,7 +161,7 @@ public class ProjectJpaService {
         select upper(coalesce(workflow_substatus, '')), count(*)
           from applications a
          where a.scope_id = :scopeId
-           and (:assigneeName is null or a.assignee_name = :assigneeName)
+           and (cast(:assigneeName as text) is null or a.assignee_name = cast(:assigneeName as text))
          group by upper(coalesce(workflow_substatus, ''))
         """)
         .setParameter("scopeId", normalizedScope)

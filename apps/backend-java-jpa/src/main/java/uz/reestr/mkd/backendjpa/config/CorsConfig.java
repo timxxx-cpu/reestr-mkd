@@ -21,14 +21,15 @@ public class CorsConfig {
       @Override
       public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-            .allowedOrigins(allowedOrigins.toArray(String[]::new))
-            .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+            .allowedOrigins("http://localhost:5173", "http://localhost:3000") 
+            .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
             .allowedHeaders(
                 "Authorization",
                 "Content-Type",
                 "x-client-request-id",
                 "x-idempotency-key",
                 "x-user-id",
+                "x-operation-source",
                 "x-user-role"
             )
             .exposedHeaders(
@@ -38,7 +39,8 @@ public class CorsConfig {
                 "x-user-id",
                 "x-user-role"
             )
-            .allowCredentials(true);
+            .allowCredentials(true)
+            .maxAge(3600);
       }
     };
   }
@@ -56,6 +58,7 @@ public class CorsConfig {
         "x-client-request-id",
         "x-idempotency-key",
         "x-user-id",
+        "x-operation-source",
         "x-user-role"
     ));
     config.setExposedHeaders(List.of(

@@ -147,9 +147,9 @@ public class BlockEntity {
   @OneToMany(mappedBy = "block", cascade = CascadeType.ALL, orphanRemoval = true)
   private List<EntranceEntity> entrances = new ArrayList<>();
 
-  @Builder.Default
-  @OneToMany(mappedBy = "block", cascade = CascadeType.ALL, orphanRemoval = true)
-  private List<UnitEntity> units = new ArrayList<>();
+ // @Builder.Default
+ // @OneToMany(mappedBy = "block", cascade = CascadeType.ALL, orphanRemoval = true)
+ // private List<UnitEntity> units = new ArrayList<>();
 
   public void setBlockConstruction(BlockConstructionEntity blockConstruction) {
     this.blockConstruction = blockConstruction;

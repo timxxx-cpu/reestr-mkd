@@ -10,8 +10,16 @@ export function useCatalog(table) {
   });
 
   const options = useMemo(() => {
-    const db = query.data || [];
-    return db.map(x => ({ code: x.code, label: x.label, id: x.id, ...x }));
+    // Проверяем, пришел ли массив напрямую или внутри поля items
+    const data = query.data;
+    const db = Array.isArray(data) ? data : (data?.items || []);
+    
+    return db.map(x => ({ 
+      code: x.code, 
+      label: x.label || x.name, // Добавлено для совместимости с разными таблицами
+      id: x.id, 
+      ...x 
+    }));
   }, [query.data]);
 
   return { ...query, options };

@@ -15,25 +15,24 @@ public interface ApplicationRepository extends JpaRepository<ApplicationEntity, 
 
   java.util.Optional<ApplicationEntity> findFirstByProjectIdOrderByCreatedAtDesc(UUID projectId);
 
-  @Query("""
-      select a.status as status, count(a.id) as cnt
-      from ApplicationEntity a
-      where a.scopeId = :scopeId
-        and (:assigneeName is null or a.assigneeName = :assigneeName)
-        and (:isAdmin = true or exists (
-            select 1 from ProjectParticipant pp
-            where pp.project.id = a.projectId
-              and pp.name = :actorUserId
-        ))
-      group by a.status
-      """)
-  List<StatusCountProjection> countDashboardByStatus(
-      @Param("scopeId") String scopeId,
-      @Param("isAdmin") boolean isAdmin,
-      @Param("actorUserId") String actorUserId,
-      @Param("assigneeName") String assigneeName
-  );
-
+ @Query(value = """
+    select a.status as status, count(a.id) as cnt
+    from applications a
+    where a.scope_id = :scopeId
+      and (cast(:assigneeName as text) is null or a.assignee_name = cast(:assigneeName as text))
+      and (:isAdmin = true or exists (
+          select 1 from project_participants pp
+          where pp.project_id = a.project_id
+            and pp.name = :actorUserId
+      ))
+    group by a.status
+    """, nativeQuery = true)
+List<StatusCountProjection> countDashboardByStatus(
+    @Param("scopeId") String scopeId,
+    @Param("isAdmin") boolean isAdmin,
+    @Param("actorUserId") String actorUserId,
+    @Param("assigneeName") String assigneeName
+);
   interface StatusCountProjection {
     String getStatus();
 

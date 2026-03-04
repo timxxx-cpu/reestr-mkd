@@ -19,10 +19,13 @@ import { resolveActor, requireBffEnabled, createIdempotencyKey } from './api/api
 
 
 const LegacyApiService = {
-  getSystemUsers: async () => {
+ getSystemUsers: async () => {
     const data = await BffClient.getSystemUsers();
 
-    return (data || []).map(u => ({
+    // Безопасно достаем массив: либо напрямую, либо из поля .users
+    const usersArray = Array.isArray(data) ? data : (data?.users || []);
+
+    return usersArray.map(u => ({
       id: u.id,
       code: u.code,
       name: u.name,
