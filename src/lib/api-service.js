@@ -54,11 +54,45 @@ const LegacyApiService = {
     }
 
     const response = await BffClient.getProjectsList({ scope, ...options });
+    
+    // Получаем сырой массив проектов
+    const rawItems = Array.isArray(response) 
+        ? response 
+        : (Array.isArray(response?.items) ? response.items : (Array.isArray(response?.data) ? response.data : []));
+
+    // МАППЕР: Переводим плоский snake_case ответ Java во вложенный camelCase для дашборда
+    const mappedItems = rawItems.map(item => {
+      // Если данные уже имеют старый вложенный формат, оставляем как есть
+      if (item.applicationInfo) return item;
+
+      return {
+        id: item.id,
+        name: item.name,
+        ujCode: item.uj_code || item.ujCode, // Фронтенд ждет ujCode
+        cadastre: item.cadastre_number || item.cadastre,
+        applicationInfo: {
+          status: item.status || 'IN_PROGRESS',
+          workflowSubstatus: item.workflow_substatus || 'DRAFT',
+          assigneeName: item.assignee_name,
+          externalSource: item.external_source,
+          applicant: item.applicant,
+          submissionDate: item.updated_at,
+          internalNumber: item.internal_number,
+          externalId: item.external_id,
+          currentStepIndex: item.current_step || 0
+        },
+        complexInfo: {
+          street: item.address,
+          region: item.region,
+        }
+      };
+    });
+
     if (Array.isArray(response)) {
       const page = Number(options?.page || 1);
       const limit = Number(options?.limit || response.length || 1);
       return {
-        items: response,
+        items: mappedItems, // Отдаем смапленные данные
         page,
         limit,
         total: response.length,
@@ -67,7 +101,7 @@ const LegacyApiService = {
     }
 
     return {
-      items: Array.isArray(response?.items) ? response.items : (Array.isArray(response?.data) ? response.data : []),
+      items: mappedItems, // Отдаем смапленные данные
       page: Number(response?.page || options?.page || 1),
       limit: Number(response?.limit || options?.limit || 50),
       total: Number(response?.total || 0),
@@ -91,6 +125,11 @@ const LegacyApiService = {
     return BffClient.getProjectsMapOverview({ scope });
   },
 
+/**
+   * @param {Object} [params]
+   * @param {string} [params.scope]
+   * @param {string} [params.assignee]
+   */
   getProjectsSummaryCounts: async ({ scope, assignee } = {}) => {
     if (!scope) {
       return {
@@ -106,7 +145,6 @@ const LegacyApiService = {
 
     return BffClient.getProjectsSummaryCounts({ scope, assignee });
   },
-
   saveStepBlockStatuses: async ({ scope, projectId, stepIndex, statuses }) => {
     requireBffEnabled('project.saveStepBlockStatuses');
 

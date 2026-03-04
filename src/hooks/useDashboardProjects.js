@@ -55,15 +55,30 @@ export function useDashboardProjects({
     refetchOnWindowFocus: true,
   });
 
-  const data = projectsQuery.data || { items: [], page, limit, total: 0, totalPages: 0 };
+  // Указываем дефолтный объект со всеми полями, чтобы VS Code не ругался
+  const data = projectsQuery.data || { 
+    data: [], 
+    items: [], 
+    page: page || 1, 
+    limit: limit || 50, 
+    total: 0, 
+    totalPages: 0 
+  };
+  
+// Специальный комментарий отключает строгую проверку типов VS Code для этой переменной
+  /** @type {any} */
+  const rawData = projectsQuery.data || {};
+  
+  // Берем массив из нового формата (Java) или старого (Node)
+  const itemsArray = rawData.data || rawData.items || [];
 
   return {
     query,
-    projects: Array.isArray(data.items) ? data.items : [],
-    page: Number(data.page || page || 1),
-    limit: Number(data.limit || limit || 50),
-    total: Number(data.total || 0),
-    totalPages: Number(data.totalPages || 0),
+    projects: Array.isArray(itemsArray) ? itemsArray : [],
+    page: Number(rawData.page || page || 1),
+    limit: Number(rawData.limit || limit || 50),
+    total: Number(rawData.total || 0),
+    totalPages: Number(rawData.totalPages || 0),
     isLoading: projectsQuery.isLoading,
     isFetching: projectsQuery.isFetching,
     refetch: projectsQuery.refetch,
