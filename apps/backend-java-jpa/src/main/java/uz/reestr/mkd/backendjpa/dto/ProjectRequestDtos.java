@@ -2,6 +2,7 @@ package uz.reestr.mkd.backendjpa.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
+import java.util.UUID;
 
 public final class ProjectRequestDtos {
 
@@ -35,6 +36,12 @@ public final class ProjectRequestDtos {
   }
 
   public record SelectProjectLandPlotRequest(String candidateId) {
+  }
+
+  public record ApproveProjectGeometryCandidateRequest(UUID buildingId, Boolean selectAsLandPlot) {
+  }
+
+  public record DeclineProjectGeometryCandidateRequest(String reason) {
   }
 
   public record UpdateProjectPassportRequest(JsonNode info, JsonNode cadastreData) {

@@ -3,6 +3,7 @@ package uz.reestr.mkd.backendjpa.service;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -20,10 +21,16 @@ public class LockJpaService {
 
   private final ApplicationLockRepository applicationLockRepository;
   private final ApplicationRepository applicationRepository;
+  private final SimpMessagingTemplate messagingTemplate;
 
-  public LockJpaService(ApplicationLockRepository applicationLockRepository, ApplicationRepository applicationRepository) {
+  public LockJpaService(
+      ApplicationLockRepository applicationLockRepository,
+      ApplicationRepository applicationRepository,
+      SimpMessagingTemplate messagingTemplate
+  ) {
     this.applicationLockRepository = applicationLockRepository;
     this.applicationRepository = applicationRepository;
+    this.messagingTemplate = messagingTemplate;
   }
 
   @Transactional(readOnly = true)
@@ -59,6 +66,7 @@ public class LockJpaService {
           .expiresAt(expiresAt)
           .build();
       applicationLockRepository.save(created);
+      publishLockState(applicationId, true, actorUserId, actorRole, expiresAt);
       return new LockActionResponse(true, "OK", "LOCK_ACQUIRED", expiresAt);
     }
 
@@ -68,6 +76,7 @@ public class LockJpaService {
       existing.setAcquiredAt(OffsetDateTime.now());
       existing.setExpiresAt(expiresAt);
       applicationLockRepository.save(existing);
+      publishLockState(applicationId, true, actorUserId, actorRole, expiresAt);
       return new LockActionResponse(true, "OK", "LOCK_ACQUIRED", expiresAt);
     }
 
@@ -109,7 +118,21 @@ public class LockJpaService {
     }
 
     applicationLockRepository.deleteByApplication_Id(applicationId);
+    publishLockState(applicationId, false, null, null, null);
     return new LockActionResponse(true, "OK", "LOCK_RELEASED", null);
+  }
+
+  private void publishLockState(
+      UUID applicationId,
+      boolean locked,
+      String ownerUserId,
+      String ownerRole,
+      OffsetDateTime expiresAt
+  ) {
+    messagingTemplate.convertAndSend(
+        "/topic/locks/" + applicationId,
+        new LockStateResponse(locked, ownerUserId, ownerRole, expiresAt)
+    );
   }
 
   private ApplicationEntity findApplication(UUID applicationId) {

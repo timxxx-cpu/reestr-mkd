@@ -64,7 +64,7 @@ const LegacyApiService = {
     }
 
     return {
-      items: Array.isArray(response?.items) ? response.items : [],
+      items: Array.isArray(response?.items) ? response.items : (Array.isArray(response?.data) ? response.data : []),
       page: Number(response?.page || options?.page || 1),
       limit: Number(response?.limit || options?.limit || 50),
       total: Number(response?.total || 0),

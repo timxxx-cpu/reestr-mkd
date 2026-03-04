@@ -85,6 +85,12 @@ public class UnitEntity {
   @Column(name = "cadastre_number")
   private String cadastreNumber;
 
+  @Column(name = "external_id")
+  private String externalId;
+
+  @Column(name = "integration_status")
+  private String integrationStatus;
+
   @Column(name = "address_id")
   private UUID addressId;
 
