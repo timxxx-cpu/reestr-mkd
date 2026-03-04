@@ -1,0 +1,916 @@
+package uz.reestrmkd.backend.controller;
+
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.*;
+import uz.reestrmkd.backend.dto.ItemsResponseDto;
+import uz.reestrmkd.backend.dto.MapPayloadDto;
+import uz.reestrmkd.backend.dto.MapResponseDto;
+import uz.reestrmkd.backend.entity.BlockFloorMarkerEntity;
+import uz.reestrmkd.backend.entity.BuildingBlockEntity;
+import uz.reestrmkd.backend.entity.BuildingEntity;
+import uz.reestrmkd.backend.entity.BlockExtensionEntity;
+import uz.reestrmkd.backend.enums.UnitType;
+import uz.reestrmkd.backend.exception.ApiException;
+import uz.reestrmkd.backend.repository.BlockFloorMarkerJpaRepository;
+import uz.reestrmkd.backend.repository.BlockExtensionJpaRepository;
+import uz.reestrmkd.backend.repository.BuildingBlockJpaRepository;
+import uz.reestrmkd.backend.repository.BuildingJpaRepository;
+import uz.reestrmkd.backend.security.ActorPrincipal;
+import uz.reestrmkd.backend.service.FloorGeneratorService;
+import uz.reestrmkd.backend.service.SecurityPolicyService;
+import uz.reestrmkd.backend.service.UnitService;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api/v1")
+public class RegistryController {
+    private final JdbcTemplate jdbcTemplate;
+    private final BlockExtensionJpaRepository extensionRepo;
+    private final BuildingBlockJpaRepository blockRepo;
+    private final BuildingJpaRepository buildingRepo;
+    private final BlockFloorMarkerJpaRepository markerRepo;
+    private final FloorGeneratorService floorGeneratorService;
+    private final SecurityPolicyService securityPolicyService;
+    private final UnitService unitService;
+
+    public RegistryController(
+        JdbcTemplate jdbcTemplate,
+        BlockExtensionJpaRepository extensionRepo,
+        BuildingBlockJpaRepository blockRepo,
+        BuildingJpaRepository buildingRepo,
+        BlockFloorMarkerJpaRepository markerRepo,
+        FloorGeneratorService floorGeneratorService,
+        SecurityPolicyService securityPolicyService,
+        UnitService unitService
+    ) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.extensionRepo = extensionRepo;
+        this.blockRepo = blockRepo;
+        this.buildingRepo = buildingRepo;
+        this.markerRepo = markerRepo;
+        this.floorGeneratorService = floorGeneratorService;
+        this.securityPolicyService = securityPolicyService;
+        this.unitService = unitService;
+    }
+
+    @GetMapping("/registry/buildings-summary")
+    public ItemsResponseDto buildingsSummary(
+        @RequestParam(required = false) String search,
+        @RequestParam(required = false) String building,
+        @RequestParam(required = false) String floor,
+        @RequestParam(required = false) Integer page,
+        @RequestParam(required = false) Integer limit
+    ) {
+        StringBuilder sql = new StringBuilder("select * from view_registry_buildings_summary where 1=1");
+        List<Object> args = new ArrayList<>();
+        if (search != null && !search.isBlank()) {
+            sql.append(" and (coalesce(project_name,'') ilike ? or coalesce(building_name,'') ilike ? or coalesce(block_label,'') ilike ?)");
+            String like = "%" + search + "%";
+            args.add(like); args.add(like); args.add(like);
+        }
+        sql.append(" order by project_name asc");
+        return new ItemsResponseDto(jdbcTemplate.queryForList(sql.toString(), args.toArray()));
+    }
+
+    @GetMapping("/projects/{projectId}/parking-counts")
+    public MapResponseDto parkingCounts(@PathVariable UUID projectId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+            select f.id as floor_id, count(u.id) as count
+            from floors f
+            left join units u on u.floor_id=f.id and u.unit_type='parking_place'
+            join building_blocks bb on bb.id=f.block_id
+            join buildings b on b.id=bb.building_id
+            where b.project_id=?
+            group by f.id
+        """, projectId);
+        Map<String, Integer> result = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            result.put(String.valueOf(row.get("floor_id")), ((Number) row.get("count")).intValue());
+        }
+        return MapResponseDto.of(Map.copyOf(result));
+    }
+
+    @PostMapping("/floors/{floorId}/parking-places/sync")
+    public MapResponseDto syncParking(@PathVariable UUID floorId, @RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        int targetCount = Integer.parseInt(String.valueOf(body.getOrDefault("count", body.getOrDefault("targetCount", 0))));
+        targetCount = Math.max(0, targetCount);
+
+        List<Map<String, Object>> existing = jdbcTemplate.queryForList("select id from units where floor_id=? and unit_type='parking_place' order by created_at asc", floorId);
+        int current = existing.size();
+        if (current > targetCount) {
+            for (Map<String, Object> row : existing.subList(targetCount, current)) {
+                jdbcTemplate.update("delete from units where id = ?", UUID.fromString(String.valueOf(row.get("id"))));
+            }
+        } else if (current < targetCount) {
+            for (int i = current + 1; i <= targetCount; i++) {
+                jdbcTemplate.update("insert into units(id,floor_id,number,unit_type,total_area,status,created_at,updated_at) values (gen_random_uuid(),?,?,?,?,?,?,?)",
+                    floorId, String.valueOf(i), "parking_place", 13.25, "free", Instant.now(), Instant.now());
+            }
+        }
+        return MapResponseDto.of(Map.of("ok", true, "floorId", floorId, "count", targetCount));
+    }
+
+    @GetMapping("/blocks/{blockId}/floors")
+    public ItemsResponseDto getFloors(@PathVariable UUID blockId) {
+        return new ItemsResponseDto(jdbcTemplate.queryForList("select * from floors where block_id=? order by index", blockId));
+    }
+
+    @GetMapping("/blocks/{blockId}/entrances")
+    public ItemsResponseDto getEntrances(@PathVariable UUID blockId) {
+        return new ItemsResponseDto(jdbcTemplate.queryForList("select * from entrances where block_id=? order by number", blockId));
+    }
+
+    @GetMapping("/blocks/{blockId}/extensions")
+    public List<BlockExtensionEntity> getExtensions(@PathVariable UUID blockId) {
+        return extensionRepo.findByParentBlockIdIn(List.of(blockId));
+    }
+
+    @PostMapping("/blocks/{blockId}/extensions")
+    public BlockExtensionEntity createExtension(@PathVariable UUID blockId, @RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        BlockExtensionEntity e = new BlockExtensionEntity();
+        e.setId(UUID.randomUUID());
+        e.setParentBlockId(blockId);
+        e.setBuildingId(UUID.fromString(String.valueOf(body.get("buildingId"))));
+        e.setLabel(String.valueOf(body.getOrDefault("label", "Пристройка")));
+        e.setExtensionType((String) body.get("extensionType"));
+        e.setConstructionKind((String) body.get("constructionKind"));
+        e.setFloorsCount(body.get("floorsCount") == null ? 1 : Integer.parseInt(String.valueOf(body.get("floorsCount"))));
+        e.setStartFloorIndex(body.get("startFloorIndex") == null ? 1 : Integer.parseInt(String.valueOf(body.get("startFloorIndex"))));
+        e.setVerticalAnchorType((String) body.get("verticalAnchorType"));
+        e.setAnchorFloorKey((String) body.get("anchorFloorKey"));
+        e.setNotes((String) body.get("notes"));
+        e.setCreatedAt(Instant.now());
+        e.setUpdatedAt(Instant.now());
+        return extensionRepo.save(e);
+    }
+
+    @PutMapping("/extensions/{extensionId}")
+    public MapResponseDto updateExt(@PathVariable UUID extensionId, @RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        BlockExtensionEntity e = extensionRepo.findById(extensionId).orElseThrow(() -> new ApiException("Extension not found", "NOT_FOUND", null, 404));
+        if (body.containsKey("label")) e.setLabel(String.valueOf(body.get("label")));
+        if (body.containsKey("floorsCount")) e.setFloorsCount(Integer.parseInt(String.valueOf(body.get("floorsCount"))));
+        if (body.containsKey("startFloorIndex")) e.setStartFloorIndex(Integer.parseInt(String.valueOf(body.get("startFloorIndex"))));
+        e.setUpdatedAt(Instant.now());
+        extensionRepo.save(e);
+        return MapResponseDto.of(Map.of("ok", true));
+    }
+
+    @DeleteMapping("/extensions/{extensionId}")
+    public MapResponseDto delExt(@PathVariable UUID extensionId) {
+        extensionRepo.deleteById(extensionId);
+        return MapResponseDto.of(Map.of("ok", true));
+    }
+
+    @GetMapping("/units/{unitId}/explication")
+    public MapResponseDto explication(@PathVariable UUID unitId) {
+        List<Map<String, Object>> unitRows = jdbcTemplate.queryForList("select * from units where id=?", unitId);
+        if (unitRows.isEmpty()) {
+            throw new ApiException("Unit not found", "NOT_FOUND", null, 404);
+        }
+
+        Map<String, Object> unit = new HashMap<>(unitRows.getFirst());
+        List<Map<String, Object>> rawRooms = jdbcTemplate.queryForList("select * from rooms where unit_id=? order by created_at", unitId);
+        List<Map<String, Object>> rooms = rawRooms.stream().map(room -> {
+            Map<String, Object> mapped = new HashMap<>(room);
+            mapped.put("type", room.get("room_type"));
+            mapped.put("label", room.get("name"));
+            mapped.put("height", room.get("room_height"));
+            mapped.put("isMezzanine", Boolean.TRUE.equals(room.get("is_mezzanine")));
+            return mapped;
+        }).toList();
+
+        unit.put("rooms", rooms);
+        return MapResponseDto.of(unit);
+    }
+
+    @GetMapping("/blocks/{blockId}/units")
+    public MapResponseDto units(
+        @PathVariable UUID blockId,
+        @RequestParam(required = false) String floorIds,
+        @RequestParam(required = false) String search,
+        @RequestParam(required = false) String type,
+        @RequestParam(required = false) String building,
+        @RequestParam(required = false) String floor,
+        @RequestParam(required = false) Integer page,
+        @RequestParam(required = false) Integer limit
+    ) {
+        int normalizedPage = Math.max(1, page == null ? 1 : page);
+        int normalizedLimit = Math.min(1000, Math.max(1, limit == null ? 1000 : limit));
+        int offset = (normalizedPage - 1) * normalizedLimit;
+        List<String> floorsArr = floorIds == null || floorIds.isBlank() ? List.of() : Arrays.stream(floorIds.split(",")).map(String::trim).filter(s -> !s.isBlank()).toList();
+
+        StringBuilder sql = new StringBuilder("""
+            select u.*
+            from units u
+            join floors f on f.id=u.floor_id
+            join building_blocks bb on bb.id=f.block_id
+            join buildings b on b.id=bb.building_id
+            where f.block_id=?
+        """);
+        List<Object> args = new ArrayList<>();
+        args.add(blockId);
+        if (!floorsArr.isEmpty()) {
+            sql.append(" and u.floor_id in (").append(String.join(",", Collections.nCopies(floorsArr.size(), "?"))).append(")");
+            args.addAll(floorsArr);
+        }
+        if (search != null && !search.isBlank()) {
+            sql.append(" and (coalesce(u.number,'') ilike ? or coalesce(u.unit_code,'') ilike ?)");
+            String like = "%" + search + "%";
+            args.add(like); args.add(like);
+        }
+        if (type != null && !type.isBlank()) { sql.append(" and u.unit_type=?"); args.add(type); }
+        if (building != null && !building.isBlank()) {
+            sql.append(" and (coalesce(b.label,'') ilike ? or coalesce(b.house_number,'') ilike ?)");
+            String like = "%" + building + "%";
+            args.add(like);
+            args.add(like);
+        }
+        if (floor != null && !floor.isBlank()) {
+            sql.append(" and (coalesce(f.label,'') ilike ? or cast(f.index as text) ilike ?)");
+            String like = "%" + floor + "%";
+            args.add(like);
+            args.add(like);
+        }
+        sql.append(" order by u.number asc nulls last, u.created_at asc limit ? offset ?");
+        args.add(normalizedLimit);
+        args.add(offset);
+        List<Map<String, Object>> units = jdbcTemplate.queryForList(sql.toString(), args.toArray());
+
+        List<Map<String, Object>> entrances = jdbcTemplate.queryForList("select id, number from entrances where block_id=?", blockId);
+        Map<String, Integer> entranceMap = entrances.stream().collect(Collectors.toMap(r -> String.valueOf(r.get("id")), r -> ((Number) r.get("number")).intValue()));
+
+        return MapResponseDto.of(Map.of("units", units, "entranceMap", entranceMap));
+    }
+
+    @PostMapping("/units/upsert")
+    public MapResponseDto upsertUnit(@RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> data = payload == null || payload.data() == null ? Map.of() : payload.data();
+        UUID unitId = unitService.upsertUnit(data);
+        return MapResponseDto.of(Map.of("ok", true, "id", unitId));
+    }
+
+    @PostMapping("/blocks/{blockId}/units/reconcile")
+    public MapResponseDto reconcileUnits(@PathVariable UUID blockId) {
+        requirePolicy("registry", "mutate", "Role cannot modify registry data");
+        Map<String, Object> result = new HashMap<>();
+        result.put("removed", 0);
+        result.put("checkedCells", 0);
+
+        List<Map<String, Object>> floors = jdbcTemplate.queryForList("select id from floors where block_id=?", blockId);
+        List<UUID> floorIds = floors.stream().map(row -> UUID.fromString(String.valueOf(row.get("id")))).toList();
+        if (floorIds.isEmpty()) return MapResponseDto.of(result);
+
+        Map<Integer, UUID> entranceByNumber = loadEntranceMap(blockId);
+        Map<String, Map<String, Integer>> desiredMap = new HashMap<>();
+
+        List<Map<String, Object>> matrixRows = jdbcTemplate.queryForList(
+            "select floor_id, entrance_number, flats_count, commercial_count from entrance_matrix where block_id=?",
+            blockId
+        );
+        for (Map<String, Object> row : matrixRows) {
+            Integer entranceNumber = toNullableInt(row.get("entrance_number"));
+            UUID entranceId = entranceByNumber.get(entranceNumber);
+            if (entranceId == null) continue;
+            String key = row.get("floor_id") + "_" + entranceId;
+            desiredMap.put(key, Map.of(
+                "flats", Math.max(0, toInt(row.get("flats_count"), 0)),
+                "commercial", Math.max(0, toInt(row.get("commercial_count"), 0))
+            ));
+        }
+
+        String inFloors = String.join(",", Collections.nCopies(floorIds.size(), "?"));
+        List<Map<String, Object>> units = jdbcTemplate.queryForList(
+            "select id, floor_id, entrance_id, unit_type, cadastre_number, total_area, useful_area, living_area, created_at from units where floor_id in (" + inFloors + ")",
+            floorIds.toArray()
+        );
+
+        Map<String, List<Map<String, Object>>> flatsGrouped = new HashMap<>();
+        Map<String, List<Map<String, Object>>> commGrouped = new HashMap<>();
+        for (Map<String, Object> unit : units) {
+            String type = String.valueOf(unit.get("unit_type"));
+            String key = unit.get("floor_id") + "_" + unit.get("entrance_id");
+            if (isFlatType(type)) flatsGrouped.computeIfAbsent(key, k -> new ArrayList<>()).add(unit);
+            else if (isCommercialType(type)) commGrouped.computeIfAbsent(key, k -> new ArrayList<>()).add(unit);
+        }
+
+        Set<String> keys = new HashSet<>();
+        keys.addAll(flatsGrouped.keySet());
+        keys.addAll(commGrouped.keySet());
+
+        List<UUID> toDelete = new ArrayList<>();
+        for (String key : keys) {
+            result.put("checkedCells", ((Integer) result.get("checkedCells")) + 1);
+            Map<String, Integer> desired = desiredMap.getOrDefault(key, Map.of("flats", 0, "commercial", 0));
+            List<Map<String, Object>> flats = new ArrayList<>(flatsGrouped.getOrDefault(key, List.of()));
+            List<Map<String, Object>> comm = new ArrayList<>(commGrouped.getOrDefault(key, List.of()));
+            Comparator<Map<String, Object>> preserveRichDataComparator = Comparator
+                .comparing((Map<String, Object> row) -> hasCadastreNumber(row) ? 0 : 1)
+                .thenComparing(row -> hasAreaData(row) ? 0 : 1)
+                .thenComparing(row -> toInstant(row.get("created_at")));
+            flats.sort(preserveRichDataComparator);
+            comm.sort(preserveRichDataComparator);
+
+            if (flats.size() > desired.get("flats")) {
+                flats.subList(desired.get("flats"), flats.size())
+                    .forEach(row -> toDelete.add(UUID.fromString(String.valueOf(row.get("id")))));
+            }
+            if (comm.size() > desired.get("commercial")) {
+                comm.subList(desired.get("commercial"), comm.size())
+                    .forEach(row -> toDelete.add(UUID.fromString(String.valueOf(row.get("id")))));
+            }
+        }
+
+        if (!toDelete.isEmpty()) {
+            String inIds = String.join(",", Collections.nCopies(toDelete.size(), "?"));
+            int removed = jdbcTemplate.update("delete from units where id in (" + inIds + ")", toDelete.toArray());
+            result.put("removed", removed);
+        }
+        return MapResponseDto.of(result);
+    }
+
+    @PostMapping("/blocks/{blockId}/common-areas/reconcile")
+    public MapResponseDto reconcileMops(@PathVariable UUID blockId) {
+        requirePolicy("registry", "mutate", "Role cannot modify registry data");
+        Map<String, Object> result = new HashMap<>();
+        result.put("removed", 0);
+        result.put("checkedCells", 0);
+
+        List<Map<String, Object>> floors = jdbcTemplate.queryForList("select id from floors where block_id=?", blockId);
+        List<UUID> floorIds = floors.stream().map(row -> UUID.fromString(String.valueOf(row.get("id")))).toList();
+        if (floorIds.isEmpty()) return MapResponseDto.of(result);
+
+        Map<Integer, UUID> entranceByNumber = loadEntranceMap(blockId);
+        Map<String, Integer> desiredMap = new HashMap<>();
+        List<Map<String, Object>> matrixRows = jdbcTemplate.queryForList(
+            "select floor_id, entrance_number, mop_count from entrance_matrix where block_id=?",
+            blockId
+        );
+        for (Map<String, Object> row : matrixRows) {
+            Integer entranceNumber = toNullableInt(row.get("entrance_number"));
+            UUID entranceId = entranceByNumber.get(entranceNumber);
+            if (entranceId == null) continue;
+            desiredMap.put(row.get("floor_id") + "_" + entranceId, Math.max(0, toInt(row.get("mop_count"), 0)));
+        }
+
+        String inFloors = String.join(",", Collections.nCopies(floorIds.size(), "?"));
+        List<Map<String, Object>> areas = jdbcTemplate.queryForList(
+            "select id, floor_id, entrance_id, created_at from common_areas where floor_id in (" + inFloors + ")",
+            floorIds.toArray()
+        );
+
+        Map<String, List<Map<String, Object>>> grouped = new HashMap<>();
+        for (Map<String, Object> area : areas) {
+            String key = area.get("floor_id") + "_" + area.get("entrance_id");
+            grouped.computeIfAbsent(key, k -> new ArrayList<>()).add(area);
+        }
+
+        List<UUID> toDelete = new ArrayList<>();
+        for (Map.Entry<String, List<Map<String, Object>>> entry : grouped.entrySet()) {
+            result.put("checkedCells", ((Integer) result.get("checkedCells")) + 1);
+            int desired = desiredMap.getOrDefault(entry.getKey(), 0);
+            List<Map<String, Object>> sorted = new ArrayList<>(entry.getValue());
+            sorted.sort(Comparator.comparing(r -> toInstant(r.get("created_at"))));
+            if (sorted.size() > desired) {
+                sorted.subList(desired, sorted.size())
+                    .forEach(row -> toDelete.add(UUID.fromString(String.valueOf(row.get("id")))));
+            }
+        }
+
+        if (!toDelete.isEmpty()) {
+            String inIds = String.join(",", Collections.nCopies(toDelete.size(), "?"));
+            int removed = jdbcTemplate.update("delete from common_areas where id in (" + inIds + ")", toDelete.toArray());
+            result.put("removed", removed);
+        }
+        return MapResponseDto.of(result);
+    }
+
+    @PostMapping("/units/batch-upsert")
+    public MapResponseDto batchUpsertUnits(@RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        List<Map<String, Object>> items = (List<Map<String, Object>>) body.getOrDefault("unitsList", body.getOrDefault("items", List.of()));
+        int count = unitService.batchUpsertUnits(items);
+        return MapResponseDto.of(Map.of("ok", true, "count", count));
+    }
+
+    @PostMapping("/common-areas/upsert")
+    public MapResponseDto upsertCommon(@RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> data = payload == null || payload.data() == null ? Map.of() : payload.data();
+        saveMopRow(data);
+        return MapResponseDto.of(Map.of("ok", true));
+    }
+
+    @PostMapping("/common-areas/batch-upsert")
+    public MapResponseDto batchUpsertMops(@RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        List<Map<String, Object>> items = (List<Map<String, Object>>) body.getOrDefault("items", body.getOrDefault("mops", List.of()));
+        for (Map<String, Object> item : items) {
+            saveMopRow(item);
+        }
+        return MapResponseDto.of(Map.of("ok", true, "count", items.size()));
+    }
+
+    @DeleteMapping("/common-areas/{id}")
+    public MapResponseDto deleteCommon(@PathVariable UUID id) {
+        jdbcTemplate.update("delete from common_areas where id=?", id);
+        return MapResponseDto.of(Map.of("ok", true));
+    }
+
+    @PostMapping("/blocks/{blockId}/common-areas/clear")
+    public MapResponseDto clearCommon(@PathVariable UUID blockId, @RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        String floorIds = String.valueOf(body.getOrDefault("floorIds", ""));
+        if (floorIds.isBlank()) {
+            jdbcTemplate.update("delete from common_areas where floor_id in (select id from floors where block_id=?)", blockId);
+        } else {
+            for (String f : floorIds.split(",")) jdbcTemplate.update("delete from common_areas where floor_id=?", UUID.fromString(f.trim()));
+        }
+        return MapResponseDto.of(Map.of("ok", true));
+    }
+
+    @GetMapping("/blocks/{blockId}/common-areas")
+    public ItemsResponseDto commonAreas(@PathVariable UUID blockId, @RequestParam(required = false) String floorIds) {
+        if (floorIds == null || floorIds.isBlank()) {
+            return new ItemsResponseDto(jdbcTemplate.queryForList("select ca.* from common_areas ca join floors f on f.id=ca.floor_id where f.block_id=?", blockId));
+        }
+        List<String> arr = Arrays.stream(floorIds.split(",")).map(String::trim).toList();
+        String in = String.join(",", Collections.nCopies(arr.size(), "?"));
+        return new ItemsResponseDto(jdbcTemplate.queryForList("select * from common_areas where floor_id in (" + in + ")", arr.toArray()));
+    }
+
+    @GetMapping("/blocks/{blockId}/entrance-matrix")
+    public ItemsResponseDto matrix(@PathVariable UUID blockId) {
+        return new ItemsResponseDto(jdbcTemplate.queryForList("select * from entrance_matrix where block_id=? order by entrance_number", blockId));
+    }
+
+    @PutMapping("/floors/{floorId}")
+    public MapResponseDto updateFloor(@PathVariable UUID floorId, @RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        Map<String, Object> updates = (Map<String, Object>) body.getOrDefault("updates", Map.of());
+        jdbcTemplate.update("update floors set label=coalesce(?,label), floor_type=coalesce(?,floor_type), height=coalesce(?,height), area_proj=coalesce(?,area_proj), area_fact=coalesce(?,area_fact), is_technical=coalesce(?,is_technical), is_commercial=coalesce(?,is_commercial), updated_at=now() where id=?",
+            updates.get("label"), updates.get("type"), updates.get("height"), updates.get("areaProj"), updates.get("areaFact"), updates.get("isTechnical"), updates.get("isCommercial"), floorId);
+        return MapResponseDto.of(Map.of("ok", true));
+    }
+
+    @PutMapping("/floors/batch")
+    public MapResponseDto updateFloorsBatch(@RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        List<Map<String, Object>> items = (List<Map<String, Object>>) body.getOrDefault("items", List.of());
+        for (Map<String, Object> item : items) {
+            updateFloor(UUID.fromString(String.valueOf(item.get("id"))), new MapPayloadDto(Map.of("updates", item.get("updates"))));
+        }
+        return MapResponseDto.of(Map.of("ok", true, "count", items.size()));
+    }
+
+    @PostMapping("/blocks/{blockId}/floors/reconcile")
+    public MapResponseDto reconcileFloors(@PathVariable UUID blockId, @RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        requirePolicy("registry", "mutate", "Role cannot modify registry data");
+        BuildingBlockEntity block = blockRepo.findById(blockId).orElseThrow(() -> new ApiException("Block not found", "NOT_FOUND", null, 404));
+        BuildingEntity building = buildingRepo.findById(block.getBuildingId()).orElseThrow(() -> new ApiException("Building not found", "NOT_FOUND", null, 404));
+        List<BuildingBlockEntity> allBlocks = blockRepo.findByBuildingId(block.getBuildingId());
+        List<BlockFloorMarkerEntity> markers = markerRepo.findByBlockIdIn(List.of(blockId));
+
+        List<Map<String, Object>> existingFloors = jdbcTemplate.queryForList(
+            "select id, index, parent_floor_index, basement_id from floors where block_id=?",
+            blockId
+        );
+        List<Map<String, Object>> generated = floorGeneratorService.generateFloorsModel(block, building, allBlocks, markers);
+        Set<String> seenKeys = new HashSet<>();
+        List<Map<String, Object>> targetModel = generated.stream().filter(floor -> seenKeys.add(floorConstraintKey(floor))).toList();
+
+        Map<String, Map<String, Object>> existingByKey = existingFloors.stream()
+            .collect(Collectors.toMap(this::floorConstraintKey, row -> row, (a, b) -> a));
+
+        List<UUID> usedExistingIds = new ArrayList<>();
+        List<Map<String, Object>> toUpsert = new ArrayList<>();
+        Instant now = Instant.now();
+
+        for (Map<String, Object> floor : targetModel) {
+            String cKey = floorConstraintKey(floor);
+            Map<String, Object> existing = existingByKey.get(cKey);
+            UUID id = existing == null ? UUID.randomUUID() : UUID.fromString(String.valueOf(existing.get("id")));
+            if (existing != null) usedExistingIds.add(id);
+            Map<String, Object> floorPayload = new HashMap<>(floor);
+            floorPayload.put("id", id);
+            floorPayload.put("updated_at", now);
+            toUpsert.add(floorPayload);
+        }
+
+        List<UUID> toDeleteIds = existingFloors.stream()
+            .map(row -> UUID.fromString(String.valueOf(row.get("id"))))
+            .filter(id -> !usedExistingIds.contains(id))
+            .toList();
+
+        if (!toDeleteIds.isEmpty()) {
+            Map<UUID, UUID> floorRemap = buildFloorRemap(toDeleteIds, toUpsert);
+            remapFloorReferences(floorRemap);
+        }
+
+        if (!toDeleteIds.isEmpty()) {
+            String in = String.join(",", Collections.nCopies(toDeleteIds.size(), "?"));
+            jdbcTemplate.update("delete from floors where id in (" + in + ")", toDeleteIds.toArray());
+        }
+
+        for (Map<String, Object> floor : toUpsert) {
+            jdbcTemplate.update(
+                "insert into floors(id, block_id, index, floor_key, label, floor_type, height, area_proj, is_technical, is_commercial, is_stylobate, is_basement, is_attic, is_loft, is_roof, parent_floor_index, basement_id, updated_at) " +
+                    "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
+                    "on conflict (id) do update set block_id=excluded.block_id, index=excluded.index, floor_key=excluded.floor_key, label=excluded.label, floor_type=excluded.floor_type, height=excluded.height, area_proj=excluded.area_proj, is_technical=excluded.is_technical, is_commercial=excluded.is_commercial, is_stylobate=excluded.is_stylobate, is_basement=excluded.is_basement, is_attic=excluded.is_attic, is_loft=excluded.is_loft, is_roof=excluded.is_roof, parent_floor_index=excluded.parent_floor_index, basement_id=excluded.basement_id, updated_at=excluded.updated_at",
+                floor.get("id"), floor.get("block_id"), floor.get("index"), floor.get("floor_key"), floor.get("label"), floor.get("floor_type"), floor.get("height"), floor.get("area_proj"),
+                floor.get("is_technical"), floor.get("is_commercial"), floor.get("is_stylobate"), floor.get("is_basement"), floor.get("is_attic"), floor.get("is_loft"), floor.get("is_roof"),
+                floor.get("parent_floor_index"), floor.get("basement_id"), floor.get("updated_at")
+            );
+        }
+
+        ensureEntranceMatrixForBlock(blockId);
+        return MapResponseDto.of(Map.of("ok", true, "deleted", toDeleteIds.size(), "upserted", toUpsert.size()));
+    }
+
+    @PostMapping("/blocks/{blockId}/entrances/reconcile")
+    public MapResponseDto reconcileEntrances(@PathVariable UUID blockId, @RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        requirePolicy("registry", "mutate", "Role cannot modify registry data");
+        int count = Integer.parseInt(String.valueOf(body.getOrDefault("count", 0)));
+        List<Map<String, Object>> existing = jdbcTemplate.queryForList("select id, number from entrances where block_id=? order by number", blockId);
+        Set<Integer> present = existing.stream().map(x -> ((Number) x.get("number")).intValue()).collect(Collectors.toSet());
+        int created = 0;
+        int deleted = 0;
+        for (int i = 1; i <= count; i++) {
+            if (!present.contains(i)) jdbcTemplate.update("insert into entrances(id,block_id,number,created_at,updated_at) values (gen_random_uuid(),?,?,now(),now())", blockId, i);
+            if (!present.contains(i)) created += 1;
+        }
+        UUID defaultEntranceId = existing.stream()
+            .map(row -> UUID.fromString(String.valueOf(row.get("id"))))
+            .findFirst()
+            .orElse(null);
+
+        for (Map<String, Object> row : existing) {
+            int n = ((Number) row.get("number")).intValue();
+            if (n > count) {
+                UUID removeId = UUID.fromString(String.valueOf(row.get("id")));
+                UUID targetEntranceId = count > 0
+                    ? existing.stream()
+                        .filter(x -> ((Number) x.get("number")).intValue() == count)
+                        .map(x -> UUID.fromString(String.valueOf(x.get("id"))))
+                        .findFirst()
+                        .orElse(defaultEntranceId)
+                    : null;
+
+                if (targetEntranceId != null && !targetEntranceId.equals(removeId)) {
+                    remapEntranceReferences(blockId, removeId, targetEntranceId);
+                    jdbcTemplate.update("delete from entrances where id=?", removeId);
+                    deleted += 1;
+                }
+            }
+        }
+        ensureEntranceMatrixForBlock(blockId);
+        return MapResponseDto.of(Map.of("ok", true, "count", count, "created", created, "deleted", deleted));
+    }
+
+    private Map<UUID, UUID> buildFloorRemap(List<UUID> removedFloorIds, List<Map<String, Object>> toUpsert) {
+        List<Map<String, Object>> removedFloors = jdbcTemplate.queryForList(
+            "select id, index from floors where id in (" + String.join(",", Collections.nCopies(removedFloorIds.size(), "?")) + ")",
+            removedFloorIds.toArray()
+        );
+
+        Map<UUID, Integer> removedIndex = new HashMap<>();
+        for (Map<String, Object> row : removedFloors) {
+            removedIndex.put(UUID.fromString(String.valueOf(row.get("id"))), toInt(row.get("index"), 0));
+        }
+
+        List<Map<String, Object>> targetFloors = toUpsert.stream().toList();
+        Map<UUID, UUID> remap = new HashMap<>();
+        for (UUID oldFloorId : removedFloorIds) {
+            int oldIdx = removedIndex.getOrDefault(oldFloorId, 0);
+            UUID candidate = targetFloors.stream()
+                .min(Comparator.comparingInt(row -> Math.abs(toInt(row.get("index"), 0) - oldIdx)))
+                .map(row -> UUID.fromString(String.valueOf(row.get("id"))))
+                .orElse(null);
+            if (candidate != null && !candidate.equals(oldFloorId)) {
+                remap.put(oldFloorId, candidate);
+            }
+        }
+        return remap;
+    }
+
+    private void remapFloorReferences(Map<UUID, UUID> floorRemap) {
+        for (Map.Entry<UUID, UUID> entry : floorRemap.entrySet()) {
+            jdbcTemplate.update("update units set floor_id=?, updated_at=now() where floor_id=?", entry.getValue(), entry.getKey());
+            jdbcTemplate.update("update common_areas set floor_id=?, updated_at=now() where floor_id=?", entry.getValue(), entry.getKey());
+            jdbcTemplate.update("update entrance_matrix set floor_id=?, updated_at=now() where floor_id=?", entry.getValue(), entry.getKey());
+        }
+    }
+
+    private void remapEntranceReferences(UUID blockId, UUID removeId, UUID targetEntranceId) {
+        jdbcTemplate.update("update units set entrance_id=?, updated_at=now() where entrance_id=?", targetEntranceId, removeId);
+        jdbcTemplate.update("update common_areas set entrance_id=?, updated_at=now() where entrance_id=?", targetEntranceId, removeId);
+
+        Integer targetNumber = jdbcTemplate.queryForObject("select number from entrances where id=?", Integer.class, targetEntranceId);
+        Integer removeNumber = jdbcTemplate.queryForObject("select number from entrances where id=?", Integer.class, removeId);
+        if (targetNumber != null && removeNumber != null) {
+            List<Map<String, Object>> movingRows = jdbcTemplate.queryForList(
+                "select floor_id, flats_count, commercial_count, mop_count from entrance_matrix where block_id=? and entrance_number=?",
+                blockId,
+                removeNumber
+            );
+
+            for (Map<String, Object> row : movingRows) {
+                jdbcTemplate.update(
+                    "insert into entrance_matrix(id,block_id,floor_id,entrance_number,flats_count,commercial_count,mop_count,updated_at) values (gen_random_uuid(),?,?,?,?,?,?,now()) " +
+                        "on conflict (block_id,floor_id,entrance_number) do update set flats_count=coalesce(entrance_matrix.flats_count,0)+coalesce(excluded.flats_count,0), " +
+                        "commercial_count=coalesce(entrance_matrix.commercial_count,0)+coalesce(excluded.commercial_count,0), " +
+                        "mop_count=coalesce(entrance_matrix.mop_count,0)+coalesce(excluded.mop_count,0), updated_at=now()",
+                    blockId,
+                    row.get("floor_id"),
+                    targetNumber,
+                    row.get("flats_count"),
+                    row.get("commercial_count"),
+                    row.get("mop_count")
+                );
+            }
+
+            jdbcTemplate.update("delete from entrance_matrix where block_id=? and entrance_number=?", blockId, removeNumber);
+        }
+    }
+
+    @PutMapping("/blocks/{blockId}/entrance-matrix/cell")
+    public MapResponseDto upsertCell(@PathVariable UUID blockId, @RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        Map<String, Object> v = (Map<String, Object>) body.getOrDefault("values", Map.of());
+        jdbcTemplate.update("insert into entrance_matrix(id,block_id,floor_id,entrance_number,flats_count,commercial_count,mop_count,updated_at) values (gen_random_uuid(),?,?,?,?,?,?,now()) on conflict (block_id,floor_id,entrance_number) do update set flats_count=excluded.flats_count, commercial_count=excluded.commercial_count, mop_count=excluded.mop_count, updated_at=now()",
+            blockId, UUID.fromString(String.valueOf(body.get("floorId"))), body.get("entranceNumber"), v.get("apts"), v.get("units"), v.get("mopQty"));
+        return MapResponseDto.of(Map.of("ok", true));
+    }
+
+    @PutMapping("/blocks/{blockId}/entrance-matrix/batch")
+    public MapResponseDto upsertMatrixBatch(@PathVariable UUID blockId, @RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        List<Map<String, Object>> cells = (List<Map<String, Object>>) body.getOrDefault("cells", List.of());
+        for (Map<String, Object> cell : cells) {
+            upsertCell(blockId, new MapPayloadDto(cell));
+        }
+        return MapResponseDto.of(Map.of("ok", true, "count", cells.size()));
+    }
+
+    @PostMapping("/blocks/{blockId}/reconcile/preview")
+    public ResponseEntity<MapResponseDto> preview(@PathVariable UUID blockId) {
+        List<Map<String, Object>> floors = jdbcTemplate.queryForList("select id from floors where block_id=?", blockId);
+        List<UUID> floorIds = floors.stream().map(row -> UUID.fromString(String.valueOf(row.get("id")))).toList();
+        if (floorIds.isEmpty()) {
+            return ResponseEntity.ok(MapResponseDto.of(Map.of(
+                "units", Map.of("toRemove", 0, "checkedCells", 0),
+                "commonAreas", Map.of("toRemove", 0, "checkedCells", 0)
+            )));
+        }
+
+        Map<Integer, UUID> entranceByNumber = loadEntranceMap(blockId);
+        Map<String, Map<String, Integer>> desiredUnitsMap = new HashMap<>();
+        Map<String, Integer> desiredMopsMap = new HashMap<>();
+        List<Map<String, Object>> matrixRows = jdbcTemplate.queryForList(
+            "select floor_id, entrance_number, flats_count, commercial_count, mop_count from entrance_matrix where block_id=?",
+            blockId
+        );
+        for (Map<String, Object> row : matrixRows) {
+            UUID entranceId = entranceByNumber.get(toNullableInt(row.get("entrance_number")));
+            if (entranceId == null) continue;
+            String key = row.get("floor_id") + "_" + entranceId;
+            desiredUnitsMap.put(key, Map.of("flats", Math.max(0, toInt(row.get("flats_count"), 0)), "commercial", Math.max(0, toInt(row.get("commercial_count"), 0))));
+            desiredMopsMap.put(key, Math.max(0, toInt(row.get("mop_count"), 0)));
+        }
+
+        String inFloors = String.join(",", Collections.nCopies(floorIds.size(), "?"));
+        List<Map<String, Object>> units = jdbcTemplate.queryForList(
+            "select id, floor_id, entrance_id, unit_type, created_at from units where floor_id in (" + inFloors + ")",
+            floorIds.toArray()
+        );
+        List<Map<String, Object>> areas = jdbcTemplate.queryForList(
+            "select id, floor_id, entrance_id, created_at from common_areas where floor_id in (" + inFloors + ")",
+            floorIds.toArray()
+        );
+
+        Map<String, Integer> flatsByKey = new HashMap<>();
+        Map<String, Integer> commercialByKey = new HashMap<>();
+        for (Map<String, Object> unit : units) {
+            String type = String.valueOf(unit.get("unit_type"));
+            String key = unit.get("floor_id") + "_" + unit.get("entrance_id");
+            if (isFlatType(type)) flatsByKey.put(key, flatsByKey.getOrDefault(key, 0) + 1);
+            else if (isCommercialType(type)) commercialByKey.put(key, commercialByKey.getOrDefault(key, 0) + 1);
+        }
+
+        Set<String> unitKeys = new HashSet<>();
+        unitKeys.addAll(flatsByKey.keySet());
+        unitKeys.addAll(commercialByKey.keySet());
+        int unitsToRemove = 0;
+        for (String key : unitKeys) {
+            Map<String, Integer> desired = desiredUnitsMap.getOrDefault(key, Map.of("flats", 0, "commercial", 0));
+            unitsToRemove += Math.max(0, flatsByKey.getOrDefault(key, 0) - desired.get("flats"));
+            unitsToRemove += Math.max(0, commercialByKey.getOrDefault(key, 0) - desired.get("commercial"));
+        }
+
+        Map<String, Integer> mopsByKey = new HashMap<>();
+        for (Map<String, Object> area : areas) {
+            String key = area.get("floor_id") + "_" + area.get("entrance_id");
+            mopsByKey.put(key, mopsByKey.getOrDefault(key, 0) + 1);
+        }
+        int mopsToRemove = 0;
+        for (Map.Entry<String, Integer> entry : mopsByKey.entrySet()) {
+            mopsToRemove += Math.max(0, entry.getValue() - desiredMopsMap.getOrDefault(entry.getKey(), 0));
+        }
+
+        return ResponseEntity.ok(MapResponseDto.of(Map.of(
+            "units", Map.of("toRemove", unitsToRemove, "checkedCells", unitKeys.size()),
+            "commonAreas", Map.of("toRemove", mopsToRemove, "checkedCells", mopsByKey.size())
+        )));
+    }
+
+    private Map<Integer, UUID> loadEntranceMap(UUID blockId) {
+        List<Map<String, Object>> entrances = jdbcTemplate.queryForList("select id, number from entrances where block_id=?", blockId);
+        Map<Integer, UUID> entranceByNumber = new HashMap<>();
+        for (Map<String, Object> entrance : entrances) {
+            entranceByNumber.put(toInt(entrance.get("number"), 0), UUID.fromString(String.valueOf(entrance.get("id"))));
+        }
+        return entranceByNumber;
+    }
+
+    private void ensureEntranceMatrixForBlock(UUID blockId) {
+        List<Map<String, Object>> floors = jdbcTemplate.queryForList("select id from floors where block_id=?", blockId);
+        List<Map<String, Object>> entrances = jdbcTemplate.queryForList("select number from entrances where block_id=?", blockId);
+
+        List<UUID> floorIds = floors.stream().map(row -> UUID.fromString(String.valueOf(row.get("id")))).toList();
+        List<Integer> entranceNumbers = entrances.stream().map(row -> toInt(row.get("number"), -1)).filter(n -> n > 0).toList();
+
+        if (floorIds.isEmpty() || entranceNumbers.isEmpty()) {
+            jdbcTemplate.update("delete from entrance_matrix where block_id=?", blockId);
+            return;
+        }
+
+        List<Map<String, Object>> existingRows = jdbcTemplate.queryForList(
+            "select id, floor_id, entrance_number from entrance_matrix where block_id=?",
+            blockId
+        );
+
+        Set<UUID> floorSet = new HashSet<>(floorIds);
+        Set<Integer> entranceSet = new HashSet<>(entranceNumbers);
+        Set<String> existingKeys = new HashSet<>();
+        List<UUID> staleIds = new ArrayList<>();
+
+        for (Map<String, Object> row : existingRows) {
+            UUID floorId = UUID.fromString(String.valueOf(row.get("floor_id")));
+            int entranceNumber = toInt(row.get("entrance_number"), 0);
+            if (!floorSet.contains(floorId) || !entranceSet.contains(entranceNumber)) {
+                staleIds.add(UUID.fromString(String.valueOf(row.get("id"))));
+                continue;
+            }
+            existingKeys.add(floorId + "|" + entranceNumber);
+        }
+
+        if (!staleIds.isEmpty()) {
+            String in = String.join(",", Collections.nCopies(staleIds.size(), "?"));
+            jdbcTemplate.update("delete from entrance_matrix where id in (" + in + ")", staleIds.toArray());
+        }
+
+        for (UUID floorId : floorIds) {
+            for (Integer entranceNumber : entranceNumbers) {
+                String key = floorId + "|" + entranceNumber;
+                if (existingKeys.contains(key)) continue;
+                jdbcTemplate.update(
+                    "insert into entrance_matrix(id, block_id, floor_id, entrance_number, updated_at) values (gen_random_uuid(),?,?,?,?,now()) on conflict (block_id,floor_id,entrance_number) do nothing",
+                    blockId,
+                    floorId,
+                    entranceNumber
+                );
+            }
+        }
+    }
+
+    private String floorConstraintKey(Map<String, Object> floor) {
+        int index = toInt(floor.get("index"), 0);
+        int parent = floor.get("parent_floor_index") == null ? -99999 : toInt(floor.get("parent_floor_index"), -99999);
+        String basementId = String.valueOf(floor.getOrDefault("basement_id", "00000000-0000-0000-0000-000000000000"));
+        return index + "_" + parent + "_" + basementId;
+    }
+
+    private int toInt(Object value, Integer fallback) {
+        if (value == null) return fallback;
+        if (value instanceof Number number) return number.intValue();
+        return Integer.parseInt(String.valueOf(value));
+    }
+
+    private Integer toNullableInt(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number number) return number.intValue();
+        return Integer.parseInt(String.valueOf(value));
+    }
+
+    private Instant toInstant(Object value) {
+        if (value instanceof Instant instant) return instant;
+        if (value == null) return Instant.EPOCH;
+        return Instant.parse(String.valueOf(value));
+    }
+
+    private boolean isFlatType(String type) {
+        return Set.of(UnitType.FLAT.value(), UnitType.DUPLEX_UP.value(), UnitType.DUPLEX_DOWN.value(), UnitType.PANTRY.value()).contains(type);
+    }
+
+    private boolean isCommercialType(String type) {
+        return Set.of(UnitType.OFFICE.value()).contains(type);
+    }
+
+    private void saveMopRow(Map<String, Object> data) {
+        UUID floorId = parseRequiredUuid(data.get("floorId"), "floorId");
+        UUID entranceId = parseRequiredUuid(data.get("entranceId"), "entranceId");
+        BigDecimal area = parseRequiredDecimal(data.get("area"), "area");
+        BigDecimal height = parseRequiredDecimal(data.get("height"), "height");
+        String type = String.valueOf(data.getOrDefault("type", "")).trim();
+        if (type.isBlank()) {
+            throw new ApiException("type is required", "VALIDATION_ERROR", null, 400);
+        }
+
+        UUID persistedId = parsePersistedUuid(data.get("id"));
+        if (persistedId == null) {
+            jdbcTemplate.update(
+                "insert into common_areas(id,floor_id,entrance_id,type,area,height,updated_at,created_at) values (gen_random_uuid(),?,?,?,?,?,now(),now())",
+                floorId, entranceId, type, area, height
+            );
+        } else {
+            jdbcTemplate.update(
+                "update common_areas set floor_id=?, entrance_id=?, type=?, area=?, height=?, updated_at=now() where id=?",
+                floorId, entranceId, type, area, height, persistedId
+            );
+        }
+    }
+
+    private UUID parsePersistedUuid(Object rawId) {
+        if (rawId == null) {
+            return null;
+        }
+        String value = String.valueOf(rawId).trim();
+        if (value.isBlank() || value.startsWith("temp-")) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException ex) {
+            throw new ApiException("Invalid id format: " + value, "VALIDATION_ERROR", null, 400);
+        }
+    }
+
+    private UUID parseRequiredUuid(Object value, String fieldName) {
+        if (value == null) {
+            throw new ApiException(fieldName + " is required", "VALIDATION_ERROR", null, 400);
+        }
+        try {
+            return UUID.fromString(String.valueOf(value));
+        } catch (IllegalArgumentException ex) {
+            throw new ApiException(fieldName + " must be UUID", "VALIDATION_ERROR", null, 400);
+        }
+    }
+
+    private BigDecimal parseRequiredDecimal(Object value, String fieldName) {
+        if (value == null) {
+            throw new ApiException(fieldName + " is required", "VALIDATION_ERROR", null, 400);
+        }
+        String str = String.valueOf(value).trim();
+        if (str.isBlank()) {
+            throw new ApiException(fieldName + " is required", "VALIDATION_ERROR", null, 400);
+        }
+        try {
+            return new BigDecimal(str);
+        } catch (NumberFormatException ex) {
+            throw new ApiException(fieldName + " must be numeric", "VALIDATION_ERROR", null, 400);
+        }
+    }
+
+    private boolean hasCadastreNumber(Map<String, Object> row) {
+        Object value = row.get("cadastre_number");
+        return value != null && !String.valueOf(value).isBlank();
+    }
+
+    private boolean hasAreaData(Map<String, Object> row) {
+        return toNullableInt(row.get("total_area")) != null
+            || toNullableInt(row.get("living_area")) != null
+            || toNullableInt(row.get("useful_area")) != null;
+    }
+
+    private void requirePolicy(String module, String action, String message) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof ActorPrincipal actor)) {
+            throw new ApiException(message, "FORBIDDEN", null, 403);
+        }
+        if (!securityPolicyService.allowByPolicy(actor.userRole(), module, action)) {
+            throw new ApiException(message, "FORBIDDEN", null, 403);
+        }
+    }
+}
