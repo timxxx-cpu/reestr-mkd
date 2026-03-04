@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -34,8 +35,8 @@ import org.hibernate.type.SqlTypes;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@ToString(exclude = {"building", "floors", "entrances", "units"})
-@EqualsAndHashCode(exclude = {"building", "floors", "entrances", "units"})
+@ToString(exclude = {"building", "floors", "entrances", "units", "blockConstruction", "blockEngineering"})
+@EqualsAndHashCode(exclude = {"building", "floors", "entrances", "units", "blockConstruction", "blockEngineering"})
 @Entity
 @Table(name = "building_blocks")
 public class BlockEntity {
@@ -131,6 +132,13 @@ public class BlockEntity {
   @Column(name = "updated_at", nullable = false)
   private OffsetDateTime updatedAt;
 
+
+  @OneToOne(mappedBy = "block", cascade = CascadeType.ALL, orphanRemoval = true)
+  private BlockConstructionEntity blockConstruction;
+
+  @OneToOne(mappedBy = "block", cascade = CascadeType.ALL, orphanRemoval = true)
+  private BlockEngineeringEntity blockEngineering;
+
   @Builder.Default
   @OneToMany(mappedBy = "block", cascade = CascadeType.ALL, orphanRemoval = true)
   private List<FloorEntity> floors = new ArrayList<>();
@@ -142,4 +150,18 @@ public class BlockEntity {
   @Builder.Default
   @OneToMany(mappedBy = "block", cascade = CascadeType.ALL, orphanRemoval = true)
   private List<UnitEntity> units = new ArrayList<>();
+
+  public void setBlockConstruction(BlockConstructionEntity blockConstruction) {
+    this.blockConstruction = blockConstruction;
+    if (blockConstruction != null && blockConstruction.getBlock() != this) {
+      blockConstruction.setBlock(this);
+    }
+  }
+
+  public void setBlockEngineering(BlockEngineeringEntity blockEngineering) {
+    this.blockEngineering = blockEngineering;
+    if (blockEngineering != null && blockEngineering.getBlock() != this) {
+      blockEngineering.setBlock(this);
+    }
+  }
 }

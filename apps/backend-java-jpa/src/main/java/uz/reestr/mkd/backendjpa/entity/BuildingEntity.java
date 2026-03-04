@@ -83,6 +83,12 @@ public class BuildingEntity {
   @Column(name = "cadastre_number")
   private String cadastreNumber;
 
+  @Column(name = "external_id")
+  private String externalId;
+
+  @Column(name = "integration_status")
+  private String integrationStatus;
+
   @JdbcTypeCode(SqlTypes.JSON)
   @Column(name = "footprint_geojson", columnDefinition = "jsonb")
   private Map<String, Object> footprintGeojson;

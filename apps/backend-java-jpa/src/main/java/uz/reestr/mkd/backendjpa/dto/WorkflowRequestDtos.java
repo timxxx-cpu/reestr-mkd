@@ -16,4 +16,19 @@ public final class WorkflowRequestDtos {
 
   public record ReviewApproveRequest(String comment) {
   }
+
+  public record ReviewRejectRequest(String reason) {
+  }
+
+  public record AssignTechnicianRequest(String assigneeUserId, String reason) {
+  }
+
+  public record RequestDeclineRequest(String reason, Integer stepIndex) {
+  }
+
+  public record ReturnFromDeclineRequest(String comment) {
+  }
+
+  public record RestoreRequest(String comment) {
+  }
 }

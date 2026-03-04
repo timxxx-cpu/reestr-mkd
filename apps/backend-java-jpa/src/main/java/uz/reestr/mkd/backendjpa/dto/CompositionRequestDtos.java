@@ -89,6 +89,32 @@ public final class CompositionRequestDtos {
   ) {
   }
 
+
+  public record UpdateBlockConstructionRequest(
+      String foundation,
+      String walls,
+      String slabs,
+      String roof,
+      Integer seismicity
+  ) {
+  }
+
+  public record UpdateBlockEngineeringRequest(
+      Boolean electricity,
+      Boolean hvs,
+      Boolean gvs,
+      Boolean sewerage,
+      Boolean gas,
+      Boolean heatingLocal,
+      Boolean heatingCentral,
+      Boolean ventilation,
+      Boolean firefighting,
+      Boolean lowcurrent,
+      Boolean internet,
+      Boolean solarPanels
+  ) {
+  }
+
   public record ReconcileEntrancesRequest(Integer count) {
   }
 }

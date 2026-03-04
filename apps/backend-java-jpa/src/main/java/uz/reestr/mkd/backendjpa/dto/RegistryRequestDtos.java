@@ -55,6 +55,17 @@ public final class RegistryRequestDtos {
   ) {
   }
 
+  public record UpsertRoomRequest(
+      UUID id,
+      String type,
+      String label,
+      BigDecimal area,
+      BigDecimal height,
+      Integer level,
+      Boolean isMezzanine
+  ) {
+  }
+
   public record UpdateFloorRequest(FloorUpdates updates) {
   }
 
