@@ -54,8 +54,9 @@ public class IntegrationJpaService {
     if (field == null || field.isBlank()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "field is required");
     }
-
+    
     JsonNode current = getIntegrationStatus(projectId);
+    @SuppressWarnings("unchecked")
     Map<String, Object> data = objectMapper.convertValue(current, Map.class);
     data.put(field, status);
 

@@ -119,7 +119,8 @@ public class RegistryJpaService {
 
   @Transactional
   public JsonNode createBlockExtension(UUID blockId, CreateBlockExtensionRequest request) {
-    BlockEntity block = getBlock(blockId);
+    BlockEntity block = blockRepository.findById(blockId)
+    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Block not found"));
     var data = request == null ? null : request.extensionData();
     BlockExtensionEntity e = BlockExtensionEntity.builder()
         .building(block.getBuilding())
@@ -868,7 +869,7 @@ public class RegistryJpaService {
           .executeUpdate();
       return;
     }
-
+    @SuppressWarnings("unchecked") 
     List<Object[]> existingRows = entityManager.createNativeQuery("""
         select id, floor_id, entrance_number
           from entrance_matrix
@@ -974,7 +975,7 @@ public class RegistryJpaService {
 
     query.executeUpdate();
   }
-
+  @SuppressWarnings("unchecked")
   private String resolveEntranceMatrixJsonbColumn() {
     List<String> candidates = List.of("values_jsonb", "values_json", "values", "matrix_values", "payload");
     List<String> found = entityManager.createNativeQuery("""
@@ -1048,7 +1049,7 @@ public class RegistryJpaService {
     return rows.isEmpty() ? null : rows.get(0);
   }
 
-  private FloorShape buildFloorShape(Integer floorIndex, String defaultType, ReconcileFloorsOptions options) {
+    private FloorShape buildFloorShape(Integer floorIndex, String defaultType, ReconcileFloorsOptions options) {
     String floorType = defaultType == null || defaultType.isBlank() ? "residential" : defaultType;
     boolean isTechnical = false;
     boolean isCommercial = false;
@@ -1376,7 +1377,8 @@ public class RegistryJpaService {
   }
 
   private BlockSeed fetchBlockSeed(UUID blockId) {
-    Object[] row = (Object[]) entityManager.createNativeQuery("""
+    @SuppressWarnings("unchecked")
+    List<Object[]> results = entityManager.createNativeQuery("""
         select b.id, b.building_id, b.label, b.type, b.floors_count, b.floors_from, b.floors_to,
                b.levels_depth, coalesce(b.has_basement, false), coalesce(b.has_attic, false),
                coalesce(b.has_loft, false), coalesce(b.has_roof_expl, false),
@@ -1388,8 +1390,9 @@ public class RegistryJpaService {
          where b.id = :id
         """)
         .setParameter("id", blockId)
-        .getResultList()
-        .stream()
+        .getResultList();
+
+    Object[] row = results.stream()
         .findFirst()
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Block not found"));
 
@@ -1415,20 +1418,22 @@ public class RegistryJpaService {
   }
 
   private BuildingSeed fetchBuildingSeed(UUID buildingId) {
-    Object[] row = (Object[]) entityManager.createNativeQuery("""
+    @SuppressWarnings("unchecked")
+    List<Object[]> results = entityManager.createNativeQuery("""
         select b.id, b.category, b.parking_type, b.construction_type
           from buildings b
          where b.id = :id
         """)
         .setParameter("id", buildingId)
-        .getResultList()
-        .stream()
+        .getResultList();
+
+    Object[] row = results.stream()
         .findFirst()
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Building not found"));
 
     return new BuildingSeed((UUID) row[0], stringValue(row[1]), stringValue(row[2]), stringValue(row[3]));
   }
-
+  @SuppressWarnings("unchecked")
   private List<BlockSeed> fetchBlocksByBuilding(UUID buildingId) {
     List<Object[]> rows = entityManager.createNativeQuery("""
         select b.id, b.building_id, b.label, b.type, b.floors_count, b.floors_from, b.floors_to,
@@ -1468,7 +1473,7 @@ public class RegistryJpaService {
     }
     return out;
   }
-
+  @SuppressWarnings("unchecked")
   private List<MarkerSeed> fetchMarkers(UUID blockId) {
     List<Object[]> rows = entityManager.createNativeQuery("""
         select marker_key, marker_type, floor_index, coalesce(is_technical, false), coalesce(is_commercial, false)
@@ -1522,8 +1527,8 @@ public class RegistryJpaService {
       for (String chunk : chunks) {
         String[] kv = chunk.split(":", 2);
         if (kv.length == 2) {
-          String key = kv[0].replace(""", "").trim();
-          String valueRaw = kv[1].replace(""", "").trim();
+         String key = kv[0].replace("\"", "").trim();
+         String valueRaw = kv[1].replace("\"", "").trim();
           if (!key.isBlank()) {
             out.put(key, valueRaw);
           }

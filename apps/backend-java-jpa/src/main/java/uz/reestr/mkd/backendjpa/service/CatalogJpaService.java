@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -65,14 +64,14 @@ public class CatalogJpaService {
   public CatalogItemsResponse getCatalog(String table, Boolean activeOnly) {
     String resolvedTable = normalizeAndValidateTable(table);
     List<Map<String, Object>> rows = fetchCatalogRows(resolvedTable, Boolean.TRUE.equals(activeOnly));
-    return new CatalogItemsResponse(rows.stream().map(objectMapper::valueToTree).toList());
+    return new CatalogItemsResponse(rows.stream().map(row -> (JsonNode) objectMapper.valueToTree(row)).toList());
   }
 
   @Transactional(readOnly = true)
   public CatalogItemsResponse getCatalogAll(String table) {
     String resolvedTable = normalizeAndValidateTable(table);
     List<Map<String, Object>> rows = fetchCatalogRows(resolvedTable, false);
-    return new CatalogItemsResponse(rows.stream().map(objectMapper::valueToTree).toList());
+    return new CatalogItemsResponse(rows.stream().map(row -> (JsonNode) objectMapper.valueToTree(row)).toList());
   }
 
   @Transactional(readOnly = true)
@@ -93,7 +92,7 @@ public class CatalogJpaService {
           row.put("group_name", user.getGroupName());
           row.put("sort_order", user.getSortOrder());
           row.put("is_active", user.getIsActive());
-          return objectMapper.valueToTree(row);
+          return (JsonNode) objectMapper.valueToTree(row);
         })
         .toList();
 
@@ -112,7 +111,8 @@ public class CatalogJpaService {
     if (id == null || id.isBlank()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "item.id is required");
     }
-
+    
+    @SuppressWarnings("unchecked")
     Map<String, Object> payload = new LinkedHashMap<>(objectMapper.convertValue(item, Map.class));
     payload.put("id", id);
     if (payload.containsKey("sortOrder") && !payload.containsKey("sort_order")) {
@@ -207,7 +207,7 @@ public class CatalogJpaService {
     } else {
       sql.append(" order by sort_order asc, label asc");
     }
-
+    @SuppressWarnings("unchecked")
     List<Object[]> tuples = entityManager.createNativeQuery(sql.toString()).getResultList();
     List<String> columns = getTableColumns(table);
 

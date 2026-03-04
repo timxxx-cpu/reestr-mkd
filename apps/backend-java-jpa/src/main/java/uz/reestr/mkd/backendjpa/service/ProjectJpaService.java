@@ -156,6 +156,7 @@ public class ProjectJpaService {
     long completed = statusCounts.getOrDefault("COMPLETED", 0L);
 
     Map<String, Long> substatusCounts = new HashMap<>();
+    @SuppressWarnings("unchecked")
     List<Object[]> substatusRows = entityManager.createNativeQuery("""
         select upper(coalesce(workflow_substatus, '')), count(*)
           from applications a
@@ -817,7 +818,7 @@ public class ProjectJpaService {
            )
          limit 1
         """;
-
+    @SuppressWarnings("unchecked")
     List<Object[]> rows = entityManager.createNativeQuery(sql)
         .setParameter("scope", scope)
         .setParameter("projectId", reapplicationForProjectId)

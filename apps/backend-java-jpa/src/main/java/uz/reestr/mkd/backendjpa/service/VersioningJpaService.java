@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
-import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -99,14 +98,14 @@ public class VersioningJpaService {
 
   private List<EntitySnapshotRef> collectProjectEntities(UUID projectId) {
     List<EntitySnapshotRef> entities = new ArrayList<>();
-
+    @SuppressWarnings("unchecked")
     List<Object[]> projectRows = entityManager.createNativeQuery("select id, to_jsonb(p.*) from projects p where id = :projectId")
         .setParameter("projectId", projectId)
         .getResultList();
     for (Object[] row : projectRows) {
       entities.add(new EntitySnapshotRef("project", (UUID) row[0], toMap((JsonNode) row[1])));
     }
-
+    @SuppressWarnings("unchecked")
     List<Object[]> buildingRows = entityManager.createNativeQuery("select id, to_jsonb(b.*) from buildings b where project_id = :projectId")
         .setParameter("projectId", projectId)
         .getResultList();
