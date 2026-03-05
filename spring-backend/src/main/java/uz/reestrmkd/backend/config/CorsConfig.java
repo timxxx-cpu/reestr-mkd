@@ -7,6 +7,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.lang.NonNull;
 
 import java.util.Arrays;
 import java.util.List;
@@ -25,7 +26,7 @@ public class CorsConfig {
     public WebMvcConfigurer webMvcConfigurer() {
         return new WebMvcConfigurer() {
             @Override
-            public void addCorsMappings(CorsRegistry registry) {
+           public void addCorsMappings(@NonNull CorsRegistry registry) {
                 CorsConfiguration cors = buildCorsConfiguration();
                 registry.addMapping("/**")
                     .allowedOriginPatterns(cors.getAllowedOriginPatterns().toArray(String[]::new))

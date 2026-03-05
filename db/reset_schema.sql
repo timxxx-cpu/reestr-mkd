@@ -146,7 +146,9 @@ create table if not exists addresses (
   mahalla uuid references makhallas(id) on delete set null,
   massive text,
   street uuid references streets(id) on delete set null,
-  building_no_index varchar(20)
+  building_no_index varchar(20),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 create index idx_addresses_postal_code on addresses(postal_code);
 create index idx_addresses_mahalla on addresses(mahalla);
@@ -1536,6 +1538,31 @@ begin
   end if;
   v_multi := st_multi(v_geom);
 
+create or replace function upsert_project_geometry_candidate(
+  p_project_id uuid,
+  p_source_index int,
+  p_label text,
+  p_properties jsonb,
+  p_geom_geojson jsonb
+)
+returns table(id uuid, source_index int, label text, properties jsonb, geom_geojson jsonb, area_m2 numeric)
+language plpgsql
+as $$
+declare
+  v_geom geometry;
+  v_multi geometry;
+  v_row project_geometry_candidates%rowtype;
+begin
+  if p_project_id is null then
+    raise exception 'project_id is required';
+  end if;
+
+  v_geom := st_setsrid(st_geomfromgeojson(p_geom_geojson::text), 3857);
+  if geometrytype(v_geom) not in ('POLYGON', 'MULTIPOLYGON') then
+    raise exception 'Only Polygon/MultiPolygon supported';
+  end if;
+  v_multi := st_multi(v_geom);
+
   insert into project_geometry_candidates(project_id, source_index, label, properties, geom_geojson, geom, area_m2, updated_at)
       values (
         p_project_id,
@@ -1556,8 +1583,9 @@ begin
         updated_at = now()
   returning * into v_row;
 
+  -- ИСПРАВЛЕНИЕ: Добавлено ::text для v_row.label, чтобы избежать конфликта varchar(255) vs text
   return query
-  select v_row.id, v_row.source_index, v_row.label, v_row.properties, v_row.geom_geojson, v_row.area_m2;
+  select v_row.id, v_row.source_index, v_row.label::text, v_row.properties, v_row.geom_geojson, v_row.area_m2;
 end;
 $$;
 

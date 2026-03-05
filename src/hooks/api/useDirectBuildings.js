@@ -10,14 +10,21 @@ export function useDirectBuildings(projectId) {
 
   // --- READ ---
   const {
-    data: buildings = [],
+    data = [],
     isLoading,
     isError,
   } = useQuery({
     queryKey,
-    queryFn: () => ApiService.getBuildings(projectId),
+    queryFn: async () => {
+      const res = await ApiService.getBuildings(projectId);
+      // Гарантируем, что всегда возвращается массив
+      return Array.isArray(res) ? res : (res?.data || res?.items || []);
+    },
     enabled: !!projectId,
   });
+
+  // Дополнительная защита на случай, если data испортится в кэше
+  const buildings = Array.isArray(data) ? data : [];
 
   // --- CREATE ---
   const createMutation = useMutation({

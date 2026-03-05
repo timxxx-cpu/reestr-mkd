@@ -10,6 +10,7 @@ import uz.reestrmkd.backend.dto.MapResponseDto;
 import uz.reestrmkd.backend.exception.ApiException;
 import uz.reestrmkd.backend.security.ActorPrincipal;
 import uz.reestrmkd.backend.service.SecurityPolicyService;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.*;
@@ -96,8 +97,8 @@ public class CompositionController {
             dto.put("hasNonResPart", b.get("has_non_res_part") != null ? b.get("has_non_res_part") : nonResBlocks > 0);
             dto.put("cadastreNumber", b.get("cadastre_number"));
             dto.put("cadastre_number", b.get("cadastre_number"));
-            dto.put("geometry", b.get("footprint_geojson"));
-            dto.put("footprintGeojson", b.get("footprint_geojson"));
+            dto.put("geometry", parseJsonb(b.get("footprint_geojson")));
+            dto.put("footprintGeojson", parseJsonb(b.get("footprint_geojson")));
             dto.put("buildingFootprintAreaM2", b.get("building_footprint_area_m2"));
             dto.put("dateStart", b.get("date_start"));
             dto.put("dateEnd", b.get("date_end"));
@@ -112,7 +113,7 @@ public class CompositionController {
                 m.put("originalType", bl.get("type"));
                 m.put("floorsCount", bl.get("floors_count"));
                 m.put("isBasementBlock", Boolean.TRUE.equals(bl.get("is_basement_block")));
-                m.put("linkedBlockIds", bl.get("linked_block_ids") == null ? List.of() : bl.get("linked_block_ids"));
+                m.put("linkedBlockIds", parseSqlArray(bl.get("linked_block_ids")));
                 List<Map<String, Object>> ext = extByBlockFinal.getOrDefault((UUID) bl.get("id"), List.of()).stream().map(e -> {
                     Map<String, Object> item = new LinkedHashMap<>();
                     item.put("id", e.get("id"));
@@ -134,6 +135,7 @@ public class CompositionController {
     }
 
     @PostMapping("/projects/{projectId}/buildings")
+    @Transactional
     public MapResponseDto create(@PathVariable UUID projectId, @RequestBody(required = false) Map<String, Object> body) {
         requirePolicy("composition", "mutate", "Role cannot modify composition");
 
@@ -213,10 +215,11 @@ public class CompositionController {
             }
         }
 
-        return MapResponseDto.of(jdbcTemplate.queryForMap("select * from buildings where id = ?", buildingId));
+        return MapResponseDto.of(Map.of("id", buildingId, "ok", true));
     }
 
     @PutMapping("/buildings/{buildingId}")
+    @Transactional
     public MapResponseDto update(@PathVariable UUID buildingId, @RequestBody(required = false) Map<String, Object> body) {
         requirePolicy("composition", "mutate", "Role cannot modify composition");
 
@@ -281,10 +284,11 @@ public class CompositionController {
         }
 
         syncBasements(buildingId, buildingData);
-        return MapResponseDto.of(jdbcTemplate.queryForMap("select * from buildings where id = ?", buildingId));
+       return MapResponseDto.of(Map.of("id", buildingId, "ok", true));
     }
 
     @DeleteMapping("/buildings/{buildingId}")
+    @Transactional
     public MapResponseDto delete(@PathVariable UUID buildingId) {
         requirePolicy("composition", "mutate", "Role cannot modify composition");
         jdbcTemplate.update("delete from buildings where id = ?", buildingId);
@@ -350,8 +354,10 @@ public class CompositionController {
         UUID id = UUID.randomUUID();
         String city = s(parent.get("city"));
         String fullAddress = (city == null ? "" : city) + (houseNumber == null ? "" : ", д. " + houseNumber);
+        
+        // ИСПРАВЛЕНО: убрали created_at и updated_at из запроса
         jdbcTemplate.update(
-            "insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, full_address, created_at, updated_at) values (?,?,0,?,?,?,?,?,?,now(),now())",
+            "insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, full_address) values (?,?,0,?,?,?,?,?,?)",
             id,
             "Address",
             parent.get("district"),
@@ -462,15 +468,17 @@ public class CompositionController {
         return constructionType;
     }
 
-    private void assignGeometry(UUID projectId, UUID buildingId, UUID candidateId) {
+   private void assignGeometry(UUID projectId, UUID buildingId, UUID candidateId) {
         try {
+            // ИСПРАВЛЕНО: убрали ?::uuid, оставили просто ?
             jdbcTemplate.queryForList(
-                "select * from assign_building_geometry_from_candidate(?::uuid, ?::uuid, ?::uuid)",
+                "select * from assign_building_geometry_from_candidate(?, ?, ?)",
                 projectId,
                 buildingId,
                 candidateId
             );
         } catch (DataAccessException e) {
+            e.printStackTrace();
             throw new ApiException("Geometry validation failed", "GEOMETRY_VALIDATION_ERROR", e.getMessage(), 400);
         }
     }
@@ -522,5 +530,28 @@ public class CompositionController {
         if (!securityPolicyService.allowByPolicy(actor.userRole(), module, action)) {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
+    }
+    private Object parseJsonb(Object value) {
+        if (value == null) return null;
+        try {
+            return objectMapper.readTree(value.toString());
+        } catch (Exception e) {
+            return value.toString();
+        }
+    }
+
+    private List<?> parseSqlArray(Object value) {
+        if (value == null) return List.of();
+        if (value instanceof java.sql.Array arr) {
+            try {
+                return Arrays.asList((Object[]) arr.getArray());
+            } catch (Exception e) {
+                return List.of();
+            }
+        }
+        if (value instanceof Object[] arr) {
+            return Arrays.asList(arr);
+        }
+        return List.of();
     }
 }

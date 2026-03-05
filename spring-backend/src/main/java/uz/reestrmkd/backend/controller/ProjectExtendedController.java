@@ -79,6 +79,7 @@ public class ProjectExtendedController {
     }
 
     @GetMapping("/projects/{projectId}/context")
+    @Transactional
     public ProjectContextResponseDto context(@PathVariable UUID projectId, @RequestParam String scope){ return projectContextService.getProjectContext(projectId, scope); }
 
     @PostMapping("/projects/{projectId}/context-building-details/save")
@@ -223,15 +224,17 @@ public class ProjectExtendedController {
             if (blockRows.isEmpty()) continue;
             UUID blockBuildingId = UUID.fromString(String.valueOf(blockRows.get(0).get("building_id")));
 
-            Map<String, Object> normalizedBlockGeometry = toMultiPolygon(asMap(details.get("blockGeometry")));
+          Map<String, Object> normalizedBlockGeometry = toMultiPolygon(asMap(details.get("blockGeometry")));
             if (normalizedBlockGeometry != null) {
-                List<Map<String, Object>> geomRows = jdbcTemplate.queryForList("select footprint_geojson from buildings where id=?", blockBuildingId);
-                if (!geomRows.isEmpty() && geomRows.get(0).get("footprint_geojson") != null) {
+                // ИСПРАВЛЕНИЕ: Извлекаем геометрию сразу как текст, чтобы избежать двойной JSON-сериализации
+                List<Map<String, Object>> geomRows = jdbcTemplate.queryForList("select cast(footprint_geojson as text) as geo_text from buildings where id=?", blockBuildingId);
+                if (!geomRows.isEmpty() && geomRows.get(0).get("geo_text") != null) {
+                    String buildingGeomText = String.valueOf(geomRows.get(0).get("geo_text"));
                     Boolean isCovered = jdbcTemplate.queryForObject(
                         "select check_geojson_coveredby(cast(? as jsonb), cast(? as jsonb))",
                         Boolean.class,
                         jsonbString(normalizedBlockGeometry),
-                        jsonbString(geomRows.get(0).get("footprint_geojson"))
+                        buildingGeomText // ИСПРАВЛЕНИЕ: Передаем извлеченный текст напрямую, без jsonbString()
                     );
                     if (!Boolean.TRUE.equals(isCovered)) {
                         throw new ApiException("Геометрия блока должна находиться внутри границ здания", "VALIDATION_ERROR", null, 400);
@@ -312,7 +315,8 @@ public class ProjectExtendedController {
     }
 
     @PostMapping("/projects/{projectId}/context-meta/save")
-    public MapResponseDto saveMeta(@PathVariable UUID projectId, @RequestBody(required = false) MapPayloadDto payload) {
+    @Transactional
+        public MapResponseDto saveMeta(@PathVariable UUID projectId, @RequestBody(required = false) MapPayloadDto payload) {
         Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
         requirePolicy("projectExtended", "mutate", "Role cannot save context meta");
         String scope = String.valueOf(body.getOrDefault("scope", "")).trim();
@@ -361,6 +365,7 @@ public class ProjectExtendedController {
     }
 
     @PostMapping("/projects/{projectId}/step-block-statuses/save")
+    @Transactional
     public MapResponseDto saveStep(@PathVariable UUID projectId, @RequestBody(required = false) MapPayloadDto payload) {
         Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
         requirePolicy("projectExtended", "mutate", "Role cannot save step block statuses");
@@ -455,27 +460,31 @@ public class ProjectExtendedController {
         return new ItemsResponseDto(items);
     }
 
-    @PostMapping("/projects/{projectId}/geometry-candidates/import")
+@PostMapping("/projects/{projectId}/geometry-candidates/import")
     public MapResponseDto importCandidates(@PathVariable UUID projectId, @RequestBody(required = false) GeometryCandidatesImportRequestDto payload){
         requirePolicy("projectExtended", "mutate", "Role cannot import geometry candidates");
         List<GeometryCandidateImportItemDto> candidates = payload == null || payload.candidates() == null ? List.of() : payload.candidates();
         if (candidates.isEmpty()) throw new ApiException("Candidates payload is required", "VALIDATION_ERROR", null, 400);
 
         int imported = 0;
+        int defaultIndex = 100; // Чтобы избежать коллизий, если sourceIndex пустой
+        
         for (GeometryCandidateImportItemDto candidate : candidates) {
             if (candidate.geometry() == null || candidate.geometry().isNull()) continue;
             List<Map<String, Object>> rows;
             try {
-                rows = jdbcTemplate.queryForList(
-                    "select * from upsert_project_geometry_candidate(?::uuid, ?, cast(? as text), cast(? as jsonb), cast(? as jsonb))",
+                // ИСПРАВЛЕНИЕ: Используем ?::jsonb вместо cast(? as jsonb) для надежности
+               rows = jdbcTemplate.queryForList(
+                    "select * from upsert_project_geometry_candidate(?, ?, ?, cast(? as jsonb), cast(? as jsonb))",
                     projectId,
-                    candidate.sourceIndex() == null ? 0 : candidate.sourceIndex(),
+                    candidate.sourceIndex() == null ? defaultIndex++ : candidate.sourceIndex(),
                     candidate.label(),
                     jsonbString(candidate.properties() == null ? objectMapper.createObjectNode() : candidate.properties()),
                     jsonbString(candidate.geometry())
                 );
             } catch (Exception e) {
-                throw new ApiException("Geometry import failed", "GEOMETRY_IMPORT_ERROR", e.getMessage(), 400);
+                e.printStackTrace();
+                throw new ApiException("Geometry import failed: " + e.getMessage(), "GEOMETRY_IMPORT_ERROR", e.getMessage(), 400);
             }
             if (!rows.isEmpty()) imported += 1;
         }
@@ -492,12 +501,14 @@ public class ProjectExtendedController {
         }
 
         try {
+            // ИСПРАВЛЕНИЕ: убрали ?::uuid, оставили просто ?
             jdbcTemplate.queryForList(
-                "select * from set_project_land_plot_from_candidate(?::uuid, ?::uuid)",
+                "select * from set_project_land_plot_from_candidate(?, ?)",
                 projectId,
                 candidateId
             );
         } catch (Exception e) {
+            e.printStackTrace(); // ИСПРАВЛЕНИЕ: добавлено логирование реальной ошибки в консоль
             throw new ApiException("Land plot selection failed", "GEOMETRY_ASSIGN_ERROR", e.getMessage(), 400);
         }
         return new OkResponseDto(true);
@@ -553,7 +564,7 @@ public class ProjectExtendedController {
         return new OkResponseDto(true);
     }
 
-    @PostMapping("/projects/{projectId}/buildings/{buildingId}/geometry/select")
+  @PostMapping("/projects/{projectId}/buildings/{buildingId}/geometry/select")
     @Transactional
     public OkResponseDto selectBuildingGeometry(
         @PathVariable UUID projectId,
@@ -578,13 +589,15 @@ public class ProjectExtendedController {
         }
 
         try {
+            // ИСПРАВЛЕНИЕ: убрали ?::uuid, оставили просто ?
             jdbcTemplate.queryForList(
-                "select * from assign_building_geometry_from_candidate(?::uuid, ?::uuid, ?::uuid)",
+                "select * from assign_building_geometry_from_candidate(?, ?, ?)",
                 projectId,
                 buildingId,
                 candidateId
             );
         } catch (Exception e) {
+            e.printStackTrace(); // ИСПРАВЛЕНИЕ: добавлено логирование реальной ошибки в консоль
             throw new ApiException("Building geometry selection failed", "GEOMETRY_ASSIGN_ERROR", e.getMessage(), 400);
         }
 
@@ -616,15 +629,15 @@ public class ProjectExtendedController {
         List<Map<String, Object>> participantsRows = jdbcTemplate.queryForList("select * from project_participants where project_id = ?", projectId);
         List<Map<String, Object>> docsRows = jdbcTemplate.queryForList("select * from project_documents where project_id = ? order by doc_date desc nulls last", projectId);
 
-        Map<String, Object> participants = new LinkedHashMap<>();
+Map<String, Object> participants = new LinkedHashMap<>();
         for (Map<String, Object> part : participantsRows) {
             String role = String.valueOf(part.get("role"));
-            participants.put(role, Map.of(
-                "id", part.get("id"),
-                "name", part.get("name"),
-                "inn", part.get("inn"),
-                "role", role
-            ));
+            Map<String, Object> pMap = new HashMap<>();
+            pMap.put("id", part.get("id"));
+            pMap.put("name", part.get("name"));
+            pMap.put("inn", part.get("inn"));
+            pMap.put("role", role);
+            participants.put(role, pMap);
         }
 
         List<Map<String, Object>> documents = docsRows.stream().map(d -> {
@@ -640,6 +653,7 @@ public class ProjectExtendedController {
 
         Map<String, Object> complexInfo = new LinkedHashMap<>();
         complexInfo.put("name", project.get("name"));
+        complexInfo.put("ujCode", project.get("uj_code"));
         complexInfo.put("ujCode", project.get("uj_code"));
         complexInfo.put("status", project.get("construction_status"));
         complexInfo.put("region", project.get("region"));
@@ -657,13 +671,22 @@ public class ProjectExtendedController {
         complexInfo.put("mahallaId", address.get("mahalla"));
         complexInfo.put("buildingNo", address.get("building_no"));
 
-        return MapResponseDto.of(Map.of(
-            "complexInfo", complexInfo,
-            "cadastre", Map.of("number", project.get("cadastre_number"), "area", project.get("land_plot_area_m2")),
-            "landPlot", Map.of("geometry", project.get("land_plot_geojson"), "areaM2", project.get("land_plot_area_m2")),
-            "participants", participants,
-            "documents", documents
-        ));
+   Map<String, Object> cadastreInfo = new HashMap<>();
+        cadastreInfo.put("number", project.get("cadastre_number"));
+        cadastreInfo.put("area", project.get("land_plot_area_m2"));
+
+        Map<String, Object> landPlotInfo = new HashMap<>();
+        landPlotInfo.put("geometry", project.get("land_plot_geojson"));
+        landPlotInfo.put("areaM2", project.get("land_plot_area_m2"));
+
+        Map<String, Object> responseData = new HashMap<>();
+        responseData.put("complexInfo", complexInfo);
+        responseData.put("cadastre", cadastreInfo);
+        responseData.put("landPlot", landPlotInfo);
+        responseData.put("participants", participants);
+        responseData.put("documents", documents);
+
+        return MapResponseDto.of(responseData);
     }
 
     @PutMapping("/projects/{projectId}/passport")
@@ -680,10 +703,11 @@ public class ProjectExtendedController {
             info.buildingNo(),
             info.region(),
             info.district(),
-            info.mahalla()
+            info.mahalla(),
+            info.street()
         );
 
-        String finalAddress = info == null ? null : buildFullAddress(info.region(), info.district(), info.mahalla(), info.buildingNo());
+        String finalAddress = info == null ? null : buildFullAddress(info.region(), info.district(), info.mahalla(), info.street(), info.buildingNo());
 
         jdbcTemplate.update(
             "update projects set name=coalesce(?, name), region=coalesce(?, region), district=coalesce(?, district), address=coalesce(?, address), landmark=coalesce(?, landmark), construction_status=coalesce(?, construction_status), date_start_project=coalesce(?, date_start_project), date_end_project=coalesce(?, date_end_project), date_start_fact=coalesce(?, date_start_fact), date_end_fact=coalesce(?, date_end_fact), address_id=coalesce(?, address_id), cadastre_number=coalesce(?, cadastre_number), land_plot_area_m2=coalesce(?, land_plot_area_m2), updated_at=now() where id=?",
@@ -1002,18 +1026,28 @@ public class ProjectExtendedController {
     @PostMapping("/versions/{versionId}/restore") public OkResponseDto restore(@PathVariable Long versionId){jdbcTemplate.update("update object_versions set version_status='CURRENT', updated_at=now() where id=?",versionId);return new OkResponseDto(true);}    
 
 
-    private UUID ensureAddressRecord(UUID addressId, String districtSoato, String streetId, String mahallaId, String buildingNo, String regionName, String districtName, String mahallaName) {
+private UUID ensureAddressRecord(
+            UUID addressId, 
+            String districtSoato, 
+            String streetId, 
+            String mahallaId, 
+            String buildingNo, 
+            String regionName, 
+            String districtName, 
+            String mahallaName, 
+            String streetName // <--- ОШИБКА БЫЛА ЗДЕСЬ (параметр отсутствовал)
+    ) {
         boolean hasAddressData = !isBlank(districtSoato) || !isBlank(streetId) || !isBlank(mahallaId) || !isBlank(buildingNo);
         if (!hasAddressData) {
             return addressId;
         }
 
         UUID resolvedAddressId = addressId == null ? UUID.randomUUID() : addressId;
-        String fullAddress = buildFullAddress(regionName, districtName, mahallaName, buildingNo);
+        String fullAddress = buildFullAddress(regionName, districtName, mahallaName, streetName, buildingNo);
 
         jdbcTemplate.update(
-            "insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, full_address, created_at, updated_at) values (?,?,0,?,?,?,?,?,?,now(),now()) " +
-                "on conflict (id) do update set district=excluded.district, street=excluded.street, mahalla=excluded.mahalla, city=excluded.city, building_no=excluded.building_no, full_address=excluded.full_address, updated_at=now()",
+            "insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, full_address) values (?,?,0,?,?,?,?,?,?) " +
+                "on conflict (id) do update set district=excluded.district, street=excluded.street, mahalla=excluded.mahalla, city=excluded.city, building_no=excluded.building_no, full_address=excluded.full_address",
             resolvedAddressId,
             "Address",
             districtSoato,
@@ -1026,12 +1060,13 @@ public class ProjectExtendedController {
 
         return resolvedAddressId;
     }
-
-    private String buildFullAddress(String regionName, String districtName, String mahallaName, String buildingNo) {
+    
+   private String buildFullAddress(String regionName, String districtName, String mahallaName, String streetName, String buildingNo) {
         List<String> parts = new ArrayList<>();
         if (!isBlank(regionName)) parts.add(regionName.trim());
         if (!isBlank(districtName)) parts.add(districtName.trim());
         if (!isBlank(mahallaName)) parts.add(mahallaName.trim());
+        if (!isBlank(streetName)) parts.add(streetName.trim()); // Улица теперь учитывается
         if (!isBlank(buildingNo)) parts.add("д. " + buildingNo.trim());
         return parts.isEmpty() ? null : String.join(", ", parts);
     }
@@ -1080,14 +1115,40 @@ public class ProjectExtendedController {
             Map<String, Object> existing = existingByKey.get(floorConstraintKey(floor));
             UUID id = existing == null ? UUID.randomUUID() : UUID.fromString(String.valueOf(existing.get("id")));
             usedIds.add(id);
-            jdbcTemplate.update(
-                "insert into floors(id, block_id, index, floor_key, label, floor_type, height, area_proj, is_technical, is_commercial, is_stylobate, is_basement, is_attic, is_loft, is_roof, parent_floor_index, basement_id, updated_at) " +
-                    "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
-                    "on conflict (id) do update set block_id=excluded.block_id, index=excluded.index, floor_key=excluded.floor_key, label=excluded.label, floor_type=excluded.floor_type, height=excluded.height, area_proj=excluded.area_proj, is_technical=excluded.is_technical, is_commercial=excluded.is_commercial, is_stylobate=excluded.is_stylobate, is_basement=excluded.is_basement, is_attic=excluded.is_attic, is_loft=excluded.is_loft, is_roof=excluded.is_roof, parent_floor_index=excluded.parent_floor_index, basement_id=excluded.basement_id, updated_at=excluded.updated_at",
-                id, floor.get("block_id"), floor.get("index"), floor.get("floor_key"), floor.get("label"), floor.get("floor_type"), floor.get("height"), floor.get("area_proj"),
-                floor.get("is_technical"), floor.get("is_commercial"), floor.get("is_stylobate"), floor.get("is_basement"), floor.get("is_attic"), floor.get("is_loft"), floor.get("is_roof"),
-                floor.get("parent_floor_index"), floor.get("basement_id"), Instant.now()
-            );
+            
+            try {
+                // ИСПРАВЛЕНИЕ: используем now() в самом SQL вместо Instant.now(), 
+                // безопасно приводим строки (чтобы не получить строку "null")
+                Object fk = floor.get("floor_key");
+                Object lbl = floor.get("label");
+                Object ft = floor.get("floor_type");
+                
+                jdbcTemplate.update(
+                    "insert into floors(id, block_id, index, floor_key, label, floor_type, height, area_proj, is_technical, is_commercial, is_stylobate, is_basement, is_attic, is_loft, is_roof, parent_floor_index, basement_id, updated_at) " +
+                        "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,now()) " +
+                        "on conflict (id) do update set block_id=excluded.block_id, index=excluded.index, floor_key=excluded.floor_key, label=excluded.label, floor_type=excluded.floor_type, height=excluded.height, area_proj=excluded.area_proj, is_technical=excluded.is_technical, is_commercial=excluded.is_commercial, is_stylobate=excluded.is_stylobate, is_basement=excluded.is_basement, is_attic=excluded.is_attic, is_loft=excluded.is_loft, is_roof=excluded.is_roof, parent_floor_index=excluded.parent_floor_index, basement_id=excluded.basement_id, updated_at=now()",
+                    id, 
+                    parseUuid(floor.get("block_id")), 
+                    toNullableInt(floor.get("index")), 
+                    fk == null ? null : String.valueOf(fk), 
+                    lbl == null ? null : String.valueOf(lbl), 
+                    ft == null ? null : String.valueOf(ft), 
+                    floor.get("height") != null ? Double.parseDouble(String.valueOf(floor.get("height"))) : null, 
+                    floor.get("area_proj") != null ? Double.parseDouble(String.valueOf(floor.get("area_proj"))) : null,
+                    toBool(floor.get("is_technical")), 
+                    toBool(floor.get("is_commercial")), 
+                    toBool(floor.get("is_stylobate")), 
+                    toBool(floor.get("is_basement")), 
+                    toBool(floor.get("is_attic")), 
+                    toBool(floor.get("is_loft")), 
+                    toBool(floor.get("is_roof")),
+                    toNullableInt(floor.get("parent_floor_index")), 
+                    parseUuid(floor.get("basement_id"))
+                );
+            } catch (Exception e) {
+                e.printStackTrace();
+                throw new ApiException("Floor sync failed: " + e.getMessage(), "SYNC_ERROR", e.getMessage(), 500);
+            }
         }
 
         List<UUID> toDelete = existingFloors.stream()

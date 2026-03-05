@@ -21,6 +21,7 @@ export function useDirectUnits(blockId, floorIds = []) {
     queryKey,
     queryFn: () => ApiService.getUnits(blockId, { floorIds: normalizedFloorIds }),
     enabled: !!blockId,
+    placeholderData: (prev) => prev,
   });
 
   // --- UPDATE SINGLE ---

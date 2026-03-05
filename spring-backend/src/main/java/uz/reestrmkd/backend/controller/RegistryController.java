@@ -220,7 +220,7 @@ public class RegistryController {
         return ResponseEntity.ok(MapResponseDto.of(unit));
     }
 
-    @GetMapping("/blocks/{blockId}/units")
+ @GetMapping("/blocks/{blockId}/units")
     public MapResponseDto units(
         @PathVariable UUID blockId,
         @RequestParam(required = false) String floorIds,
@@ -236,20 +236,25 @@ public class RegistryController {
         int offset = (normalizedPage - 1) * normalizedLimit;
         List<String> floorsArr = floorIds == null || floorIds.isBlank() ? List.of() : Arrays.stream(floorIds.split(",")).map(String::trim).filter(s -> !s.isBlank()).toList();
 
+        // ИСПРАВЛЕНИЕ: Используем (block_id = ? OR floor_id IN (...)), чтобы захватить и основной блок, и связанные этажи
         StringBuilder sql = new StringBuilder("""
             select u.*
             from units u
             join floors f on f.id=u.floor_id
             join building_blocks bb on bb.id=f.block_id
             join buildings b on b.id=bb.building_id
-            where f.block_id=?
+            where (f.block_id=?
         """);
         List<Object> args = new ArrayList<>();
         args.add(blockId);
+        
         if (!floorsArr.isEmpty()) {
-            sql.append(" and u.floor_id in (").append(String.join(",", Collections.nCopies(floorsArr.size(), "?"))).append(")");
+            sql.append(" or u.floor_id in (").append(String.join(",", Collections.nCopies(floorsArr.size(), "?"))).append(")");
             args.addAll(floorsArr);
         }
+        sql.append(")"); // Закрываем скобку условия OR
+
+        // Дополнительные фильтры (поиск, тип и т.д.)
         if (search != null && !search.isBlank()) {
             sql.append(" and (coalesce(u.number,'') ilike ? or coalesce(u.unit_code,'') ilike ?)");
             String like = "%" + search + "%";
@@ -273,8 +278,23 @@ public class RegistryController {
         args.add(offset);
         List<Map<String, Object>> units = jdbcTemplate.queryForList(sql.toString(), args.toArray());
 
-        List<Map<String, Object>> entrances = jdbcTemplate.queryForList("select id, number from entrances where block_id=?", blockId);
-        Map<String, Integer> entranceMap = entrances.stream().collect(Collectors.toMap(r -> String.valueOf(r.get("id")), r -> ((Number) r.get("number")).intValue()));
+        // ИСПРАВЛЕНИЕ: Загружаем подъезды всех блоков, чьи квартиры могут вернуться (основной + стилобаты)
+        StringBuilder entSql = new StringBuilder("select id, number from entrances where block_id=?");
+        List<Object> entArgs = new ArrayList<>();
+        entArgs.add(blockId);
+        if (!floorsArr.isEmpty()) {
+            entSql.append(" or block_id in (select block_id from floors where id in (")
+                  .append(String.join(",", Collections.nCopies(floorsArr.size(), "?")))
+                  .append("))");
+            entArgs.addAll(floorsArr);
+        }
+        
+        List<Map<String, Object>> entrances = jdbcTemplate.queryForList(entSql.toString(), entArgs.toArray());
+        Map<String, Integer> entranceMap = entrances.stream().collect(Collectors.toMap(
+            r -> String.valueOf(r.get("id")), 
+            r -> ((Number) r.get("number")).intValue(),
+            (v1, v2) -> v1 // Игнорируем дубликаты, если они есть
+        ));
 
         return MapResponseDto.of(Map.of("units", units, "entranceMap", entranceMap));
     }
@@ -292,6 +312,7 @@ public class RegistryController {
         requirePolicy("registry", "mutate", "Role cannot modify registry data");
         Map<String, Object> result = new HashMap<>();
         result.put("removed", 0);
+        result.put("added", 0); // Добавлено поле для метрики созданных
         result.put("checkedCells", 0);
 
         List<Map<String, Object>> floors = jdbcTemplate.queryForList("select id from floors where block_id=?", blockId);
@@ -331,16 +352,20 @@ public class RegistryController {
             else if (isCommercialType(type)) commGrouped.computeIfAbsent(key, k -> new ArrayList<>()).add(unit);
         }
 
-        Set<String> keys = new HashSet<>();
+        // ИСПРАВЛЕНИЕ 1: Итерируемся и по тем ячейкам, которые есть в матрице, но пока пусты в БД
+        Set<String> keys = new HashSet<>(desiredMap.keySet());
         keys.addAll(flatsGrouped.keySet());
         keys.addAll(commGrouped.keySet());
 
         List<UUID> toDelete = new ArrayList<>();
+        int added = 0;
+
         for (String key : keys) {
             result.put("checkedCells", ((Integer) result.get("checkedCells")) + 1);
             Map<String, Integer> desired = desiredMap.getOrDefault(key, Map.of("flats", 0, "commercial", 0));
             List<Map<String, Object>> flats = new ArrayList<>(flatsGrouped.getOrDefault(key, List.of()));
             List<Map<String, Object>> comm = new ArrayList<>(commGrouped.getOrDefault(key, List.of()));
+            
             Comparator<Map<String, Object>> preserveRichDataComparator = Comparator
                 .comparing((Map<String, Object> row) -> hasCadastreNumber(row) ? 0 : 1)
                 .thenComparing(row -> hasAreaData(row) ? 0 : 1)
@@ -348,13 +373,42 @@ public class RegistryController {
             flats.sort(preserveRichDataComparator);
             comm.sort(preserveRichDataComparator);
 
-            if (flats.size() > desired.get("flats")) {
-                flats.subList(desired.get("flats"), flats.size())
+            String[] parts = key.split("_");
+            UUID floorId = UUID.fromString(parts[0]);
+            UUID entranceId = UUID.fromString(parts[1]);
+
+            // Жилые квартиры
+            int desiredFlats = desired.get("flats");
+            if (flats.size() > desiredFlats) {
+                flats.subList(desiredFlats, flats.size())
                     .forEach(row -> toDelete.add(UUID.fromString(String.valueOf(row.get("id")))));
+            } else if (flats.size() < desiredFlats) {
+                // ИСПРАВЛЕНИЕ 2: Создаем недостающие квартиры 
+                int toAdd = desiredFlats - flats.size();
+                for(int i = 0; i < toAdd; i++) {
+                    jdbcTemplate.update(
+                        "insert into units(id,floor_id,entrance_id,unit_type,status,created_at,updated_at) values (gen_random_uuid(),?,?,?,?,now(),now())",
+                        floorId, entranceId, "flat", "free"
+                    );
+                    added++;
+                }
             }
-            if (comm.size() > desired.get("commercial")) {
-                comm.subList(desired.get("commercial"), comm.size())
+
+            // Коммерческие помещения
+            int desiredComm = desired.get("commercial");
+            if (comm.size() > desiredComm) {
+                comm.subList(desiredComm, comm.size())
                     .forEach(row -> toDelete.add(UUID.fromString(String.valueOf(row.get("id")))));
+            } else if (comm.size() < desiredComm) {
+                // ИСПРАВЛЕНИЕ 3: Создаем недостающую коммерцию
+                int toAdd = desiredComm - comm.size();
+                for(int i = 0; i < toAdd; i++) {
+                    jdbcTemplate.update(
+                        "insert into units(id,floor_id,entrance_id,unit_type,status,created_at,updated_at) values (gen_random_uuid(),?,?,?,?,now(),now())",
+                        floorId, entranceId, "office", "free"
+                    );
+                    added++;
+                }
             }
         }
 
@@ -363,6 +417,8 @@ public class RegistryController {
             int removed = jdbcTemplate.update("delete from units where id in (" + inIds + ")", toDelete.toArray());
             result.put("removed", removed);
         }
+        result.put("added", added);
+        
         return MapResponseDto.of(result);
     }
 

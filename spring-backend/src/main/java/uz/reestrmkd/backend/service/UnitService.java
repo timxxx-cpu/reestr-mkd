@@ -19,10 +19,12 @@ public class UnitService {
 
     private final JdbcTemplate jdbcTemplate;
     private final UnitJpaRepository unitJpaRepository;
+    private final UjIdentifierService ujIdentifierService;
 
-    public UnitService(JdbcTemplate jdbcTemplate, UnitJpaRepository unitJpaRepository) {
+    public UnitService(JdbcTemplate jdbcTemplate, UnitJpaRepository unitJpaRepository, UjIdentifierService ujIdentifierService) {
         this.jdbcTemplate = jdbcTemplate;
         this.unitJpaRepository = unitJpaRepository;
+        this.ujIdentifierService = ujIdentifierService;
     }
 
     @Transactional
@@ -108,6 +110,7 @@ public class UnitService {
         return unitJpaRepository.save(unit).getId();
     }
 
+  @Transactional
     public int batchUpsertUnits(List<Map<String, Object>> items) {
         List<NormalizedUnitPayload> normalizedItems = (items == null ? List.<Map<String, Object>>of() : items).stream()
             .map(this::normalizeUnitPayload)
@@ -117,25 +120,94 @@ public class UnitService {
             return 0;
         }
 
-        validateUnitNumbersUniqueWithinBuilding(normalizedItems);
+      validateUnitNumbersUniqueWithinBlock(normalizedItems);
+
+        // ИСПРАВЛЕНИЕ: Получаем building_id, building_code и uj_code проекта
+        UUID sampleFloorId = normalizedItems.get(0).floorId();
+        List<Map<String, Object>> bInfo = jdbcTemplate.queryForList(
+            "select bb.building_id, b.building_code, p.uj_code " +
+            "from floors f " +
+            "join building_blocks bb on bb.id=f.block_id " +
+            "join buildings b on b.id=bb.building_id " +
+            "join projects p on p.id=b.project_id " +
+            "where f.id=?", 
+            sampleFloorId
+        );
+        
+        UUID buildingId = bInfo.isEmpty() ? null : (UUID) bInfo.get(0).get("building_id");
+        String buildingCode = bInfo.isEmpty() ? null : (String) bInfo.get(0).get("building_code");
+        String ujCode = bInfo.isEmpty() ? null : (String) bInfo.get(0).get("uj_code");
+
+        final List<String> existingCodes = buildingId != null ? jdbcTemplate.queryForList(
+            "select u.unit_code from units u join floors f on f.id=u.floor_id join building_blocks bb on bb.id=f.block_id where bb.building_id=? and u.unit_code is not null",
+            String.class,
+            buildingId
+        ) : List.of();
+
+        Map<String, Integer> nextSeqByPrefix = new HashMap<>();
+        int updated = 0;
 
         for (NormalizedUnitPayload unit : normalizedItems) {
-            if (unit.id() == null) {
-                jdbcTemplate.update(
-                    "insert into units(id,floor_id,entrance_id,number,unit_type,total_area,living_area,useful_area,rooms_count,status,cadastre_number,address_id,created_at,updated_at) values (gen_random_uuid(),?,?,?,?,?,?,?,?,?,?,?,now(),now())",
-                    unit.floorId(), unit.entranceId(), unit.number(), unit.unitType(), unit.totalArea(), unit.livingArea(), unit.usefulArea(), unit.rooms(), unit.status(), unit.cadastreNumber(), unit.addressId()
-                );
-            } else {
-                jdbcTemplate.update(
-                    "update units set floor_id=?, entrance_id=?, number=?, unit_type=?, total_area=?, living_area=?, useful_area=?, rooms_count=?, status=?, cadastre_number=?, address_id=?, updated_at=now() where id=?",
-                    unit.floorId(), unit.entranceId(), unit.number(), unit.unitType(), unit.totalArea(), unit.livingArea(), unit.usefulArea(), unit.rooms(), unit.status(), unit.cadastreNumber(), unit.addressId(), unit.id()
-                );
+            try {
+                String finalUnitCode = unit.unitCode();
+                List<Map<String, Object>> existing = jdbcTemplate.queryForList("select id, unit_code, unit_type from units where id = ?", unit.id());
+
+                // Если код не передан, но юнит существует и тип не изменился — сохраняем старый код
+                if (!existing.isEmpty() && finalUnitCode == null) {
+                    String existingType = (String) existing.get(0).get("unit_type");
+                    if (unit.unitType().equals(existingType)) {
+                        finalUnitCode = (String) existing.get(0).get("unit_code");
+                    }
+                }
+
+                // ИСПРАВЛЕНИЕ: Формируем полный префикс по формату UJ000000-ZD00-EL
+              if (finalUnitCode == null) {
+                    String basePrefix = ujIdentifierService.getUnitPrefix(unit.unitType());
+                    
+                    String fullPrefix;
+                    if (buildingCode != null && !buildingCode.isBlank()) {
+                        // Если код здания уже содержит код ЖК (например, UJ683390-ZM01), мы не дублируем ujCode
+                        if (ujCode != null && buildingCode.startsWith(ujCode)) {
+                            fullPrefix = buildingCode + "-" + basePrefix;
+                        } else {
+                            // Иначе склеиваем: ЖК + Здание + Юнит
+                            fullPrefix = (ujCode != null && !ujCode.isBlank() ? ujCode + "-" : "") + buildingCode + "-" + basePrefix;
+                        }
+                    } else {
+                        // Если здания нет (аномалия), клеим ЖК + Юнит
+                        fullPrefix = (ujCode != null && !ujCode.isBlank() ? ujCode + "-" : "") + basePrefix;
+                    }
+                    
+                    int seq = nextSeqByPrefix.computeIfAbsent(fullPrefix, p -> ujIdentifierService.getNextSequenceNumber(existingCodes, p));
+                    finalUnitCode = ujIdentifierService.generateUnitCode(fullPrefix, seq);
+                    nextSeqByPrefix.put(fullPrefix, seq + 1);
+                }
+
+                if (existing.isEmpty()) {
+                    jdbcTemplate.update(
+                        "insert into units(id,floor_id,entrance_id,number,unit_type,total_area,living_area,useful_area,rooms_count,status,cadastre_number,address_id,unit_code,created_at,updated_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?,now(),now())",
+                        unit.id(), unit.floorId(), unit.entranceId(), unit.number(), unit.unitType(), unit.totalArea(), unit.livingArea(), unit.usefulArea(), unit.rooms(), 
+                        unit.status() != null ? unit.status() : "free", 
+                        unit.cadastreNumber(), unit.addressId(), finalUnitCode
+                    );
+                } else {
+                    jdbcTemplate.update(
+                        "update units set floor_id=?, entrance_id=?, number=?, unit_type=?, total_area=?, living_area=?, useful_area=?, rooms_count=?, status=?, cadastre_number=?, address_id=?, unit_code=?, updated_at=now() where id=?",
+                        unit.floorId(), unit.entranceId(), unit.number(), unit.unitType(), unit.totalArea(), unit.livingArea(), unit.usefulArea(), unit.rooms(), 
+                        unit.status() != null ? unit.status() : "free", 
+                        unit.cadastreNumber(), unit.addressId(), finalUnitCode, unit.id()
+                    );
+                }
+                updated++;
+            } catch (Exception e) {
+                e.printStackTrace();
+                throw new ApiException("Batch update failed for unit " + unit.number() + ": " + e.getMessage(), "DB_ERROR", e.getMessage(), 400);
             }
         }
 
-        return normalizedItems.size();
+        return updated;
     }
-
+   @SuppressWarnings("unchecked")
     private List<Map<String, Object>> extractRoomsPayload(Map<String, Object> data) {
         Object explication = data.get("explication");
         if (explication instanceof List<?> list) {
@@ -172,7 +244,8 @@ public class UnitService {
             source.get("rooms"),
             source.containsKey("isSold") ? (Boolean.TRUE.equals(source.get("isSold")) ? "sold" : "free") : source.get("status"),
             source.get("cadastreNumber"),
-            source.get("addressId")
+            source.get("addressId"),
+            source.containsKey("unitCode") ? (String) source.get("unitCode") : null
         );
     }
 
@@ -193,52 +266,52 @@ public class UnitService {
         return number;
     }
 
-    private void validateUnitNumbersUniqueWithinBuilding(List<NormalizedUnitPayload> items) {
+    private void validateUnitNumbersUniqueWithinBlock(List<NormalizedUnitPayload> items) {
         List<UUID> floorIds = items.stream().map(NormalizedUnitPayload::floorId).distinct().toList();
         String floorIn = String.join(",", Collections.nCopies(floorIds.size(), "?"));
+        
+        // Получаем block_id для каждого этажа (без привязки к зданию)
         List<Map<String, Object>> floorRows = jdbcTemplate.queryForList(
-            "select f.id as floor_id, bb.id as block_id, bb.building_id from floors f join building_blocks bb on bb.id=f.block_id where f.id in (" + floorIn + ")",
+            "select f.id as floor_id, bb.id as block_id from floors f join building_blocks bb on bb.id=f.block_id where f.id in (" + floorIn + ")",
             floorIds.toArray()
         );
 
-        Map<UUID, UUID> buildingByFloor = floorRows.stream().collect(Collectors.toMap(
-            row -> UUID.fromString(String.valueOf(row.get("floor_id"))),
-            row -> UUID.fromString(String.valueOf(row.get("building_id")))
-        ));
         Map<UUID, UUID> blockByFloor = floorRows.stream().collect(Collectors.toMap(
             row -> UUID.fromString(String.valueOf(row.get("floor_id"))),
             row -> UUID.fromString(String.valueOf(row.get("block_id")))
         ));
 
-        if (buildingByFloor.size() != floorIds.size()) {
+        if (blockByFloor.size() != floorIds.size()) {
             throw new ApiException("Some floorId values are invalid", "VALIDATION_ERROR", null, 400);
         }
 
+        // Проверяем дубликаты внутри присланного списка (ограничиваем по blockId)
         Map<String, UUID> seen = new HashMap<>();
         for (NormalizedUnitPayload item : items) {
-            UUID buildingId = buildingByFloor.get(item.floorId());
+            UUID blockId = blockByFloor.get(item.floorId());
             String normalizedNum = item.number().trim().toLowerCase();
-            String key = buildingId + "::" + normalizedNum;
+            String key = blockId + "::" + normalizedNum;
             if (seen.containsKey(key)) {
                 UUID seenId = seen.get(key);
                 if (item.id() == null || !item.id().equals(seenId)) {
-                    throw new ApiException("Duplicate unit num in one building: " + item.number(), "VALIDATION_ERROR", null, 400);
+                    throw new ApiException("Duplicate unit num in one block: " + item.number(), "VALIDATION_ERROR", null, 400);
                 }
             } else {
                 seen.put(key, item.id());
             }
         }
 
-        Set<UUID> buildingIds = new HashSet<>(buildingByFloor.values());
+        // Проверяем дубликаты в базе данных (ограничиваем по blockId)
+        Set<UUID> blockIds = new HashSet<>(blockByFloor.values());
         Set<String> numbers = items.stream().map(item -> item.number().trim().toLowerCase()).collect(Collectors.toSet());
-        String buildingIn = String.join(",", Collections.nCopies(buildingIds.size(), "?"));
+        String blockIn = String.join(",", Collections.nCopies(blockIds.size(), "?"));
         String numberIn = String.join(",", Collections.nCopies(numbers.size(), "?"));
 
         List<Object> args = new ArrayList<>();
-        args.addAll(buildingIds);
+        args.addAll(blockIds);
         args.addAll(numbers);
         List<Map<String, Object>> existingRows = jdbcTemplate.queryForList(
-            "select u.id, lower(trim(u.number)) as unit_num, bb.id as block_id from units u join floors f on f.id=u.floor_id join building_blocks bb on bb.id=f.block_id where bb.building_id in (" + buildingIn + ") and lower(trim(u.number)) in (" + numberIn + ")",
+            "select u.id, lower(trim(u.number)) as unit_num, bb.id as block_id from units u join floors f on f.id=u.floor_id join building_blocks bb on bb.id=f.block_id where bb.id in (" + blockIn + ") and lower(trim(u.number)) in (" + numberIn + ")",
             args.toArray()
         );
 
@@ -259,7 +332,6 @@ public class UnitService {
             }
         }
     }
-
     private Object firstPresent(Map<String, Object> source, String... keys) {
         for (String key : keys) {
             if (source.containsKey(key)) return source.get(key);
@@ -334,7 +406,8 @@ public class UnitService {
         Object rooms,
         Object status,
         Object cadastreNumber,
-        Object addressId
+        Object addressId,
+        String unitCode
     ) {
     }
 }
