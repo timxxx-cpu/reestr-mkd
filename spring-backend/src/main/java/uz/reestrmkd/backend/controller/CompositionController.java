@@ -1,7 +1,6 @@
 package uz.reestrmkd.backend.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -12,7 +11,6 @@ import uz.reestrmkd.backend.security.ActorPrincipal;
 import uz.reestrmkd.backend.service.SecurityPolicyService;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -514,8 +512,7 @@ public class CompositionController {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> asMap(Object value) {
+       private Map<String, Object> asMap(Object value) {
         if (value instanceof Map<?, ?> map) {
             Map<String, Object> result = new LinkedHashMap<>();
             map.forEach((k, v) -> result.put(String.valueOf(k), v));
@@ -524,8 +521,7 @@ public class CompositionController {
         return Map.of();
     }
 
-    @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> asList(Object value) {
+        private List<Map<String, Object>> asList(Object value) {
         if (value instanceof List<?> list) {
             return list.stream().map(this::asMap).toList();
         }

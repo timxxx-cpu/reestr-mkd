@@ -14,6 +14,7 @@ import uz.reestrmkd.backend.exception.ApiException;
 import uz.reestrmkd.backend.repository.ApplicationLockJpaRepository;
 import uz.reestrmkd.backend.repository.ApplicationJpaRepository;
 import uz.reestrmkd.backend.security.ActorPrincipal;
+import org.springframework.lang.NonNull;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -37,7 +38,7 @@ public class LocksController {
     }
 
     @GetMapping
-    public LockStateResponseDto get(@PathVariable UUID applicationId) {
+    public LockStateResponseDto get(@PathVariable @NonNull UUID applicationId) {
         var lock = lockRepo.findByApplicationId(applicationId).orElse(null);
         if (lock == null) {
             return new LockStateResponseDto(false, null, null, null);
@@ -46,7 +47,7 @@ public class LocksController {
     }
 
     @PostMapping("/acquire")
-    public LockAcquireResponseDto acquire(@PathVariable UUID applicationId, @Valid @RequestBody(required = false) LockAcquireRequestDto body) {
+    public LockAcquireResponseDto acquire(@PathVariable @NonNull UUID applicationId, @Valid @RequestBody(required = false) LockAcquireRequestDto body) {
         ActorPrincipal actor = resolveActor();
         String userId = actor.userId();
         String role = actor.userRole();
@@ -88,7 +89,7 @@ public class LocksController {
     }
 
     @PostMapping("/refresh")
-    public LockAcquireResponseDto refresh(@PathVariable UUID applicationId, @Valid @RequestBody(required = false) LockAcquireRequestDto body) {
+    public LockAcquireResponseDto refresh(@PathVariable @NonNull UUID applicationId, @Valid @RequestBody(required = false) LockAcquireRequestDto body) {
         ActorPrincipal actor = resolveActor();
         String userId = actor.userId();
 
@@ -108,7 +109,7 @@ public class LocksController {
     }
 
     @PostMapping("/release")
-    public LockAcquireResponseDto release(@PathVariable UUID applicationId) {
+    public LockAcquireResponseDto release(@PathVariable @NonNull UUID applicationId) {
         ActorPrincipal actor = resolveActor();
         String userId = actor.userId();
 

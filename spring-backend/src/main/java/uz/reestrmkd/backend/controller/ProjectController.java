@@ -6,8 +6,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import uz.reestrmkd.backend.dto.*;
-import uz.reestrmkd.backend.entity.ApplicationEntity;
-import uz.reestrmkd.backend.entity.ProjectEntity;
 import uz.reestrmkd.backend.exception.ApiException;
 import uz.reestrmkd.backend.repository.ApplicationJpaRepository;
 import uz.reestrmkd.backend.repository.ProjectJpaRepository;

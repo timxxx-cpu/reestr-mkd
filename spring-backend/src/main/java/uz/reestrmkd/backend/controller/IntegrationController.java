@@ -102,7 +102,13 @@ public class IntegrationController {
     public MapResponseDto updateBuildingCadastre(@PathVariable UUID buildingId, @RequestBody(required = false) CadastreUpdateRequestDto body) {
         requirePolicy("integration", "mutate", "Role cannot modify cadastre data");
 
-        String cadastre = FormatUtils.formatBuildingCadastre(body == null ? null : body.cadastre());
+        // Классическая проверка через if устраняет предупреждения компилятора
+        String cadastreRaw = null;
+        if (body != null) {
+            cadastreRaw = body.cadastre();
+        }
+        
+        String cadastre = FormatUtils.formatBuildingCadastre(cadastreRaw);
         int updated = jdbcTemplate.update(
             "update buildings set cadastre_number = ?, updated_at = now() where id = ?",
             cadastre,
@@ -114,13 +120,16 @@ public class IntegrationController {
         return MapResponseDto.of(Map.of("ok", true, "id", buildingId, "cadastre", cadastre));
     }
 
-    @PutMapping("/units/{unitId}/cadastre")
+   @PutMapping("/units/{unitId}/cadastre")
     public MapResponseDto updateUnitCadastre(@PathVariable UUID unitId, @RequestBody(required = false) CadastreUpdateRequestDto body) {
         requirePolicy("integration", "mutate", "Role cannot modify cadastre data");
 
-        String cadastre = body == null || body.cadastre() == null || body.cadastre().isBlank()
-            ? null
-            : body.cadastre().trim();
+        // Явная проверка на null для метода юнитов
+        String cadastre = null;
+        if (body != null && body.cadastre() != null && !body.cadastre().isBlank()) {
+            cadastre = body.cadastre().trim();
+        }
+        
         int updated = jdbcTemplate.update(
             "update units set cadastre_number = ?, updated_at = now() where id = ?",
             cadastre,

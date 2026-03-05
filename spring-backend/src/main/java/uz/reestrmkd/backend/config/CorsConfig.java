@@ -12,6 +12,7 @@ import org.springframework.lang.NonNull;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.Objects;
 
 @Configuration
 public class CorsConfig {
@@ -22,18 +23,32 @@ public class CorsConfig {
         this.appProperties = appProperties;
     }
 
-    @Bean
+   @Bean
     public WebMvcConfigurer webMvcConfigurer() {
         return new WebMvcConfigurer() {
             @Override
-           public void addCorsMappings(@NonNull CorsRegistry registry) {
+            @SuppressWarnings("null")
+            public void addCorsMappings(@NonNull CorsRegistry registry) {
                 CorsConfiguration cors = buildCorsConfiguration();
+
+                // Явно извлекаем списки и проверяем на null
+                List<String> origins = cors.getAllowedOriginPatterns();
+                List<String> methods = cors.getAllowedMethods();
+                List<String> headers = cors.getAllowedHeaders();
+                Long maxAge = cors.getMaxAge();
+
+                // Формируем массивы (это полностью исключит предупреждения "Null type safety" и "Potential null pointer")
+                String[] originsArray = origins != null ? origins.toArray(new String[0]) : new String[0];
+                String[] methodsArray = methods != null ? methods.toArray(new String[0]) : new String[0];
+                String[] headersArray = headers != null ? headers.toArray(new String[0]) : new String[0];
+                long maxAgeValue = maxAge != null ? maxAge : 3600L; // Безопасная распаковка (auto-unboxing)
+
                 registry.addMapping("/**")
-                    .allowedOriginPatterns(cors.getAllowedOriginPatterns().toArray(String[]::new))
-                    .allowedMethods(cors.getAllowedMethods().toArray(String[]::new))
-                    .allowedHeaders(cors.getAllowedHeaders().toArray(String[]::new))
+                    .allowedOriginPatterns(originsArray)
+                    .allowedMethods(methodsArray)
+                    .allowedHeaders(headersArray)
                     .allowCredentials(Boolean.TRUE.equals(cors.getAllowCredentials()))
-                    .maxAge(cors.getMaxAge() == null ? 3600 : cors.getMaxAge());
+                    .maxAge(maxAgeValue);
             }
         };
     }
@@ -42,7 +57,7 @@ public class CorsConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = buildCorsConfiguration();
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
+        source.registerCorsConfiguration("/**", Objects.requireNonNull(configuration));
         return source;
     }
 
