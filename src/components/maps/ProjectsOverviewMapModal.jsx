@@ -50,6 +50,7 @@ const SAT_STYLE = {
   },
   layers: [{ id: 'sat', type: 'raster', source: 'sat' }],
 };
+
 /** @returns {any} */
 const getStyle = basemap => {
   if (basemap === 'googleSatellite') return SAT_STYLE;
@@ -79,18 +80,34 @@ const formatStatus = status => {
   return map[String(status || '').trim()] || (status || '—');
 };
 
+// ИСПРАВЛЕННАЯ ФУНКЦИЯ: Умеет разворачивать PGobject от Spring Boot и фильтровать битые данные
 const parseGeometry = (geom) => {
   if (!geom) return null;
   let parsed = geom;
+
+  // 1. Разворачиваем обертку PGobject от Spring Boot: { type: "jsonb", value: "..." }
+  if (parsed && typeof parsed === 'object' && parsed.type === 'jsonb' && parsed.value) {
+    parsed = parsed.value;
+  }
+
+  // 2. Декодируем строку (может быть завернута дважды)
   if (typeof parsed === 'string') {
     try { parsed = JSON.parse(parsed); } catch (e) { return null; }
   }
   if (typeof parsed === 'string') {
     try { parsed = JSON.parse(parsed); } catch (e) { return null; }
   }
+
+  // 3. Вытаскиваем геометрию из Feature/FeatureCollection
   if (parsed?.type === 'FeatureCollection') return parsed.features?.[0]?.geometry || null;
   if (parsed?.type === 'Feature') return parsed.geometry || null;
-  return parsed;
+
+  // 4. ЖЕСТКАЯ ВАЛИДАЦИЯ: Возвращаем только если это действительно GeoJSON-геометрия
+  if (parsed && typeof parsed === 'object' && parsed.type && parsed.coordinates) {
+      return parsed;
+  }
+
+  return null;
 };
 
 const toProjectBuildingTypeStats = project => {
@@ -232,7 +249,7 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
           || building.geometry || building.footprintGeojson || building.footprint_geojson
         );
           
-        if (!geom) return null;
+        if (!geom) return null; 
         
         const floorsCount = resolveFloorsCount(block, building);
         const heightM = floorsCount * 3;
@@ -249,7 +266,7 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
             heightM: heightM,
           },
         };
-      }).filter(Boolean);
+      }).filter(Boolean); // null геометрии не попадут на карту
     });
 
     return { type: 'FeatureCollection', features };
@@ -331,7 +348,6 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
         </aside>
 
         <div className="flex-1 relative bg-slate-100">
-          {/* Слой с кастомными кнопками (Слои, 2D/3D, Сброс вращения) - Оставляем в верхнем правом углу */}
           <div className="absolute top-3 right-3 z-20 flex items-center gap-2">
             <select
               value={basemap}
@@ -405,7 +421,6 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
               }
             }}
           >
-            {/* ПЕРЕНЕСЕНО В ПРАВЫЙ НИЖНИЙ УГОЛ + visualizePitch (улучшает 3D-компас) */}
             <NavigationControl position="bottom-right" showCompass showZoom visualizePitch={true} />
 
             <Source id="projects-overview" type="geojson" data={sourceData}>
@@ -484,7 +499,6 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
               />
             </Source>
 
-            {/* 3D Слой */}
             <Source id="blocks-3d" type="geojson" data={blocks3DSourceData}>
               <Layer
                 id="blocks-3d-extrusion"

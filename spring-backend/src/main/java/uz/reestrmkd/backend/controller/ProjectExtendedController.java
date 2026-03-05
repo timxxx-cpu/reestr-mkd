@@ -787,236 +787,136 @@ Map<String, Object> participants = new LinkedHashMap<>();
         return MapResponseDto.of(Map.of("ok", true));
     }    
     @DeleteMapping("/projects/{projectId}") public OkResponseDto delProject(@PathVariable UUID projectId){requirePolicy("projectExtended", "deleteProject", "Role cannot delete project");jdbcTemplate.update("delete from projects where id = ?",projectId);return new OkResponseDto(true);}    
-    @GetMapping("/projects/{projectId}/full-registry")
-    public MapResponseDto fullRegistry(@PathVariable UUID projectId) {
-        UUID projectAddressId = jdbcTemplate.query(
-            "select address_id from projects where id=? limit 1",
-            rs -> rs.next() ? parseUuid(rs.getObject("address_id")) : null,
-            projectId
-        );
+  @GetMapping("/projects/{projectId}/full-registry")
+    public Map<String, Object> fullRegistry(@PathVariable UUID projectId) {
+        // 0. Здания
+        List<Map<String, Object>> dbBuildings = jdbcTemplate.queryForList(
+            "select id, project_id, building_code, label, house_number, category " +
+            "from buildings where project_id = ?", projectId);
 
-        List<Map<String, Object>> buildings = jdbcTemplate.queryForList("select * from buildings where project_id=?", projectId);
-        if (buildings.isEmpty()) {
-            return MapResponseDto.of(Map.of("buildings", List.of(), "units", List.of()));
+        List<Map<String, Object>> buildings = new ArrayList<>();
+        for (Map<String, Object> row : dbBuildings) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", row.get("id"));
+            map.put("projectId", row.get("project_id"));
+            map.put("buildingCode", row.get("building_code"));
+            map.put("label", row.get("label"));
+            map.put("houseNumber", row.get("house_number"));
+            map.put("category", row.get("category"));
+            buildings.add(map);
         }
 
-        List<UUID> buildingIds = buildings.stream()
-            .map(row -> parseUuid(row.get("id")))
-            .filter(Objects::nonNull)
-            .toList();
+        // 1. Блоки
+        List<Map<String, Object>> dbBlocks = jdbcTemplate.queryForList(
+            "select bb.id, bb.building_id, bb.label, bb.type, bb.is_basement_block, bb.floors_count " +
+            "from building_blocks bb join buildings b on b.id = bb.building_id where b.project_id = ?", projectId);
 
-        List<Map<String, Object>> blocks = buildingIds.isEmpty()
-            ? List.of()
-            : jdbcTemplate.queryForList(
-                "select * from building_blocks where building_id in (" + String.join(",", Collections.nCopies(buildingIds.size(), "?")) + ")",
-                buildingIds.toArray()
-            );
-
-        List<UUID> blockIds = blocks.stream()
-            .map(row -> parseUuid(row.get("id")))
-            .filter(Objects::nonNull)
-            .toList();
-
-        List<Map<String, Object>> blockExtensions = blockIds.isEmpty()
-            ? List.of()
-            : jdbcTemplate.queryForList(
-                "select * from block_extensions where parent_block_id in (" + String.join(",", Collections.nCopies(blockIds.size(), "?")) + ")",
-                blockIds.toArray()
-            );
-
-        Map<UUID, List<Map<String, Object>>> extensionsByBlockId = new HashMap<>();
-        for (Map<String, Object> ext : blockExtensions) {
-            UUID parentBlockId = parseUuid(ext.get("parent_block_id"));
-            if (parentBlockId == null) continue;
-            extensionsByBlockId.computeIfAbsent(parentBlockId, key -> new ArrayList<>()).add(ext);
+        List<Map<String, Object>> blocks = new ArrayList<>();
+        for (Map<String, Object> row : dbBlocks) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", row.get("id"));
+            map.put("buildingId", row.get("building_id"));
+            map.put("label", row.get("label"));
+            map.put("tabLabel", row.get("label"));
+            map.put("type", row.get("type"));
+            map.put("isBasementBlock", row.get("is_basement_block"));
+            map.put("floorsCount", row.get("floors_count"));
+            blocks.add(map);
         }
 
-        List<Map<String, Object>> floors = blockIds.isEmpty()
-            ? List.of()
-            : jdbcTemplate.queryForList(
-                "select * from floors where block_id in (" + String.join(",", Collections.nCopies(blockIds.size(), "?")) + ")",
-                blockIds.toArray()
-            );
+        // 2. Этажи
+        List<Map<String, Object>> dbFloors = jdbcTemplate.queryForList(
+            "select f.id, f.block_id, f.index, f.label, f.floor_type, f.is_duplex " +
+            "from floors f join building_blocks bb on bb.id = f.block_id join buildings b on b.id = bb.building_id where b.project_id = ?", projectId);
 
-        List<UUID> floorIds = floors.stream()
-            .map(row -> parseUuid(row.get("id")))
-            .filter(Objects::nonNull)
-            .toList();
-
-        List<Map<String, Object>> entrances = blockIds.isEmpty()
-            ? List.of()
-            : jdbcTemplate.queryForList(
-                "select id, block_id, number from entrances where block_id in (" + String.join(",", Collections.nCopies(blockIds.size(), "?")) + ")",
-                blockIds.toArray()
-            );
-
-        List<Map<String, Object>> units = floorIds.isEmpty()
-            ? List.of()
-            : jdbcTemplate.queryForList(
-                "select * from units where floor_id in (" + String.join(",", Collections.nCopies(floorIds.size(), "?")) + ") order by created_at asc, id asc",
-                floorIds.toArray()
-            );
-
-        List<UUID> unitIds = units.stream()
-            .map(row -> parseUuid(row.get("id")))
-            .filter(Objects::nonNull)
-            .toList();
-
-        Map<UUID, List<Map<String, Object>>> roomsByUnitId = new HashMap<>();
-        if (!unitIds.isEmpty()) {
-            List<Map<String, Object>> rooms = jdbcTemplate.queryForList(
-                "select * from rooms where unit_id in (" + String.join(",", Collections.nCopies(unitIds.size(), "?")) + ") order by created_at asc, id asc",
-                unitIds.toArray()
-            );
-            for (Map<String, Object> room : rooms) {
-                UUID unitId = parseUuid(room.get("unit_id"));
-                if (unitId == null) continue;
-                roomsByUnitId.computeIfAbsent(unitId, key -> new ArrayList<>()).add(room);
-            }
+        List<Map<String, Object>> floors = new ArrayList<>();
+        for (Map<String, Object> row : dbFloors) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", row.get("id"));
+            map.put("blockId", row.get("block_id"));
+            map.put("index", row.get("index"));
+            map.put("label", row.get("label"));
+            map.put("type", row.get("floor_type"));
+            map.put("isDuplex", row.get("is_duplex"));
+            floors.add(map);
         }
 
-        Map<UUID, UUID> floorToBlock = new HashMap<>();
-        for (Map<String, Object> floor : floors) {
-            UUID floorId = parseUuid(floor.get("id"));
-            UUID blockId = parseUuid(floor.get("block_id"));
-            if (floorId != null && blockId != null) floorToBlock.put(floorId, blockId);
+        // 3. Подъезды
+        List<Map<String, Object>> dbEntrances = jdbcTemplate.queryForList(
+            "select e.id, e.block_id, e.number " +
+            "from entrances e join building_blocks bb on bb.id = e.block_id join buildings b on b.id = bb.building_id where b.project_id = ?", projectId);
+
+        List<Map<String, Object>> entrances = new ArrayList<>();
+        for (Map<String, Object> row : dbEntrances) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", row.get("id"));
+            map.put("blockId", row.get("block_id"));
+            map.put("number", row.get("number"));
+            entrances.add(map);
         }
 
-        Map<UUID, UUID> blockToBuilding = new HashMap<>();
-        Map<UUID, UUID> blockAddressById = new HashMap<>();
-        for (Map<String, Object> block : blocks) {
-            UUID blockId = parseUuid(block.get("id"));
-            UUID buildingId = parseUuid(block.get("building_id"));
-            if (blockId == null) continue;
-            if (buildingId != null) blockToBuilding.put(blockId, buildingId);
-            UUID addressId = parseUuid(block.get("address_id"));
-            if (addressId != null) blockAddressById.put(blockId, addressId);
+        // 4. Комнаты (для поля explication)
+        List<Map<String, Object>> dbRooms = jdbcTemplate.queryForList(
+            "select r.id, r.unit_id, r.room_type, r.area, r.room_height, r.is_mezzanine, r.level " +
+            "from rooms r join units u on u.id = r.unit_id join floors f on f.id = u.floor_id join building_blocks bb on bb.id = f.block_id join buildings b on b.id = bb.building_id where b.project_id = ?", projectId);
+
+        Map<UUID, List<Map<String, Object>>> roomsByUnit = new HashMap<>();
+        for (Map<String, Object> r : dbRooms) {
+            Map<String, Object> rm = new HashMap<>();
+            rm.put("id", r.get("id"));
+            rm.put("unitId", r.get("unit_id"));
+            rm.put("type", r.get("room_type"));
+            rm.put("area", r.get("area"));
+            rm.put("height", r.get("room_height"));
+            rm.put("isMezzanine", r.get("is_mezzanine"));
+            rm.put("level", r.get("level"));
+            
+            UUID uId = (UUID) r.get("unit_id");
+            roomsByUnit.computeIfAbsent(uId, k -> new ArrayList<>()).add(rm);
         }
 
-        Map<UUID, String> buildingCodeById = new HashMap<>();
-        Map<UUID, UUID> buildingAddressById = new HashMap<>();
-        for (Map<String, Object> building : buildings) {
-            UUID buildingId = parseUuid(building.get("id"));
-            if (buildingId == null) continue;
-            buildingCodeById.put(buildingId, toNullIfBlank(building.get("building_code")));
-            UUID addressId = parseUuid(building.get("address_id"));
-            if (addressId != null) buildingAddressById.put(buildingId, addressId);
+       // 5. Помещения (квартиры и коммерция)
+        // ДОБАВЛЕНО: u.cadastre_number, b.id as building_id, b.building_code
+        List<Map<String, Object>> dbUnits = jdbcTemplate.queryForList(
+            "select u.id, u.floor_id, u.entrance_id, u.unit_code, u.unit_type, u.number, u.total_area, u.living_area, u.useful_area, u.rooms_count, u.has_mezzanine, u.mezzanine_type, u.cadastre_number, b.id as building_id, b.building_code " +
+            "from units u join floors f on f.id = u.floor_id join building_blocks bb on bb.id = f.block_id join buildings b on b.id = bb.building_id where b.project_id = ?", projectId);
+
+        List<Map<String, Object>> units = new ArrayList<>();
+        for (Map<String, Object> row : dbUnits) {
+            Map<String, Object> map = new HashMap<>();
+            UUID uId = (UUID) row.get("id");
+            map.put("id", uId);
+            map.put("floorId", row.get("floor_id"));
+            map.put("entranceId", row.get("entrance_id"));
+            map.put("unitCode", row.get("unit_code"));
+            map.put("type", row.get("unit_type"));
+            map.put("num", row.get("number"));
+            map.put("number", row.get("number"));
+            map.put("area", row.get("total_area"));
+            map.put("livingArea", row.get("living_area"));
+            map.put("usefulArea", row.get("useful_area"));
+            map.put("rooms", row.get("rooms_count")); 
+            map.put("hasMezzanine", row.get("has_mezzanine"));
+            map.put("mezzanineType", row.get("mezzanine_type"));
+            
+            // ДОБАВЛЕННЫЕ ПОЛЯ ДЛЯ УЗКАД:
+            map.put("cadastreNumber", row.get("cadastre_number"));
+            map.put("buildingId", row.get("building_id"));
+            map.put("buildingCode", row.get("building_code"));
+            
+            map.put("explication", roomsByUnit.getOrDefault(uId, new ArrayList<>()));
+            units.add(map);
         }
 
-        List<Map<String, Object>> buildingResult = new ArrayList<>();
-        for (Map<String, Object> building : buildings) {
-            Map<String, Object> mapped = new LinkedHashMap<>(building);
-            mapped.put("label", building.get("label"));
-            mapped.put("houseNumber", building.get("house_number"));
-            mapped.put("buildingCode", building.get("building_code"));
-            UUID addressId = parseUuid(building.get("address_id"));
-            mapped.put("addressId", addressId);
-            mapped.put("effectiveAddressId", firstNonNull(addressId, projectAddressId));
-            buildingResult.add(mapped);
-        }
+        // 6. Формирование итогового ответа
+        Map<String, Object> response = new HashMap<>();
+        response.put("buildings", buildings); // Добавлено!
+        response.put("blocks", blocks);
+        response.put("floors", floors);
+        response.put("entrances", entrances);
+        response.put("units", units);
 
-        List<Map<String, Object>> blockResult = new ArrayList<>();
-        for (Map<String, Object> block : blocks) {
-            UUID blockId = parseUuid(block.get("id"));
-            UUID buildingId = parseUuid(block.get("building_id"));
-            UUID blockAddressId = parseUuid(block.get("address_id"));
-            UUID buildingAddressId = buildingId == null ? null : buildingAddressById.get(buildingId);
-
-            Map<String, Object> mapped = new LinkedHashMap<>(block);
-            mapped.put("tabLabel", block.get("label"));
-            mapped.put("buildingId", buildingId);
-            mapped.put("isBasementBlock", toBool(block.get("is_basement_block")));
-            Object linked = block.get("linked_block_ids");
-            mapped.put("linkedBlockIds", linked instanceof List<?> ? linked : List.of());
-            mapped.put("addressId", blockAddressId);
-            mapped.put("effectiveAddressId", firstNonNull(blockAddressId, firstNonNull(buildingAddressId, projectAddressId)));
-
-            List<Map<String, Object>> extList = extensionsByBlockId.getOrDefault(blockId, List.of()).stream()
-                .map(ext -> {
-                    Map<String, Object> item = new LinkedHashMap<>();
-                    item.put("id", ext.get("id"));
-                    item.put("label", ext.get("label"));
-                    item.put("extensionType", ext.get("extension_type"));
-                    item.put("floorsCount", ext.get("floors_count"));
-                    item.put("startFloorIndex", ext.get("start_floor_index"));
-                    return item;
-                })
-                .toList();
-            mapped.put("extensions", extList);
-            blockResult.add(mapped);
-        }
-
-        List<Map<String, Object>> floorResult = floors.stream().map(floor -> {
-            Map<String, Object> mapped = new LinkedHashMap<>(floor);
-            mapped.put("blockId", floor.get("block_id"));
-            mapped.put("areaProj", floor.get("area_proj"));
-            mapped.put("areaFact", floor.get("area_fact"));
-            return mapped;
-        }).toList();
-
-        List<Map<String, Object>> entrancesResult = entrances.stream().map(entrance -> {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("id", entrance.get("id"));
-            item.put("blockId", entrance.get("block_id"));
-            item.put("number", entrance.get("number"));
-            return item;
-        }).toList();
-
-        List<Map<String, Object>> unitsResult = new ArrayList<>();
-        for (Map<String, Object> unit : units) {
-            UUID unitId = parseUuid(unit.get("id"));
-            UUID floorId = parseUuid(unit.get("floor_id"));
-            UUID blockId = floorId == null ? null : floorToBlock.get(floorId);
-            UUID buildingId = blockId == null ? null : blockToBuilding.get(blockId);
-            UUID unitAddressId = parseUuid(unit.get("address_id"));
-            UUID blockAddressId = blockId == null ? null : blockAddressById.get(blockId);
-            UUID buildingAddressId = buildingId == null ? null : buildingAddressById.get(buildingId);
-
-            List<Map<String, Object>> explication = roomsByUnitId.getOrDefault(unitId, List.of()).stream()
-                .map(room -> {
-                    Map<String, Object> item = new LinkedHashMap<>();
-                    item.put("id", room.get("id"));
-                    item.put("type", room.get("room_type"));
-                    item.put("label", room.get("name"));
-                    item.put("area", room.get("area"));
-                    item.put("height", room.get("room_height"));
-                    item.put("level", room.get("level"));
-                    item.put("isMezzanine", toBool(room.get("is_mezzanine")));
-                    return item;
-                })
-                .toList();
-
-            Map<String, Object> mapped = new LinkedHashMap<>();
-            mapped.put("id", unit.get("id"));
-            mapped.put("uid", unit.get("id"));
-            mapped.put("unitCode", unit.get("unit_code"));
-            mapped.put("num", unit.get("number"));
-            mapped.put("number", unit.get("number"));
-            mapped.put("type", unit.get("unit_type"));
-            mapped.put("hasMezzanine", toBool(unit.get("has_mezzanine")));
-            mapped.put("mezzanineType", unit.get("mezzanine_type"));
-            mapped.put("area", unit.get("total_area"));
-            mapped.put("livingArea", unit.get("living_area"));
-            mapped.put("usefulArea", unit.get("useful_area"));
-            mapped.put("rooms", unit.get("rooms_count"));
-            mapped.put("floorId", unit.get("floor_id"));
-            mapped.put("entranceId", unit.get("entrance_id"));
-            mapped.put("buildingId", buildingId);
-            mapped.put("buildingCode", buildingId == null ? null : buildingCodeById.get(buildingId));
-            mapped.put("addressId", unitAddressId);
-            mapped.put("effectiveAddressId", firstNonNull(unitAddressId, firstNonNull(blockAddressId, firstNonNull(buildingAddressId, projectAddressId))));
-            mapped.put("cadastreNumber", unit.get("cadastre_number"));
-            mapped.put("explication", explication);
-            unitsResult.add(mapped);
-        }
-
-        return MapResponseDto.of(Map.of(
-            "buildings", buildingResult,
-            "blocks", blockResult,
-            "floors", floorResult,
-            "entrances", entrancesResult,
-            "units", unitsResult
-        ));
+        return response;
     }
     @GetMapping("/versions") public ItemsResponseDto versions(@RequestParam(required=false) String entityType,@RequestParam(required=false) UUID entityId){ if(entityType!=null && entityId!=null) return new ItemsResponseDto(jdbcTemplate.queryForList("select * from object_versions where entity_type=? and entity_id=? order by version_number desc",entityType,entityId)); return new ItemsResponseDto(jdbcTemplate.queryForList("select * from object_versions order by updated_at desc limit 100")); }
     @PostMapping("/versions") public MapResponseDto createVersion(@RequestBody(required = false) MapPayloadDto payload){ Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data(); return MapResponseDto.of(Map.of("result",versionService.createPendingVersionsForApplication(UUID.fromString(String.valueOf(body.get("projectId"))), UUID.fromString(String.valueOf(body.get("applicationId"))), body.get("createdBy")==null?null:String.valueOf(body.get("createdBy"))))); }

@@ -63,7 +63,7 @@ public class RegistryController {
     }
 
     @GetMapping("/registry/buildings-summary")
-    public ItemsResponseDto buildingsSummary(
+    public List<Map<String, Object>> buildingsSummary(
         @RequestParam(required = false) String search,
         @RequestParam(required = false) String building,
         @RequestParam(required = false) String floor,
@@ -72,13 +72,19 @@ public class RegistryController {
     ) {
         StringBuilder sql = new StringBuilder("select * from view_registry_buildings_summary where 1=1");
         List<Object> args = new ArrayList<>();
+        
         if (search != null && !search.isBlank()) {
             sql.append(" and (coalesce(project_name,'') ilike ? or coalesce(building_name,'') ilike ? or coalesce(block_label,'') ilike ?)");
             String like = "%" + search + "%";
-            args.add(like); args.add(like); args.add(like);
+            args.add(like); 
+            args.add(like); 
+            args.add(like);
         }
+        
         sql.append(" order by project_name asc");
-        return new ItemsResponseDto(jdbcTemplate.queryForList(sql.toString(), args.toArray()));
+        
+        // Возвращаем напрямую список, чтобы фронтенд получил массив [ {...}, {...} ] как в Node.js
+        return jdbcTemplate.queryForList(sql.toString(), args.toArray());
     }
 
     @GetMapping("/projects/{projectId}/parking-counts")
@@ -1257,4 +1263,5 @@ public class RegistryController {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
     }
+    
 }

@@ -13,7 +13,6 @@ import uz.reestrmkd.backend.security.ActorPrincipal;
 import uz.reestrmkd.backend.service.FormatUtils;
 import uz.reestrmkd.backend.service.SecurityPolicyService;
 
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -72,7 +71,8 @@ public class IntegrationController {
         }
 
         Map<String, Object> appRow = appRows.getFirst();
-        UUID appId = UUID.fromString(String.valueOf(appRow.get("id")));
+        UUID appId = (UUID) appRow.get("id"); // Избегаем повторного парсинга UUID из строки
+        
         Map<String, Object> integrationData = new LinkedHashMap<>();
         try {
             Object raw = appRow.get("integration_data");
@@ -87,9 +87,8 @@ public class IntegrationController {
 
         try {
             jdbcTemplate.update(
-                "update applications set integration_data = cast(? as jsonb), updated_at = ? where id = ?",
+                "update applications set integration_data = ?::jsonb, updated_at = now() where id = ?",
                 objectMapper.writeValueAsString(integrationData),
-                Instant.now(),
                 appId
             );
         } catch (Exception ex) {
@@ -105,9 +104,8 @@ public class IntegrationController {
 
         String cadastre = FormatUtils.formatBuildingCadastre(body == null ? null : body.cadastre());
         int updated = jdbcTemplate.update(
-            "update buildings set cadastre_number = ?, updated_at = ? where id = ?",
+            "update buildings set cadastre_number = ?, updated_at = now() where id = ?",
             cadastre,
-            Instant.now(),
             buildingId
         );
         if (updated == 0) {
@@ -124,9 +122,8 @@ public class IntegrationController {
             ? null
             : body.cadastre().trim();
         int updated = jdbcTemplate.update(
-            "update units set cadastre_number = ?, updated_at = ? where id = ?",
+            "update units set cadastre_number = ?, updated_at = now() where id = ?",
             cadastre,
-            Instant.now(),
             unitId
         );
         if (updated == 0) {
