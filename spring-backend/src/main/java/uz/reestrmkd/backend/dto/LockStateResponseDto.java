@@ -1,7 +1,10 @@
 package uz.reestrmkd.backend.dto;
 
-import uz.reestrmkd.backend.entity.ApplicationLockEntity;
+import java.time.Instant;
 
 public record LockStateResponseDto(
-    ApplicationLockEntity lock
+    boolean locked,
+    String ownerUserId,
+    String ownerRole,
+    Instant expiresAt
 ) {}

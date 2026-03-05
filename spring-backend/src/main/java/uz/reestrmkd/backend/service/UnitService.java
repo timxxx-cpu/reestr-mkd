@@ -29,49 +29,80 @@ public class UnitService {
     public UUID upsertUnit(Map<String, Object> source) {
         Map<String, Object> data = source == null ? Map.of() : source;
         UUID unitId = parseOptionalUuid(data.get("id"));
-        UnitEntity unit = unitId == null
-            ? new UnitEntity()
-            : unitJpaRepository.findById(unitId).orElseGet(UnitEntity::new);
+        boolean isPatch = unitId != null && (data.get("floorId") == null || data.get("type") == null);
+
+        UnitEntity unit;
+        if (unitId == null) {
+            unit = new UnitEntity();
+        } else {
+            unit = unitJpaRepository.findById(unitId)
+                .orElseThrow(() -> new ApiException("Unit not found", "NOT_FOUND", null, 404));
+        }
 
         Instant now = Instant.now();
         if (unit.getId() == null) {
-            unit.setId(unitId == null ? UUID.randomUUID() : unitId);
+            unit.setId(UUID.randomUUID());
             unit.setCreatedAt(now);
         }
 
-        unit.setFloorId(parseRequiredUuid(data.get("floorId"), "floorId"));
-        unit.setEntranceId(parseOptionalUuid(data.get("entranceId")));
-        unit.setNumber(normalizeUnitNumber(data));
-        unit.setUnitType(resolveUnitType(data).value());
-        unit.setTotalArea(parseDecimal(data.get("totalArea")));
-        unit.setLivingArea(parseDecimal(data.get("livingArea")));
-        unit.setUsefulArea(parseDecimal(data.get("usefulArea")));
-        unit.setRoomsCount(parseInteger(data.get("rooms")));
-        unit.setStatus(asNullableString(data.get("status")));
-        unit.setCadastreNumber(asNullableString(data.get("cadastreNumber")));
-        unit.setAddressId(parseOptionalUuid(data.get("addressId")));
-        unit.setHasMezzanine(parseBoolean(data.get("hasMezzanine")));
-        unit.setMezzanineType(asNullableString(data.get("mezzanineType")));
+        if (isPatch) {
+            if (data.containsKey("num") || data.containsKey("number")) {
+                unit.setNumber(normalizeUnitNumber(data));
+            }
+            if (data.containsKey("type") || data.containsKey("unitType")) {
+                unit.setUnitType(resolveUnitType(data).value());
+            }
+            if (data.containsKey("area") || data.containsKey("totalArea")) {
+                unit.setTotalArea(parseDecimal(firstPresent(data, "area", "totalArea")));
+            }
+            if (data.containsKey("livingArea")) unit.setLivingArea(parseDecimal(data.get("livingArea")));
+            if (data.containsKey("usefulArea")) unit.setUsefulArea(parseDecimal(data.get("usefulArea")));
+            if (data.containsKey("rooms")) unit.setRoomsCount(parseInteger(data.get("rooms")));
+            if (data.containsKey("status")) unit.setStatus(asNullableString(data.get("status")));
+            if (data.containsKey("isSold")) unit.setStatus(Boolean.TRUE.equals(data.get("isSold")) ? "sold" : "free");
+            if (data.containsKey("cadastreNumber")) unit.setCadastreNumber(asNullableString(data.get("cadastreNumber")));
+            if (data.containsKey("addressId")) unit.setAddressId(parseOptionalUuid(data.get("addressId")));
+            if (data.containsKey("hasMezzanine")) unit.setHasMezzanine(parseBoolean(data.get("hasMezzanine")));
+            if (data.containsKey("mezzanineType")) unit.setMezzanineType(asNullableString(data.get("mezzanineType")));
+        } else {
+            unit.setFloorId(parseRequiredUuid(data.get("floorId"), "floorId"));
+            unit.setEntranceId(parseOptionalUuid(data.get("entranceId")));
+            unit.setNumber(normalizeUnitNumber(data));
+            unit.setUnitType(resolveUnitType(data).value());
+            unit.setTotalArea(parseDecimal(firstPresent(data, "totalArea", "area")));
+            unit.setLivingArea(parseDecimal(data.get("livingArea")));
+            unit.setUsefulArea(parseDecimal(data.get("usefulArea")));
+            unit.setRoomsCount(parseInteger(data.get("rooms")));
+            unit.setStatus(asNullableString(data.get("status")));
+            if (data.containsKey("isSold")) unit.setStatus(Boolean.TRUE.equals(data.get("isSold")) ? "sold" : "free");
+            unit.setCadastreNumber(asNullableString(data.get("cadastreNumber")));
+            unit.setAddressId(parseOptionalUuid(data.get("addressId")));
+            unit.setHasMezzanine(parseBoolean(data.get("hasMezzanine")));
+            unit.setMezzanineType(asNullableString(data.get("mezzanineType")));
+        }
+
         unit.setUpdatedAt(now);
 
-        List<Map<String, Object>> roomsPayload = extractRoomsPayload(data);
-        unit.getRooms().clear();
-        for (Map<String, Object> roomData : roomsPayload) {
-            RoomEntity room = new RoomEntity();
-            room.setId(parseOptionalUuid(roomData.get("id")));
-            if (room.getId() == null) {
-                room.setId(UUID.randomUUID());
-                room.setCreatedAt(now);
+        if (data.containsKey("explication") || data.containsKey("rooms")) {
+            List<Map<String, Object>> roomsPayload = extractRoomsPayload(data);
+            unit.getRooms().clear();
+            for (Map<String, Object> roomData : roomsPayload) {
+                RoomEntity room = new RoomEntity();
+                room.setId(parseOptionalUuid(roomData.get("id")));
+                if (room.getId() == null) {
+                    room.setId(UUID.randomUUID());
+                    room.setCreatedAt(now);
+                }
+                room.setUnit(unit);
+                room.setRoomType(asNullableString(roomData.getOrDefault("type", roomData.get("room_type"))));
+                room.setName(asNullableString(roomData.getOrDefault("label", roomData.get("name"))));
+                room.setArea(parseDecimal(roomData.get("area")));
+                room.setRoomHeight(parseDecimal(roomData.getOrDefault("height", roomData.get("room_height"))));
+                room.setLevel(parseInteger(roomData.get("level")));
+                room.setIsMezzanine(parseBoolean(roomData.getOrDefault("isMezzanine", roomData.get("is_mezzanine"))));
+                room.setUpdatedAt(now);
+                unit.getRooms().add(room);
             }
-            room.setUnit(unit);
-            room.setRoomType(asNullableString(roomData.getOrDefault("type", roomData.get("room_type"))));
-            room.setName(asNullableString(roomData.getOrDefault("label", roomData.get("name"))));
-            room.setArea(parseDecimal(roomData.get("area")));
-            room.setRoomHeight(parseDecimal(roomData.getOrDefault("height", roomData.get("room_height"))));
-            room.setLevel(parseInteger(roomData.get("level")));
-            room.setIsMezzanine(parseBoolean(roomData.getOrDefault("isMezzanine", roomData.get("is_mezzanine"))));
-            room.setUpdatedAt(now);
-            unit.getRooms().add(room);
         }
 
         return unitJpaRepository.save(unit).getId();
@@ -130,16 +161,16 @@ public class UnitService {
         Object entranceId = source.get("entranceId");
 
         return new NormalizedUnitPayload(
-            id == null ? null : UUID.fromString(String.valueOf(id)),
-            UUID.fromString(String.valueOf(floorId)),
-            entranceId == null ? null : UUID.fromString(String.valueOf(entranceId)),
+            parseOptionalUuid(id),
+            parseRequiredUuid(floorId, "floorId"),
+            parseOptionalUuid(entranceId),
             number,
             unitType.value(),
-            source.get("totalArea"),
+            firstPresent(source, "totalArea", "area"),
             source.get("livingArea"),
             source.get("usefulArea"),
             source.get("rooms"),
-            source.get("status"),
+            source.containsKey("isSold") ? (Boolean.TRUE.equals(source.get("isSold")) ? "sold" : "free") : source.get("status"),
             source.get("cadastreNumber"),
             source.get("addressId")
         );
@@ -229,6 +260,13 @@ public class UnitService {
         }
     }
 
+    private Object firstPresent(Map<String, Object> source, String... keys) {
+        for (String key : keys) {
+            if (source.containsKey(key)) return source.get(key);
+        }
+        return null;
+    }
+
     private UUID parseRequiredUuid(Object value, String fieldName) {
         UUID parsed = parseOptionalUuid(value);
         if (parsed == null) {
@@ -252,6 +290,7 @@ public class UnitService {
         if (value == null) return null;
         String stringValue = String.valueOf(value).trim();
         if (stringValue.isBlank()) return null;
+        stringValue = stringValue.replace(',', '.');
         try {
             return new BigDecimal(stringValue);
         } catch (NumberFormatException ex) {

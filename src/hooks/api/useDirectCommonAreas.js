@@ -16,10 +16,21 @@ export function useDirectCommonAreas(blockId, floorIds = []) {
     : [];
   const queryKey = ['direct-mop', blockId, normalizedFloorIds];
 
+  const normalizeMopsPayload = payload => {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.items)) return payload.items;
+    if (Array.isArray(payload?.data)) return payload.data;
+    if (Array.isArray(payload?.data?.items)) return payload.data.items;
+    return [];
+  };
+
   // --- READ ---
   const { data: mops = [], isLoading } = useQuery({
     queryKey,
-    queryFn: () => ApiService.getCommonAreas(blockId, { floorIds: normalizedFloorIds }),
+    queryFn: async () => {
+      const payload = await ApiService.getCommonAreas(blockId, { floorIds: normalizedFloorIds });
+      return normalizeMopsPayload(payload);
+    },
     enabled: !!blockId,
   });
 
@@ -28,7 +39,10 @@ export function useDirectCommonAreas(blockId, floorIds = []) {
     /**
      * @param {{ id?: string, floorId: string, entranceId: string, type: string, area: string, height?: string|number }} data
      */
-    mutationFn: data => ApiService.upsertCommonArea(data, actor),
+    mutationFn: payload => {
+      const data = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+      return ApiService.upsertCommonArea(data, actor);
+    },
     onMutate: async newData => {
       await queryClient.cancelQueries({ queryKey });
       const previousData = queryClient.getQueryData(queryKey);
@@ -71,7 +85,8 @@ export function useDirectCommonAreas(blockId, floorIds = []) {
     /**
      * @param {string} id
      */
-    mutationFn: async id => {
+    mutationFn: async payload => {
+      const id = typeof payload === 'string' ? payload : payload?.id;
       // Блокируем отправку временных ID на сервер
       if (!id || String(id).startsWith('temp-')) return Promise.resolve();
       return ApiService.deleteCommonArea(id, actor);

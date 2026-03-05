@@ -34,21 +34,82 @@ public class ProjectController {
     }
 
     @PostMapping("/projects/from-application")
-    public CreateProjectFromApplicationResponseDto createFromApplication(@Valid @RequestBody CreateProjectFromApplicationRequestDto body) {
-        UUID applicationId = body.applicationId();
-        ApplicationEntity app = applicationRepo.findById(applicationId).orElseThrow(() -> new ApiException("Application not found", "NOT_FOUND", null, 404));
-        ProjectEntity p = new ProjectEntity();
-        p.setId(UUID.randomUUID());
-        p.setScopeId(app.getScopeId());
-        p.setName(body.name() == null || body.name().isBlank() ? "Проект" : body.name());
-        p.setAddress(body.address() == null ? "" : body.address());
-        p.setCreatedAt(Instant.now());
-        p.setUpdatedAt(Instant.now());
-        projectRepo.save(p);
-        app.setProjectId(p.getId());
-        app.setUpdatedAt(Instant.now());
-        applicationRepo.save(app);
-        return new CreateProjectFromApplicationResponseDto(true, p.getId());
+    public MapResponseDto createFromApplication(@RequestBody(required = false) MapPayloadDto payload) {
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        String scope = body.get("scope") == null ? "" : String.valueOf(body.get("scope")).trim();
+        if (scope.isBlank()) {
+            throw new ApiException("scope is required", "VALIDATION_ERROR", null, 400);
+        }
+
+        Map<String, Object> appData = body.get("appData") instanceof Map<?, ?> m
+            ? (Map<String, Object>) m
+            : Map.of();
+
+        String cadastre = appData.get("cadastre") == null ? null : String.valueOf(appData.get("cadastre")).trim();
+        if (cadastre != null && cadastre.isBlank()) cadastre = null;
+
+        if (cadastre != null) {
+            List<Map<String, Object>> reapplication = jdbcTemplate.queryForList(
+                "select a.id from applications a join projects p on p.id=a.project_id where a.scope_id=? and a.status='IN_PROGRESS' and p.cadastre_number=? limit 1",
+                scope,
+                cadastre
+            );
+            if (!reapplication.isEmpty()) {
+                throw new ApiException(
+                    "Отказ в принятии: по данному ЖК уже есть активное заявление в работе. Повторная подача отклонена.",
+                    "REAPPLICATION_BLOCKED",
+                    null,
+                    409
+                );
+            }
+        }
+
+        String ujCode = generateNextProjectCode(scope);
+        UUID projectId = UUID.randomUUID();
+        String applicant = appData.get("applicant") == null ? null : String.valueOf(appData.get("applicant"));
+        String address = appData.get("address") == null ? null : String.valueOf(appData.get("address"));
+        String projectName = applicant == null || applicant.isBlank() ? "Новый проект" : "ЖК от " + applicant;
+
+        jdbcTemplate.update(
+            "insert into projects(id, scope_id, uj_code, name, address, cadastre_number, construction_status, created_at, updated_at) values (?,?,?,?,?,?,?,now(),now())",
+            projectId,
+            scope,
+            ujCode,
+            projectName,
+            address,
+            cadastre,
+            "Проектный"
+        );
+
+        ActorPrincipal actor = resolveActor();
+        String assignee = actor == null ? null : actor.userId();
+        UUID applicationId = UUID.randomUUID();
+        String internalNumber = "INT-" + String.valueOf(System.currentTimeMillis()).substring(7);
+
+        jdbcTemplate.update(
+            "insert into applications(id, project_id, scope_id, internal_number, external_source, external_id, applicant, submission_date, assignee_name, status, workflow_substatus, current_step, current_stage, created_at, updated_at) " +
+                "values (?,?,?,?,?,?,?,?,?,?,?,?,?,now(),now())",
+            applicationId,
+            projectId,
+            scope,
+            internalNumber,
+            appData.get("source"),
+            appData.get("externalId"),
+            applicant,
+            appData.get("submissionDate") == null ? Instant.now() : appData.get("submissionDate"),
+            assignee,
+            "IN_PROGRESS",
+            "DRAFT",
+            0,
+            1
+        );
+
+        return MapResponseDto.of(Map.of(
+            "ok", true,
+            "projectId", projectId,
+            "applicationId", applicationId,
+            "ujCode", ujCode
+        ));
     }
 
     @GetMapping("/projects")
@@ -374,6 +435,30 @@ public class ProjectController {
         return progress;
     }
 
+    private String generateNextProjectCode(String scope) {
+        List<String> existingCodes = jdbcTemplate.queryForList(
+            "select uj_code from projects where scope_id=? and uj_code is not null order by uj_code desc",
+            String.class,
+            scope
+        );
+
+        int maxNumber = 0;
+        for (String code : existingCodes) {
+            if (code == null) continue;
+            String trimmed = code.trim();
+            if (!trimmed.startsWith("UJ")) continue;
+            String suffix = trimmed.substring(2);
+            try {
+                int value = Integer.parseInt(suffix);
+                if (value > maxNumber) maxNumber = value;
+            } catch (Exception ignored) {
+                // skip malformed code
+            }
+        }
+
+        return "UJ" + String.format("%06d", maxNumber + 1);
+    }
+
     private List<String> parseCsv(String value) {
         if (value == null || value.isBlank()) return List.of();
         return Arrays.stream(value.split(",")).map(String::trim).filter(s -> !s.isBlank()).toList();
@@ -413,7 +498,11 @@ public class ProjectController {
     private int toInt(Object value, int fallback) {
         if (value == null) return fallback;
         if (value instanceof Number number) return number.intValue();
-        return Integer.parseInt(String.valueOf(value));
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception e) {
+            return fallback;
+        }
     }
 
     private List<String> buildProjectAvailableActions(ActorPrincipal actor, Map<String, Object> projectDto) {
@@ -447,20 +536,194 @@ public class ProjectController {
     }
 
     @GetMapping("/projects/map-overview")
-    public ItemsResponseDto mapOverview(@RequestParam(required = false) String scope) {
-        String sql = "select id, name, address, land_plot_geojson from projects" + ((scope != null && !scope.isBlank()) ? " where scope_id = ?" : "");
-        List<Map<String, Object>> rows = (scope != null && !scope.isBlank()) ? jdbcTemplate.queryForList(sql, scope) : jdbcTemplate.queryForList(sql);
-        return new ItemsResponseDto(rows);
+    public MapResponseDto mapOverview(@RequestParam(required = false) String scope) {
+        if (scope == null || scope.isBlank()) {
+            throw new ApiException("Scope is required", "MISSING_SCOPE", null, 400);
+        }
+
+        List<Map<String, Object>> projectsData = jdbcTemplate.queryForList(
+            "select id, uj_code, name, address, construction_status, land_plot_geojson from projects where scope_id = ? order by updated_at desc",
+            scope
+        );
+
+        List<Map<String, Object>> applicationsData = jdbcTemplate.queryForList(
+            "select project_id, status from applications where scope_id = ?",
+            scope
+        );
+
+        List<UUID> projectIds = projectsData.stream().map(row -> (UUID) row.get("id")).filter(Objects::nonNull).toList();
+        Map<UUID, List<Map<String, Object>>> buildingsByProject = new LinkedHashMap<>();
+
+        if (!projectIds.isEmpty()) {
+            String placeholders = projectIds.stream().map(id -> "?").collect(Collectors.joining(","));
+            List<Map<String, Object>> buildingsData = jdbcTemplate.queryForList(
+                "select id, project_id, label, house_number, category, building_code, footprint_geojson from buildings where project_id in (" + placeholders + ")",
+                projectIds.toArray()
+            );
+
+            List<UUID> buildingIds = buildingsData.stream().map(row -> (UUID) row.get("id")).filter(Objects::nonNull).toList();
+            Map<UUID, List<Map<String, Object>>> blocksByBuilding = new LinkedHashMap<>();
+            Map<UUID, List<Map<String, Object>>> floorsByBlock = new LinkedHashMap<>();
+            Map<UUID, List<Map<String, Object>>> unitsByFloor = new LinkedHashMap<>();
+
+            if (!buildingIds.isEmpty()) {
+                String buildingPh = buildingIds.stream().map(id -> "?").collect(Collectors.joining(","));
+                List<Map<String, Object>> blocksData = jdbcTemplate.queryForList(
+                    "select id, building_id, label, type, floors_count, footprint_geojson, is_basement_block from building_blocks where building_id in (" + buildingPh + ")",
+                    buildingIds.toArray()
+                );
+
+                List<UUID> blockIds = blocksData.stream().map(row -> (UUID) row.get("id")).filter(Objects::nonNull).toList();
+                blocksByBuilding = blocksData.stream().collect(Collectors.groupingBy(row -> (UUID) row.get("building_id"), LinkedHashMap::new, Collectors.toList()));
+
+                if (!blockIds.isEmpty()) {
+                    String blockPh = blockIds.stream().map(id -> "?").collect(Collectors.joining(","));
+                    List<Map<String, Object>> floorsData = jdbcTemplate.queryForList(
+                        "select id, block_id from floors where block_id in (" + blockPh + ")",
+                        blockIds.toArray()
+                    );
+                    List<UUID> floorIds = floorsData.stream().map(row -> (UUID) row.get("id")).filter(Objects::nonNull).toList();
+                    floorsByBlock = floorsData.stream().collect(Collectors.groupingBy(row -> (UUID) row.get("block_id"), LinkedHashMap::new, Collectors.toList()));
+
+                    if (!floorIds.isEmpty()) {
+                        String floorPh = floorIds.stream().map(id -> "?").collect(Collectors.joining(","));
+                        List<Map<String, Object>> unitsData = jdbcTemplate.queryForList(
+                            "select id, floor_id, unit_type from units where floor_id in (" + floorPh + ")",
+                            floorIds.toArray()
+                        );
+                        unitsByFloor = unitsData.stream().collect(Collectors.groupingBy(row -> (UUID) row.get("floor_id"), LinkedHashMap::new, Collectors.toList()));
+                    }
+                }
+            }
+
+            final Map<UUID, List<Map<String, Object>>> floorsByBlockFinal = floorsByBlock;
+            final Map<UUID, List<Map<String, Object>>> unitsByFloorFinal = unitsByFloor;
+
+            for (Map<String, Object> item : buildingsData) {
+                UUID projectId = (UUID) item.get("project_id");
+                UUID buildingId = (UUID) item.get("id");
+                List<Map<String, Object>> buildingBlocks = blocksByBuilding.getOrDefault(buildingId, List.of());
+                List<UUID> blockIds = buildingBlocks.stream().map(block -> (UUID) block.get("id")).filter(Objects::nonNull).toList();
+                List<Map<String, Object>> buildingFloors = blockIds.stream().flatMap(id -> floorsByBlockFinal.getOrDefault(id, List.of()).stream()).toList();
+                List<UUID> floorIds = buildingFloors.stream().map(floor -> (UUID) floor.get("id")).filter(Objects::nonNull).toList();
+                List<Map<String, Object>> buildingUnits = floorIds.stream().flatMap(id -> unitsByFloorFinal.getOrDefault(id, List.of()).stream()).toList();
+
+                Integer floorsMax = buildingBlocks.stream()
+                    .map(block -> toInt(block.get("floors_count"), 0))
+                    .max(Integer::compareTo)
+                    .orElse(0);
+
+                List<Map<String, Object>> blocks = buildingBlocks.stream()
+                    .filter(block -> !Boolean.TRUE.equals(block.get("is_basement_block")))
+                    .map(block -> {
+                        Map<String, Object> b = new LinkedHashMap<>();
+                        b.put("id", block.get("id"));
+                        b.put("label", block.get("label"));
+                        b.put("type", block.get("type"));
+                        b.put("floorsCount", toInt(block.get("floors_count"), 0) == 0 ? null : toInt(block.get("floors_count"), 0));
+                        b.put("geometry", block.get("footprint_geojson"));
+                        return b;
+                    })
+                    .toList();
+
+                Map<String, Object> building = new LinkedHashMap<>();
+                building.put("id", item.get("id"));
+                building.put("label", item.get("label"));
+                building.put("buildingCode", item.get("building_code"));
+                building.put("houseNumber", item.get("house_number"));
+                building.put("house_number", item.get("house_number"));
+                building.put("category", item.get("category"));
+                building.put("blocksCount", blocks.size());
+                building.put("floorsMax", floorsMax == 0 ? null : floorsMax);
+                building.put("unitsCount", buildingUnits.size());
+                building.put("apartmentsCount", buildingUnits.stream().filter(u -> "apartment".equals(String.valueOf(u.get("unit_type")))).count());
+                building.put("address", item.get("house_number") == null ? null : "д. " + item.get("house_number"));
+                building.put("blocks", blocks);
+                building.put("geometry", item.get("footprint_geojson"));
+
+                buildingsByProject.computeIfAbsent(projectId, k -> new ArrayList<>()).add(building);
+            }
+        }
+
+        Map<UUID, String> applicationStatusByProject = new LinkedHashMap<>();
+        for (Map<String, Object> app : applicationsData) {
+            UUID projectId = (UUID) app.get("project_id");
+            if (projectId != null && !applicationStatusByProject.containsKey(projectId)) {
+                applicationStatusByProject.put(projectId, app.get("status") == null ? null : String.valueOf(app.get("status")));
+            }
+        }
+
+        List<Map<String, Object>> items = projectsData.stream().map(project -> {
+            UUID projectId = (UUID) project.get("id");
+            List<Map<String, Object>> projectBuildings = buildingsByProject.getOrDefault(projectId, List.of());
+            Map<String, Long> categoryStats = projectBuildings.stream()
+                .collect(Collectors.groupingBy(b -> String.valueOf(b.getOrDefault("category", "unknown")), LinkedHashMap::new, Collectors.counting()));
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("id", projectId);
+            result.put("ujCode", project.get("uj_code"));
+            result.put("name", project.get("name"));
+            result.put("address", project.get("address"));
+            result.put("status", applicationStatusByProject.getOrDefault(projectId, project.get("construction_status") == null ? null : String.valueOf(project.get("construction_status"))));
+            result.put("totalBuildings", projectBuildings.size());
+            result.put("buildingTypeStats", categoryStats.entrySet().stream().map(e -> Map.of("category", e.getKey(), "count", e.getValue())).toList());
+            result.put("landPlotGeometry", project.get("land_plot_geojson"));
+            result.put("buildings", projectBuildings);
+            return result;
+        }).toList();
+
+        return MapResponseDto.of(Map.of("items", items));
     }
 
     @GetMapping("/projects/summary-counts")
-    public SummaryCountsResponseDto summaryCounts(@RequestParam(required = false) String scope, @RequestParam(required = false) String assignee) {
-        StringBuilder sql = new StringBuilder("select count(*) as total, count(*) filter (where a.status='IN_PROGRESS') as in_progress, count(*) filter (where a.status='COMPLETED') as completed, count(*) filter (where a.status='DECLINED') as declined from projects p left join applications a on a.project_id=p.id where 1=1");
+    public MapResponseDto summaryCounts(@RequestParam(required = false) String scope, @RequestParam(required = false) String assignee) {
+        if (scope == null || scope.isBlank()) {
+            throw new ApiException("Scope is required", "MISSING_SCOPE", null, 400);
+        }
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        ActorPrincipal actor = (authentication != null && authentication.getPrincipal() instanceof ActorPrincipal a) ? a : null;
+
+        StringBuilder sql = new StringBuilder("select status, workflow_substatus, assignee_name from applications where scope_id = ?");
         List<Object> args = new ArrayList<>();
-        if (scope != null && !scope.isBlank()) { sql.append(" and p.scope_id = ?"); args.add(scope); }
-        if (assignee != null && !assignee.isBlank()) { sql.append(" and a.assignee_name = ?"); args.add(assignee); }
-        Map<String, Object> row = jdbcTemplate.queryForMap(sql.toString(), args.toArray());
-        return new SummaryCountsResponseDto(toInt(row.get("total"), 0), toInt(row.get("in_progress"), 0), toInt(row.get("completed"), 0), toInt(row.get("declined"), 0));
+        args.add(scope);
+
+        if ("mine".equals(assignee)) {
+            if (actor == null || actor.userId() == null || actor.userId().isBlank()) {
+                throw new ApiException("Auth context required for assignee=mine", "UNAUTHORIZED", null, 401);
+            }
+            sql.append(" and assignee_name = ?");
+            args.add(actor.userId());
+        } else if (assignee != null && !assignee.isBlank() && !"all".equals(assignee)) {
+            sql.append(" and assignee_name = ?");
+            args.add(assignee);
+        }
+
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), args.toArray());
+        Set<String> workSubstatuses = Set.of("DRAFT", "REVISION", "RETURNED_BY_MANAGER");
+
+        int work = 0, review = 0, integration = 0, pendingDecline = 0, declined = 0, registryApplications = 0, registryComplexes = 0;
+        for (Map<String, Object> row : rows) {
+            String status = row.get("status") == null ? null : String.valueOf(row.get("status"));
+            String sub = row.get("workflow_substatus") == null ? null : String.valueOf(row.get("workflow_substatus"));
+            if ("IN_PROGRESS".equals(status) && workSubstatuses.contains(sub)) work++;
+            if ("REVIEW".equals(sub)) review++;
+            if ("INTEGRATION".equals(sub)) integration++;
+            if ("PENDING_DECLINE".equals(sub)) pendingDecline++;
+            if ("DECLINED".equals(status)) declined++;
+            if ("COMPLETED".equals(status) || "DECLINED".equals(status)) registryApplications++;
+            if ("COMPLETED".equals(status)) registryComplexes++;
+        }
+
+        return MapResponseDto.of(Map.of(
+            "work", work,
+            "review", review,
+            "integration", integration,
+            "pendingDecline", pendingDecline,
+            "declined", declined,
+            "registryApplications", registryApplications,
+            "registryComplexes", registryComplexes
+        ));
     }
 
     @GetMapping("/external-applications")
@@ -471,19 +734,22 @@ public class ProjectController {
     }
 
     @GetMapping("/projects/{projectId}/application-id")
-    public ApplicationIdResponseDto resolveApplicationId(@PathVariable UUID projectId, @RequestParam(required = false) String scope) {
+    public MapResponseDto resolveApplicationId(@PathVariable UUID projectId, @RequestParam(required = false) String scope) {
         String sql = "select id from applications where project_id = ?" + ((scope != null && !scope.isBlank()) ? " and scope_id = ?" : "") + " order by created_at desc limit 1";
         List<Map<String, Object>> rows = (scope != null && !scope.isBlank()) ? jdbcTemplate.queryForList(sql, projectId, scope) : jdbcTemplate.queryForList(sql, projectId);
-        return new ApplicationIdResponseDto(rows.isEmpty() ? null : rows.getFirst().get("id"));
+        if (rows.isEmpty()) {
+            throw new ApiException("Application not found", "NOT_FOUND", null, 404);
+        }
+        return MapResponseDto.of(Map.of("applicationId", rows.getFirst().get("id")));
     }
 
     @PostMapping("/projects/{projectId}/validation/step")
-    public ValidationStepResponseDto validateStep(@PathVariable UUID projectId, @Valid @RequestBody ValidationStepRequestDto body) {
+    public MapResponseDto validateStep(@PathVariable UUID projectId, @Valid @RequestBody ValidationStepRequestDto body) {
         ValidationUtils.ValidationResult validationResult = ValidationUtils.buildStepValidationResult(jdbcTemplate, projectId, body.stepId());
-        List<ValidationErrorItemDto> errors = validationResult.errors().stream()
-            .map(err -> new ValidationErrorItemDto(err.code(), err.title(), err.message()))
+        List<Map<String, Object>> errors = validationResult.errors().stream()
+            .map(err -> Map.<String, Object>of("code", err.code(), "title", err.title(), "message", err.message()))
             .toList();
 
-        return new ValidationStepResponseDto(errors.isEmpty(), projectId, body.scope(), body.stepId(), errors);
+        return MapResponseDto.of(Map.of("ok", errors.isEmpty(), "stepId", body.stepId(), "errors", errors));
     }
 }
