@@ -49,9 +49,9 @@ public class CatalogController {
             case "districts" ->
                 "select id, soato, region_id, name_ru, name_uz, ordering, status from districts" + activeClause + " order by ordering asc, name_ru asc nulls last, name_uz asc nulls last";
             case "streets" ->
-                "select id, district_soato, coalesce(name_ru, name) as name_ru, name_uz, name, status from streets" + activeClause + " order by coalesce(name_ru, name) asc nulls last";
+                "select id, district_soato, name as name_ru, name as name_uz, name, status from streets" + activeClause + " order by name asc nulls last";
             case "makhallas" ->
-                "select id, district_soato, coalesce(name_ru, name) as name_ru, name_uz, name, status from makhallas" + activeClause + " order by coalesce(name_ru, name) asc nulls last";
+                "select id, district_soato, name as name_ru, name as name_uz, name, status from makhallas" + activeClause + " order by name asc nulls last";
             case "dict_system_users" ->
                 "select * from dict_system_users" + activeClause + " order by name asc";
             default ->

@@ -156,11 +156,19 @@ const ApplicationsDashboard = ({
   const loadInbox = useCallback(async () => {
     setIsLoadingApps(true);
     try {
-      const data = await ApiService.getExternalApplications(dbScope);
-      setIncomingApps(data);
+      const res = await ApiService.getExternalApplications(dbScope);
+      
+      // ИСПРАВЛЕНИЕ: Извлекаем массив из поля items или data, 
+      // либо оставляем как есть, если пришел массив
+      const appsArray = Array.isArray(res) 
+        ? res 
+        : (res?.items || res?.data || []);
+        
+      setIncomingApps(appsArray);
     } catch (e) {
       console.error(e);
-      toast.error('Ошибка сети');
+      toast.error('Ошибка сети при загрузке входящих');
+      setIncomingApps([]);
     } finally {
       setIsLoadingApps(false);
     }

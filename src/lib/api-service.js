@@ -23,7 +23,9 @@ const LegacyApiService = {
     const data = await BffClient.getSystemUsers();
 
     // Безопасно достаем массив: либо напрямую, либо из поля .users
-    const usersArray = Array.isArray(data) ? data : (data?.users || []);
+    const usersArray = Array.isArray(data) 
+        ? data 
+        : (data?.items || data?.users || []);
 
     return usersArray.map(u => ({
       id: u.id,

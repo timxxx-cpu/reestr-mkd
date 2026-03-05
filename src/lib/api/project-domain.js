@@ -217,10 +217,79 @@ deleteProjectGeometryCandidate: async (projectId, candidateId, actor = {}) => {
       userRole: resolvedActor.userRole,
     });
   },
-  getProjectDetails: async projectId => {
+getProjectDetails: async projectId => {
     if (!projectId) return null;
     requireBffEnabled('project.getProjectDetails');
-    return BffClient.getProjectPassport({ projectId });
+    
+    const res = await BffClient.getProjectPassport({ projectId });
+    const payload = res?.data || res;
+    
+    if (!payload || !payload.project) return res;
+
+    const p = payload.project;
+    
+    // Безопасный парсинг JSONB (поддерживаем объект или строку)
+    const integrationData = typeof p.integration_data === 'string' 
+      ? JSON.parse(p.integration_data || '{}') 
+      : (p.integration_data || p.integrationData || {});
+
+    const normalizeStatus = (s) => {
+      if (s === 'project') return 'Проектный';
+      if (s === 'construction') return 'Строящийся';
+      if (s === 'completed') return 'Введенный';
+      return s || 'Проектный';
+    };
+
+    const formatDate = (val) => {
+      if (!val) return '';
+      if (typeof val === 'number') return new Date(val).toISOString().split('T')[0];
+      if (typeof val === 'string') return val.split('T')[0];
+      return '';
+    };
+
+    return {
+      complexInfo: {
+        name: p.name,
+        ujCode: p.uj_code || p.ujCode,
+        status: normalizeStatus(p.construction_status || p.constructionStatus),
+        region: p.region,
+        district: p.district,
+        street: p.address,
+        // ИСПРАВЛЕНИЕ: Добавляем поддержку обоих форматов ключей (snake_case и camelCase)
+        regionSoato: p.regionSoato || integrationData.regionSoato || integrationData.region_soato || p.region_soato || '',
+        districtSoato: p.districtSoato || integrationData.districtSoato || integrationData.district_soato || p.district_soato || '',
+        streetId: p.streetId || integrationData.streetId || integrationData.street_id || p.street_id || '',
+        mahallaId: p.mahallaId || integrationData.mahallaId || integrationData.mahalla_id || p.mahalla_id || '',
+        mahalla: p.mahalla || integrationData.mahalla || integrationData.mahalla_name || '',
+        buildingNo: p.buildingNo || integrationData.buildingNo || integrationData.building_no || p.building_no || '',
+        landmark: p.landmark,
+        addressId: p.address_id || p.addressId || null,
+        dateStartProject: formatDate(p.date_start_project || p.dateStartProject),
+        dateEndProject: formatDate(p.date_end_project || p.dateEndProject),
+        dateStartFact: formatDate(p.date_start_fact || p.dateStartFact),
+        dateEndFact: formatDate(p.date_end_fact || p.dateEndFact),
+      },
+      cadastre: {
+        number: p.cadastre_number || p.cadastreNumber,
+        area: p.land_plot_area_m2 || p.landPlotAreaM2
+      },
+      landPlot: {
+        geometry: p.land_plot_geojson || p.landPlotGeojson || null,
+        areaM2: p.land_plot_area_m2 || p.landPlotAreaM2 || null
+      },
+      participants: (payload.participants || []).reduce((acc, part) => {
+        acc[part.role] = { id: part.id, name: part.name, inn: part.inn, role: part.role };
+        return acc;
+      }, {}),
+      documents: (payload.documents || []).map(d => ({
+        id: d.id,
+        name: d.name,
+        type: d.doc_type || d.docType,
+        date: formatDate(d.doc_date || d.docDate),
+        number: d.doc_number || d.docNumber,
+        url: d.file_url || d.fileUrl,
+      })),
+    };
   },
 
   createProject: async (name, street = '', scope = 'shared_dev_env') => {

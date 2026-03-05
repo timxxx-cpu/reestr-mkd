@@ -34,63 +34,64 @@ const mapExtensionFromDB = extension => ({
 // --- 1. PROJECT + APPLICATION ---
 export const mapProjectAggregate = (
   project,
-  app,
+  app = {}, // добавили = {} для защиты от null
   history = [],
   steps = [],
   parts = [],
   docs = []
 ) => {
-  const completedSteps = steps.filter(s => s.is_completed).map(s => s.step_index);
-  const verifiedSteps = steps.filter(s => s.is_verified).map(s => s.step_index);
+  const completedSteps = steps.filter(s => s.is_completed || s.isCompleted).map(s => s.step_index ?? s.stepIndex);
+  const verifiedSteps = steps.filter(s => s.is_verified || s.isVerified).map(s => s.step_index ?? s.stepIndex);
   const stepBlockStatuses = steps.reduce((acc, stepRow) => {
-    if (stepRow?.step_index === undefined) return acc;
-    acc[stepRow.step_index] = stepRow.block_statuses || {};
+    const idx = stepRow?.step_index ?? stepRow?.stepIndex;
+    if (idx === undefined) return acc;
+    acc[idx] = stepRow.block_statuses || stepRow.blockStatuses || {};
     return acc;
   }, {});
 
   return {
     id: project.id,
-    ujCode: project.uj_code,
+    ujCode: project.uj_code || project.ujCode,
     applicationId: app.id,
     name: project.name,
-    status: normalizeProjectStatusFromDb(project.construction_status),
-    lastModified: app.updated_at,
+    status: normalizeProjectStatusFromDb(project.construction_status || project.constructionStatus),
+    lastModified: app.updated_at || app.updatedAt,
 
     applicationInfo: {
       id: app.id,
-      internalNumber: app.internal_number,
-      externalSource: app.external_source,
-      externalId: app.external_id,
+      internalNumber: app.internal_number || app.internalNumber,
+      externalSource: app.external_source || app.externalSource,
+      externalId: app.external_id || app.externalId,
       applicant: app.applicant,
-      submissionDate: app.submission_date,
+      submissionDate: app.submission_date || app.submissionDate,
       status: app.status,
-      workflowSubstatus: app.workflow_substatus || 'DRAFT',
-      assigneeName: app.assignee_name,
-      currentStepIndex: app.current_step,
-      currentStage: app.current_stage,
+      workflowSubstatus: app.workflow_substatus || app.workflowSubstatus || 'DRAFT',
+      assigneeName: app.assignee_name || app.assigneeName,
+      currentStepIndex: app.current_step ?? app.currentStep,
+      currentStage: app.current_stage || app.currentStage,
       completedSteps,
       verifiedSteps,
-      requestedDeclineReason: app.requested_decline_reason || null,
-      requestedDeclineStep: app.requested_decline_step ?? null,
-      requestedDeclineBy: app.requested_decline_by || null,
-      requestedDeclineAt: app.requested_decline_at || null,
+      requestedDeclineReason: app.requested_decline_reason || app.requestedDeclineReason || null,
+      requestedDeclineStep: app.requested_decline_step ?? app.requestedDeclineStep ?? null,
+      requestedDeclineBy: app.requested_decline_by || app.requestedDeclineBy || null,
+      requestedDeclineAt: app.requested_decline_at || app.requestedDeclineAt || null,
       stepBlockStatuses,
       history: history
         .map(h => ({
-          date: h.created_at,
-          user: h.user_name,
+          date: h.created_at || h.createdAt,
+          user: h.user_name || h.userName,
           action: h.action,
-          status: h.next_status,
+          status: h.next_status || h.nextStatus,
           comment: h.comment,
-          prevStatus: h.prev_status,
+          prevStatus: h.prev_status || h.prevStatus,
         }))
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
     },
 
     complexInfo: {
       name: project.name,
-      ujCode: project.uj_code,
-      status: normalizeProjectStatusFromDb(project.construction_status),
+      ujCode: project.uj_code || project.ujCode,
+      status: normalizeProjectStatusFromDb(project.construction_status || project.constructionStatus),
       region: project.region,
       district: project.district,
       street: project.address,
@@ -101,11 +102,11 @@ export const mapProjectAggregate = (
       mahalla: project.mahalla || '',
       buildingNo: project.building_no || project.buildingNo || '',
       landmark: project.landmark,
-      addressId: project.address_id || null,
-      dateStartProject: project.date_start_project,
-      dateEndProject: project.date_end_project,
-      dateStartFact: project.date_start_fact,
-      dateEndFact: project.date_end_fact,
+      addressId: project.address_id || project.addressId || null,
+      dateStartProject: project.date_start_project || project.dateStartProject,
+      dateEndProject: project.date_end_project || project.dateEndProject,
+      dateStartFact: project.date_start_fact || project.dateStartFact,
+      dateEndFact: project.date_end_fact || project.dateEndFact,
     },
 
     participants: parts.reduce((acc, part) => {
@@ -113,16 +114,22 @@ export const mapProjectAggregate = (
       return acc;
     }, {}),
 
-    cadastre: { number: project.cadastre_number, area: project.land_plot_area_m2 },
-    landPlot: { geometry: project.land_plot_geojson || null, areaM2: project.land_plot_area_m2 || null },
+    cadastre: { 
+        number: project.cadastre_number || project.cadastreNumber, 
+        area: project.land_plot_area_m2 || project.landPlotAreaM2 
+    },
+    landPlot: { 
+        geometry: project.land_plot_geojson || project.landPlotGeojson || null, 
+        areaM2: project.land_plot_area_m2 || project.landPlotAreaM2 || null 
+    },
 
     documents: docs.map(d => ({
       id: d.id,
       name: d.name,
-      type: d.doc_type,
-      date: d.doc_date,
-      number: d.doc_number,
-      url: d.file_url,
+      type: d.doc_type || d.docType,
+      date: d.doc_date || d.docDate,
+      number: d.doc_number || d.docNumber,
+      url: d.file_url || d.fileUrl,
     })),
   };
 };

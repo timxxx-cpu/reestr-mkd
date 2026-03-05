@@ -117,7 +117,7 @@ public class ProjectController {
                     lowerContains(app.get("external_id"), lower) ||
                     lowerContains(app.get("applicant"), lower) ||
                     lowerContains(app.get("assignee_name"), lower)
-            ).toList();
+            ).collect(Collectors.toList()); // Используем Collectors.toList() чтобы список оставался изменяемым
         }
 
         List<UUID> projectIds = filteredApps.stream()
@@ -125,7 +125,8 @@ public class ProjectController {
             .filter(Objects::nonNull)
             .map(v -> UUID.fromString(String.valueOf(v)))
             .distinct()
-            .toList();
+            .collect(Collectors.toList());
+            
         if (projectIds.isEmpty()) {
             return new PagedItemsResponseDto(List.of(), p, l, 0, 0);
         }
@@ -170,6 +171,13 @@ public class ProjectController {
             applicationInfo.put("requestedDeclineBy", app == null ? null : app.get("requested_decline_by"));
             applicationInfo.put("requestedDeclineAt", app == null ? null : app.get("requested_decline_at"));
 
+            // ИСПРАВЛЕНИЕ 1: Используем обычный HashMap вместо Map.of для полей, которые могут быть null
+            Map<String, Object> complexInfo = new HashMap<>();
+            complexInfo.put("name", project.get("name"));
+            complexInfo.put("region", project.get("region"));
+            complexInfo.put("street", project.get("address"));
+            complexInfo.put("addressId", project.get("address_id"));
+
             Map<String, Object> dto = new HashMap<>();
             dto.put("id", project.get("id"));
             dto.put("ujCode", project.get("uj_code"));
@@ -179,12 +187,7 @@ public class ProjectController {
             dto.put("status", normalizeProjectStatusFromDb(project.get("construction_status")));
             dto.put("lastModified", app == null ? project.get("updated_at") : app.get("updated_at"));
             dto.put("applicationInfo", applicationInfo);
-            dto.put("complexInfo", Map.of(
-                "name", project.get("name"),
-                "region", project.get("region"),
-                "street", project.get("address"),
-                "addressId", project.get("address_id")
-            ));
+            dto.put("complexInfo", complexInfo);
             dto.put("composition", Collections.nCopies(Math.max(0, buildingsCount), 1));
             dto.put("availableActions", buildProjectAvailableActions(actor, dto));
             mapped.add(dto);
@@ -192,6 +195,7 @@ public class ProjectController {
 
         if (search != null && !search.isBlank()) {
             String lower = search.toLowerCase(Locale.ROOT);
+            // ИСПРАВЛЕНИЕ 2: Сохраняем мутабельность списка для последующей сортировки
             mapped = mapped.stream().filter(pj ->
                 lowerContains(pj.get("name"), lower) ||
                     lowerContains(pj.get("ujCode"), lower) ||
@@ -199,7 +203,7 @@ public class ProjectController {
                     lowerContains(((Map<String, Object>) pj.get("applicationInfo")).get("externalId"), lower) ||
                     lowerContains(((Map<String, Object>) pj.get("complexInfo")).get("street"), lower) ||
                     lowerContains(((Map<String, Object>) pj.get("applicationInfo")).get("assigneeName"), lower)
-            ).toList();
+            ).collect(Collectors.toList());
         }
 
         mapped.sort((a, b) -> {
@@ -356,7 +360,7 @@ public class ProjectController {
 
     private BigDecimal calcProgress(Object dateStart, Object dateEnd) {
         Instant start = parseInstant(dateStart);
-        if (start == null) return BigDecimal.ZERO;
+        if (start == null || start.equals(Instant.EPOCH)) return BigDecimal.ZERO;
         Instant end = parseInstant(dateEnd);
         if (end != null && !end.isBefore(start)) return BigDecimal.valueOf(100);
 
@@ -393,8 +397,11 @@ public class ProjectController {
         return String.valueOf(value == null ? "" : value).toLowerCase(Locale.ROOT).contains(lower);
     }
 
+    // ИСПРАВЛЕНИЕ 3: Корректно читаем java.sql.Timestamp из базы для правильной сортировки дат
     private Instant parseInstant(Object value) {
         if (value instanceof Instant instant) return instant;
+        if (value instanceof java.sql.Timestamp ts) return ts.toInstant();
+        if (value instanceof java.util.Date date) return date.toInstant();
         if (value == null) return Instant.EPOCH;
         try {
             return Instant.parse(String.valueOf(value));
