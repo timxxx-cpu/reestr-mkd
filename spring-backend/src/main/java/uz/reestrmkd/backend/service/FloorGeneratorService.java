@@ -38,6 +38,35 @@ public class FloorGeneratorService {
             .findFirst()
             .orElse(new BlockFloorMarkerEntity());
 
+        // 1. ЕСЛИ ЭТО БЛОК ПОДВАЛА - Генерируем его собственные этажи
+        if (Boolean.TRUE.equals(block.getIsBasementBlock())) {
+            int depth = NumberUtils.toInt(block.getBasementDepth(), 1);
+            Map<String, Object> levelsMap = block.getBasementParkingLevels() != null ? block.getBasementParkingLevels() : Map.of();
+
+            for (int d = depth; d >= 1; d--) {
+                boolean isMixed =
+                    Boolean.TRUE.equals(getMarker.apply("basement_" + block.getId()).getIsCommercial()) ||
+                        Boolean.TRUE.equals(getMarker.apply("basement").getIsCommercial()) ||
+                        Boolean.TRUE.equals(levelsMap.get(String.valueOf(d)));
+                
+                String label = "Подвал (этаж -" + d + ")";
+
+                // Привязываем этаж напрямую к ID блока подвала
+                targetFloors.add(createFloorObj(block.getId(), mapOfEntries(
+                    Map.entry("id", "base_" + block.getId() + "_L" + d),
+                    Map.entry("index", -d),
+                    Map.entry("floor_key", "basement:" + block.getId() + ":" + d),
+                    Map.entry("label", label),
+                    Map.entry("floor_type", "basement"),
+                    Map.entry("basement_id", block.getId()),
+                    Map.entry("is_commercial", isMixed),
+                    Map.entry("is_basement", true)
+                )));
+            }
+            return targetFloors;
+        }
+
+        // 2. ОТДЕЛЬНЫЙ ПОДЗЕМНЫЙ ПАРКИНГ
         if (isUndergroundParking) {
             int depth = NumberUtils.toInt(block.getLevelsDepth(), 1);
             for (int i = 1; i <= depth; i++) {
@@ -54,38 +83,10 @@ public class FloorGeneratorService {
             return targetFloors;
         }
 
-        List<BuildingBlockEntity> blockBasements = (allBlocks == null ? List.<BuildingBlockEntity>of() : allBlocks).stream()
-            .filter(b -> Boolean.TRUE.equals(b.getIsBasementBlock()) && b.getLinkedBlockIds() != null && Arrays.asList(b.getLinkedBlockIds()).contains(block.getId()))
-            .toList();
-        boolean hasMultipleBasements = blockBasements.size() > 1;
+        // 3. ОСНОВНЫЕ БЛОКИ (Жилые, Инфраструктура и т.д.)
+        // Мы больше не "воруем" подвалы из allBlocks, они обрабатываются сами по себе выше
 
-        for (int bIdx = 0; bIdx < blockBasements.size(); bIdx++) {
-            BuildingBlockEntity b = blockBasements.get(bIdx);
-            int depth = NumberUtils.toInt(b.getBasementDepth(), 1);
-            for (int d = depth; d >= 1; d--) {
-                Map<String, Object> levelsMap = b.getBasementParkingLevels() != null ? b.getBasementParkingLevels() : Map.of();
-                boolean isMixed =
-                    Boolean.TRUE.equals(getMarker.apply("basement_" + b.getId()).getIsCommercial()) ||
-                        Boolean.TRUE.equals(getMarker.apply("basement").getIsCommercial()) ||
-                        Boolean.TRUE.equals(levelsMap.get(String.valueOf(d)));
-                String label = "Подвал (этаж -" + d + ")";
-                if (hasMultipleBasements) {
-                    label = "Подвал " + (bIdx + 1) + " (этаж -" + d + ")";
-                }
-
-                targetFloors.add(createFloorObj(block.getId(), mapOfEntries(
-                    Map.entry("id", "base_" + b.getId() + "_L" + d),
-                    Map.entry("index", -d),
-                    Map.entry("floor_key", "basement:" + b.getId() + ":" + d),
-                    Map.entry("label", label),
-                    Map.entry("floor_type", "basement"),
-                    Map.entry("basement_id", b.getId()),
-                    Map.entry("is_commercial", isMixed),
-                    Map.entry("is_basement", true)
-                )));
-            }
-        }
-
+        // Цоколь остается в основном блоке
         if (Boolean.TRUE.equals(block.getHasBasement())) {
             boolean isTsokolMixed = Boolean.TRUE.equals(getMarker.apply("tsokol").getIsCommercial());
             targetFloors.add(createFloorObj(block.getId(), Map.of(

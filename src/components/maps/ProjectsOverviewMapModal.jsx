@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
 import MapGL, { Layer, Source, NavigationControl } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
-import { X, ArrowLeft, MapPinned, RotateCcw } from 'lucide-react';
+import { X, ArrowLeft, MapPinned, RotateCcw, Play, Pause } from 'lucide-react';
 import { BASEMAP_OPTIONS } from './GeometryPickerMap';
 
 const OSM_STYLE = {
@@ -80,33 +80,23 @@ const formatStatus = status => {
   return map[String(status || '').trim()] || (status || '—');
 };
 
-// ИСПРАВЛЕННАЯ ФУНКЦИЯ: Умеет разворачивать PGobject от Spring Boot и фильтровать битые данные
 const parseGeometry = (geom) => {
   if (!geom) return null;
   let parsed = geom;
-
-  // 1. Разворачиваем обертку PGobject от Spring Boot: { type: "jsonb", value: "..." }
   if (parsed && typeof parsed === 'object' && parsed.type === 'jsonb' && parsed.value) {
     parsed = parsed.value;
   }
-
-  // 2. Декодируем строку (может быть завернута дважды)
   if (typeof parsed === 'string') {
     try { parsed = JSON.parse(parsed); } catch (e) { return null; }
   }
   if (typeof parsed === 'string') {
     try { parsed = JSON.parse(parsed); } catch (e) { return null; }
   }
-
-  // 3. Вытаскиваем геометрию из Feature/FeatureCollection
   if (parsed?.type === 'FeatureCollection') return parsed.features?.[0]?.geometry || null;
   if (parsed?.type === 'Feature') return parsed.geometry || null;
-
-  // 4. ЖЕСТКАЯ ВАЛИДАЦИЯ: Возвращаем только если это действительно GeoJSON-геометрия
   if (parsed && typeof parsed === 'object' && parsed.type && parsed.coordinates) {
       return parsed;
   }
-
   return null;
 };
 
@@ -204,19 +194,59 @@ const resolveFloorsCount = (block, building) => {
   return 5; 
 };
 
+// Функция расчета цвета вынесена в чистый JS
+const getFloorColor = (category, floorIndex) => {
+  const isEven = Math.abs(floorIndex) % 2 === 0;
+  switch(String(category || 'unknown')) {
+    case 'residential': return isEven ? '#10b981' : '#059669'; // Зеленый
+    case 'residential_multiblock': return isEven ? '#3b82f6' : '#2563eb'; // Синий
+    case 'parking_attached': return isEven ? '#94a3b8' : '#64748b'; // Светло-серый
+    case 'parking_separate': return isEven ? '#64748b' : '#475569'; // Темно-серый
+    case 'commercial': return isEven ? '#f59e0b' : '#d97706'; // Оранжевый
+    case 'infrastructure': return isEven ? '#f43f5e' : '#e11d48'; // Красный
+    default: return isEven ? '#8b5cf6' : '#7c3aed'; // Фиолетовый
+  }
+};
+
 export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClose, onBackToWorkdesk }) {
   const mapRef = useRef(null);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [search, setSearch] = useState('');
   const [basemap, setBasemap] = useState('osm');
   const [is3D, setIs3D] = useState(false);
+  const [isOrbiting, setIsOrbiting] = useState(false);
+  
   const [activeProjectCardId, setActiveProjectCardId] = useState(null);
   const [activeBuildingCardId, setActiveBuildingCardId] = useState(null);
+  const [activeFloorIndex, setActiveFloorIndex] = useState(null); 
 
   useEffect(() => {
     if (!isOpen) return;
     if (!selectedProjectId && projects.length) setSelectedProjectId(projects[0].id);
   }, [isOpen, projects, selectedProjectId]);
+
+  useEffect(() => {
+    setIsOrbiting(false);
+    setActiveFloorIndex(null);
+  }, [selectedProjectId, activeBuildingCardId]);
+
+  useEffect(() => {
+    let animationId;
+    if (is3D && isOrbiting) {
+      const rotateCamera = () => {
+        const map = mapRef.current?.getMap();
+        if (map) {
+          const currentBearing = map.getBearing();
+          map.rotateTo(currentBearing + 0.1, { duration: 0, animate: false });
+        }
+        animationId = requestAnimationFrame(rotateCamera);
+      };
+      rotateCamera();
+    }
+    return () => {
+      if (animationId) cancelAnimationFrame(animationId);
+    };
+  }, [is3D, isOrbiting]);
 
   const filteredProjects = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -233,44 +263,69 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
   }, [activeProjectCard, activeBuildingCardId]);
 
   const sourceData = useMemo(() => {
-    const mapProjects = is3D ? (selectedProject ? [selectedProject] : []) : projects;
-    return toFeatureCollection(mapProjects, selectedProjectId);
-  }, [projects, selectedProject, selectedProjectId, is3D]);
+    return toFeatureCollection(projects, selectedProjectId);
+  }, [projects, selectedProjectId]);
 
   const blocks3DSourceData = useMemo(() => {
-    if (!selectedProject) return { type: 'FeatureCollection', features: [] };
-    
-    const features = (selectedProject.buildings || []).flatMap(building => {
-      const blocks = Array.isArray(building?.blocks) && building.blocks.length > 0 ? building.blocks : [building];
+    const features = (projects || []).flatMap(project => {
+      return (project.buildings || []).flatMap(building => {
+        const blocks = Array.isArray(building?.blocks) && building.blocks.length > 0 ? building.blocks : [building];
 
-      return blocks.map(block => {
-        const geom = parseGeometry(
-          block.geometry || block.footprintGeojson || block.footprint_geojson 
-          || building.geometry || building.footprintGeojson || building.footprint_geojson
-        );
+        return blocks.flatMap(block => {
+          const geom = parseGeometry(
+            block.geometry || block.footprintGeojson || block.footprint_geojson 
+            || building.geometry || building.footprintGeojson || building.footprint_geojson
+          );
+            
+          if (!geom) return []; 
           
-        if (!geom) return null; 
-        
-        const floorsCount = resolveFloorsCount(block, building);
-        const heightM = floorsCount * 3;
+          const floorsCount = resolveFloorsCount(block, building);
+          const undergroundCount = block.undergroundFloors ?? building.undergroundFloors ?? 0;
+          const category = building.category || 'unknown';
+          const floorFeatures = [];
 
-        return {
-          type: 'Feature',
-          geometry: geom,
-          properties: {
-            kind: 'block3d',
-            projectId: selectedProject.id,
-            buildingId: building.id,
-            blockId: block.id || building.id,
-            floorsCount: floorsCount,
-            heightM: heightM,
-          },
-        };
-      }).filter(Boolean); // null геометрии не попадут на карту
+          // Подземные уровни
+          for (let i = -undergroundCount; i < 0; i++) {
+            floorFeatures.push({
+              type: 'Feature',
+              geometry: geom,
+              properties: {
+                kind: 'block3d',
+                projectId: project.id,
+                buildingId: building.id,
+                blockId: block.id || building.id,
+                floorIndex: i, 
+                baseM: i * 3, 
+                heightM: (i + 1) * 3 - 0.2,
+                baseColor: getFloorColor(category, i)
+              },
+            });
+          }
+
+          // Надземные уровни
+          for (let i = 0; i < floorsCount; i++) {
+            floorFeatures.push({
+              type: 'Feature',
+              geometry: geom,
+              properties: {
+                kind: 'block3d',
+                projectId: project.id,
+                buildingId: building.id,
+                blockId: block.id || building.id,
+                floorIndex: i + 1, 
+                baseM: i * 3,
+                heightM: (i + 1) * 3 - 0.2,
+                baseColor: getFloorColor(category, i + 1)
+              },
+            });
+          }
+          return floorFeatures;
+        });
+      });
     });
 
     return { type: 'FeatureCollection', features };
-  }, [selectedProject]);
+  }, [projects]);
 
   const fitToProject = project => {
     if (!project || !mapRef.current) return;
@@ -295,6 +350,11 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
       duration: 700,
     });
   }, [is3D]);
+
+  // Защита от Null
+  const safeSelectedProjectId = selectedProjectId || '';
+  const safeActiveBuildingId = activeBuildingCardId || '';
+  const safeActiveFloorIndex = activeFloorIndex !== null ? activeFloorIndex : -999;
 
   if (!isOpen) return null;
 
@@ -333,7 +393,11 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
               return (
                 <button
                   key={project.id}
-                  onClick={() => { setSelectedProjectId(project.id); setActiveProjectCardId(null); setActiveBuildingCardId(null); }}
+                  onClick={() => { 
+                    setSelectedProjectId(project.id); 
+                    setActiveProjectCardId(null); 
+                    setActiveBuildingCardId(null); 
+                  }}
                   className={`w-full text-left p-3 rounded-lg border transition ${
                     isSelected ? 'border-blue-300 bg-blue-50' : 'border-transparent hover:bg-white'
                   }`}
@@ -356,6 +420,18 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
             >
               {BASEMAP_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
+            
+            {is3D && (
+              <button
+                onClick={() => setIsOrbiting(v => !v)}
+                className={`h-9 px-3 rounded-lg border text-xs font-semibold shadow-sm transition-colors flex items-center gap-1 ${isOrbiting ? 'border-amber-500 bg-amber-500 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+                title="Облет камеры"
+              >
+                {isOrbiting ? <Pause size={14}/> : <Play size={14}/>}
+                Облет
+              </button>
+            )}
+
             <button
               onClick={() => setIs3D(v => !v)}
               className={`h-9 px-3 rounded-lg border text-xs font-semibold shadow-sm transition-colors ${is3D ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
@@ -363,11 +439,13 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
             >
               {is3D ? '3D' : '2D'}
             </button>
+            
             <button
               onClick={() => {
                 const map = mapRef.current?.getMap?.();
                 if (!map) return;
                 map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
+                setIsOrbiting(false);
               }}
               className="h-9 w-9 rounded-lg border border-slate-200 bg-white text-slate-700 inline-flex items-center justify-center hover:bg-slate-50 shadow-sm transition-colors"
               title="Сбросить вращение"
@@ -384,16 +462,20 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
             style={{ width: '100%', height: '100%', cursor: 'pointer' }}
             dragRotate={is3D}
             touchPitch={is3D}
-            maxPitch={70}
+            maxPitch={75}
+            onDragStart={() => setIsOrbiting(false)}
             onClick={event => {
               const map = mapRef.current?.getMap?.();
               if (!map) return;
               const hits = map.queryRenderedFeatures(event.point, {
-                layers: ['blocks-3d-extrusion', 'buildings-fill', 'buildings-line', 'projects-fill', 'projects-line'],
+                // ОБНОВЛЕННЫЙ СПИСОК СЛОЕВ
+                layers: ['blocks-3d-extrusion-selected', 'blocks-3d-extrusion-ghost', 'buildings-fill', 'buildings-line', 'projects-fill', 'projects-line'],
               });
+              
               if (!hits.length) {
                 setActiveProjectCardId(null);
                 setActiveBuildingCardId(null);
+                setActiveFloorIndex(null);
                 return;
               }
 
@@ -402,6 +484,7 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
                 setSelectedProjectId(blockHit.properties.projectId);
                 setActiveProjectCardId(blockHit.properties.projectId);
                 setActiveBuildingCardId(blockHit.properties.buildingId);
+                setActiveFloorIndex(blockHit.properties.floorIndex); 
                 return;
               }
 
@@ -410,6 +493,7 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
                 setSelectedProjectId(buildingHit.properties.projectId);
                 setActiveProjectCardId(buildingHit.properties.projectId);
                 setActiveBuildingCardId(buildingHit.properties.buildingId);
+                setActiveFloorIndex(null);
                 return;
               }
 
@@ -418,6 +502,7 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
                 setSelectedProjectId(projectHit.properties.projectId);
                 setActiveProjectCardId(projectHit.properties.projectId);
                 setActiveBuildingCardId(null);
+                setActiveFloorIndex(null);
               }
             }}
           >
@@ -430,7 +515,7 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
                 filter={['==', ['get', 'kind'], 'project']}
                 paint={{
                   'fill-color': ['case', ['==', ['get', 'isSelected'], true], '#2563eb', '#94a3b8'],
-                  'fill-opacity': ['case', ['==', ['get', 'isSelected'], true], 0.22, 0.1],
+                  'fill-opacity': is3D ? 0 : ['case', ['==', ['get', 'isSelected'], true], 0.22, 0.1],
                 }}
               />
               <Layer
@@ -500,14 +585,42 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
             </Source>
 
             <Source id="blocks-3d" type="geojson" data={blocks3DSourceData}>
+              {/* Слой 1: НЕВЫБРАННЫЕ ПРОЕКТЫ (режим призрака) */}
               <Layer
-                id="blocks-3d-extrusion"
+                id="blocks-3d-extrusion-ghost"
                 type="fill-extrusion"
-                filter={['==', ['get', 'kind'], 'block3d']}
+                filter={['all', ['==', ['get', 'kind'], 'block3d'], ['!=', ['get', 'projectId'], safeSelectedProjectId]]}
                 paint={{
-                  'fill-extrusion-color': '#4f46e5',
-                  'fill-extrusion-opacity': is3D ? 0.9 : 0, 
-                  'fill-extrusion-base': 0,
+                  'fill-extrusion-color': [
+                    'case',
+                    ['all', 
+                      ['==', ['get', 'buildingId'], safeActiveBuildingId],
+                      ['==', ['get', 'floorIndex'], safeActiveFloorIndex]
+                    ], '#fbbf24', 
+                    ['get', 'baseColor']
+                  ],
+                  'fill-extrusion-opacity': is3D ? 0.25 : 0, 
+                  'fill-extrusion-base': ['get', 'baseM'],
+                  'fill-extrusion-height': ['get', 'heightM']
+                }}
+              />
+
+              {/* Слой 2: ВЫБРАННЫЙ ПРОЕКТ (яркий) */}
+              <Layer
+                id="blocks-3d-extrusion-selected"
+                type="fill-extrusion"
+                filter={['all', ['==', ['get', 'kind'], 'block3d'], ['==', ['get', 'projectId'], safeSelectedProjectId]]}
+                paint={{
+                  'fill-extrusion-color': [
+                    'case',
+                    ['all', 
+                      ['==', ['get', 'buildingId'], safeActiveBuildingId],
+                      ['==', ['get', 'floorIndex'], safeActiveFloorIndex]
+                    ], '#fbbf24', 
+                    ['get', 'baseColor']
+                  ],
+                  'fill-extrusion-opacity': is3D ? 0.95 : 0, 
+                  'fill-extrusion-base': ['get', 'baseM'],
                   'fill-extrusion-height': ['get', 'heightM']
                 }}
               />
@@ -522,7 +635,7 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
                   {activeBuildingCard ? 'Информация по зданию' : 'Информация по ЖК'}
                 </div>
                 <button
-                  onClick={() => { setActiveProjectCardId(null); setActiveBuildingCardId(null); }}
+                  onClick={() => { setActiveProjectCardId(null); setActiveBuildingCardId(null); setActiveFloorIndex(null); }}
                   className="p-1 rounded hover:bg-slate-100 text-slate-500"
                 >
                   <X size={14} />
@@ -555,10 +668,17 @@ export default function ProjectsOverviewMapModal({ isOpen, projects = [], onClos
                   <div><span className="text-slate-500">ЖК:</span> {activeProjectCard.name || '—'}</div>
                   <div><span className="text-slate-500">Тип здания:</span> {formatBuildingType(activeBuildingCard.category)}</div>
                   <div><span className="text-slate-500">Номер дома:</span> {resolveBuildingHouseNumber(activeBuildingCard) || '—'}</div>
-                  <div><span className="text-slate-500">Адрес:</span> {activeBuildingCard.address || activeProjectCard.address || '—'}</div>
                   <div><span className="text-slate-500">Количество блоков:</span> {activeBuildingCard.blocksCount ?? '—'}</div>
                   <div><span className="text-slate-500">Этажность:</span> {activeBuildingCard.floorsMax ?? '—'}</div>
-                  <div><span className="text-slate-500">Количество квартир:</span> {activeBuildingCard.apartmentsCount ?? '—'}</div>
+                  
+                  {activeFloorIndex !== null && (
+                    <div className="mt-2 pt-2 border-t border-slate-100">
+                      <span className="text-slate-500">Выбранный уровень: </span> 
+                      <span className="font-bold text-amber-600">
+                        {activeFloorIndex < 0 ? `Подземный этаж ${activeFloorIndex}` : `Этаж ${activeFloorIndex}`}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
