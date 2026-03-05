@@ -1,8 +1,10 @@
 package uz.reestrmkd.backend.dto;
 
-import uz.reestrmkd.backend.entity.ApplicationLockEntity;
+import java.time.Instant;
 
 public record LockAcquireResponseDto(
     boolean ok,
-    ApplicationLockEntity lock
+    String reason,
+    String message,
+    Instant expiresAt
 ) {}

@@ -3,6 +3,7 @@ package uz.reestrmkd.backend.controller;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import uz.reestrmkd.backend.dto.BuildingDetailsSaveRequestDto;
 import uz.reestrmkd.backend.dto.GeometryCandidateImportItemDto;
@@ -29,7 +30,6 @@ import uz.reestrmkd.backend.repository.BuildingBlockJpaRepository;
 import uz.reestrmkd.backend.repository.BuildingJpaRepository;
 import uz.reestrmkd.backend.security.ActorPrincipal;
 import uz.reestrmkd.backend.service.FloorGeneratorService;
-import uz.reestrmkd.backend.service.BuildingService;
 import uz.reestrmkd.backend.service.ProjectContextService;
 import uz.reestrmkd.backend.service.ProjectService;
 import uz.reestrmkd.backend.service.SecurityPolicyService;
@@ -51,7 +51,6 @@ public class ProjectExtendedController {
     private final BlockFloorMarkerJpaRepository markerRepo;
     private final FloorGeneratorService floorGeneratorService;
     private final SecurityPolicyService securityPolicyService;
-    private final BuildingService buildingService;
     private final ProjectService projectService;
     private final ObjectMapper objectMapper;
 
@@ -64,7 +63,6 @@ public class ProjectExtendedController {
         BlockFloorMarkerJpaRepository markerRepo,
         FloorGeneratorService floorGeneratorService,
         SecurityPolicyService securityPolicyService,
-        BuildingService buildingService,
         ProjectService projectService,
         ObjectMapper objectMapper
     ) {
@@ -76,7 +74,6 @@ public class ProjectExtendedController {
         this.markerRepo = markerRepo;
         this.floorGeneratorService = floorGeneratorService;
         this.securityPolicyService = securityPolicyService;
-        this.buildingService = buildingService;
         this.projectService = projectService;
         this.objectMapper = objectMapper;
     }
@@ -94,6 +91,124 @@ public class ProjectExtendedController {
         }
         List<BuildingEntity> buildings = buildingRepo.findByProjectIdOrderByCreatedAtAsc(projectId);
         Set<UUID> knownBuildingIds = buildings.stream().map(BuildingEntity::getId).collect(Collectors.toSet());
+        Map<UUID, BuildingEntity> buildingMetaById = buildings.stream().collect(Collectors.toMap(BuildingEntity::getId, b -> b));
+
+        Map<UUID, List<UUID>> featureBasementIdsByBuilding = new HashMap<>();
+
+        for (Map.Entry<String, Object> entry : buildingDetails.entrySet()) {
+            String key = entry.getKey();
+            if (!key.contains("_features")) continue;
+
+            String buildingRaw = key.replace("_features", "");
+            if (buildingRaw.length() != 36) continue;
+            UUID buildingId = UUID.fromString(buildingRaw);
+            if (!knownBuildingIds.contains(buildingId)) continue;
+
+            BuildingEntity buildingMeta = buildingMetaById.get(buildingId);
+            boolean isUndergroundParkingBuilding = buildingMeta != null
+                && "parking_separate".equals(buildingMeta.getCategory())
+                && "underground".equals(buildingMeta.getParkingType());
+            boolean isAbovegroundLightOrOpenParking = buildingMeta != null
+                && "parking_separate".equals(buildingMeta.getCategory())
+                && "aboveground".equals(buildingMeta.getParkingType())
+                && ("light".equals(buildingMeta.getConstructionType()) || "open".equals(buildingMeta.getConstructionType()));
+            if (isUndergroundParkingBuilding || isAbovegroundLightOrOpenParking) {
+                featureBasementIdsByBuilding.put(buildingId, List.of());
+                continue;
+            }
+
+            List<Map<String, Object>> detailsBasements = asList(asMap(entry.getValue()).get("basements"));
+            List<Map<String, Object>> targetBlocks = jdbcTemplate.queryForList(
+                "select id from building_blocks where building_id=? and coalesce(is_basement_block,false)=false",
+                buildingId
+            );
+            UUID singleTargetBlockId = targetBlocks.size() == 1
+                ? UUID.fromString(String.valueOf(targetBlocks.get(0).get("id")))
+                : null;
+
+            List<Map<String, Object>> sourceBasements = detailsBasements;
+            if (buildingMeta != null && "infrastructure".equals(buildingMeta.getCategory()) && detailsBasements.size() > 1) {
+                sourceBasements = detailsBasements.subList(0, 1);
+            }
+
+            List<UUID> ids = new ArrayList<>();
+            int idx = 0;
+            for (Map<String, Object> basement : sourceBasements) {
+                if (basement.get("id") == null || basement.get("depth") == null) continue;
+                UUID basementId = UUID.fromString(String.valueOf(basement.get("id")));
+
+                LinkedHashSet<UUID> linkedBlockIds = new LinkedHashSet<>();
+                Object blocksValue = basement.get("blocks");
+                if (blocksValue instanceof List<?> list) {
+                    for (Object value : list) {
+                        UUID id = parseUuid(value);
+                        if (id != null) linkedBlockIds.add(id);
+                    }
+                }
+                UUID blockIdFromPayload = parseUuid(basement.get("blockId"));
+                if (blockIdFromPayload != null) linkedBlockIds.add(blockIdFromPayload);
+                if (linkedBlockIds.isEmpty() && singleTargetBlockId != null) linkedBlockIds.add(singleTargetBlockId);
+
+                int depth = normalizeBasementDepth(toNullableInt(basement.get("depth")));
+                int basementEntrances = Math.min(10, Math.max(1, Optional.ofNullable(toNullableInt(basement.get("entrancesCount"))).orElse(1)));
+                String levelsJson = jsonbString(normalizeParkingLevelsByDepth(asMap(basement.get("parkingLevels")), depth));
+                String commJson = jsonbString(normalizeBasementCommunications(asMap(basement.get("communications"))));
+
+                jdbcTemplate.update(
+                    "insert into building_blocks(id, building_id, label, type, is_basement_block, linked_block_ids, basement_depth, basement_has_parking, basement_parking_levels, basement_communications, floors_count, floors_from, floors_to, entrances_count, elevators_count, vehicle_entries, levels_depth, light_structure_type, parent_blocks, has_basement, has_attic, has_loft, has_roof_expl, has_custom_address, custom_house_number, updated_at) " +
+                        "values (?,?,?,?,?,?::uuid[],?,?,?::jsonb,?::jsonb,?,?,?,?,?,?,?,?,?::uuid[],?,?,?,?,?,?,now()) " +
+                        "on conflict (id) do update set label=excluded.label, linked_block_ids=excluded.linked_block_ids, basement_depth=excluded.basement_depth, basement_has_parking=excluded.basement_has_parking, basement_parking_levels=excluded.basement_parking_levels, basement_communications=excluded.basement_communications, entrances_count=excluded.entrances_count, updated_at=now()",
+                    basementId,
+                    buildingId,
+                    "Подвал " + (idx + 1),
+                    "BAS",
+                    true,
+                    toPgUuidArrayLiteral(new ArrayList<>(linkedBlockIds)),
+                    depth,
+                    toBool(basement.get("hasParking")),
+                    levelsJson,
+                    commJson,
+                    0,
+                    null,
+                    null,
+                    basementEntrances,
+                    0,
+                    0,
+                    0,
+                    null,
+                    "{}",
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    null
+                );
+
+                ids.add(basementId);
+                idx += 1;
+            }
+
+            featureBasementIdsByBuilding.put(buildingId, ids);
+        }
+
+        for (Map.Entry<UUID, List<UUID>> entry : featureBasementIdsByBuilding.entrySet()) {
+            UUID buildingId = entry.getKey();
+            List<UUID> keepIds = entry.getValue();
+            if (!buildingDetails.containsKey(buildingId + "_features")) continue;
+            List<Map<String, Object>> existingBasements = jdbcTemplate.queryForList(
+                "select id from building_blocks where building_id=? and coalesce(is_basement_block,false)=true",
+                buildingId
+            );
+            List<UUID> deleteIds = existingBasements.stream()
+                .map(r -> UUID.fromString(String.valueOf(r.get("id"))))
+                .filter(id -> !keepIds.contains(id))
+                .toList();
+            if (!deleteIds.isEmpty()) {
+                String in = String.join(",", Collections.nCopies(deleteIds.size(), "?"));
+                jdbcTemplate.update("delete from building_blocks where id in (" + in + ")", deleteIds.toArray());
+            }
+        }
 
         for (Map.Entry<String, Object> entry : buildingDetails.entrySet()) {
             String key = entry.getKey();
@@ -104,64 +219,92 @@ public class ProjectExtendedController {
             if (blockRaw.length() != 36) continue;
             UUID blockId = UUID.fromString(blockRaw);
 
-            Integer entrancesCount = toNullableInt(details.get("entrancesCount"));
+            List<Map<String, Object>> blockRows = jdbcTemplate.queryForList("select building_id from building_blocks where id=?", blockId);
+            if (blockRows.isEmpty()) continue;
+            UUID blockBuildingId = UUID.fromString(String.valueOf(blockRows.get(0).get("building_id")));
 
-            buildingService.mergeBlockDetails(blockId, details);
-
-            syncEntrancesForBlock(blockId, entrancesCount == null ? 0 : entrancesCount);
-            syncFloorsForBlock(blockId);
-            ensureEntranceMatrixForBlock(blockId);
-        }
-
-        for (Map.Entry<String, Object> entry : buildingDetails.entrySet()) {
-            String key = entry.getKey();
-            if (!key.contains("_features")) continue;
-            String buildingRaw = key.replace("_features", "");
-            if (buildingRaw.length() != 36) continue;
-            UUID buildingId = UUID.fromString(buildingRaw);
-            if (!knownBuildingIds.contains(buildingId)) continue;
-            Map<String, Object> details = asMap(entry.getValue());
-
-            List<Map<String, Object>> basements = asList(details.get("basements"));
-            Set<UUID> keepBasementIds = new HashSet<>();
-            int idx = 1;
-            for (Map<String, Object> basement : basements) {
-                if (basement.get("id") == null) continue;
-                UUID basementId = UUID.fromString(String.valueOf(basement.get("id")));
-                keepBasementIds.add(basementId);
-                int depth = normalizeBasementDepth(toNullableInt(basement.get("depth")));
-                int basementEntrances = Math.min(10, Math.max(1, toNullableInt(basement.get("entrancesCount")) == null ? 1 : toNullableInt(basement.get("entrancesCount"))));
-                String levelsJson = jsonbString(asMap(basement.get("parkingLevels")));
-                String commJson = jsonbString(asMap(basement.get("communications")));
-
-                jdbcTemplate.update(
-                    "insert into building_blocks(id, building_id, label, type, is_basement_block, linked_block_ids, basement_depth, basement_has_parking, basement_parking_levels, basement_communications, floors_count, entrances_count, updated_at) " +
-                        "values (?,?,?,?,?,?::uuid[],?,?,?::jsonb,?::jsonb,?,?,now()) " +
-                        "on conflict (id) do update set label=excluded.label, linked_block_ids=excluded.linked_block_ids, basement_depth=excluded.basement_depth, basement_has_parking=excluded.basement_has_parking, basement_parking_levels=excluded.basement_parking_levels, basement_communications=excluded.basement_communications, entrances_count=excluded.entrances_count, updated_at=now()",
-                    basementId,
-                    buildingId,
-                    "Подвал " + idx,
-                    "BAS",
-                    true,
-                    "{}",
-                    depth,
-                    toBool(basement.get("hasParking")),
-                    levelsJson,
-                    commJson,
-                    0,
-                    basementEntrances
-                );
-                idx += 1;
+            Map<String, Object> normalizedBlockGeometry = toMultiPolygon(asMap(details.get("blockGeometry")));
+            if (normalizedBlockGeometry != null) {
+                List<Map<String, Object>> geomRows = jdbcTemplate.queryForList("select footprint_geojson from buildings where id=?", blockBuildingId);
+                if (!geomRows.isEmpty() && geomRows.get(0).get("footprint_geojson") != null) {
+                    Boolean isCovered = jdbcTemplate.queryForObject(
+                        "select check_geojson_coveredby(cast(? as jsonb), cast(? as jsonb))",
+                        Boolean.class,
+                        jsonbString(normalizedBlockGeometry),
+                        jsonbString(geomRows.get(0).get("footprint_geojson"))
+                    );
+                    if (!Boolean.TRUE.equals(isCovered)) {
+                        throw new ApiException("Геометрия блока должна находиться внутри границ здания", "VALIDATION_ERROR", null, 400);
+                    }
+                }
             }
 
-            List<Map<String, Object>> existing = jdbcTemplate.queryForList("select id from building_blocks where building_id=? and is_basement_block=true", buildingId);
-            List<UUID> deleteIds = existing.stream()
-                .map(row -> UUID.fromString(String.valueOf(row.get("id"))))
-                .filter(id -> !keepBasementIds.contains(id))
-                .toList();
-            if (!deleteIds.isEmpty()) {
-                String in = String.join(",", Collections.nCopies(deleteIds.size(), "?"));
-                jdbcTemplate.update("delete from building_blocks where id in (" + in + ")", deleteIds.toArray());
+            Integer entrances = firstNonNull(toNullableInt(details.get("entrances")), toNullableInt(details.get("inputs")));
+            Integer floorsTo = toNullableInt(details.get("floorsTo"));
+            Integer floorsCount = floorsTo != null ? floorsTo : toNullableInt(details.get("floorsCount"));
+
+            jdbcTemplate.update(
+                "update building_blocks set floors_count=?, entrances_count=?, elevators_count=?, vehicle_entries=?, levels_depth=?, light_structure_type=?, parent_blocks=?::uuid[], floors_from=?, floors_to=?, has_basement=?, has_attic=?, has_loft=?, has_roof_expl=?, has_custom_address=?, custom_house_number=?, address_id=?, footprint_geojson=coalesce(cast(? as jsonb), footprint_geojson), updated_at=now() where id=?",
+                floorsCount,
+                entrances,
+                toNullableInt(details.get("elevators")),
+                toNullableInt(details.get("vehicleEntries")),
+                toNullableInt(details.get("levelsDepth")),
+                toNullIfBlank(details.get("lightStructureType")),
+                toPgUuidArrayLiteral(parseUuidList(details.get("parentBlocks"))),
+                toNullableInt(details.get("floorsFrom")),
+                floorsTo,
+                toBool(details.get("hasBasementFloor")),
+                toBool(details.get("hasAttic")),
+                toBool(details.get("hasLoft")),
+                toBool(details.get("hasExploitableRoof")),
+                toBool(details.get("hasCustomAddress")),
+                toNullIfBlank(details.get("customHouseNumber")),
+                parseUuid(details.get("addressId")),
+                normalizedBlockGeometry == null ? null : jsonbString(normalizedBlockGeometry),
+                blockId
+            );
+
+            saveBlockMarkers(blockId, details);
+            syncFloorsForBlock(blockId);
+            syncEntrancesForBlock(blockId, entrances == null ? 0 : entrances);
+            ensureEntranceMatrixForBlock(blockId);
+
+            if (hasAny(details, "foundation", "walls", "slabs", "roof") || details.get("seismicity") != null) {
+                jdbcTemplate.update(
+                    "insert into block_construction(id, block_id, foundation, walls, slabs, roof, seismicity, created_at, updated_at) values (gen_random_uuid(),?,?,?,?,?,?,now(),now()) " +
+                        "on conflict (block_id) do update set foundation=excluded.foundation, walls=excluded.walls, slabs=excluded.slabs, roof=excluded.roof, seismicity=excluded.seismicity, updated_at=now()",
+                    blockId,
+                    toNullIfBlank(details.get("foundation")),
+                    toNullIfBlank(details.get("walls")),
+                    toNullIfBlank(details.get("slabs")),
+                    toNullIfBlank(details.get("roof")),
+                    toNullableInt(details.get("seismicity"))
+                );
+            }
+
+            Map<String, Object> engineering = asMap(details.get("engineering"));
+            if (!engineering.isEmpty()) {
+                boolean heatingLocal = toBool(engineering.get("heatingLocal"));
+                boolean heatingCentral = toBool(engineering.get("heatingCentral"));
+                jdbcTemplate.update(
+                    "insert into block_engineering(id, block_id, has_electricity, has_water, has_hot_water, has_ventilation, has_firefighting, has_lowcurrent, has_sewerage, has_gas, has_heating_local, has_heating_central, has_internet, has_solar_panels, has_heating, created_at, updated_at) values (gen_random_uuid(),?,?,?,?,?,?,?,?,?,?,?,?,?,?,now(),now()) " +
+                        "on conflict (block_id) do update set has_electricity=excluded.has_electricity, has_water=excluded.has_water, has_hot_water=excluded.has_hot_water, has_ventilation=excluded.has_ventilation, has_firefighting=excluded.has_firefighting, has_lowcurrent=excluded.has_lowcurrent, has_sewerage=excluded.has_sewerage, has_gas=excluded.has_gas, has_heating_local=excluded.has_heating_local, has_heating_central=excluded.has_heating_central, has_internet=excluded.has_internet, has_solar_panels=excluded.has_solar_panels, has_heating=excluded.has_heating, updated_at=now()",
+                    blockId,
+                    toBool(engineering.get("electricity")),
+                    toBool(engineering.get("hvs")),
+                    toBool(engineering.get("gvs")),
+                    toBool(engineering.get("ventilation")),
+                    toBool(engineering.get("firefighting")),
+                    toBool(engineering.get("lowcurrent")),
+                    toBool(engineering.get("sewerage")),
+                    toBool(engineering.get("gas")),
+                    heatingLocal,
+                    heatingCentral,
+                    toBool(engineering.get("internet")),
+                    toBool(engineering.get("solarPanels")),
+                    heatingLocal || heatingCentral
+                );
             }
         }
 
@@ -339,52 +482,233 @@ public class ProjectExtendedController {
         return MapResponseDto.of(Map.of("ok", true, "imported", imported));
     }
 
-    @PostMapping("/projects/{projectId}/land-plot/select") public OkResponseDto selectLand(@PathVariable UUID projectId,@RequestBody(required = false) MapPayloadDto payload){Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();requirePolicy("projectExtended", "mutate", "Role cannot select land plot geometry");jdbcTemplate.update("update projects set integration_data = cast(? as jsonb), updated_at=now() where id = ?",String.valueOf(body),projectId);return new OkResponseDto(true);}    
-    @PostMapping("/projects/{projectId}/land-plot/unselect") public OkResponseDto unselectLand(@PathVariable UUID projectId){requirePolicy("projectExtended", "mutate", "Role cannot unselect land plot geometry");jdbcTemplate.update("update projects set integration_data = '{}'::jsonb, updated_at=now() where id = ?",projectId);return new OkResponseDto(true);}    
-    @DeleteMapping("/projects/{projectId}/geometry-candidates/{candidateId}") public OkResponseDto delCandidate(@PathVariable UUID candidateId){requirePolicy("projectExtended", "mutate", "Role cannot delete geometry candidate");jdbcTemplate.update("delete from project_geometry_candidates where id = ?",candidateId);return new OkResponseDto(true);}    
-    @PostMapping("/projects/{projectId}/buildings/{buildingId}/geometry/select") public OkResponseDto selectBuildingGeometry(@PathVariable UUID buildingId,@RequestBody(required = false) MapPayloadDto payload){Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();requirePolicy("projectExtended", "mutate", "Role cannot select building geometry");jdbcTemplate.update("update buildings set geometry_candidate_id = ?, updated_at=now() where id = ?",UUID.fromString(String.valueOf(body.get("candidateId"))),buildingId);return new OkResponseDto(true);}    
-    @GetMapping("/projects/{projectId}/passport") public MapResponseDto passport(@PathVariable UUID projectId){return MapResponseDto.of(Map.of("project",jdbcTemplate.queryForMap("select * from projects where id = ?",projectId),"participants",jdbcTemplate.queryForList("select * from project_participants where project_id = ?",projectId),"documents",jdbcTemplate.queryForList("select * from project_documents where project_id = ?",projectId)));}    
+    @PostMapping("/projects/{projectId}/land-plot/select")
+    @Transactional
+    public OkResponseDto selectLand(@PathVariable UUID projectId, @RequestBody(required = false) Map<String, Object> payload) {
+        requirePolicy("projectExtended", "mutate", "Role cannot select land plot geometry");
+        UUID candidateId = extractCandidateId(payload);
+        if (candidateId == null) {
+            throw new ApiException("candidateId is required", "VALIDATION_ERROR", null, 400);
+        }
+
+        try {
+            jdbcTemplate.queryForList(
+                "select * from set_project_land_plot_from_candidate(?::uuid, ?::uuid)",
+                projectId,
+                candidateId
+            );
+        } catch (Exception e) {
+            throw new ApiException("Land plot selection failed", "GEOMETRY_ASSIGN_ERROR", e.getMessage(), 400);
+        }
+        return new OkResponseDto(true);
+    }
+
+    @PostMapping("/projects/{projectId}/land-plot/unselect")
+    @Transactional
+    public OkResponseDto unselectLand(@PathVariable UUID projectId) {
+        requirePolicy("projectExtended", "mutate", "Role cannot unselect land plot geometry");
+        jdbcTemplate.update(
+            "update project_geometry_candidates set is_selected_land_plot = false, updated_at = now() where project_id = ?",
+            projectId
+        );
+        jdbcTemplate.update(
+            "update projects set land_plot_geojson = null, land_plot_geom = null, land_plot_area_m2 = null, updated_at = now() where id = ?",
+            projectId
+        );
+        return new OkResponseDto(true);
+    }
+
+    @DeleteMapping("/projects/{projectId}/geometry-candidates/{candidateId}")
+    @Transactional
+    public OkResponseDto delCandidate(@PathVariable UUID projectId, @PathVariable UUID candidateId) {
+        requirePolicy("projectExtended", "mutate", "Role cannot delete geometry candidate");
+
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+            "select assigned_building_id, is_selected_land_plot from project_geometry_candidates where id = ? and project_id = ?",
+            candidateId,
+            projectId
+        );
+        if (rows.isEmpty()) {
+            throw new ApiException("Geometry candidate not found", "NOT_FOUND", null, 404);
+        }
+
+        UUID assignedBuildingId = parseUuid(rows.getFirst().get("assigned_building_id"));
+        boolean isSelectedLandPlot = Boolean.TRUE.equals(rows.getFirst().get("is_selected_land_plot"));
+
+        if (assignedBuildingId != null) {
+            jdbcTemplate.update(
+                "update buildings set geometry_candidate_id = null, footprint_geojson = null, building_footprint_geom = null, building_footprint_area_m2 = null, updated_at = now() where id = ? and project_id = ?",
+                assignedBuildingId,
+                projectId
+            );
+        }
+        if (isSelectedLandPlot) {
+            jdbcTemplate.update(
+                "update projects set land_plot_geojson = null, land_plot_geom = null, land_plot_area_m2 = null, updated_at = now() where id = ?",
+                projectId
+            );
+        }
+
+        jdbcTemplate.update("delete from project_geometry_candidates where id = ? and project_id = ?", candidateId, projectId);
+        return new OkResponseDto(true);
+    }
+
+    @PostMapping("/projects/{projectId}/buildings/{buildingId}/geometry/select")
+    @Transactional
+    public OkResponseDto selectBuildingGeometry(
+        @PathVariable UUID projectId,
+        @PathVariable UUID buildingId,
+        @RequestBody(required = false) Map<String, Object> payload
+    ) {
+        requirePolicy("projectExtended", "mutate", "Role cannot select building geometry");
+        UUID candidateId = extractCandidateId(payload);
+
+        if (candidateId == null) {
+            jdbcTemplate.update(
+                "update project_geometry_candidates set assigned_building_id = null, updated_at = now() where project_id = ? and assigned_building_id = ?",
+                projectId,
+                buildingId
+            );
+            jdbcTemplate.update(
+                "update buildings set geometry_candidate_id = null, footprint_geojson = null, building_footprint_geom = null, building_footprint_area_m2 = null, updated_at = now() where id = ? and project_id = ?",
+                buildingId,
+                projectId
+            );
+            return new OkResponseDto(true);
+        }
+
+        try {
+            jdbcTemplate.queryForList(
+                "select * from assign_building_geometry_from_candidate(?::uuid, ?::uuid, ?::uuid)",
+                projectId,
+                buildingId,
+                candidateId
+            );
+        } catch (Exception e) {
+            throw new ApiException("Building geometry selection failed", "GEOMETRY_ASSIGN_ERROR", e.getMessage(), 400);
+        }
+
+        return new OkResponseDto(true);
+    }
+    @GetMapping("/projects/{projectId}/passport")
+    public MapResponseDto passport(@PathVariable UUID projectId) {
+        List<Map<String, Object>> projects = jdbcTemplate.queryForList("select * from projects where id = ?", projectId);
+        if (projects.isEmpty()) {
+            throw new ApiException("Project not found", "NOT_FOUND", null, 404);
+        }
+        Map<String, Object> project = projects.getFirst();
+
+        UUID addressId = project.get("address_id") == null ? null : UUID.fromString(String.valueOf(project.get("address_id")));
+        Map<String, Object> address = addressId == null
+            ? Map.of()
+            : jdbcTemplate.queryForList("select district, street, mahalla, building_no from addresses where id = ?", addressId).stream().findFirst().orElse(Map.of());
+
+        String regionSoato = null;
+        Object districtSoato = address.get("district");
+        if (districtSoato != null) {
+            List<Map<String, Object>> drows = jdbcTemplate.queryForList("select region_id from districts where soato = ?", String.valueOf(districtSoato));
+            if (!drows.isEmpty() && drows.getFirst().get("region_id") != null) {
+                List<Map<String, Object>> rrows = jdbcTemplate.queryForList("select soato from regions where id = ?", drows.getFirst().get("region_id"));
+                if (!rrows.isEmpty()) regionSoato = rrows.getFirst().get("soato") == null ? null : String.valueOf(rrows.getFirst().get("soato"));
+            }
+        }
+
+        List<Map<String, Object>> participantsRows = jdbcTemplate.queryForList("select * from project_participants where project_id = ?", projectId);
+        List<Map<String, Object>> docsRows = jdbcTemplate.queryForList("select * from project_documents where project_id = ? order by doc_date desc nulls last", projectId);
+
+        Map<String, Object> participants = new LinkedHashMap<>();
+        for (Map<String, Object> part : participantsRows) {
+            String role = String.valueOf(part.get("role"));
+            participants.put(role, Map.of(
+                "id", part.get("id"),
+                "name", part.get("name"),
+                "inn", part.get("inn"),
+                "role", role
+            ));
+        }
+
+        List<Map<String, Object>> documents = docsRows.stream().map(d -> {
+            Map<String, Object> doc = new LinkedHashMap<>();
+            doc.put("id", d.get("id"));
+            doc.put("name", d.get("name"));
+            doc.put("type", d.get("doc_type"));
+            doc.put("date", d.get("doc_date"));
+            doc.put("number", d.get("doc_number"));
+            doc.put("url", d.get("file_url"));
+            return doc;
+        }).toList();
+
+        Map<String, Object> complexInfo = new LinkedHashMap<>();
+        complexInfo.put("name", project.get("name"));
+        complexInfo.put("ujCode", project.get("uj_code"));
+        complexInfo.put("status", project.get("construction_status"));
+        complexInfo.put("region", project.get("region"));
+        complexInfo.put("district", project.get("district"));
+        complexInfo.put("street", project.get("address"));
+        complexInfo.put("landmark", project.get("landmark"));
+        complexInfo.put("addressId", project.get("address_id"));
+        complexInfo.put("dateStartProject", project.get("date_start_project"));
+        complexInfo.put("dateEndProject", project.get("date_end_project"));
+        complexInfo.put("dateStartFact", project.get("date_start_fact"));
+        complexInfo.put("dateEndFact", project.get("date_end_fact"));
+        complexInfo.put("regionSoato", regionSoato);
+        complexInfo.put("districtSoato", address.get("district"));
+        complexInfo.put("streetId", address.get("street"));
+        complexInfo.put("mahallaId", address.get("mahalla"));
+        complexInfo.put("buildingNo", address.get("building_no"));
+
+        return MapResponseDto.of(Map.of(
+            "complexInfo", complexInfo,
+            "cadastre", Map.of("number", project.get("cadastre_number"), "area", project.get("land_plot_area_m2")),
+            "landPlot", Map.of("geometry", project.get("land_plot_geojson"), "areaM2", project.get("land_plot_area_m2")),
+            "participants", participants,
+            "documents", documents
+        ));
+    }
+
     @PutMapping("/projects/{projectId}/passport")
-    public OkResponseDto updatePassport(@PathVariable UUID projectId, @RequestBody(required = false) ProjectPassportUpdateRequestDto payload){
+    public MapResponseDto updatePassport(@PathVariable UUID projectId, @RequestBody(required = false) ProjectPassportUpdateRequestDto payload){
         requirePolicy("projectExtended", "mutate", "Role cannot update passport");
         ProjectPassportInfoDto info = payload == null ? null : payload.info();
         ProjectCadastreDataDto cadastreData = payload == null ? null : payload.cadastreData();
 
-        Map<String, Object> complexInfoPatch = new LinkedHashMap<>();
-        if (info != null) {
-            putIfNotBlank(complexInfoPatch, "region", info.region());
-            putIfNotBlank(complexInfoPatch, "district", info.district());
-            putIfPresentPreserve(complexInfoPatch, "street", info.street());
-            putIfNotBlank(complexInfoPatch, "regionSoato", info.regionSoato());
-            putIfNotBlank(complexInfoPatch, "districtSoato", info.districtSoato());
-            putIfNotBlank(complexInfoPatch, "streetId", info.streetId());
-            putIfNotBlank(complexInfoPatch, "mahallaId", info.mahallaId());
-            putIfNotBlank(complexInfoPatch, "mahalla", info.mahalla());
-            putIfNotBlank(complexInfoPatch, "buildingNo", info.buildingNo());
-            putIfNotBlank(complexInfoPatch, "landmark", info.landmark());
-        }
+        UUID addressId = info == null ? null : ensureAddressRecord(
+            null,
+            info.districtSoato(),
+            info.streetId(),
+            info.mahallaId(),
+            info.buildingNo(),
+            info.region(),
+            info.district(),
+            info.mahalla()
+        );
+
+        String finalAddress = info == null ? null : buildFullAddress(info.region(), info.district(), info.mahalla(), info.buildingNo());
 
         jdbcTemplate.update(
-            "update projects set name=coalesce(?, name), region=coalesce(?, region), district=coalesce(?, district), address=coalesce(?, address), landmark=coalesce(?, landmark), construction_status=coalesce(?, construction_status), date_start_project=coalesce(?, date_start_project), date_end_project=coalesce(?, date_end_project), date_start_fact=coalesce(?, date_start_fact), date_end_fact=coalesce(?, date_end_fact), integration_data=coalesce(integration_data, '{}'::jsonb) || cast(? as jsonb), cadastre_number=coalesce(?, cadastre_number), land_plot_area_m2=coalesce(?, land_plot_area_m2), updated_at=now() where id=?",
+            "update projects set name=coalesce(?, name), region=coalesce(?, region), district=coalesce(?, district), address=coalesce(?, address), landmark=coalesce(?, landmark), construction_status=coalesce(?, construction_status), date_start_project=coalesce(?, date_start_project), date_end_project=coalesce(?, date_end_project), date_start_fact=coalesce(?, date_start_fact), date_end_fact=coalesce(?, date_end_fact), address_id=coalesce(?, address_id), cadastre_number=coalesce(?, cadastre_number), land_plot_area_m2=coalesce(?, land_plot_area_m2), updated_at=now() where id=?",
             info == null ? null : info.name(),
             info == null ? null : info.region(),
             info == null ? null : info.district(),
-            info == null ? null : info.street(),
+            finalAddress,
             info == null ? null : info.landmark(),
             info == null || info.status() == null ? null : info.status().value(),
             info == null ? null : info.dateStartProject(),
             info == null ? null : info.dateEndProject(),
             info == null ? null : info.dateStartFact(),
             info == null ? null : info.dateEndFact(),
-            jsonbString(complexInfoPatch),
-            cadastreData == null ? null : cadastreData.number(),
+            addressId,
+            cadastreData == null ? null : uz.reestrmkd.backend.service.FormatUtils.formatComplexCadastre(cadastreData.number()),
             cadastreData == null ? null : cadastreData.area(),
             projectId
         );
-        return new OkResponseDto(true);
-    }    
+
+        Map<String, Object> updated = jdbcTemplate.queryForMap("select * from projects where id=?", projectId);
+        return MapResponseDto.of(updated);
+    }
+
     @PutMapping("/projects/{projectId}/participants/{role}")
-    public OkResponseDto upsertParticipant(@PathVariable UUID projectId, @PathVariable String role, @RequestBody(required = false) MapPayloadDto payload){
+    public MapResponseDto upsertParticipant(@PathVariable UUID projectId, @PathVariable String role, @RequestBody(required = false) MapPayloadDto payload){
         Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
         requirePolicy("projectExtended", "mutate", "Role cannot update participants");
 
@@ -393,26 +717,328 @@ public class ProjectExtendedController {
             throw new ApiException("Unsupported participant role", "VALIDATION_ERROR", null, 400);
         }
 
+        Object id = body.get("id");
+        UUID pid = id == null || String.valueOf(id).isBlank() ? UUID.randomUUID() : UUID.fromString(String.valueOf(id));
+
         jdbcTemplate.update(
-            "insert into project_participants(id,project_id,role,name,inn,created_at,updated_at) values (gen_random_uuid(),?,?,?,?,now(),now()) " +
-                "on conflict (project_id, role) do update set name=excluded.name, inn=excluded.inn, updated_at=now()",
+            "insert into project_participants(id,project_id,role,name,inn,created_at,updated_at) values (?,?,?,?,?,now(),now()) on conflict (id) do update set role=excluded.role, name=excluded.name, inn=excluded.inn, updated_at=now()",
+            pid,
             projectId,
             normalizedRole,
-            body.get("name"),
-            body.get("inn")
+            body.getOrDefault("name", ""),
+            body.getOrDefault("inn", "")
         );
-        return new OkResponseDto(true);
+
+        return MapResponseDto.of(jdbcTemplate.queryForMap("select * from project_participants where id = ?", pid));
+    }
+
+    @PostMapping("/projects/{projectId}/documents")
+    public MapResponseDto upsertDoc(@PathVariable UUID projectId, @RequestBody(required = false) MapPayloadDto payload){
+        Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
+        Map<String, Object> doc = asMap(body.get("doc"));
+        if (doc.isEmpty()) doc = body;
+        requirePolicy("projectExtended", "mutate", "Role cannot update documents");
+
+        Object id = doc.get("id");
+        UUID docId = id == null || String.valueOf(id).isBlank() ? UUID.randomUUID() : UUID.fromString(String.valueOf(id));
+
+        jdbcTemplate.update(
+            "insert into project_documents(id,project_id,name,doc_type,doc_date,doc_number,file_url,created_at,updated_at) values (?,?,?,?,?,?,?,now(),now()) on conflict (id) do update set name=excluded.name, doc_type=excluded.doc_type, doc_date=excluded.doc_date, doc_number=excluded.doc_number, file_url=excluded.file_url, updated_at=now()",
+            docId,
+            projectId,
+            doc.getOrDefault("name", ""),
+            doc.getOrDefault("type", ""),
+            doc.get("date"),
+            doc.getOrDefault("number", ""),
+            doc.get("url")
+        );
+
+        return MapResponseDto.of(jdbcTemplate.queryForMap("select * from project_documents where id = ?", docId));
+    }
+
+    @DeleteMapping("/project-documents/{documentId}")
+    public MapResponseDto delDoc(@PathVariable UUID documentId){
+        requirePolicy("projectExtended", "mutate", "Role cannot delete documents");
+        jdbcTemplate.update("delete from project_documents where id = ?",documentId);
+        return MapResponseDto.of(Map.of("ok", true));
     }    
-    @PostMapping("/projects/{projectId}/documents") public OkResponseDto upsertDoc(@PathVariable UUID projectId,@RequestBody(required = false) MapPayloadDto payload){Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();requirePolicy("projectExtended", "mutate", "Role cannot update documents");jdbcTemplate.update("insert into project_documents(id,project_id,name,doc_type,doc_date,doc_number,file_url,created_at,updated_at) values (gen_random_uuid(),?,?,?,?,?,?,now(),now())",projectId,body.get("name"),body.get("docType"),body.get("docDate"),body.get("docNumber"),body.get("fileUrl"));return new OkResponseDto(true);}    
-    @DeleteMapping("/project-documents/{documentId}") public OkResponseDto delDoc(@PathVariable UUID documentId){requirePolicy("projectExtended", "mutate", "Role cannot delete documents");jdbcTemplate.update("delete from project_documents where id = ?",documentId);return new OkResponseDto(true);}    
     @DeleteMapping("/projects/{projectId}") public OkResponseDto delProject(@PathVariable UUID projectId){requirePolicy("projectExtended", "deleteProject", "Role cannot delete project");jdbcTemplate.update("delete from projects where id = ?",projectId);return new OkResponseDto(true);}    
-    @GetMapping("/projects/{projectId}/full-registry") public MapResponseDto fullRegistry(@PathVariable UUID projectId){return MapResponseDto.of(Map.of("context",projectContextService.getProjectContext(projectId,"full")));}
+    @GetMapping("/projects/{projectId}/full-registry")
+    public MapResponseDto fullRegistry(@PathVariable UUID projectId) {
+        UUID projectAddressId = jdbcTemplate.query(
+            "select address_id from projects where id=? limit 1",
+            rs -> rs.next() ? parseUuid(rs.getObject("address_id")) : null,
+            projectId
+        );
+
+        List<Map<String, Object>> buildings = jdbcTemplate.queryForList("select * from buildings where project_id=?", projectId);
+        if (buildings.isEmpty()) {
+            return MapResponseDto.of(Map.of("buildings", List.of(), "units", List.of()));
+        }
+
+        List<UUID> buildingIds = buildings.stream()
+            .map(row -> parseUuid(row.get("id")))
+            .filter(Objects::nonNull)
+            .toList();
+
+        List<Map<String, Object>> blocks = buildingIds.isEmpty()
+            ? List.of()
+            : jdbcTemplate.queryForList(
+                "select * from building_blocks where building_id in (" + String.join(",", Collections.nCopies(buildingIds.size(), "?")) + ")",
+                buildingIds.toArray()
+            );
+
+        List<UUID> blockIds = blocks.stream()
+            .map(row -> parseUuid(row.get("id")))
+            .filter(Objects::nonNull)
+            .toList();
+
+        List<Map<String, Object>> blockExtensions = blockIds.isEmpty()
+            ? List.of()
+            : jdbcTemplate.queryForList(
+                "select * from block_extensions where parent_block_id in (" + String.join(",", Collections.nCopies(blockIds.size(), "?")) + ")",
+                blockIds.toArray()
+            );
+
+        Map<UUID, List<Map<String, Object>>> extensionsByBlockId = new HashMap<>();
+        for (Map<String, Object> ext : blockExtensions) {
+            UUID parentBlockId = parseUuid(ext.get("parent_block_id"));
+            if (parentBlockId == null) continue;
+            extensionsByBlockId.computeIfAbsent(parentBlockId, key -> new ArrayList<>()).add(ext);
+        }
+
+        List<Map<String, Object>> floors = blockIds.isEmpty()
+            ? List.of()
+            : jdbcTemplate.queryForList(
+                "select * from floors where block_id in (" + String.join(",", Collections.nCopies(blockIds.size(), "?")) + ")",
+                blockIds.toArray()
+            );
+
+        List<UUID> floorIds = floors.stream()
+            .map(row -> parseUuid(row.get("id")))
+            .filter(Objects::nonNull)
+            .toList();
+
+        List<Map<String, Object>> entrances = blockIds.isEmpty()
+            ? List.of()
+            : jdbcTemplate.queryForList(
+                "select id, block_id, number from entrances where block_id in (" + String.join(",", Collections.nCopies(blockIds.size(), "?")) + ")",
+                blockIds.toArray()
+            );
+
+        List<Map<String, Object>> units = floorIds.isEmpty()
+            ? List.of()
+            : jdbcTemplate.queryForList(
+                "select * from units where floor_id in (" + String.join(",", Collections.nCopies(floorIds.size(), "?")) + ") order by created_at asc, id asc",
+                floorIds.toArray()
+            );
+
+        List<UUID> unitIds = units.stream()
+            .map(row -> parseUuid(row.get("id")))
+            .filter(Objects::nonNull)
+            .toList();
+
+        Map<UUID, List<Map<String, Object>>> roomsByUnitId = new HashMap<>();
+        if (!unitIds.isEmpty()) {
+            List<Map<String, Object>> rooms = jdbcTemplate.queryForList(
+                "select * from rooms where unit_id in (" + String.join(",", Collections.nCopies(unitIds.size(), "?")) + ") order by created_at asc, id asc",
+                unitIds.toArray()
+            );
+            for (Map<String, Object> room : rooms) {
+                UUID unitId = parseUuid(room.get("unit_id"));
+                if (unitId == null) continue;
+                roomsByUnitId.computeIfAbsent(unitId, key -> new ArrayList<>()).add(room);
+            }
+        }
+
+        Map<UUID, UUID> floorToBlock = new HashMap<>();
+        for (Map<String, Object> floor : floors) {
+            UUID floorId = parseUuid(floor.get("id"));
+            UUID blockId = parseUuid(floor.get("block_id"));
+            if (floorId != null && blockId != null) floorToBlock.put(floorId, blockId);
+        }
+
+        Map<UUID, UUID> blockToBuilding = new HashMap<>();
+        Map<UUID, UUID> blockAddressById = new HashMap<>();
+        for (Map<String, Object> block : blocks) {
+            UUID blockId = parseUuid(block.get("id"));
+            UUID buildingId = parseUuid(block.get("building_id"));
+            if (blockId == null) continue;
+            if (buildingId != null) blockToBuilding.put(blockId, buildingId);
+            UUID addressId = parseUuid(block.get("address_id"));
+            if (addressId != null) blockAddressById.put(blockId, addressId);
+        }
+
+        Map<UUID, String> buildingCodeById = new HashMap<>();
+        Map<UUID, UUID> buildingAddressById = new HashMap<>();
+        for (Map<String, Object> building : buildings) {
+            UUID buildingId = parseUuid(building.get("id"));
+            if (buildingId == null) continue;
+            buildingCodeById.put(buildingId, toNullIfBlank(building.get("building_code")));
+            UUID addressId = parseUuid(building.get("address_id"));
+            if (addressId != null) buildingAddressById.put(buildingId, addressId);
+        }
+
+        List<Map<String, Object>> buildingResult = new ArrayList<>();
+        for (Map<String, Object> building : buildings) {
+            Map<String, Object> mapped = new LinkedHashMap<>(building);
+            mapped.put("label", building.get("label"));
+            mapped.put("houseNumber", building.get("house_number"));
+            mapped.put("buildingCode", building.get("building_code"));
+            UUID addressId = parseUuid(building.get("address_id"));
+            mapped.put("addressId", addressId);
+            mapped.put("effectiveAddressId", firstNonNull(addressId, projectAddressId));
+            buildingResult.add(mapped);
+        }
+
+        List<Map<String, Object>> blockResult = new ArrayList<>();
+        for (Map<String, Object> block : blocks) {
+            UUID blockId = parseUuid(block.get("id"));
+            UUID buildingId = parseUuid(block.get("building_id"));
+            UUID blockAddressId = parseUuid(block.get("address_id"));
+            UUID buildingAddressId = buildingId == null ? null : buildingAddressById.get(buildingId);
+
+            Map<String, Object> mapped = new LinkedHashMap<>(block);
+            mapped.put("tabLabel", block.get("label"));
+            mapped.put("buildingId", buildingId);
+            mapped.put("isBasementBlock", toBool(block.get("is_basement_block")));
+            Object linked = block.get("linked_block_ids");
+            mapped.put("linkedBlockIds", linked instanceof List<?> ? linked : List.of());
+            mapped.put("addressId", blockAddressId);
+            mapped.put("effectiveAddressId", firstNonNull(blockAddressId, firstNonNull(buildingAddressId, projectAddressId)));
+
+            List<Map<String, Object>> extList = extensionsByBlockId.getOrDefault(blockId, List.of()).stream()
+                .map(ext -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("id", ext.get("id"));
+                    item.put("label", ext.get("label"));
+                    item.put("extensionType", ext.get("extension_type"));
+                    item.put("floorsCount", ext.get("floors_count"));
+                    item.put("startFloorIndex", ext.get("start_floor_index"));
+                    return item;
+                })
+                .toList();
+            mapped.put("extensions", extList);
+            blockResult.add(mapped);
+        }
+
+        List<Map<String, Object>> floorResult = floors.stream().map(floor -> {
+            Map<String, Object> mapped = new LinkedHashMap<>(floor);
+            mapped.put("blockId", floor.get("block_id"));
+            mapped.put("areaProj", floor.get("area_proj"));
+            mapped.put("areaFact", floor.get("area_fact"));
+            return mapped;
+        }).toList();
+
+        List<Map<String, Object>> entrancesResult = entrances.stream().map(entrance -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", entrance.get("id"));
+            item.put("blockId", entrance.get("block_id"));
+            item.put("number", entrance.get("number"));
+            return item;
+        }).toList();
+
+        List<Map<String, Object>> unitsResult = new ArrayList<>();
+        for (Map<String, Object> unit : units) {
+            UUID unitId = parseUuid(unit.get("id"));
+            UUID floorId = parseUuid(unit.get("floor_id"));
+            UUID blockId = floorId == null ? null : floorToBlock.get(floorId);
+            UUID buildingId = blockId == null ? null : blockToBuilding.get(blockId);
+            UUID unitAddressId = parseUuid(unit.get("address_id"));
+            UUID blockAddressId = blockId == null ? null : blockAddressById.get(blockId);
+            UUID buildingAddressId = buildingId == null ? null : buildingAddressById.get(buildingId);
+
+            List<Map<String, Object>> explication = roomsByUnitId.getOrDefault(unitId, List.of()).stream()
+                .map(room -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("id", room.get("id"));
+                    item.put("type", room.get("room_type"));
+                    item.put("label", room.get("name"));
+                    item.put("area", room.get("area"));
+                    item.put("height", room.get("room_height"));
+                    item.put("level", room.get("level"));
+                    item.put("isMezzanine", toBool(room.get("is_mezzanine")));
+                    return item;
+                })
+                .toList();
+
+            Map<String, Object> mapped = new LinkedHashMap<>();
+            mapped.put("id", unit.get("id"));
+            mapped.put("uid", unit.get("id"));
+            mapped.put("unitCode", unit.get("unit_code"));
+            mapped.put("num", unit.get("number"));
+            mapped.put("number", unit.get("number"));
+            mapped.put("type", unit.get("unit_type"));
+            mapped.put("hasMezzanine", toBool(unit.get("has_mezzanine")));
+            mapped.put("mezzanineType", unit.get("mezzanine_type"));
+            mapped.put("area", unit.get("total_area"));
+            mapped.put("livingArea", unit.get("living_area"));
+            mapped.put("usefulArea", unit.get("useful_area"));
+            mapped.put("rooms", unit.get("rooms_count"));
+            mapped.put("floorId", unit.get("floor_id"));
+            mapped.put("entranceId", unit.get("entrance_id"));
+            mapped.put("buildingId", buildingId);
+            mapped.put("buildingCode", buildingId == null ? null : buildingCodeById.get(buildingId));
+            mapped.put("addressId", unitAddressId);
+            mapped.put("effectiveAddressId", firstNonNull(unitAddressId, firstNonNull(blockAddressId, firstNonNull(buildingAddressId, projectAddressId))));
+            mapped.put("cadastreNumber", unit.get("cadastre_number"));
+            mapped.put("explication", explication);
+            unitsResult.add(mapped);
+        }
+
+        return MapResponseDto.of(Map.of(
+            "buildings", buildingResult,
+            "blocks", blockResult,
+            "floors", floorResult,
+            "entrances", entrancesResult,
+            "units", unitsResult
+        ));
+    }
     @GetMapping("/versions") public ItemsResponseDto versions(@RequestParam(required=false) String entityType,@RequestParam(required=false) UUID entityId){ if(entityType!=null && entityId!=null) return new ItemsResponseDto(jdbcTemplate.queryForList("select * from object_versions where entity_type=? and entity_id=? order by version_number desc",entityType,entityId)); return new ItemsResponseDto(jdbcTemplate.queryForList("select * from object_versions order by updated_at desc limit 100")); }
     @PostMapping("/versions") public MapResponseDto createVersion(@RequestBody(required = false) MapPayloadDto payload){ Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data(); return MapResponseDto.of(Map.of("result",versionService.createPendingVersionsForApplication(UUID.fromString(String.valueOf(body.get("projectId"))), UUID.fromString(String.valueOf(body.get("applicationId"))), body.get("createdBy")==null?null:String.valueOf(body.get("createdBy"))))); }
     @PostMapping("/versions/{versionId}/approve") public OkResponseDto approveVersion(@PathVariable Long versionId){jdbcTemplate.update("update object_versions set version_status='CURRENT', updated_at=now() where id=?",versionId);return new OkResponseDto(true);}    
     @PostMapping("/versions/{versionId}/decline") public OkResponseDto declineVersion(@PathVariable Long versionId){jdbcTemplate.update("update object_versions set version_status='DECLINED', updated_at=now() where id=?",versionId);return new OkResponseDto(true);}    
     @GetMapping("/versions/{versionId}/snapshot") public MapResponseDto snapshot(@PathVariable Long versionId){return MapResponseDto.of(jdbcTemplate.queryForMap("select snapshot_data from object_versions where id=?",versionId));}    
     @PostMapping("/versions/{versionId}/restore") public OkResponseDto restore(@PathVariable Long versionId){jdbcTemplate.update("update object_versions set version_status='CURRENT', updated_at=now() where id=?",versionId);return new OkResponseDto(true);}    
+
+
+    private UUID ensureAddressRecord(UUID addressId, String districtSoato, String streetId, String mahallaId, String buildingNo, String regionName, String districtName, String mahallaName) {
+        boolean hasAddressData = !isBlank(districtSoato) || !isBlank(streetId) || !isBlank(mahallaId) || !isBlank(buildingNo);
+        if (!hasAddressData) {
+            return addressId;
+        }
+
+        UUID resolvedAddressId = addressId == null ? UUID.randomUUID() : addressId;
+        String fullAddress = buildFullAddress(regionName, districtName, mahallaName, buildingNo);
+
+        jdbcTemplate.update(
+            "insert into addresses(id, dtype, versionrev, district, street, mahalla, city, building_no, full_address, created_at, updated_at) values (?,?,0,?,?,?,?,?,?,now(),now()) " +
+                "on conflict (id) do update set district=excluded.district, street=excluded.street, mahalla=excluded.mahalla, city=excluded.city, building_no=excluded.building_no, full_address=excluded.full_address, updated_at=now()",
+            resolvedAddressId,
+            "Address",
+            districtSoato,
+            streetId,
+            mahallaId,
+            regionName,
+            buildingNo,
+            fullAddress
+        );
+
+        return resolvedAddressId;
+    }
+
+    private String buildFullAddress(String regionName, String districtName, String mahallaName, String buildingNo) {
+        List<String> parts = new ArrayList<>();
+        if (!isBlank(regionName)) parts.add(regionName.trim());
+        if (!isBlank(districtName)) parts.add(districtName.trim());
+        if (!isBlank(mahallaName)) parts.add(mahallaName.trim());
+        if (!isBlank(buildingNo)) parts.add("д. " + buildingNo.trim());
+        return parts.isEmpty() ? null : String.join(", ", parts);
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
 
     private void syncEntrancesForBlock(UUID blockId, int entrancesCount) {
         List<Map<String, Object>> existing = jdbcTemplate.queryForList("select id, number from entrances where block_id=?", blockId);
@@ -510,6 +1136,62 @@ public class ProjectExtendedController {
         }
     }
 
+    private void saveBlockMarkers(UUID blockId, Map<String, Object> details) {
+        Set<String> technicalKeys = new HashSet<>();
+        Object technicalFloors = details.get("technicalFloors");
+        if (technicalFloors instanceof List<?> list) {
+            for (Object raw : list) {
+                String markerKey = null;
+                if (raw instanceof String s && s.contains("-Т")) {
+                    markerKey = s;
+                } else {
+                    Integer parsed = toNullableInt(raw);
+                    if (parsed != null) markerKey = parsed + "-Т";
+                }
+                if (markerKey != null) technicalKeys.add(markerKey);
+            }
+        }
+
+        Set<String> commercialKeys = new HashSet<>();
+        Object commercialFloors = details.get("commercialFloors");
+        if (commercialFloors instanceof List<?> list) {
+            for (Object raw : list) {
+                if (raw != null) commercialKeys.add(String.valueOf(raw));
+            }
+        }
+
+        jdbcTemplate.update("delete from block_floor_markers where block_id=?", blockId);
+
+        LinkedHashSet<String> markerKeys = new LinkedHashSet<>();
+        markerKeys.addAll(technicalKeys);
+        markerKeys.addAll(commercialKeys);
+
+        for (String markerKey : markerKeys) {
+            Integer floorIndex = null;
+            if (markerKey.endsWith("-Т")) {
+                floorIndex = toNullableInt(markerKey.replace("-Т", ""));
+            } else if (markerKey.matches("^-?\\d+$")) {
+                floorIndex = Integer.parseInt(markerKey);
+            }
+
+            String markerType = "floor";
+            if (markerKey.startsWith("basement_")) markerType = "basement";
+            else if (markerKey.endsWith("-Т")) markerType = "technical";
+            else if (Set.of("attic", "loft", "roof", "tsokol").contains(markerKey)) markerType = "special";
+
+            jdbcTemplate.update(
+                "insert into block_floor_markers(id, block_id, marker_key, marker_type, floor_index, is_technical, is_commercial, created_at, updated_at) values (gen_random_uuid(),?,?,?,?,?,?,now(),now()) " +
+                    "on conflict (block_id, marker_key) do update set marker_type=excluded.marker_type, floor_index=excluded.floor_index, is_technical=excluded.is_technical, is_commercial=excluded.is_commercial, updated_at=now()",
+                blockId,
+                markerKey,
+                markerType,
+                floorIndex,
+                technicalKeys.contains(markerKey),
+                commercialKeys.contains(markerKey)
+            );
+        }
+    }
+
     private String floorConstraintKey(Map<String, Object> floor) {
         int idx = toNullableInt(floor.get("index")) == null ? 0 : toNullableInt(floor.get("index"));
         int pfi = floor.get("parent_floor_index") == null ? -99999 : toNullableInt(floor.get("parent_floor_index"));
@@ -545,14 +1227,99 @@ public class ProjectExtendedController {
     private Integer toNullableInt(Object value) {
         if (value == null) return null;
         if (value instanceof Number n) return n.intValue();
-        String s = String.valueOf(value);
+        String s = String.valueOf(value).trim();
         if (s.isBlank()) return null;
-        return Integer.parseInt(s);
+        try {
+            return Integer.parseInt(s);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private boolean toBool(Object value) {
         if (value instanceof Boolean b) return b;
         return value != null && Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private <T> T firstNonNull(T left, T right) {
+        return left != null ? left : right;
+    }
+
+    private boolean hasAny(Map<String, Object> details, String... fields) {
+        for (String field : fields) {
+            Object value = details.get(field);
+            if (value == null) continue;
+            if (value instanceof String s && s.isBlank()) continue;
+            return true;
+        }
+        return false;
+    }
+
+    private UUID extractCandidateId(Map<String, Object> payload) {
+        Map<String, Object> body = payload == null ? Map.of() : payload;
+        Object direct = body.get("candidateId");
+        if (direct != null) return parseUuid(direct);
+        return parseUuid(asMap(body.get("data")).get("candidateId"));
+    }
+
+    private UUID parseUuid(Object value) {
+        if (value == null) return null;
+        String raw = String.valueOf(value).trim();
+        if (raw.isBlank() || raw.length() != 36) return null;
+        try {
+            return UUID.fromString(raw);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private List<UUID> parseUuidList(Object value) {
+        if (!(value instanceof List<?> list)) return List.of();
+        List<UUID> ids = new ArrayList<>();
+        for (Object item : list) {
+            UUID id = parseUuid(item);
+            if (id != null) ids.add(id);
+        }
+        return ids;
+    }
+
+    private String toPgUuidArrayLiteral(List<UUID> ids) {
+        if (ids == null || ids.isEmpty()) return "{}";
+        return "{" + ids.stream().map(UUID::toString).collect(Collectors.joining(",")) + "}";
+    }
+
+    private String toNullIfBlank(Object value) {
+        if (value == null) return null;
+        String normalized = String.valueOf(value).trim();
+        return normalized.isBlank() ? null : normalized;
+    }
+
+    private Map<String, Object> toMultiPolygon(Map<String, Object> geometry) {
+        if (geometry.isEmpty()) return null;
+        String type = String.valueOf(geometry.getOrDefault("type", ""));
+        if ("MultiPolygon".equals(type)) return geometry;
+        if ("Polygon".equals(type) && geometry.get("coordinates") != null) {
+            return Map.of("type", "MultiPolygon", "coordinates", List.of(geometry.get("coordinates")));
+        }
+        return null;
+    }
+
+    private Map<String, Object> normalizeParkingLevelsByDepth(Map<String, Object> levels, int depth) {
+        Map<String, Object> normalized = new HashMap<>();
+        for (Map.Entry<String, Object> entry : levels.entrySet()) {
+            Integer level = toNullableInt(entry.getKey());
+            if (level == null || level < 1 || level > depth) continue;
+            normalized.put(String.valueOf(level), toBool(entry.getValue()));
+        }
+        return normalized;
+    }
+
+    private Map<String, Object> normalizeBasementCommunications(Map<String, Object> communications) {
+        Map<String, Object> normalized = new HashMap<>();
+        for (String key : List.of("electricity", "water", "sewerage", "heating", "ventilation", "gas", "firefighting")) {
+            normalized.put(key, toBool(communications.get(key)));
+        }
+        return normalized;
     }
 
     private int normalizeBasementDepth(Integer value) {
