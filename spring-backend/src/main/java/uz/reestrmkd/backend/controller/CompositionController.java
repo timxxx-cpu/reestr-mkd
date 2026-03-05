@@ -468,16 +468,47 @@ public class CompositionController {
         return constructionType;
     }
 
-   private void assignGeometry(UUID projectId, UUID buildingId, UUID candidateId) {
+ private void assignGeometry(UUID projectId, UUID buildingId, UUID candidateId) {
         try {
-            // ИСПРАВЛЕНО: убрали ?::uuid, оставили просто ?
-            jdbcTemplate.queryForList(
-                "select * from assign_building_geometry_from_candidate(?, ?, ?)",
-                projectId,
-                buildingId,
-                candidateId
+            // 1. Получаем данные кандидата напрямую
+            List<Map<String, Object>> candidates = jdbcTemplate.queryForList(
+                "select cast(geom_geojson as text) as geojson, area_m2 from project_geometry_candidates where id = ? and project_id = ?",
+                candidateId, projectId
             );
-        } catch (DataAccessException e) {
+            if (candidates.isEmpty()) throw new ApiException("Candidate not found", "NOT_FOUND", null, 404);
+            String geojsonStr = String.valueOf(candidates.get(0).get("geojson"));
+            Object area = candidates.get(0).get("area_m2");
+
+            // 2. Проверяем наличие выделенного участка земли у проекта
+            Boolean hasLandPlot = jdbcTemplate.queryForObject("select (land_plot_geom is not null) from projects where id = ?", Boolean.class, projectId);
+            if (!Boolean.TRUE.equals(hasLandPlot)) throw new ApiException("Land plot is not selected", "VALIDATION_ERROR", null, 400);
+
+            // 3. Проверка: здание должно быть внутри участка
+            Boolean covered = jdbcTemplate.queryForObject(
+                "select st_coveredby(st_multi(st_setsrid(st_geomfromgeojson(?::text), 3857)), land_plot_geom) from projects where id = ?",
+                Boolean.class, geojsonStr, projectId
+            );
+            if (!Boolean.TRUE.equals(covered)) throw new ApiException("Building geometry must be within land plot", "VALIDATION_ERROR", null, 400);
+
+            // 4. Проверка пересечений с другими зданиями комплекса
+            Boolean intersects = jdbcTemplate.queryForObject(
+                "select exists(select 1 from buildings b where b.project_id = ? and b.id <> ? and b.building_footprint_geom is not null and st_intersects(st_multi(st_setsrid(st_geomfromgeojson(?::text), 3857)), b.building_footprint_geom) and not st_touches(st_multi(st_setsrid(st_geomfromgeojson(?::text), 3857)), b.building_footprint_geom))",
+                Boolean.class, projectId, buildingId, geojsonStr, geojsonStr
+            );
+            if (Boolean.TRUE.equals(intersects)) throw new ApiException("Building geometry intersects another building", "VALIDATION_ERROR", null, 400);
+
+            // 5. Сохраняем геометрию в здание
+            int updated = jdbcTemplate.update(
+                "update buildings set footprint_geojson = ?::jsonb, building_footprint_geom = st_multi(st_setsrid(st_geomfromgeojson(?::text), 3857)), building_footprint_area_m2 = ?, geometry_candidate_id = ?, updated_at = now() where id = ? and project_id = ?",
+                geojsonStr, geojsonStr, area, candidateId, buildingId, projectId
+            );
+            if (updated == 0) throw new ApiException("Building not found", "NOT_FOUND", null, 404);
+
+            // 6. Привязываем кандидата к этому зданию
+            jdbcTemplate.update("update project_geometry_candidates set assigned_building_id = null, updated_at = now() where project_id = ? and assigned_building_id = ? and id <> ?", projectId, buildingId, candidateId);
+            jdbcTemplate.update("update project_geometry_candidates set assigned_building_id = ?, updated_at = now() where id = ?", buildingId, candidateId);
+
+        } catch (org.springframework.dao.DataAccessException e) {
             e.printStackTrace();
             throw new ApiException("Geometry validation failed", "GEOMETRY_VALIDATION_ERROR", e.getMessage(), 400);
         }

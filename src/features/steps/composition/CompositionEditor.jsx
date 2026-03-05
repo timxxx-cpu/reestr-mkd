@@ -33,6 +33,7 @@ import { ApiService } from '@lib/api-service';
 import { GeometryPickerMap, BASEMAP_OPTIONS } from '@components/maps/GeometryPickerMap';
 import BuildingCadEditorModal from '@components/cad/BuildingCadEditorModal';
 
+
 const TYPE_NAMES = {
   residential: 'Обычный многоквартирный дом',
   residential_multiblock: 'Многоквартирный дом со встроенными нежилыми частями',

@@ -471,22 +471,45 @@ public class ProjectExtendedController {
         
         for (GeometryCandidateImportItemDto candidate : candidates) {
             if (candidate.geometry() == null || candidate.geometry().isNull()) continue;
-            List<Map<String, Object>> rows;
+            
             try {
-                // ИСПРАВЛЕНИЕ: Используем ?::jsonb вместо cast(? as jsonb) для надежности
-               rows = jdbcTemplate.queryForList(
-                    "select * from upsert_project_geometry_candidate(?, ?, ?, cast(? as jsonb), cast(? as jsonb))",
+                String geojsonStr = jsonbString(candidate.geometry());
+                String propertiesStr = jsonbString(candidate.properties() == null ? objectMapper.createObjectNode() : candidate.properties());
+                
+                // Делаем Upsert напрямую через SQL, обходя сломанную функцию в базе данных
+                List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    """
+                    insert into project_geometry_candidates(
+                        project_id, source_index, label, properties, geom_geojson, geom, area_m2, updated_at
+                    ) values (
+                        ?, ?, ?, ?::jsonb, ?::jsonb, 
+                        st_multi(st_setsrid(st_geomfromgeojson(?::text), 3857)), 
+                        round(st_area(st_multi(st_setsrid(st_geomfromgeojson(?::text), 3857)))::numeric, 2), 
+                        now()
+                    )
+                    on conflict (project_id, source_index) do update set 
+                        label = excluded.label,
+                        properties = excluded.properties,
+                        geom_geojson = excluded.geom_geojson,
+                        geom = excluded.geom,
+                        area_m2 = excluded.area_m2,
+                        updated_at = now()
+                    returning id
+                    """,
                     projectId,
                     candidate.sourceIndex() == null ? defaultIndex++ : candidate.sourceIndex(),
                     candidate.label(),
-                    jsonbString(candidate.properties() == null ? objectMapper.createObjectNode() : candidate.properties()),
-                    jsonbString(candidate.geometry())
+                    propertiesStr,
+                    geojsonStr,
+                    geojsonStr, // Для 1-го вызова st_geomfromgeojson
+                    geojsonStr  // Для 2-го вызова st_geomfromgeojson (подсчет площади)
                 );
+                
+                if (!rows.isEmpty()) imported += 1;
             } catch (Exception e) {
                 e.printStackTrace();
                 throw new ApiException("Geometry import failed: " + e.getMessage(), "GEOMETRY_IMPORT_ERROR", e.getMessage(), 400);
             }
-            if (!rows.isEmpty()) imported += 1;
         }
         return MapResponseDto.of(Map.of("ok", true, "imported", imported));
     }
@@ -501,19 +524,33 @@ public class ProjectExtendedController {
         }
 
         try {
-            // ИСПРАВЛЕНИЕ: убрали ?::uuid, оставили просто ?
-            jdbcTemplate.queryForList(
-                "select * from set_project_land_plot_from_candidate(?, ?)",
-                projectId,
-                candidateId
+            // 1. Получаем данные кандидата напрямую
+            List<Map<String, Object>> candidates = jdbcTemplate.queryForList(
+                "select cast(geom_geojson as text) as geojson, area_m2 from project_geometry_candidates where id = ? and project_id = ?",
+                candidateId, projectId
+            );
+            if (candidates.isEmpty()) throw new ApiException("Candidate not found", "NOT_FOUND", null, 404);
+            
+            String geojsonStr = String.valueOf(candidates.get(0).get("geojson"));
+            Object area = candidates.get(0).get("area_m2");
+
+            // 2. Сбрасываем предыдущий выбор
+            jdbcTemplate.update("update project_geometry_candidates set is_selected_land_plot = false, updated_at = now() where project_id = ?", projectId);
+            
+            // 3. Выбираем нового кандидата
+            jdbcTemplate.update("update project_geometry_candidates set is_selected_land_plot = true, updated_at = now() where id = ?", candidateId);
+            
+            // 4. Сохраняем геометрию в проект с конвертацией в PostGIS
+            jdbcTemplate.update(
+                "update projects set land_plot_geojson = ?::jsonb, land_plot_geom = st_multi(st_setsrid(st_geomfromgeojson(?::text), 3857)), land_plot_area_m2 = ?, updated_at = now() where id = ?",
+                geojsonStr, geojsonStr, area, projectId
             );
         } catch (Exception e) {
-            e.printStackTrace(); // ИСПРАВЛЕНИЕ: добавлено логирование реальной ошибки в консоль
+            e.printStackTrace(); 
             throw new ApiException("Land plot selection failed", "GEOMETRY_ASSIGN_ERROR", e.getMessage(), 400);
         }
         return new OkResponseDto(true);
     }
-
     @PostMapping("/projects/{projectId}/land-plot/unselect")
     @Transactional
     public OkResponseDto unselectLand(@PathVariable UUID projectId) {
@@ -577,27 +614,56 @@ public class ProjectExtendedController {
         if (candidateId == null) {
             jdbcTemplate.update(
                 "update project_geometry_candidates set assigned_building_id = null, updated_at = now() where project_id = ? and assigned_building_id = ?",
-                projectId,
-                buildingId
+                projectId, buildingId
             );
             jdbcTemplate.update(
                 "update buildings set geometry_candidate_id = null, footprint_geojson = null, building_footprint_geom = null, building_footprint_area_m2 = null, updated_at = now() where id = ? and project_id = ?",
-                buildingId,
-                projectId
+                buildingId, projectId
             );
             return new OkResponseDto(true);
         }
 
         try {
-            // ИСПРАВЛЕНИЕ: убрали ?::uuid, оставили просто ?
-            jdbcTemplate.queryForList(
-                "select * from assign_building_geometry_from_candidate(?, ?, ?)",
-                projectId,
-                buildingId,
-                candidateId
+            // 1. Получаем данные кандидата напрямую
+            List<Map<String, Object>> candidates = jdbcTemplate.queryForList(
+                "select cast(geom_geojson as text) as geojson, area_m2 from project_geometry_candidates where id = ? and project_id = ?",
+                candidateId, projectId
             );
+            if (candidates.isEmpty()) throw new ApiException("Candidate not found", "NOT_FOUND", null, 404);
+            String geojsonStr = String.valueOf(candidates.get(0).get("geojson"));
+            Object area = candidates.get(0).get("area_m2");
+
+            // 2. Проверяем наличие выделенного участка земли у проекта
+            Boolean hasLandPlot = jdbcTemplate.queryForObject("select (land_plot_geom is not null) from projects where id = ?", Boolean.class, projectId);
+            if (!Boolean.TRUE.equals(hasLandPlot)) throw new ApiException("Land plot is not selected", "VALIDATION_ERROR", null, 400);
+
+            // 3. Проверка: здание должно быть внутри участка
+            Boolean covered = jdbcTemplate.queryForObject(
+                "select st_coveredby(st_multi(st_setsrid(st_geomfromgeojson(?::text), 3857)), land_plot_geom) from projects where id = ?",
+                Boolean.class, geojsonStr, projectId
+            );
+            if (!Boolean.TRUE.equals(covered)) throw new ApiException("Building geometry must be within land plot", "VALIDATION_ERROR", null, 400);
+
+            // 4. Проверка пересечений с другими зданиями комплекса
+            Boolean intersects = jdbcTemplate.queryForObject(
+                "select exists(select 1 from buildings b where b.project_id = ? and b.id <> ? and b.building_footprint_geom is not null and st_intersects(st_multi(st_setsrid(st_geomfromgeojson(?::text), 3857)), b.building_footprint_geom) and not st_touches(st_multi(st_setsrid(st_geomfromgeojson(?::text), 3857)), b.building_footprint_geom))",
+                Boolean.class, projectId, buildingId, geojsonStr, geojsonStr
+            );
+            if (Boolean.TRUE.equals(intersects)) throw new ApiException("Building geometry intersects another building", "VALIDATION_ERROR", null, 400);
+
+            // 5. Сохраняем геометрию в здание
+            int updated = jdbcTemplate.update(
+                "update buildings set footprint_geojson = ?::jsonb, building_footprint_geom = st_multi(st_setsrid(st_geomfromgeojson(?::text), 3857)), building_footprint_area_m2 = ?, geometry_candidate_id = ?, updated_at = now() where id = ? and project_id = ?",
+                geojsonStr, geojsonStr, area, candidateId, buildingId, projectId
+            );
+            if (updated == 0) throw new ApiException("Building not found", "NOT_FOUND", null, 404);
+
+            // 6. Привязываем кандидата к этому зданию
+            jdbcTemplate.update("update project_geometry_candidates set assigned_building_id = null, updated_at = now() where project_id = ? and assigned_building_id = ? and id <> ?", projectId, buildingId, candidateId);
+            jdbcTemplate.update("update project_geometry_candidates set assigned_building_id = ?, updated_at = now() where id = ?", buildingId, candidateId);
+
         } catch (Exception e) {
-            e.printStackTrace(); // ИСПРАВЛЕНИЕ: добавлено логирование реальной ошибки в консоль
+            e.printStackTrace(); 
             throw new ApiException("Building geometry selection failed", "GEOMETRY_ASSIGN_ERROR", e.getMessage(), 400);
         }
 
@@ -689,14 +755,22 @@ Map<String, Object> participants = new LinkedHashMap<>();
         return MapResponseDto.of(responseData);
     }
 
-    @PutMapping("/projects/{projectId}/passport")
+  @PutMapping("/projects/{projectId}/passport")
     public MapResponseDto updatePassport(@PathVariable UUID projectId, @RequestBody(required = false) ProjectPassportUpdateRequestDto payload){
         requirePolicy("projectExtended", "mutate", "Role cannot update passport");
         ProjectPassportInfoDto info = payload == null ? null : payload.info();
         ProjectCadastreDataDto cadastreData = payload == null ? null : payload.cadastreData();
 
+        // 1. ИСПРАВЛЕНИЕ: Получаем текущий address_id из проекта, чтобы не создавать дубликаты
+        List<Map<String, Object>> projRows = jdbcTemplate.queryForList("select address_id from projects where id=?", projectId);
+        if (projRows.isEmpty()) {
+            throw new ApiException("Project not found", "NOT_FOUND", null, 404);
+        }
+        UUID currentAddressId = parseUuid(projRows.getFirst().get("address_id"));
+
+        // 2. Передаем currentAddressId вместо null
         UUID addressId = info == null ? null : ensureAddressRecord(
-            null,
+            currentAddressId, 
             info.districtSoato(),
             info.streetId(),
             info.mahallaId(),
@@ -935,7 +1009,7 @@ private UUID ensureAddressRecord(
             String regionName, 
             String districtName, 
             String mahallaName, 
-            String streetName // <--- ОШИБКА БЫЛА ЗДЕСЬ (параметр отсутствовал)
+            String streetName 
     ) {
         boolean hasAddressData = !isBlank(districtSoato) || !isBlank(streetId) || !isBlank(mahallaId) || !isBlank(buildingNo);
         if (!hasAddressData) {
@@ -951,8 +1025,8 @@ private UUID ensureAddressRecord(
             resolvedAddressId,
             "Address",
             districtSoato,
-            streetId,
-            mahallaId,
+            parseUuid(streetId), // ИСПРАВЛЕНИЕ: Конвертируем String в java.util.UUID
+            parseUuid(mahallaId), // ИСПРАВЛЕНИЕ: Конвертируем String в java.util.UUID
             regionName,
             buildingNo,
             fullAddress
@@ -961,13 +1035,34 @@ private UUID ensureAddressRecord(
         return resolvedAddressId;
     }
     
-   private String buildFullAddress(String regionName, String districtName, String mahallaName, String streetName, String buildingNo) {
+private String buildFullAddress(String regionName, String districtName, String mahallaName, String streetName, String buildingNo) {
         List<String> parts = new ArrayList<>();
-        if (!isBlank(regionName)) parts.add(regionName.trim());
-        if (!isBlank(districtName)) parts.add(districtName.trim());
-        if (!isBlank(mahallaName)) parts.add(mahallaName.trim());
-        if (!isBlank(streetName)) parts.add(streetName.trim()); // Улица теперь учитывается
-        if (!isBlank(buildingNo)) parts.add("д. " + buildingNo.trim());
+        
+        // Если streetName уже содержит регион, не добавляем его повторно
+        if (!isBlank(regionName) && (isBlank(streetName) || !streetName.contains(regionName.trim()))) {
+            parts.add(regionName.trim());
+        }
+        
+        // Если streetName уже содержит район, не добавляем его
+        if (!isBlank(districtName) && (isBlank(streetName) || !streetName.contains(districtName.trim()))) {
+            parts.add(districtName.trim());
+        }
+        
+        // Если streetName уже содержит махаллю, не добавляем ее
+        if (!isBlank(mahallaName) && (isBlank(streetName) || !streetName.contains(mahallaName.trim()))) {
+            parts.add(mahallaName.trim());
+        }
+        
+        // Добавляем саму строку, которую прислал фронтенд в поле street (часто это полный адрес)
+        if (!isBlank(streetName)) {
+            parts.add(streetName.trim());
+        }
+        
+        // Если номер дома передан отдельно и его еще нет в строке адреса, добавляем
+        if (!isBlank(buildingNo) && (isBlank(streetName) || !streetName.matches(".*\\b" + buildingNo.trim() + "\\b.*"))) {
+            parts.add("д. " + buildingNo.trim());
+        }
+        
         return parts.isEmpty() ? null : String.join(", ", parts);
     }
 

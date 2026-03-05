@@ -59,8 +59,40 @@ const BASEMAPS = {
   },
 };
 
-const safeGeometryConvert = (geom) => {
-  if (!geom || !geom.coordinates) return geom;
+// 1. Умный парсер, который разворачивает данные от Spring Boot
+const parseGeometry = (geom) => {
+  if (!geom) return null;
+  let parsed = geom;
+
+  // Разворачиваем обертку PGobject от Spring Boot: { type: "jsonb", value: "..." }
+  if (parsed && typeof parsed === 'object' && parsed.type === 'jsonb' && parsed.value) {
+    parsed = parsed.value;
+  }
+
+  // Декодируем строку (может быть завернута дважды)
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch (e) { return null; }
+  }
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch (e) { return null; }
+  }
+
+  // Вытаскиваем геометрию из Feature/FeatureCollection
+  if (parsed?.type === 'FeatureCollection') return parsed.features?.[0]?.geometry || null;
+  if (parsed?.type === 'Feature') return parsed.geometry || null;
+
+  // ЖЕСТКАЯ ВАЛИДАЦИЯ
+  if (parsed && typeof parsed === 'object' && parsed.type && parsed.coordinates) {
+      return parsed;
+  }
+
+  return null;
+};
+
+// 2. Интегрируем умный парсер в конвертер координат
+const safeGeometryConvert = (rawGeom) => {
+  const geom = parseGeometry(rawGeom);
+  if (!geom || !geom.coordinates) return null;
   try {
     const firstCoordStr = JSON.stringify(geom.coordinates).match(/-?\d+\.?\d*/);
     if (firstCoordStr) {
@@ -75,31 +107,36 @@ const safeGeometryConvert = (geom) => {
   return geom;
 };
 
-const toFeatureCollection = (candidates = [], selectedId = null, activeId = null) => ({
-  type: 'FeatureCollection',
-  features: candidates
-    .filter(item => item?.geometry)
-    .map(item => ({
-      type: 'Feature',
-      geometry: safeGeometryConvert(item.geometry),
-      properties: {
-        candidateId: item.id,
-        isSelected: item.id === selectedId,
-        isActive: item.id === activeId,
-        isAssigned: !!item.assignedBuildingId,
-        isSavedGeometry: false,
-      },
-    })),
-});
+const toFeatureCollection = (candidates = [], selectedId = null, activeId = null) => {
+  const features = [];
+  candidates.forEach(item => {
+    const geom = safeGeometryConvert(item?.geometry);
+    if (geom) {
+      features.push({
+        type: 'Feature',
+        geometry: geom,
+        properties: {
+          candidateId: item.id,
+          isSelected: item.id === selectedId,
+          isActive: item.id === activeId,
+          isAssigned: !!item.assignedBuildingId,
+          isSavedGeometry: false,
+        },
+      });
+    }
+  });
+  return { type: 'FeatureCollection', features };
+};
 
 const toSingleFeatureCollection = (geometry, selectedId = null, activeId = null) => {
-  if (!geometry) return { type: 'FeatureCollection', features: [] };
+  const geom = safeGeometryConvert(geometry);
+  if (!geom) return { type: 'FeatureCollection', features: [] };
   return {
     type: 'FeatureCollection',
     features: [
       {
         type: 'Feature',
-        geometry: safeGeometryConvert(geometry),
+        geometry: geom,
         properties: {
           candidateId: selectedId || 'focused-geometry',
           isSelected: true,
@@ -112,7 +149,6 @@ const toSingleFeatureCollection = (geometry, selectedId = null, activeId = null)
   };
 };
 
-// TS-Fix: Добавлены поля idx и kind ко всем объектам черновика
 const toDraftFeatureCollection = (draftPoints = []) => {
   const points = Array.isArray(draftPoints) ? draftPoints : [];
   if (!points.length) return { type: 'FeatureCollection', features: [] };
@@ -176,6 +212,7 @@ export const GeometryPickerMap = ({
   selectedId,
   activeId,
   savedGeometry,
+  projectGeometry,
   fitToSavedOnOpen = false,
   fitScopeKey = null,
   onSelect,
@@ -191,10 +228,11 @@ export const GeometryPickerMap = ({
   const sourceData = useMemo(() => {
     const collection = toFeatureCollection(candidates, selectedId, activeId);
 
-    if (savedGeometry) {
+    const parsedSavedGeom = safeGeometryConvert(savedGeometry);
+    if (parsedSavedGeom) {
       collection.features.push({
         type: 'Feature',
-        geometry: safeGeometryConvert(savedGeometry),
+        geometry: parsedSavedGeom,
         properties: {
           candidateId: 'saved-geometry',
           isSelected: false,
@@ -223,28 +261,21 @@ export const GeometryPickerMap = ({
   useEffect(() => {
     if (!mapRef.current || sourceData.features.length === 0) return;
 
-    // 1. Ищем кандидата, на которого кликнули в списке (activeId)
     const activeCandidate = activeId
-      ? candidates.find(item => item?.id === activeId && item?.geometry)
+      ? candidates.find(item => item?.id === activeId && safeGeometryConvert(item?.geometry))
       : null;
 
-    // 2. Ищем кандидата, который уже прикреплен к зданию (selectedId)
     const selectedCandidate = selectedId
-      ? candidates.find(item => item?.id === selectedId && item?.geometry)
+      ? candidates.find(item => item?.id === selectedId && safeGeometryConvert(item?.geometry))
       : null;
 
-    const shouldFitSavedNow = fitToSavedOnOpen && savedGeometry && !didInitialSavedFitRef.current;
+    const shouldFitSavedNow = fitToSavedOnOpen && savedGeometry && safeGeometryConvert(savedGeometry) && !didInitialSavedFitRef.current;
     
-    // 3. Выбираем, на чем сфокусировать карту. ПРИОРИТЕТ:
-    // - Сохраненная геометрия (при открытии)
-    // - Активный кандидат (кликнули в списке)
-    // - Выбранный кандидат (прикреплен)
-    // - Все полигоны (по умолчанию)
     const focusedCollection = shouldFitSavedNow
       ? toSingleFeatureCollection(savedGeometry, 'saved-geometry', null)
-      : activeCandidate?.geometry
+      : activeCandidate
         ? toSingleFeatureCollection(activeCandidate.geometry, null, activeId)
-        : selectedCandidate?.geometry
+        : selectedCandidate
           ? toSingleFeatureCollection(selectedCandidate.geometry, selectedId, activeId)
           : sourceData;
 
@@ -256,7 +287,6 @@ export const GeometryPickerMap = ({
         if (bounds[0][0] === bounds[1][0] && bounds[0][1] === bounds[1][1]) {
           mapRef.current.flyTo({ center: bounds[0], zoom: 17, duration: 1500 });
         } else {
-          // Вызываем fitBounds - карта полетит к выбранному объекту
           mapRef.current.fitBounds(bounds, { padding: 80, duration: 1200, maxZoom: 18 });
         }
       } catch (err) {
@@ -266,7 +296,6 @@ export const GeometryPickerMap = ({
   }, [candidates, sourceData, selectedId, activeId, fitToSavedOnOpen, savedGeometry]);
 
   return (
-    // TS-Fix: Высота обрабатывается здесь, позволяя прокидывать и 100% и 400
     <div className="w-full rounded-xl border border-slate-200 overflow-hidden relative" style={{ height: height || 400 }}>
       <Map
         ref={mapRef}

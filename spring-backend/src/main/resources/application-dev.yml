@@ -3,12 +3,13 @@ spring:
     activate:
       on-profile: dev
   datasource:
-    url: jdbc:postgresql://aws-1-ap-northeast-2.pooler.supabase.com:6543/postgres?prepareThreshold=0&stringtype=unspecified
-    username: postgres.rhfllxqyjgvlodnxlgvz
-    password: "Samsung0477061-"
+    url: "jdbc:postgresql://192.168.112.48:5432/mkd"
+    username: "postgres"
+    password: "migration@2hE&z53P43Q"
+    driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: none
     show-sql: true
     properties:
       hibernate:

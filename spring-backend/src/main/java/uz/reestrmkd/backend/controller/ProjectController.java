@@ -86,6 +86,16 @@ public class ProjectController {
         UUID applicationId = UUID.randomUUID();
         String internalNumber = "INT-" + String.valueOf(System.currentTimeMillis()).substring(7);
 
+        // ИСПРАВЛЕНИЕ: Безопасный парсинг даты и приведение к java.sql.Timestamp и строк
+        Object rawSubDate = appData.get("submissionDate");
+        Instant subInstant = rawSubDate == null ? Instant.now() : parseInstant(rawSubDate);
+        if (subInstant == null || subInstant.equals(Instant.EPOCH)) {
+            subInstant = Instant.now();
+        }
+        
+        String externalSource = appData.get("source") == null ? null : String.valueOf(appData.get("source"));
+        String externalId = appData.get("externalId") == null ? null : String.valueOf(appData.get("externalId"));
+
         jdbcTemplate.update(
             "insert into applications(id, project_id, scope_id, internal_number, external_source, external_id, applicant, submission_date, assignee_name, status, workflow_substatus, current_step, current_stage, created_at, updated_at) " +
                 "values (?,?,?,?,?,?,?,?,?,?,?,?,?,now(),now())",
@@ -93,10 +103,10 @@ public class ProjectController {
             projectId,
             scope,
             internalNumber,
-            appData.get("source"),
-            appData.get("externalId"),
+            externalSource,
+            externalId,
             applicant,
-            appData.get("submissionDate") == null ? Instant.now() : appData.get("submissionDate"),
+            java.sql.Timestamp.from(subInstant), // Явно передаем JDBC-совместимый Timestamp
             assignee,
             "IN_PROGRESS",
             "DRAFT",
