@@ -53,7 +53,12 @@ public class CatalogController {
             case "makhallas" ->
                 "select id, district_soato, name as name_ru, name as name_uz, name, status from makhallas" + activeClause + " order by name asc nulls last";
             case "dict_system_users" ->
-                "select * from dict_system_users" + activeClause + " order by name asc";
+                "select u.username as id, u.username as code, u.full_name as name, ur.name_uk as role " +
+                "from general.users u " +
+                "left join general.user_attached_roles uar on u.id = uar.users_id " +
+                "left join general.user_roles ur on ur.id = uar.user_roles_id " +
+                (onlyActive ? "where u.status = true " : "") +
+                "order by u.full_name asc";
             default ->
                 "select * from " + table + activeClause + " order by sort_order asc, label asc";
         };

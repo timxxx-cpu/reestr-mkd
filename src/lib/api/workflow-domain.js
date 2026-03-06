@@ -43,7 +43,7 @@ export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveA
     });
   },
 
-  declineApplication: async ({ applicationId, userName, reason, userRole = 'branch_manager' }) => {
+ declineApplication: async ({ applicationId, userName, reason, userRole = 'branch_manager', nextSubstatus, prevStatus }) => {
     requireBffEnabled('workflow.declineApplication');
 
     return BffClient.declineApplication({
@@ -51,6 +51,7 @@ export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveA
       reason,
       userName,
       userRole,
+      // Опционально: если бэкенд научится понимать эти статусы, можно передавать их и в BffClient
       idempotencyKey: createIdempotencyKey('workflow-decline', [applicationId]),
     });
   },
@@ -80,16 +81,16 @@ export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveA
     });
   },
 
-  assignTechnician: async ({ applicationId, assigneeName, userName = 'system', userRole = 'branch_manager', reason = null }) => {
+ assignTechnician: async ({ applicationId, assigneeUserId, userName = 'system', userRole = 'branch_manager', reason = null }) => {
     requireBffEnabled('workflow.assignTechnician');
 
     return BffClient.assignTechnician({
       applicationId,
-      assigneeUserId: assigneeName,
+      assigneeUserId, // Теперь переменные совпадают
       reason,
       userName,
       userRole,
-      idempotencyKey: createIdempotencyKey('workflow-assign-technician', [applicationId, assigneeName]),
+      idempotencyKey: createIdempotencyKey('workflow-assign-technician', [applicationId, assigneeUserId]),
     });
   },
 

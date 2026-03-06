@@ -140,10 +140,8 @@ const ApplicationsDashboard = ({
     ApiService.getSystemUsers()
       .then(users => {
         if (!mounted) return;
-        // Разрешаем передачу заявок техникам и контролерам
-        setTechnicians((users || []).filter(u => 
-          u.role === ROLES.TECHNICIAN || u.role === ROLES.CONTROLLER
-        ));
+        // Показываем всех загруженных пользователей
+        setTechnicians(users || []);
       })
       .catch(() => {
         if (mounted) setTechnicians([]);

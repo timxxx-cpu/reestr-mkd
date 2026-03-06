@@ -35,16 +35,16 @@ public class AuthController {
         this.jwtSecret = jwtSecret;
     }
 
-    @PostMapping("/login")
+   @PostMapping("/login")
     public ResponseEntity<LoginResponseDto> login(@Valid @RequestBody LoginRequestDto body) {
         String login = body.username();
         String password = body.password();
 
         var users = jdbcTemplate.queryForList(
             """
-                select id, login, password, full_name, status
+                select id, username, password, full_name, status
                 from general.users
-                where login = ? and password = ? and status = true
+                where username = ? and password = ? and status = true
                 limit 1
                 """,
             login,
@@ -53,30 +53,33 @@ public class AuthController {
         if (users.isEmpty()) throw new ApiException("Invalid credentials", "UNAUTHORIZED", null, 401);
 
         Map<String, Object> user = users.getFirst();
-        Object userId = user.get("id");
+        Object dbId = user.get("id");             // Числовой ID для базы данных
+        Object username = user.get("username");   // Логин (username) для системы и связей
+
         var roles = jdbcTemplate.queryForList(
             """
                 select ur.name_uk
                 from general.user_attached_roles uar
-                join general.user_role ur on ur.id = uar.role_id
-                where uar.user_id = ? and uar.status = true
+                join general.user_roles ur on ur.id = uar.user_roles_id
+                where uar.users_id = ?
                 limit 1
                 """,
-            userId
+            dbId // Ищем роль по числовому ID
         );
         if (roles.isEmpty()) throw new ApiException("User role is not assigned", "FORBIDDEN", null, 403);
 
         String role = normalizeRoleKey(roles.getFirst().get("name_uk"));
         if (role == null) throw new ApiException("User role is not resolved", "FORBIDDEN", null, 403);
 
-        String displayName = pickFirstNonBlank(user.get("full_name"), user.get("login"), user.get("id"));
+        String displayName = pickFirstNonBlank(user.get("full_name"), user.get("username"), user.get("id"));
         if (jwtSecret == null || jwtSecret.isBlank()) throw new ApiException("JWT_SECRET is not configured on the server", "SERVER_ERROR", null, 500);
 
-        String token = generateJwtHs256(Map.of("sub", String.valueOf(userId), "role", role, "name", displayName));
+        // Генерируем токен, используя логин (username) в качестве ID пользователя
+        String token = generateJwtHs256(Map.of("sub", String.valueOf(username), "role", role, "name", displayName));
         LoginResponseDto response = new LoginResponseDto(
             true,
             token,
-            new LoginUserDto(String.valueOf(userId), displayName, role)
+            new LoginUserDto(String.valueOf(username), displayName, role) // Отдаем фронтенду логин как ID
         );
         return ResponseEntity.ok(response);
     }

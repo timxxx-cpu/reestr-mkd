@@ -29,7 +29,11 @@ export const buildProjectRowState = ({ project, user }) => {
   const availableActions = Array.isArray(project.availableActions) ? project.availableActions : null;
 
   const isAssignedToCurrentTechnician =
-    !app.assigneeName || app.assigneeName === user.name || app.assigneeName === user.code;
+    !app.assigneeName || 
+    app.assigneeName === user.name || 
+    app.assigneeName === user.code || 
+    app.assigneeName === user.id || 
+    app.assigneeName === user.username;
 
   const fallbackCanEdit =
     (user.role === ROLES.TECHNICIAN &&
@@ -42,9 +46,7 @@ export const buildProjectRowState = ({ project, user }) => {
       ].includes(substatus)) ||
     (user.role === ROLES.CONTROLLER && substatus === WORKFLOW_SUBSTATUS.REVIEW);
 
-  const canEdit =
-    (availableActions?.includes('edit') || fallbackCanEdit) &&
-    (user.role !== ROLES.TECHNICIAN || isAssignedToCurrentTechnician);
+  const canEdit = availableActions?.includes('edit') || fallbackCanEdit;
 
   return {
     app,

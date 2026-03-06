@@ -208,18 +208,7 @@ export default function ProjectRow({
           {!viewOnly && !isCompleted && canEdit ? (
             <Tooltip content="Взять в работу">
               <button
-                onClick={() => {
-                  if (
-                    user.role === ROLES.TECHNICIAN &&
-                    app.assigneeName &&
-                    app.assigneeName !== user.name &&
-                    app.assigneeName !== user.code
-                  ) {
-                    alert(`Заявка назначена на ${app.assigneeName}`);
-                    return;
-                  }
-                  onSelect(project.id, 'edit');
-                }}
+                onClick={() => onSelect(project.id, 'edit')}
                 className="group/btn flex items-center gap-2 pl-3 pr-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-md shadow-blue-200 hover:shadow-lg transition-all active:scale-95"
               >
                 <PlayCircle size={14} className="group-hover/btn:fill-white/20" /> Открыть

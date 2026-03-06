@@ -32,7 +32,7 @@ export function useProjectModerationActions({
         }
         await ApiService.assignTechnician({
           applicationId: payload.projectAppId,
-          assigneeName: newAssigneeName,
+          assigneeUserId: newAssigneeName, // <-- ИЗМЕНЕНО ЗДЕСЬ
         });
         toast.success(`Исполнитель изменен: ${newAssigneeName}`);
       } else if (type === 'DELETE') {

@@ -100,9 +100,9 @@ export default function DashboardActionModal({ config, onCancel, onConfirm, tech
                 value={inputValue}
                 onChange={e => setInputValue(e.target.value)}
               >
-                {technicians.map(tech => (
+              {technicians.map(tech => (
                   <option key={tech.code || tech.id || tech.name} value={tech.code || tech.name}>
-                    {tech.name} ({tech.role === ROLES.CONTROLLER ? 'контролер' : 'техник'})
+                    {tech.name}
                   </option>
                 ))}
               </select>
