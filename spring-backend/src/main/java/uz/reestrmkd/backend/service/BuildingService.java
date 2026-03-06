@@ -20,7 +20,7 @@ public class BuildingService {
     }
 
     @Transactional
-    public void mergeBlockDetails(UUID blockId, Map<String, Object> details) {
+    public void mergeBlockDetails(@org.springframework.lang.NonNull UUID blockId, Map<String, Object> details) {
         BuildingBlockEntity block = blockRepo.findById(blockId)
             .orElseThrow(() -> new ApiException("Building block not found", "NOT_FOUND", null, 404));
 

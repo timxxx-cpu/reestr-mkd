@@ -5,7 +5,6 @@ import uz.reestrmkd.backend.dto.*;
 import uz.reestrmkd.backend.entity.*;
 
 import java.util.*;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public final class EntityToDtoMapper {

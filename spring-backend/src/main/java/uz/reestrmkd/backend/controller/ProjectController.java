@@ -7,8 +7,6 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import uz.reestrmkd.backend.dto.*;
 import uz.reestrmkd.backend.exception.ApiException;
-import uz.reestrmkd.backend.repository.ApplicationJpaRepository;
-import uz.reestrmkd.backend.repository.ProjectJpaRepository;
 import uz.reestrmkd.backend.security.ActorPrincipal;
 import uz.reestrmkd.backend.service.ValidationUtils;
 
@@ -21,13 +19,9 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/v1")
 public class ProjectController {
-    private final ProjectJpaRepository projectRepo;
-    private final ApplicationJpaRepository applicationRepo;
     private final JdbcTemplate jdbcTemplate;
 
-    public ProjectController(ProjectJpaRepository projectRepo, ApplicationJpaRepository applicationRepo, JdbcTemplate jdbcTemplate) {
-        this.projectRepo = projectRepo;
-        this.applicationRepo = applicationRepo;
+    public ProjectController(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
     }
 
@@ -39,6 +33,7 @@ public class ProjectController {
             throw new ApiException("scope is required", "VALIDATION_ERROR", null, 400);
         }
 
+      @SuppressWarnings("unchecked")
         Map<String, Object> appData = body.get("appData") instanceof Map<?, ?> m
             ? (Map<String, Object>) m
             : Map.of();
@@ -149,7 +144,7 @@ public class ProjectController {
             appSql.append(" and status=?");
             args.add(statusValues.getFirst());
         } else if (statusValues.size() > 1) {
-            appSql.append(" and status in (").append(String.join(",", Collections.nCopies(statusValues.size(), "?"))).append(")");
+            appSql.append(" and status in (").append(repeatParams(statusValues.size())).append(")");
             args.addAll(statusValues);
         }
 
@@ -157,7 +152,7 @@ public class ProjectController {
             appSql.append(" and workflow_substatus=?");
             args.add(workflowValues.getFirst());
         } else if (workflowValues.size() > 1) {
-            appSql.append(" and workflow_substatus in (").append(String.join(",", Collections.nCopies(workflowValues.size(), "?"))).append(")");
+            appSql.append(" and workflow_substatus in (").append(repeatParams(workflowValues.size())).append(")");
             args.addAll(workflowValues);
         }
 
@@ -206,7 +201,7 @@ public class ProjectController {
             from projects p
             where p.scope_id=? and p.id in (
             """);
-        projectSql.append(String.join(",", Collections.nCopies(projectIds.size(), "?"))).append(") order by p.updated_at desc");
+        projectSql.append(repeatParams(projectIds.size())).append(") order by p.updated_at desc");
 
         List<Object> projectArgs = new ArrayList<>();
         projectArgs.add(scope);
@@ -262,17 +257,21 @@ public class ProjectController {
             mapped.add(dto);
         }
 
-        if (search != null && !search.isBlank()) {
+      if (search != null && !search.isBlank()) {
             String lower = search.toLowerCase(Locale.ROOT);
-            // ИСПРАВЛЕНИЕ 2: Сохраняем мутабельность списка для последующей сортировки
-            mapped = mapped.stream().filter(pj ->
-                lowerContains(pj.get("name"), lower) ||
+            mapped = mapped.stream().filter(pj -> {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> appInfo = (Map<String, Object>) pj.get("applicationInfo");
+                @SuppressWarnings("unchecked")
+                Map<String, Object> compInfo = (Map<String, Object>) pj.get("complexInfo");
+
+                return lowerContains(pj.get("name"), lower) ||
                     lowerContains(pj.get("ujCode"), lower) ||
-                    lowerContains(((Map<String, Object>) pj.get("applicationInfo")).get("internalNumber"), lower) ||
-                    lowerContains(((Map<String, Object>) pj.get("applicationInfo")).get("externalId"), lower) ||
-                    lowerContains(((Map<String, Object>) pj.get("complexInfo")).get("street"), lower) ||
-                    lowerContains(((Map<String, Object>) pj.get("applicationInfo")).get("assigneeName"), lower)
-            ).collect(Collectors.toList());
+                    (appInfo != null && (lowerContains(appInfo.get("internalNumber"), lower) ||
+                                         lowerContains(appInfo.get("externalId"), lower) ||
+                                         lowerContains(appInfo.get("assigneeName"), lower))) ||
+                    (compInfo != null && lowerContains(compInfo.get("street"), lower));
+            }).collect(Collectors.toList());
         }
 
         mapped.sort((a, b) -> {
@@ -514,6 +513,7 @@ public class ProjectController {
     }
 
     private List<String> buildProjectAvailableActions(ActorPrincipal actor, Map<String, Object> projectDto) {
+        @SuppressWarnings("unchecked")
         Map<String, Object> app = (Map<String, Object>) projectDto.getOrDefault("applicationInfo", Map.of());
         String status = app.get("status") == null ? null : String.valueOf(app.get("status"));
         String substatus = app.get("workflowSubstatus") == null ? null : String.valueOf(app.get("workflowSubstatus"));
@@ -753,11 +753,21 @@ public class ProjectController {
 
     @PostMapping("/projects/{projectId}/validation/step")
     public MapResponseDto validateStep(@PathVariable UUID projectId, @Valid @RequestBody ValidationStepRequestDto body) {
-        ValidationUtils.ValidationResult validationResult = ValidationUtils.buildStepValidationResult(jdbcTemplate, projectId, body.stepId());
+        String stepId = body.stepId() == null ? "" : body.stepId();
+        ValidationUtils.ValidationResult validationResult = ValidationUtils.buildStepValidationResult(jdbcTemplate, projectId, stepId);
         List<Map<String, Object>> errors = validationResult.errors().stream()
             .map(err -> Map.<String, Object>of("code", err.code(), "title", err.title(), "message", err.message()))
             .toList();
 
         return MapResponseDto.of(Map.of("ok", errors.isEmpty(), "stepId", body.stepId(), "errors", errors));
+    }
+  private String repeatParams(int count) {
+        if (count <= 0) return "";
+        if (count == 1) return "?";
+        StringBuilder sb = new StringBuilder("?");
+        for (int i = 1; i < count; i++) {
+            sb.append(",?");
+        }
+        return sb.toString();
     }
 }

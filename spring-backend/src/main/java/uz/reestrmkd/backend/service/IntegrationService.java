@@ -29,7 +29,7 @@ public class IntegrationService {
     }
 
     @Transactional
-    public void updateIntegrationStatus(UUID projectId, String field, String status) {
+    public void updateIntegrationStatus(@org.springframework.lang.NonNull UUID projectId, String field, String status) {
         String normalizedField = normalizeField(field);
         String normalizedStatus = normalizeStatus(status);
 

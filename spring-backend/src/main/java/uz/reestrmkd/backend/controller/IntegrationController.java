@@ -51,11 +51,15 @@ public class IntegrationController {
         }
     }
 
-    @PutMapping("/projects/{projectId}/integration-status")
+  @PutMapping("/projects/{projectId}/integration-status")
     public MapResponseDto updateStatus(@PathVariable UUID projectId, @RequestBody(required = false) Map<String, Object> body) {
         requirePolicy("integration", "mutate", "Role cannot modify integration data");
 
-        String field = body == null || body.get("field") == null ? null : String.valueOf(body.get("field")).trim();
+        if (body == null) {
+            throw new ApiException("Request body is required", "VALIDATION_ERROR", null, 400);
+        }
+
+        String field = body.get("field") == null ? null : String.valueOf(body.get("field")).trim();
         if (field == null || field.isBlank()) {
             throw new ApiException("field is required", "VALIDATION_ERROR", null, 400);
         }

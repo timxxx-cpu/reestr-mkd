@@ -38,7 +38,7 @@ public class WorkflowController {
     }
 
     @PostMapping("/complete-step")
-    public MapResponseDto completeStep(@PathVariable UUID applicationId, @Valid @RequestBody CompleteStepRequestDto body, @RequestHeader(value = "x-user-role", required = false) String role) {
+    public MapResponseDto completeStep(@PathVariable @org.springframework.lang.NonNull UUID applicationId, @Valid @RequestBody CompleteStepRequestDto body, @RequestHeader(value = "x-user-role", required = false) String role) {
         requirePolicy("workflow", "mutate", "Role cannot mutate workflow");
         ActorPrincipal actor = getActor();
         applicationRepositoryService.assertActiveActorLock(applicationId, actor.userId());
@@ -60,7 +60,7 @@ public class WorkflowController {
     }
 
     @PostMapping("/rollback-step")
-    public MapResponseDto rollback(@PathVariable UUID applicationId, @Valid @RequestBody WorkflowActionRequestDto body, @RequestHeader(value = "x-user-role", required = false) String role) {
+    public MapResponseDto rollback(@PathVariable @org.springframework.lang.NonNull UUID applicationId, @Valid @RequestBody WorkflowActionRequestDto body, @RequestHeader(value = "x-user-role", required = false) String role) {
         requirePolicy("workflow", "mutate", "Role cannot mutate workflow");
         ActorPrincipal actor = getActor();
         applicationRepositoryService.assertActiveActorLock(applicationId, actor.userId());
@@ -73,17 +73,17 @@ public class WorkflowController {
     }
 
     @PostMapping("/review-approve")
-    public MapResponseDto reviewApprove(@PathVariable UUID applicationId, @Valid @RequestBody WorkflowActionRequestDto body, @RequestHeader(value = "x-user-role", required = false) String role) {
+    public MapResponseDto reviewApprove(@PathVariable @org.springframework.lang.NonNull UUID applicationId, @Valid @RequestBody WorkflowActionRequestDto body, @RequestHeader(value = "x-user-role", required = false) String role) {
         return review(applicationId, body, role, "APPROVE", "REVIEW_APPROVE");
     }
 
     @PostMapping("/review-reject")
-    public MapResponseDto reviewReject(@PathVariable UUID applicationId, @Valid @RequestBody WorkflowActionRequestDto body, @RequestHeader(value = "x-user-role", required = false) String role) {
+    public MapResponseDto reviewReject(@PathVariable @org.springframework.lang.NonNull UUID applicationId, @Valid @RequestBody WorkflowActionRequestDto body, @RequestHeader(value = "x-user-role", required = false) String role) {
         return review(applicationId, body, role, "REJECT", "REVIEW_REJECT");
     }
 
     @PostMapping("/assign-technician")
-    public MapResponseDto assign(@PathVariable UUID applicationId, @Valid @RequestBody AssignTechnicianRequestDto body) {
+    public MapResponseDto assign(@PathVariable @org.springframework.lang.NonNull UUID applicationId, @Valid @RequestBody AssignTechnicianRequestDto body) {
         requirePolicy("workflow", "assignTechnician", "Role cannot assign technician");
         ActorPrincipal actor = getActor();
         ApplicationEntity app = getApp(applicationId);
@@ -100,7 +100,7 @@ public class WorkflowController {
     }
 
     @PostMapping("/request-decline")
-    public MapResponseDto requestDecline(@PathVariable UUID applicationId, @Valid @RequestBody RequestDeclineRequestDto body) {
+    public MapResponseDto requestDecline(@PathVariable @org.springframework.lang.NonNull UUID applicationId, @Valid @RequestBody RequestDeclineRequestDto body) {
         requirePolicy("workflow", "requestDecline", "Role cannot request decline");
         ActorPrincipal actor = getActor();
         ApplicationEntity app = getApp(applicationId);
@@ -122,7 +122,7 @@ public class WorkflowController {
     }
 
     @PostMapping("/decline")
-    public MapResponseDto decline(@PathVariable UUID applicationId, @Valid @RequestBody WorkflowActionRequestDto body) {
+    public MapResponseDto decline(@PathVariable @org.springframework.lang.NonNull UUID applicationId, @Valid @RequestBody WorkflowActionRequestDto body) {
         requirePolicy("workflow", "decline", "Role cannot decline workflow");
         ActorPrincipal actor = getActor();
         ApplicationEntity app = getApp(applicationId);
@@ -141,7 +141,7 @@ public class WorkflowController {
     }
 
     @PostMapping("/return-from-decline")
-    public MapResponseDto returnFromDecline(@PathVariable UUID applicationId, @Valid @RequestBody WorkflowActionRequestDto body) {
+    public MapResponseDto returnFromDecline(@PathVariable @org.springframework.lang.NonNull UUID applicationId, @Valid @RequestBody WorkflowActionRequestDto body) {
         requirePolicy("workflow", "returnFromDecline", "Role cannot return from decline");
         ActorPrincipal actor = getActor();
         ApplicationEntity app = getApp(applicationId);
@@ -162,7 +162,7 @@ public class WorkflowController {
     }
 
     @PostMapping("/restore")
-    public MapResponseDto restore(@PathVariable UUID applicationId, @Valid @RequestBody WorkflowActionRequestDto body) {
+    public MapResponseDto restore(@PathVariable @org.springframework.lang.NonNull UUID applicationId, @Valid @RequestBody WorkflowActionRequestDto body) {
         requirePolicy("workflow", "restore", "Role cannot restore workflow");
         ActorPrincipal actor = getActor();
         ApplicationEntity app = getApp(applicationId);
@@ -175,7 +175,7 @@ public class WorkflowController {
         return workflowResponse(app, historyEventId);
     }
 
-    private MapResponseDto review(UUID applicationId, WorkflowActionRequestDto body, String role, String action, String historyAction) {
+    private MapResponseDto review(@org.springframework.lang.NonNull UUID applicationId, WorkflowActionRequestDto body, String role, String action, String historyAction) {
         requirePolicy("workflow", "mutate", "Role cannot mutate workflow");
         ActorPrincipal actor = getActor();
         ApplicationEntity app = getApp(applicationId);
@@ -206,7 +206,7 @@ public class WorkflowController {
         return actor;
     }
 
-    private ApplicationEntity getApp(UUID id) {
+    private ApplicationEntity getApp(@org.springframework.lang.NonNull UUID id) {
         return applicationJpaRepository.findById(id).orElseThrow(() -> new ApiException("Application not found", "NOT_FOUND", null, 404));
     }
 

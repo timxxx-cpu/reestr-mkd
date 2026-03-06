@@ -26,7 +26,7 @@ public class ProjectService {
     }
 
     @Transactional
-    public void mergeComplexInfo(UUID projectId, Map<String, Object> complexInfo) {
+    public void mergeComplexInfo(@org.springframework.lang.NonNull UUID projectId, Map<String, Object> complexInfo) {
         ProjectEntity project = projectRepo.findById(projectId)
             .orElseThrow(() -> new ApiException("Project not found", "NOT_FOUND", null, 404));
 

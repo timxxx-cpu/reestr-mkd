@@ -95,7 +95,7 @@ public class VersionService {
     }
 
     @Transactional
-    public CreatePendingVersionsResult createPendingVersionsForApplication(UUID projectId, UUID applicationId, String createdBy) {
+    public CreatePendingVersionsResult createPendingVersionsForApplication(@org.springframework.lang.NonNull UUID projectId, UUID applicationId, String createdBy) {
         if (!versioningEnabled) {
             return new CreatePendingVersionsResult(true, 0, true);
         }
@@ -136,7 +136,7 @@ public class VersionService {
         return new CreatePendingVersionsResult(true, createdCount, false);
     }
 
-    public List<VersionEntitySnapshot> collectProjectVersionEntities(UUID projectId) {
+    public List<VersionEntitySnapshot> collectProjectVersionEntities(@org.springframework.lang.NonNull UUID projectId) {
         List<VersionEntitySnapshot> entities = new ArrayList<>();
 
         ProjectEntity projectRow = projectJpaRepository.findById(projectId).orElse(null);
