@@ -10,4 +10,6 @@ import java.util.UUID;
 
 public interface EntranceJpaRepository extends JpaRepository<EntranceEntity, UUID> {
     List<EntranceEntity> findByBlockIdIn(Collection<UUID> blockIds);
+    List<EntranceEntity> findByBlockIdOrderByNumberAsc(UUID blockId);
+    List<EntranceEntity> findByBlockIdInOrderByNumberAsc(Collection<UUID> blockIds);
 }

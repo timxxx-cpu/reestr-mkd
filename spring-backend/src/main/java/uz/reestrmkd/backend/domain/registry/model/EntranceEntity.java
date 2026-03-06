@@ -17,6 +17,9 @@ public class EntranceEntity {
     @Column(name = "block_id", nullable = false)
     private UUID blockId;
 
+    @Column(name = "number")
+    private Integer number;
+
     @Column(name = "created_at")
     private Instant createdAt;
 
@@ -27,6 +30,8 @@ public class EntranceEntity {
     public void setId(UUID id) { this.id = id; }
     public UUID getBlockId() { return blockId; }
     public void setBlockId(UUID blockId) { this.blockId = blockId; }
+    public Integer getNumber() { return number; }
+    public void setNumber(Integer number) { this.number = number; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
