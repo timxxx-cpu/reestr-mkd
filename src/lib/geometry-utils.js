@@ -132,6 +132,37 @@ export const isGeometryWithinGeometry = (innerGeometry, outerGeometry) => {
   return vertices.every(point => outerPolygons.some(poly => pointInPolygonWithHoles(point, poly)));
 };
 
+// Доля площади inner, лежащая СНАРУЖИ outer (0..1), грубая плоскостная оценка.
+export const getOutsideAreaRatioApprox = (innerGeometry, outerGeometry) => {
+  const inner = toMultiPolygonGeometry(innerGeometry);
+  const outer = toMultiPolygonGeometry(outerGeometry);
+  if (!inner || !outer) return 1;
+
+  const innerPolygons = inner.coordinates || [];
+  const outerPolygons = outer.coordinates || [];
+  if (!innerPolygons.length || !outerPolygons.length) return 1;
+
+  let innerArea = 0;
+  let insideArea = 0;
+
+  innerPolygons.forEach(poly => {
+    const [outerRing] = poly || [];
+    const polyArea = ringArea(outerRing || []);
+    innerArea += polyArea;
+
+    // Аппроксимация: считаем долю вершин внешнего кольца, попавших в outer
+    const points = (outerRing || []).slice(0, -1);
+    if (!points.length || polyArea <= 0) return;
+    const insidePoints = points.filter(point =>
+      outerPolygons.some(outerPoly => pointInPolygonWithHoles(point, outerPoly))
+    ).length;
+    insideArea += (insidePoints / points.length) * polyArea;
+  });
+
+  if (innerArea <= 0) return 1;
+  return Math.max(0, Math.min(1, (innerArea - insideArea) / innerArea));
+};
+
 const toRadians = deg => (deg * Math.PI) / 180;
 const toDegrees = rad => (rad * 180) / Math.PI;
 

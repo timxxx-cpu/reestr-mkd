@@ -230,18 +230,31 @@ public class ProjectExtendedController {
                 List<Map<String, Object>> geomRows = jdbcTemplate.queryForList("select cast(footprint_geojson as text) as geo_text from buildings where id=?", blockBuildingId);
                 if (!geomRows.isEmpty() && geomRows.get(0).get("geo_text") != null) {
                     String buildingGeomText = String.valueOf(geomRows.get(0).get("geo_text"));
-                    Boolean isCovered = jdbcTemplate.queryForObject(
-                        "select check_geojson_coveredby(cast(? as jsonb), cast(? as jsonb))",
-                        Boolean.class,
-                        jsonbString(normalizedBlockGeometry),
-                        buildingGeomText // ИСПРАВЛЕНИЕ: Передаем извлеченный текст напрямую, без jsonbString()
-                    );
-                    if (!Boolean.TRUE.equals(isCovered)) {
-                        throw new ApiException("Геометрия блока должна находиться внутри границ здания", "VALIDATION_ERROR", null, 400);
-                    }
+                Double outsideRatio = jdbcTemplate.queryForObject(
+                         """
+                         with g as (
+                           select
+                             st_makevalid(st_multi(st_setsrid(st_geomfromgeojson(?::text), 3857))) as block_geom,
+                             st_makevalid(st_multi(st_setsrid(st_geomfromgeojson(?::text), 3857))) as building_geom
+                         ),
+                        a as (
+                           select
+                             nullif(st_area(block_geom), 0) as block_area,
+                             st_area(st_intersection(block_geom, building_geom)) as inter_area
+                           from g
+                         )
+                         select coalesce(greatest((block_area - inter_area) / block_area, 0), 1)
+                         from a
+                         """,
+                         Double.class,
+                         jsonbString(normalizedBlockGeometry),
+                         buildingGeomText
+                     );
+                     if (outsideRatio == null || outsideRatio > 0.01d) {
+                         throw new ApiException("Геометрия блока выходит за контур здания более чем на 1% площади", "VALIDATION_ERROR", null, 400);
                 }
             }
-
+        }
             Integer entrances = firstNonNull(toNullableInt(details.get("entrances")), toNullableInt(details.get("inputs")));
             Integer floorsTo = toNullableInt(details.get("floorsTo"));
             Integer floorsCount = floorsTo != null ? floorsTo : toNullableInt(details.get("floorsCount"));

@@ -47,9 +47,22 @@ const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
 );
 
 export default function StandardView({ building, mode }) {
-  const { buildingDetails, setBuildingDetails, setComposition, userProfile } = useProject();
+  const { buildingDetails, setBuildingDetails, setComposition, userProfile, saveProjectImmediate } = useProject();
   const toast = useToast();
   const isReadOnly = useReadOnly();
+
+  const persistBlockGeometry = async geometry => {
+  if (!detailsKey || isReadOnly) return;
+
+  setBuildingDetails(prev => ({
+    ...prev,
+    [detailsKey]: { ...details, blockGeometry: geometry },
+  }));
+
+  // даём стейту попасть в pending updates, затем форс-сейв в БД
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await saveProjectImmediate({ shouldRefetch: false });
+};
 
   const blocksList = useMemo(
     () => getBlocksList(building, buildingDetails),
@@ -58,7 +71,7 @@ export default function StandardView({ building, mode }) {
 
   const visibleBlocks = useMemo(() => {
     if (mode === 'res') return blocksList.filter(b => b.type === 'Ж');
-    if (mode === 'nonres') return blocksList.filter(b => b.type !== 'Ж');
+    if (mode === 'nonres') return blocksList.filter(b => b.type !== 'Ж' && b.type !== 'ПД');
     return blocksList;
   }, [blocksList, mode]);
 
@@ -451,6 +464,7 @@ export default function StandardView({ building, mode }) {
             <GeneralBlockCard
               details={details}
               updateDetail={updateDetail}
+              onMapGeometrySave={persistBlockGeometry}
               building={building}
               currentBlock={currentBlock}
               hasElevatorIssue={hasElevatorIssue}

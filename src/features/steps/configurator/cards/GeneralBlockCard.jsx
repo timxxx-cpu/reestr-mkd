@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { 
-  Settings2, 
-  MapPin, 
-  AlertCircle, 
-  Building, 
-  MonitorUp, 
-  Map as MapIcon, 
-  X, 
-  Loader2, 
-  Save, 
-  Trash2 
+import {
+  Settings2,
+  MapPin,
+  AlertCircle,
+  Building,
+  MonitorUp,
+  Map as MapIcon,
+  X,
+  Loader2,
+  Save,
+  Trash2,
 } from 'lucide-react';
 import { Card, SectionTitle, Label, Input, useReadOnly } from '@components/ui/UIKit';
 import BlockCadEditorModal from '@components/cad/BlockCadEditorModal';
@@ -23,6 +23,8 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
   const { projectId } = useProject();
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [activeCandidateId, setActiveCandidateId] = useState(null);
   const [selectedCandidateId, setSelectedCandidateId] = useState(null);
   const [basemap, setBasemap] = useState('osm');
@@ -30,6 +32,7 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
   useEffect(() => {
     if (isOpen && projectId) {
       setLoading(true);
+      setSaveError('');
       ApiService.getProjectGeometryCandidates(projectId)
         .then(data => {
           setCandidates(Array.isArray(data) ? data : []);
@@ -44,15 +47,30 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
     if (!isOpen) {
       setActiveCandidateId(null);
       setSelectedCandidateId(null);
+      setSaveError('');
+      setIsSaving(false);
     }
   }, [isOpen]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const candidate = candidates.find(c => c.id === selectedCandidateId);
-    if (candidate) {
-      onSave(candidate.geometry);
+    if (!candidate?.geometry) return;
+
+    if (!buildingGeometry) {
+      setSaveError('У здания отсутствует контур. Сначала задайте геометрию здания.');
+      return;
     }
-    onClose();
+
+    try {
+      setIsSaving(true);
+      setSaveError('');
+      await onSave(candidate.geometry);
+      onClose();
+    } catch (e) {
+      setSaveError(e?.message || 'Не удалось сохранить геометрию блока.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -80,7 +98,6 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
 
       {/* BODY */}
       <div className="flex-1 flex overflow-hidden p-4 gap-4">
-        
         {/* ЛЕВАЯ ПАНЕЛЬ: СПИСОК КОНТУРОВ */}
         <div className="w-72 shrink-0 flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="p-3 bg-slate-100/50 border-b border-slate-200 flex justify-between items-center">
@@ -107,10 +124,10 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
                   key={candidate.id}
                   onClick={() => setActiveCandidateId(candidate.id)}
                   className={`w-full text-left px-3 py-2.5 rounded-lg text-xs transition-all border outline-none ${
-                    isActive 
-                      ? 'bg-blue-50 border-blue-300 text-blue-800 shadow-sm ring-1 ring-blue-500/20' 
-                      : isSelected 
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800' 
+                    isActive
+                      ? 'bg-blue-50 border-blue-300 text-blue-800 shadow-sm ring-1 ring-blue-500/20'
+                      : isSelected
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
                         : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
                   }`}
                 >
@@ -119,8 +136,16 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
                   </div>
                   {(isSelected || isActive) && (
                     <div className="flex items-center gap-2 mt-1.5">
-                      {isSelected && <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 font-bold uppercase rounded">Прикреплен</span>}
-                      {isActive && !isSelected && <span className="text-[9px] px-1.5 py-0.5 bg-blue-100 text-blue-700 font-bold uppercase rounded">Выбран</span>}
+                      {isSelected && (
+                        <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 font-bold uppercase rounded">
+                          Прикреплен
+                        </span>
+                      )}
+                      {isActive && !isSelected && (
+                        <span className="text-[9px] px-1.5 py-0.5 bg-blue-100 text-blue-700 font-bold uppercase rounded">
+                          Выбран
+                        </span>
+                      )}
                     </div>
                   )}
                 </button>
@@ -135,7 +160,7 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
           <div className="p-3 border-b border-slate-100 bg-slate-50/80 flex flex-wrap gap-2 items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               {selectedCandidateId && (
-                <button 
+                <button
                   onClick={() => setSelectedCandidateId(null)}
                   className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-white border border-red-100 text-red-600 hover:bg-red-50 text-xs shadow-sm font-medium"
                 >
@@ -143,15 +168,21 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
                 </button>
               )}
               {!selectedCandidateId && !activeCandidateId && (
-                <span className="text-[11px] text-slate-500 font-medium px-1">Выберите полигон из списка или на карте</span>
+                <span className="text-[11px] text-slate-500 font-medium px-1">
+                  Выберите полигон из списка или на карте
+                </span>
               )}
             </div>
-            <select 
-              value={basemap} 
-              onChange={e => setBasemap(e.target.value)} 
+            <select
+              value={basemap}
+              onChange={e => setBasemap(e.target.value)}
               className="bg-white border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-600 shadow-sm outline-none focus:border-blue-500"
             >
-              {BASEMAP_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+              {BASEMAP_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -160,7 +191,7 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
             <div className="absolute top-16 left-1/2 -translate-x-1/2 z-10 flex items-center justify-between gap-3 p-2 px-3 bg-blue-600 rounded-lg shadow-lg text-white animate-in slide-in-from-top-4">
               <div className="text-xs font-medium">Контур выбран</div>
               <div className="flex items-center gap-1.5">
-                <button 
+                <button
                   onClick={() => {
                     setSelectedCandidateId(activeCandidateId);
                     setActiveCandidateId(null);
@@ -169,7 +200,7 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
                 >
                   Прикрепить
                 </button>
-                <button 
+                <button
                   onClick={() => setActiveCandidateId(null)}
                   className="h-7 w-7 flex items-center justify-center rounded border border-blue-400 hover:bg-blue-700 hover:border-blue-500 transition-colors"
                 >
@@ -194,31 +225,53 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
               onDraftPointAdd={() => {}}
             />
           </div>
-          
+
           <div className="p-2 bg-white border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-center gap-4 shrink-0">
-             <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-500/80"></span> Выбрано для блока</div>
-             <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-blue-500/80"></span> Активный контур</div>
-             <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-500/80"></span> Занято другим</div>
-             <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-700/80"></span> Контур здания (родитель)</div>
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded bg-emerald-500/80"></span> Выбрано для блока
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded bg-blue-500/80"></span> Активный контур
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded bg-amber-500/80"></span> Занято другим
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded bg-emerald-700/80"></span> Контур здания (родитель)
+            </div>
           </div>
         </div>
       </div>
 
       {/* FOOTER */}
-      <div className="px-6 py-4 bg-white border-t border-slate-200 flex justify-end gap-3 shrink-0 z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-        <button
-          onClick={onClose}
-          className="h-9 px-4 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium text-sm"
-        >
-          Отмена
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={!selectedCandidateId}
-          className={`h-9 px-6 rounded-lg font-medium text-sm text-white flex items-center gap-2 shadow-md ${!selectedCandidateId ? 'opacity-50 cursor-not-allowed bg-slate-400' : 'bg-blue-600 hover:bg-blue-500'}`}
-        >
-          <Save size={16} /> Сохранить
-        </button>
+      <div className="px-6 py-4 bg-white border-t border-slate-200 shrink-0 z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        {saveError && (
+          <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {saveError}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            disabled={isSaving}
+            className="h-9 px-4 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium text-sm disabled:opacity-60"
+          >
+            Отмена
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!selectedCandidateId || isSaving}
+            className={`h-9 px-6 rounded-lg font-medium text-sm text-white flex items-center gap-2 shadow-md ${
+              !selectedCandidateId || isSaving
+                ? 'opacity-50 cursor-not-allowed bg-slate-400'
+                : 'bg-blue-600 hover:bg-blue-500'
+            }`}
+          >
+            {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+            {isSaving ? 'Сохраняем...' : 'Сохранить'}
+          </button>
+        </div>
       </div>
     </div>,
     document.body
@@ -233,6 +286,7 @@ export default function GeneralBlockCard({
   hasElevatorIssue,
   _errorBorder,
 }) {
+  const { saveProjectImmediate } = useProject();
   const isReadOnly = useReadOnly();
   const isResidential = currentBlock?.type === 'Ж';
   const canEditBlockAddress = String(building?.category || '').includes('residential');
@@ -240,9 +294,11 @@ export default function GeneralBlockCard({
   const [isCadEditorOpen, setIsCadEditorOpen] = useState(false);
   const [isMapPickerOpen, setIsMapPickerOpen] = useState(false);
 
-  const isInfra = building?.category === 'infrastructure' || currentBlock?.originalType === 'infrastructure';
-  const isParking = building?.category === 'parking_separate' || currentBlock?.originalType === 'parking';
-  const entrancesField = (isInfra || isParking) ? 'inputs' : 'entrances';
+  const isInfra =
+    building?.category === 'infrastructure' || currentBlock?.originalType === 'infrastructure';
+  const isParking =
+    building?.category === 'parking_separate' || currentBlock?.originalType === 'parking';
+  const entrancesField = isInfra || isParking ? 'inputs' : 'entrances';
 
   const increment = (field, max = 100) => {
     const val = parseInt(details[field]) || 0;
@@ -267,6 +323,12 @@ export default function GeneralBlockCard({
   const buildingGeometry = building?.geometry || null;
   const blockGeometry = details?.blockGeometry || null;
 
+  const saveBlockGeometryImmediately = async geometry => {
+    updateDetail('blockGeometry', geometry);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await saveProjectImmediate({ shouldRefetch: false });
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <Card className="p-6 shadow-sm">
@@ -275,18 +337,46 @@ export default function GeneralBlockCard({
           <div className="space-y-1">
             <Label>{isResidential ? 'Подъездов' : 'Входов'} (макс. 30)</Label>
             <div className="flex items-center gap-3">
-              <button disabled={isReadOnly} onClick={() => decrement(entrancesField, 1)} className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50">-</button>
-              <span className="font-bold text-lg w-8 text-center">{renderCounterValue(details[entrancesField])}</span>
-              <button disabled={isReadOnly} onClick={() => increment(entrancesField, 30)} className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50">+</button>
+              <button
+                disabled={isReadOnly}
+                onClick={() => decrement(entrancesField, 1)}
+                className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50"
+              >
+                -
+              </button>
+              <span className="font-bold text-lg w-8 text-center">
+                {renderCounterValue(details[entrancesField])}
+              </span>
+              <button
+                disabled={isReadOnly}
+                onClick={() => increment(entrancesField, 30)}
+                className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50"
+              >
+                +
+              </button>
             </div>
           </div>
 
           <div className="space-y-1">
             <Label>Лифтов</Label>
             <div className="flex items-center gap-3">
-              <button disabled={isReadOnly} onClick={() => decrement('elevators', 0)} className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50">-</button>
-              <span className="font-bold text-lg w-8 text-center">{renderCounterValue(details.elevators)}</span>
-              <button disabled={isReadOnly} onClick={() => increment('elevators')} className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50">+</button>
+              <button
+                disabled={isReadOnly}
+                onClick={() => decrement('elevators', 0)}
+                className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50"
+              >
+                -
+              </button>
+              <span className="font-bold text-lg w-8 text-center">
+                {renderCounterValue(details.elevators)}
+              </span>
+              <button
+                disabled={isReadOnly}
+                onClick={() => increment('elevators')}
+                className="w-8 h-8 bg-white border rounded font-bold hover:bg-slate-50 disabled:opacity-50"
+              >
+                +
+              </button>
             </div>
             {hasElevatorIssue && (
               <div className="flex items-center gap-1 mt-1 text-[10px] text-red-500 font-bold animate-in fade-in">
@@ -310,7 +400,10 @@ export default function GeneralBlockCard({
           </div>
 
           <div className="space-y-4 mt-auto">
-            <label htmlFor="custom-address-checkbox" className={`flex items-start gap-3 group ${isReadOnly ? 'opacity-50' : 'cursor-pointer'}`}>
+            <label
+              htmlFor="custom-address-checkbox"
+              className={`flex items-start gap-3 group ${isReadOnly ? 'opacity-50' : 'cursor-pointer'}`}
+            >
               <input
                 id="custom-address-checkbox"
                 type="checkbox"
@@ -321,7 +414,9 @@ export default function GeneralBlockCard({
               />
               <div>
                 <span className="text-sm font-bold text-slate-700">Указать отдельный адрес блока</span>
-                <p className="text-[10px] text-slate-400">Используйте, если блок имеет отдельный номер дома/корпуса</p>
+                <p className="text-[10px] text-slate-400">
+                  Используйте, если блок имеет отдельный номер дома/корпуса
+                </p>
               </div>
             </label>
 
@@ -341,12 +436,15 @@ export default function GeneralBlockCard({
       )}
 
       <Card className="p-6 shadow-sm md:col-span-2">
-        <SectionTitle icon={MapPin}>Геометрия блока <span className="text-red-500">*</span></SectionTitle>
+        <SectionTitle icon={MapPin}>
+          Геометрия блока <span className="text-red-500">*</span>
+        </SectionTitle>
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex flex-col gap-4">
           <p className="text-xs text-slate-600">
-            Задайте контур блока: выберите его из загруженного генплана (SHP) или нарисуйте вручную во встроенном CAD редакторе с метровой сеткой.
+            Задайте контур блока: выберите его из загруженного генплана (SHP) или нарисуйте вручную
+            во встроенном CAD редакторе с метровой сеткой.
           </p>
-          
+
           <div className="flex flex-wrap gap-3">
             <button
               type="button"
@@ -365,10 +463,22 @@ export default function GeneralBlockCard({
               <MonitorUp size={16} /> Открыть CAD редактор
             </button>
           </div>
-          
-          {!buildingGeometry && <p className="text-xs text-amber-600 font-medium">У здания отсутствует контур. Сначала задайте геометрию здания.</p>}
-          {!details.blockGeometry && buildingGeometry && <p className="text-xs text-red-600 font-medium animate-pulse">Геометрия блока обязательна для сохранения.</p>}
-          {details.blockGeometry && <p className="text-xs text-emerald-600 font-medium">✓ Геометрия блока успешно привязана.</p>}
+
+          {!buildingGeometry && (
+            <p className="text-xs text-amber-600 font-medium">
+              У здания отсутствует контур. Сначала задайте геометрию здания.
+            </p>
+          )}
+          {!details.blockGeometry && buildingGeometry && (
+            <p className="text-xs text-red-600 font-medium animate-pulse">
+              Геометрия блока обязательна для сохранения.
+            </p>
+          )}
+          {details.blockGeometry && (
+            <p className="text-xs text-emerald-600 font-medium">
+              ✓ Геометрия блока успешно привязана.
+            </p>
+          )}
         </div>
 
         <BlockCadEditorModal
@@ -383,7 +493,7 @@ export default function GeneralBlockCard({
         <BlockMapPickerModal
           isOpen={isMapPickerOpen}
           onClose={() => setIsMapPickerOpen(false)}
-          onSave={geometry => updateDetail('blockGeometry', geometry)}
+          onSave={saveBlockGeometryImmediately}
           buildingGeometry={buildingGeometry}
         />
       </Card>
