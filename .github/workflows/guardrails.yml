@@ -24,8 +24,5 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      - name: Install backend dependencies
-        run: npm ci --prefix apps/backend
-
       - name: Run guardrails bundle
         run: npm run guardrails:all
