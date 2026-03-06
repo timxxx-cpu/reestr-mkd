@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect } from 'react';
+import React, { useMemo, useRef, useEffect, useImperativeHandle } from 'react';
 import Map, { Layer, Source } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
 import { geometry3857To4326 } from '@lib/geometry-utils';
@@ -59,17 +59,14 @@ const BASEMAPS = {
   },
 };
 
-// 1. Умный парсер, который разворачивает данные от Spring Boot
 const parseGeometry = (geom) => {
   if (!geom) return null;
   let parsed = geom;
 
-  // Разворачиваем обертку PGobject от Spring Boot: { type: "jsonb", value: "..." }
   if (parsed && typeof parsed === 'object' && parsed.type === 'jsonb' && parsed.value) {
     parsed = parsed.value;
   }
 
-  // Декодируем строку (может быть завернута дважды)
   if (typeof parsed === 'string') {
     try { parsed = JSON.parse(parsed); } catch (e) { return null; }
   }
@@ -77,11 +74,9 @@ const parseGeometry = (geom) => {
     try { parsed = JSON.parse(parsed); } catch (e) { return null; }
   }
 
-  // Вытаскиваем геометрию из Feature/FeatureCollection
   if (parsed?.type === 'FeatureCollection') return parsed.features?.[0]?.geometry || null;
   if (parsed?.type === 'Feature') return parsed.geometry || null;
 
-  // ЖЕСТКАЯ ВАЛИДАЦИЯ
   if (parsed && typeof parsed === 'object' && parsed.type && parsed.coordinates) {
       return parsed;
   }
@@ -89,7 +84,6 @@ const parseGeometry = (geom) => {
   return null;
 };
 
-// 2. Интегрируем умный парсер в конвертер координат
 const safeGeometryConvert = (rawGeom) => {
   const geom = parseGeometry(rawGeom);
   if (!geom || !geom.coordinates) return null;
@@ -207,12 +201,13 @@ function getBbox(featureCollection) {
   return hasData && minLng !== Infinity ? [[minLng, minLat], [maxLng, maxLat]] : null;
 }
 
-export const GeometryPickerMap = ({
+// 1. Создаем обычный компонент, чтобы TypeScript четко видел все его пропсы
+const GeometryPickerMapBase = ({
   candidates = [],
   selectedId,
   activeId,
   savedGeometry,
-  projectGeometry,
+  projectGeometry = null,
   fitToSavedOnOpen = false,
   fitScopeKey = null,
   onSelect,
@@ -221,9 +216,28 @@ export const GeometryPickerMap = ({
   isDrawing = false,
   draftPoints = [],
   onDraftPointAdd,
-}) => {
+}, ref) => {
+
   const mapRef = useRef(null);
   const didInitialSavedFitRef = useRef(false);
+
+  // Функция для ручного зума (вызывается извне по кнопке)
+  useImperativeHandle(ref, () => ({
+    zoomToProject: () => {
+      const parsedProjectGeom = safeGeometryConvert(projectGeometry);
+      if (parsedProjectGeom && mapRef.current) {
+        const collection = toSingleFeatureCollection(parsedProjectGeom, 'project-geometry', null);
+        const bounds = getBbox(collection);
+        if (bounds) {
+          if (bounds[0][0] === bounds[1][0] && bounds[0][1] === bounds[1][1]) {
+            mapRef.current.flyTo({ center: bounds[0], zoom: 17, duration: 1000 });
+          } else {
+            mapRef.current.fitBounds(bounds, { padding: 40, duration: 1000, maxZoom: 18 });
+          }
+        }
+      }
+    }
+  }));
 
   const sourceData = useMemo(() => {
     const collection = toFeatureCollection(candidates, selectedId, activeId);
@@ -243,8 +257,20 @@ export const GeometryPickerMap = ({
       });
     }
 
+    const parsedProjectGeom = safeGeometryConvert(projectGeometry);
+    if (parsedProjectGeom) {
+      collection.features.push({
+        type: 'Feature',
+        geometry: parsedProjectGeom,
+        properties: {
+          candidateId: 'project-geometry',
+          isProjectGeometry: true,
+        },
+      });
+    }
+
     return collection;
-  }, [candidates, selectedId, activeId, savedGeometry]);
+  }, [candidates, selectedId, activeId, savedGeometry, projectGeometry]);
 
   const draftData = useMemo(() => toDraftFeatureCollection(draftPoints), [draftPoints]);
 
@@ -269,31 +295,54 @@ export const GeometryPickerMap = ({
       ? candidates.find(item => item?.id === selectedId && safeGeometryConvert(item?.geometry))
       : null;
 
-    const shouldFitSavedNow = fitToSavedOnOpen && savedGeometry && safeGeometryConvert(savedGeometry) && !didInitialSavedFitRef.current;
-    
-    const focusedCollection = shouldFitSavedNow
-      ? toSingleFeatureCollection(savedGeometry, 'saved-geometry', null)
-      : activeCandidate
-        ? toSingleFeatureCollection(activeCandidate.geometry, null, activeId)
-        : selectedCandidate
-          ? toSingleFeatureCollection(selectedCandidate.geometry, selectedId, activeId)
-          : sourceData;
+    const hasSavedGeometry = savedGeometry && safeGeometryConvert(savedGeometry);
+    const hasProjectGeometry = projectGeometry && safeGeometryConvert(projectGeometry);
+
+    const shouldFitSavedNow = fitToSavedOnOpen && hasSavedGeometry && !didInitialSavedFitRef.current;
+    const shouldFitProjectNow = fitToSavedOnOpen && hasProjectGeometry && !hasSavedGeometry && !didInitialSavedFitRef.current;
+
+    let focusedCollection = null;
+
+    if (shouldFitSavedNow) {
+      focusedCollection = toSingleFeatureCollection(savedGeometry, 'saved-geometry', null);
+    } else if (shouldFitProjectNow) {
+      focusedCollection = toSingleFeatureCollection(projectGeometry, 'project-geometry', null);
+    } else if (activeCandidate) {
+      focusedCollection = toSingleFeatureCollection(activeCandidate.geometry, null, activeId);
+    } else if (selectedCandidate) {
+      focusedCollection = toSingleFeatureCollection(selectedCandidate.geometry, selectedId, activeId);
+    } else if (!didInitialSavedFitRef.current) {
+      focusedCollection = sourceData;
+    }
+
+    if (!focusedCollection) return;
 
     const bounds = getBbox(focusedCollection);
+    
     if (bounds) {
-      try {
-        if (shouldFitSavedNow) didInitialSavedFitRef.current = true;
-        
-        if (bounds[0][0] === bounds[1][0] && bounds[0][1] === bounds[1][1]) {
-          mapRef.current.flyTo({ center: bounds[0], zoom: 17, duration: 1500 });
-        } else {
-          mapRef.current.fitBounds(bounds, { padding: 80, duration: 1200, maxZoom: 18 });
+      const timerId = setTimeout(() => {
+        try {
+          if (mapRef.current) {
+            mapRef.current.resize();
+          }
+
+          if (shouldFitSavedNow || shouldFitProjectNow) {
+            didInitialSavedFitRef.current = true;
+          }
+          
+          if (bounds[0][0] === bounds[1][0] && bounds[0][1] === bounds[1][1]) {
+            mapRef.current?.flyTo({ center: bounds[0], zoom: 17, duration: 1500 });
+          } else {
+            mapRef.current?.fitBounds(bounds, { padding: 20, duration: 1200, maxZoom: 18 });
+          }
+        } catch (err) {
+          console.warn('Не удалось изменить рамки карты', err);
         }
-      } catch (err) {
-        console.warn('Не удалось изменить рамки карты', err);
-      }
+      }, 400);
+
+      return () => clearTimeout(timerId);
     }
-  }, [candidates, sourceData, selectedId, activeId, fitToSavedOnOpen, savedGeometry]);
+  }, [candidates, sourceData, selectedId, activeId, fitToSavedOnOpen, savedGeometry, projectGeometry]);
 
   return (
     <div className="w-full rounded-xl border border-slate-200 overflow-hidden relative" style={{ height: height || 400 }}>
@@ -311,7 +360,7 @@ export const GeometryPickerMap = ({
           }
           const feature = evt.features?.[0];
           const candidateId = feature?.properties?.candidateId;
-          if (candidateId && candidateId !== 'saved-geometry' && onSelect) {
+          if (candidateId && candidateId !== 'saved-geometry' && candidateId !== 'project-geometry' && onSelect) {
             onSelect(candidateId);
           }
         }}
@@ -323,18 +372,25 @@ export const GeometryPickerMap = ({
             paint={{
               'fill-color': [
                 'case',
+                ['==', ['get', 'isProjectGeometry'], true], '#8b5cf6',
                 ['==', ['get', 'isSavedGeometry'], true], '#10b981',
                 ['==', ['get', 'isSelected'], true], '#10b981',
                 ['==', ['get', 'isActive'], true], '#3b82f6',
                 ['==', ['get', 'isAssigned'], true], '#f59e0b',
                 '#94a3b8',
               ],
-              'fill-opacity': ['case', ['==', ['get', 'isActive'], true], 0.6, 0.4],
+              'fill-opacity': [
+                'case', 
+                ['==', ['get', 'isProjectGeometry'], true], 0.1, 
+                ['==', ['get', 'isActive'], true], 0.6, 
+                0.4
+              ],
             }}
           />
           <Layer
             id="candidates-line"
             type="line"
+            filter={['!=', ['get', 'isProjectGeometry'], true]} 
             paint={{
               'line-color': [
                 'case',
@@ -344,6 +400,16 @@ export const GeometryPickerMap = ({
                 '#334155',
               ],
               'line-width': ['case', ['==', ['get', 'isActive'], true], 3, 2],
+            }}
+          />
+          <Layer
+            id="project-geometry-line"
+            type="line"
+            filter={['==', ['get', 'isProjectGeometry'], true]}
+            paint={{
+              'line-color': '#7c3aed', 
+              'line-width': 2,
+              'line-dasharray': [2, 2], 
             }}
           />
         </Source>
@@ -379,5 +445,8 @@ export const GeometryPickerMap = ({
     </div>
   );
 };
+
+// 2. Экспортируем обернутый компонент. Теперь TypeScript 100% счастлив!
+export const GeometryPickerMap = React.forwardRef(GeometryPickerMapBase);
 
 export const BASEMAP_OPTIONS = Object.values(BASEMAPS).map(item => ({ value: item.id, label: item.label }));

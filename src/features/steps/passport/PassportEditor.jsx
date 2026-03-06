@@ -865,6 +865,8 @@ const PassportEditor = () => {
                   selectedId={selectedLandPlotCandidateId}
                   activeId={activeCandidateId}
                   savedGeometry={landPlot?.geometry}
+                  fitToSavedOnOpen={true}
+                  fitScopeKey={projectId}
                   onSelect={setActiveCandidateId}
                   basemap={basemap}
                   isDrawing={isDrawingGeometry}

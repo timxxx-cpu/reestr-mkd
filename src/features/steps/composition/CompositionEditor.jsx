@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Home,
@@ -18,7 +18,7 @@ import {
   Hash,
   LayoutGrid,
   List as ListIcon,
-  Save // <-- ДОБАВЛЕН ИМПОРТ
+  Save 
 } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { useDirectBuildings } from '@hooks/api/useDirectBuildings';
@@ -32,7 +32,7 @@ import { useCatalog } from '@hooks/useCatalogs';
 import { ApiService } from '@lib/api-service';
 import { GeometryPickerMap, BASEMAP_OPTIONS } from '@components/maps/GeometryPickerMap';
 import BuildingCadEditorModal from '@components/cad/BuildingCadEditorModal';
-
+import { useDirectProjectInfo } from '@hooks/api/useDirectProjectInfo';
 
 const TYPE_NAMES = {
   residential: 'Обычный многоквартирный дом',
@@ -58,7 +58,7 @@ const generateBlocksPayload = params => {
   const { category, resBlocks, nonResBlocks, infraType, parkingType } = params;
 
   if (category.includes('residential')) {
-    const rCount = Number(resBlocks) || 0; // <-- ИСПРАВЛЕНО НА Number
+    const rCount = Number(resBlocks) || 0; 
     const nCount = category === 'residential_multiblock' ? Number(nonResBlocks) || 0 : 0;
 
     for (let i = 0; i < rCount; i++) {
@@ -248,6 +248,9 @@ const BuildingModal = ({
   const [isDrawingGeometry, setIsDrawingGeometry] = useState(false);
   const [draftPolygonPoints, setDraftPolygonPoints] = useState([]);
   const [isCadEditorOpen, setIsCadEditorOpen] = useState(false);
+
+  // Реф для управления картой извне (зум на ЖК)
+  const mapComponentRef = useRef(null);
 
   useEscapeKey(() => setModal(m => ({ ...m, isOpen: false })));
 
@@ -640,6 +643,19 @@ const BuildingModal = ({
                   {!modal.geometryCandidateId && !activeCandidateId && !isDrawingGeometry && (
                     <span className="text-[11px] text-slate-500 font-medium px-1">Выберите полигон из списка или на карте</span>
                   )}
+                  
+                  {/* --- НОВАЯ КНОПКА: ПРИБЛИЗИТЬ К ГРАНИЦЕ ЖК --- */}
+                  {complexGeometry && (
+                    <Button
+                      onClick={() => mapComponentRef.current?.zoomToProject()}
+                      className="bg-white border-purple-200 text-purple-700 hover:bg-purple-50 shadow-sm h-8 px-3 text-xs"
+                      title="Приблизить к границе ЖК"
+                    >
+                      <Layers size={14} className="mr-1.5" />
+                      Границы ЖК
+                    </Button>
+                  )}
+                  
                   {!isReadOnly && !isDrawingGeometry && (
                     <Button
                       onClick={handleStartDrawGeometry}
@@ -719,14 +735,21 @@ const BuildingModal = ({
                 </div>
               )}
 
-              {/* MAP */}
+            {/* MAP */}
               <div className="flex-1 bg-slate-100 relative">
                 <GeometryPickerMap
+                  ref={mapComponentRef}
                   candidates={geometryCandidates}
                   selectedId={modal.geometryCandidateId}
                   activeId={activeCandidateId}
-                  savedGeometry={complexGeometry}
-                  fitToSavedOnOpen
+                  
+                  // 1. Измените savedGeometry:
+                  savedGeometry={selectedCandidate?.geometry || null} 
+                  
+                  // 2. Добавьте projectGeometry:
+                  projectGeometry={complexGeometry}                   
+
+                  fitToSavedOnOpen={true}
                   fitScopeKey={`${modal.editingId || 'new'}-${modal.isOpen}`}
                   onSelect={setActiveCandidateId}
                   basemap={basemap}
@@ -742,7 +765,7 @@ const BuildingModal = ({
                  <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-500/80"></span> Выбрано для этого здания</div>
                  <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-blue-500/80"></span> Активный контур</div>
                  <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-500/80"></span> Занято другим</div>
-                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-700/80"></span> Граница жилого комплекса</div>
+                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded border border-purple-500 border-dashed bg-purple-500/20"></span> Граница жилого комплекса</div>
               </div>
 
             </div>
@@ -846,7 +869,8 @@ const getResidentialName = (resBlocks, nonResBlocks) => {
 };
 
 const CompositionEditor = () => {
-  const { projectId, complexInfo, landPlot, userProfile } = useProject();
+  const { projectId, complexInfo,userProfile } = useProject();
+  const { landPlot } = useDirectProjectInfo(projectId);
   const isReadOnly = useReadOnly();
   const projectUjCode = complexInfo?.ujCode;
   const [deleteTargetId, setDeleteTargetId] = useState(null);
@@ -1060,7 +1084,7 @@ const CompositionEditor = () => {
       stage: modal.stage,
       dateStart: modal.dateStart,
       dateEnd: modal.dateEnd,
-      basementsCount: Math.min(4, Math.max(0, Number(modal.basementsCount) || 0)), // <-- ИСПРАВЛЕНО НА Number
+      basementsCount: Math.min(4, Math.max(0, Number(modal.basementsCount) || 0)), 
       geometryCandidateId: modal.geometryCandidateId,
     };
 
