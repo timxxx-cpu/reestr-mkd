@@ -13,8 +13,6 @@ public class AppProperties {
     private String runtimeEnv = "dev";
     private String authMode = "dev";
     private String jwtSecret = "";
-    private String supabaseUrl;
-    private String supabaseServiceRoleKey;
     private Cors cors = new Cors();
 
     @PostConstruct
@@ -22,9 +20,6 @@ public class AppProperties {
         runtimeEnv = safeLower(runtimeEnv);
         authMode = safeLower(authMode);
 
-        if (supabaseUrl == null || supabaseUrl.isBlank() || supabaseServiceRoleKey == null || supabaseServiceRoleKey.isBlank()) {
-            throw new IllegalStateException("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
-        }
 
         if (jwtSecret == null || jwtSecret.isBlank()) {
             throw new IllegalStateException("Missing JWT_SECRET");
@@ -63,21 +58,6 @@ public class AppProperties {
         this.jwtSecret = jwtSecret;
     }
 
-    public String getSupabaseUrl() {
-        return supabaseUrl;
-    }
-
-    public void setSupabaseUrl(String supabaseUrl) {
-        this.supabaseUrl = supabaseUrl;
-    }
-
-    public String getSupabaseServiceRoleKey() {
-        return supabaseServiceRoleKey;
-    }
-
-    public void setSupabaseServiceRoleKey(String supabaseServiceRoleKey) {
-        this.supabaseServiceRoleKey = supabaseServiceRoleKey;
-    }
 
     public Cors getCors() {
         return cors;

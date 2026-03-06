@@ -57,7 +57,7 @@ export default defineConfig(({ mode }) => ({
           // UI библиотеки
           'vendor-ui': ['lucide-react', 'recharts'],
           // Data management
-          'vendor-data': ['@tanstack/react-query', '@tanstack/react-virtual', '@supabase/supabase-js'],
+          'vendor-data': ['@tanstack/react-query', '@tanstack/react-virtual'],
           // Validation
           'vendor-utils': ['zod']
         }
