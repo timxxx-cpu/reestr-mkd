@@ -30,8 +30,6 @@ app:
   runtime-env: ${RUNTIME_ENV:${APP_ENV:${NODE_ENV:dev}}}
   auth-mode: ${AUTH_MODE:dev}
   jwt-secret: ${JWT_SECRET:}
-  supabase-url: ${SUPABASE_URL:}
-  supabase-service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
   cors:
     origin: ${CORS_ORIGIN:${FRONTEND_URL:}}
   idempotency:

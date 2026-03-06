@@ -74,13 +74,4 @@ export default defineConfig([
       ],
     },
   },
-
-  {
-    files: ['apps/backend/**/*.{js,mjs}'],
-    languageOptions: {
-      globals: {
-        ...globals.node,
-      },
-    },
-  },
 ])

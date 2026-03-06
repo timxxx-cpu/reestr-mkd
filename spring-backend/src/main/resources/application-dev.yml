@@ -23,6 +23,4 @@ logging:
     "[org.springframework.jdbc.core]": DEBUG
 
 app:
-  supabase-url: "https://rhfllxqyjgvlodnxlgvz.supabase.co"
-  supabase-service-role-key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZmxseHF5amd2bG9kbnhsZ3Z6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDA5NzI0NywiZXhwIjoyMDg1NjczMjQ3fQ._yQvntQfOAHFkluSmBR4X0Z98Oh9Ucd6zqhFTXtMrEc"
   jwt-secret: "my_super_secret_dev_key_12345!@#"

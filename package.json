@@ -19,7 +19,6 @@
     "check:step-registry": "node scripts/check-step-registry-sync.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.93.3",
     "@tanstack/react-query": "^5.90.20",
     "@tanstack/react-virtual": "^3.13.18",
     "@turf/bbox": "^7.2.0",
