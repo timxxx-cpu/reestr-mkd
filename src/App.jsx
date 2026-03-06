@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 
-import { ApiService } from '@lib/api-service';
 import { AuthService } from '@lib/auth-service';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ToastProvider } from '@context/ToastContext';
@@ -18,86 +17,30 @@ const DB_SCOPE = 'shared_dev_env';
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [availablePersonas, setAvailablePersonas] = useState([]);
-
-  const [activePersona, setActivePersona] = useState(() => {
-    try {
-      const saved = localStorage.getItem('dev_active_persona');
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch (e) {
-      console.error('Ошибка чтения роли из storage', e);
-    }
-    return null;
-  });
+  const [activePersona, setActivePersona] = useState(null);
 
   const [isAuthLoading, setIsAuthLoading] = useState(false);
-  const [isUsersLoading, setIsUsersLoading] = useState(false);
-
-  useEffect(() => {
-    let mounted = true;
-    const loadUsers = async () => {
-      setIsUsersLoading(true);
-      try {
-        const users = await ApiService.getSystemUsers();
-        if (!mounted) return;
-        setAvailablePersonas(users);
-
-        if (users.length > 0) {
-          setActivePersona(prev => prev || users[0]);
-        }
-      } catch (e) {
-        console.error('Не удалось загрузить пользователей из БД', e);
-        if (mounted) setAvailablePersonas([]);
-      } finally {
-        if (mounted) setIsUsersLoading(false);
-      }
-    };
-
-    loadUsers();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!activePersona || availablePersonas.length === 0) return;
-    const fresh = availablePersonas.find(u => u.id === activePersona.id);
-    if (!fresh) return;
-
-    const changed =
-      fresh.name !== activePersona.name ||
-      fresh.role !== activePersona.role ||
-      fresh.group !== activePersona.group;
-
-    if (changed) setActivePersona(fresh);
-  }, [availablePersonas, activePersona]);
-
-  useEffect(() => {
-    if (activePersona) {
-      localStorage.setItem('dev_active_persona', JSON.stringify(activePersona));
-    }
-  }, [activePersona]);
 
   useEffect(() => {
     const unsubscribe = AuthService.subscribe(u => {
       setFirebaseUser(u);
+      setActivePersona(u);
+      setAvailablePersonas(u ? [u] : []);
     });
     return () => unsubscribe();
   }, []);
 
-  const handleLogin = async selectedPersona => {
-    if (!selectedPersona) return;
+  const handleLogin = async credentials => {
+    if (!credentials) return;
     setIsAuthLoading(true);
     try {
-      // Вызываем реальный логин и передаем .code (это 'timur_admin', 'abdu_manager' и т.д.)
-      const signedInUser = await AuthService.login(selectedPersona.code);
+      const signedInUser = await AuthService.login(credentials.username, credentials.password);
       setFirebaseUser(signedInUser);
-      setActivePersona(selectedPersona);
+      setActivePersona(signedInUser);
+      setAvailablePersonas([signedInUser]);
     } catch (error) {
       console.error('Login failed', error);
-      // Опционально: можно добавить вывод ошибки пользователю
-      alert('Ошибка входа. Сервер недоступен или неверный код.');
+      alert(error?.message || 'Ошибка входа. Проверьте логин и пароль.');
     } finally {
       setIsAuthLoading(false);
     }
@@ -108,8 +51,6 @@ export default function App() {
       <LoginScreen
         onLogin={handleLogin}
         isLoading={isAuthLoading}
-        users={availablePersonas}
-        usersLoading={isUsersLoading}
       />
     );
   }

@@ -26,8 +26,8 @@ public class AppProperties {
             throw new IllegalStateException("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
         }
 
-        if ("jwt".equals(authMode) && (jwtSecret == null || jwtSecret.isBlank())) {
-            throw new IllegalStateException("Missing JWT_SECRET for AUTH_MODE=jwt");
+        if (jwtSecret == null || jwtSecret.isBlank()) {
+            throw new IllegalStateException("Missing JWT_SECRET");
         }
 
         if ("dev".equals(authMode) && FORBIDDEN_DEV_AUTH_ENVS.contains(runtimeEnv)) {

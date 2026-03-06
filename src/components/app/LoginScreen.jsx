@@ -1,18 +1,16 @@
-import React, { useEffect, useState } from 'react';
-import { Loader2, User, FolderOpen, KeyRound, Shield } from 'lucide-react';
-import { ROLES } from '@lib/constants';
+import React, { useState } from 'react';
+import { Loader2, KeyRound } from 'lucide-react';
 
-function LoginScreen({ onLogin, isLoading, users = [], usersLoading }) {
-  const [selectedUserId, setSelectedUserId] = useState('');
-  const adminUsers = users.filter(u => u.role === ROLES.ADMIN);
+function LoginScreen({ onLogin, isLoading }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
 
-  useEffect(() => {
-    if (!selectedUserId && adminUsers.length > 0) {
-      setSelectedUserId(adminUsers[0].id);
-    }
-  }, [adminUsers, selectedUserId]);
+  const canSubmit = username.trim() && password.trim() && !isLoading;
 
-  const selectedUser = adminUsers.find(u => u.id === selectedUserId) || null;
+  const submit = () => {
+    if (!canSubmit) return;
+    onLogin({ username: username.trim(), password });
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 flex items-center justify-center p-4">
@@ -45,37 +43,40 @@ function LoginScreen({ onLogin, isLoading, users = [], usersLoading }) {
           <div className="p-8 lg:p-10 flex flex-col justify-center">
             <div className="mb-6">
               <h2 className="text-2xl font-black text-slate-800 tracking-tight">Вход в систему</h2>
-              <p className="text-sm text-slate-500 mt-1">Выберите пользователя</p>
+              <p className="text-sm text-slate-500 mt-1">Введите логин и пароль</p>
             </div>
 
             <div className="space-y-4 text-left">
-              <label htmlFor="login-user-select" className="text-xs font-bold uppercase text-slate-500">Пользователь</label>
-              <select
-                id="login-user-select"
-                value={selectedUserId}
-                onChange={e => setSelectedUserId(e.target.value)}
-                disabled={usersLoading || isLoading || adminUsers.length === 0}
+              <label htmlFor="login-username" className="text-xs font-bold uppercase text-slate-500">Логин</label>
+              <input
+                id="login-username"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                disabled={isLoading}
                 className="w-full h-12 px-3 rounded-xl border border-slate-200 bg-white text-sm outline-none focus:border-blue-500"
-              >
-                {adminUsers.map(u => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
-              </select>
+                placeholder="Введите логин"
+              />
+
+              <label htmlFor="login-password" className="text-xs font-bold uppercase text-slate-500">Пароль</label>
+              <input
+                id="login-password"
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                disabled={isLoading}
+                onKeyDown={e => e.key === 'Enter' && submit()}
+                className="w-full h-12 px-3 rounded-xl border border-slate-200 bg-white text-sm outline-none focus:border-blue-500"
+                placeholder="Введите пароль"
+              />
 
               <button
-                onClick={() => selectedUser && onLogin(selectedUser)}
-                disabled={isLoading || usersLoading || !selectedUser}
+                onClick={submit}
+                disabled={!canSubmit}
                 className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold flex items-center justify-center gap-3 transition-all hover:scale-[1.01] active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed shadow-lg shadow-blue-600/20"
               >
                 {isLoading ? <Loader2 className="animate-spin" size={20} /> : <KeyRound size={20} />}
                 {isLoading ? 'Вход в систему...' : 'Войти и открыть рабочий стол'}
               </button>
-
-              <p className="text-xs text-slate-400 text-center">
-                {usersLoading ? 'Загрузка пользователей...' : adminUsers.length === 0 ? 'Администраторы не найдены в справочнике' : 'уровень доступа PRE-DEV'}
-              </p>
             </div>
           </div>
         </div>
@@ -83,4 +84,5 @@ function LoginScreen({ onLogin, isLoading, users = [], usersLoading }) {
     </div>
   );
 }
+
 export default LoginScreen;

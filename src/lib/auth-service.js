@@ -17,14 +17,23 @@ const readCachedUser = () => {
 
 export const AuthService = {
   // Реальный логин через бэкенд
-  async login(username) {
+  async login(username, password) {
     const res = await fetch(`${getBffBaseUrl()}/api/v1/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username })
+      body: JSON.stringify({ username, password })
     });
 
-    if (!res.ok) throw new Error(`Ошибка авторизации: ${res.status}`);
+    if (!res.ok) {
+      let message = `Ошибка авторизации: ${res.status}`;
+      try {
+        const errorBody = await res.json();
+        if (errorBody?.message) message = errorBody.message;
+      } catch {
+        // noop
+      }
+      throw new Error(message);
+    }
     
     const data = await res.json();
     
