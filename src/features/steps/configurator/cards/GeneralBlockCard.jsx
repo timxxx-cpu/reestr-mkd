@@ -281,6 +281,7 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
 export default function GeneralBlockCard({
   details,
   updateDetail,
+  onMapGeometrySave,
   building,
   currentBlock,
   hasElevatorIssue,
@@ -324,9 +325,13 @@ export default function GeneralBlockCard({
   const blockGeometry = details?.blockGeometry || null;
 
   const saveBlockGeometryImmediately = async geometry => {
-    updateDetail('blockGeometry', geometry);
-    await new Promise(resolve => setTimeout(resolve, 0));
-    await saveProjectImmediate({ shouldRefetch: false });
+   if (onMapGeometrySave) {
+      await onMapGeometrySave(geometry);
+    } else {
+      updateDetail('blockGeometry', geometry);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await saveProjectImmediate({ shouldRefetch: false });
+    }
   };
 
   return (

@@ -134,7 +134,7 @@ public class ProjectExtendedController {
 
             List<UUID> ids = new ArrayList<>();
             int idx = 0;
-            for (Map<String, Object> basement : sourceBasements) {
+          for (Map<String, Object> basement : sourceBasements) {
                 if (basement.get("id") == null || basement.get("depth") == null) continue;
                 UUID basementId = UUID.fromString(String.valueOf(basement.get("id")));
 
@@ -155,10 +155,15 @@ public class ProjectExtendedController {
                 String levelsJson = jsonbString(normalizeParkingLevelsByDepth(asMap(basement.get("parkingLevels")), depth));
                 String commJson = jsonbString(normalizeBasementCommunications(asMap(basement.get("communications"))));
 
+                // --- ИЗМЕНЕНИЕ: Обработка геометрии подвала ---
+                Map<String, Object> normalizedBasementGeometry = toMultiPolygon(asMap(basement.get("blockGeometry")));
+                String geometryJson = normalizedBasementGeometry == null ? null : jsonbString(normalizedBasementGeometry);
+                // -----------------------------------------------
+
                 jdbcTemplate.update(
-                    "insert into building_blocks(id, building_id, label, type, is_basement_block, linked_block_ids, basement_depth, basement_has_parking, basement_parking_levels, basement_communications, floors_count, floors_from, floors_to, entrances_count, elevators_count, vehicle_entries, levels_depth, light_structure_type, parent_blocks, has_basement, has_attic, has_loft, has_roof_expl, has_custom_address, custom_house_number, updated_at) " +
-                        "values (?,?,?,?,?,?::uuid[],?,?,?::jsonb,?::jsonb,?,?,?,?,?,?,?,?,?::uuid[],?,?,?,?,?,?,now()) " +
-                        "on conflict (id) do update set label=excluded.label, linked_block_ids=excluded.linked_block_ids, basement_depth=excluded.basement_depth, basement_has_parking=excluded.basement_has_parking, basement_parking_levels=excluded.basement_parking_levels, basement_communications=excluded.basement_communications, entrances_count=excluded.entrances_count, updated_at=now()",
+                    "insert into building_blocks(id, building_id, label, type, is_basement_block, linked_block_ids, basement_depth, basement_has_parking, basement_parking_levels, basement_communications, floors_count, floors_from, floors_to, entrances_count, elevators_count, vehicle_entries, levels_depth, light_structure_type, parent_blocks, has_basement, has_attic, has_loft, has_roof_expl, has_custom_address, custom_house_number, footprint_geojson, updated_at) " +
+                        "values (?,?,?,?,?,?::uuid[],?,?,?::jsonb,?::jsonb,?,?,?,?,?,?,?,?,?::uuid[],?,?,?,?,?,?,cast(? as jsonb),now()) " +
+                        "on conflict (id) do update set label=excluded.label, linked_block_ids=excluded.linked_block_ids, basement_depth=excluded.basement_depth, basement_has_parking=excluded.basement_has_parking, basement_parking_levels=excluded.basement_parking_levels, basement_communications=excluded.basement_communications, entrances_count=excluded.entrances_count, footprint_geojson=coalesce(excluded.footprint_geojson, building_blocks.footprint_geojson), updated_at=now()",
                     basementId,
                     buildingId,
                     "Подвал " + (idx + 1),
@@ -183,7 +188,8 @@ public class ProjectExtendedController {
                     false,
                     false,
                     false,
-                    null
+                    null,
+                    geometryJson // Передаем геометрию в INSERT
                 );
 
                 ids.add(basementId);

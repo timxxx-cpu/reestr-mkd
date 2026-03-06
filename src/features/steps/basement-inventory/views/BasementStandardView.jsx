@@ -28,7 +28,9 @@ export default function BasementStandardView({
   toggleBlockLink,
   buildDefaultCommunications,
   toggleCommunication,
-  isReadOnly
+  isReadOnly,
+  buildingGeometry,      // <-- Добавили прием пропсов
+  saveProjectImmediate   // <-- Добавили прием пропсов
 }) {
   const [activeTabId, setActiveTabId] = useState(() => basements[0]?.id || null);
 
@@ -46,7 +48,7 @@ export default function BasementStandardView({
 
   return (
     <div className="animate-in fade-in duration-300">
-      {/* Переключатель табов (как в StandardView) */}
+      {/* Переключатель табов */}
       {basements.length > 1 && (
         <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full mb-8 shadow-inner border border-slate-700">
           {basements.map((base, idx) => (
@@ -65,6 +67,7 @@ export default function BasementStandardView({
       {/* Grid Layout для карточек */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
         <div className="xl:col-span-8 space-y-6">
+          {/* Сюда передаем геометрию и функцию сохранения */}
           <BasementParamsCard
             basement={currentBasement}
             updateBasementField={updateBasementField}
@@ -72,10 +75,13 @@ export default function BasementStandardView({
             blocks={blocks}
             toggleBlockLink={toggleBlockLink}
             isReadOnly={isReadOnly}
+            buildingGeometry={buildingGeometry}         // <-- Передаем в карточку
+            saveProjectImmediate={saveProjectImmediate} // <-- Передаем в карточку
           />
         </div>
 
         <div className="xl:col-span-4 space-y-6">
+          {/* Отсюда нужно было УБРАТЬ пропсы геометрии, если они случайно сюда попали */}
           <BasementCommunicationsCard
             basement={currentBasement}
             communications={communications}

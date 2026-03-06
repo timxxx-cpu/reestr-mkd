@@ -80,6 +80,7 @@ export default function BasementInventoryEditor({ buildingId, onBack }) {
   if (!building) return <div className="p-8 text-center text-slate-400">Объект не найден.</div>;
 
   const fullAddress = [building.region, building.district, building.address].filter(Boolean).join(', ');
+  const buildingGeometry = building?.geometry || null;
 
   const saveButtonClass = hasUnsavedChanges
     ? 'bg-blue-600 text-white hover:bg-blue-500 ring-2 ring-blue-500/30 border-transparent shadow-md'
@@ -156,9 +157,16 @@ export default function BasementInventoryEditor({ buildingId, onBack }) {
         </Card>
       ) : (
         <BasementStandardView 
-          basements={basements} updateBasementField={updateBasementField} isMultiblockResidential={isMultiblockResidential}
-          blocks={blocks} toggleBlockLink={toggleBlockLink} buildDefaultCommunications={buildDefaultCommunications}
-          toggleCommunication={toggleCommunication} isReadOnly={isReadOnly}
+          basements={basements} 
+          updateBasementField={updateBasementField} 
+          isMultiblockResidential={isMultiblockResidential}
+          blocks={blocks} 
+          toggleBlockLink={toggleBlockLink} 
+          buildDefaultCommunications={buildDefaultCommunications}
+          toggleCommunication={toggleCommunication} 
+          isReadOnly={isReadOnly}
+          buildingGeometry={building?.geometry || null} // <-- ВАЖНО: Добавлено
+          saveProjectImmediate={saveProjectImmediate}   // <-- ВАЖНО: Добавлено
         />
       )}
     </div>
