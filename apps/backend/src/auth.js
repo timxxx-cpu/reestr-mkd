@@ -70,22 +70,7 @@ const parseJwtHs256 = (token, secret) => {
   return { ok: true, payload };
 };
 
-export const buildAuthContext = req => {
-  const directUserId = req.headers['x-user-id'];
-  const directUserRole = req.headers['x-user-role'];
-  if (directUserId && directUserRole) {
-    return {
-      userId: decodeURIComponent(String(directUserId)),
-      userRole: String(directUserRole),
-      authType: 'headers',
-    };
-  }
-  return null;
-};
-
 export const installAuthMiddleware = (app, config) => {
-  const authMode = config.authMode || 'dev';
-
   app.addHook('preHandler', async (req, reply) => {
     // Получаем чистый путь без query-параметров (таких как ?activeOnly=true)
     const path = req.url.split('?')[0];
@@ -93,8 +78,7 @@ export const installAuthMiddleware = (app, config) => {
     // Пропускаем роуты, для которых токен не требуется (логин и список пользователей для формы входа)
     if (
       !path.startsWith('/api/v1/') || 
-      path === '/api/v1/auth/login' || 
-      path === '/api/v1/catalogs/dict_system_users'
+      path === '/api/v1/auth/login'
     ) {
       return;
     }
@@ -104,26 +88,7 @@ export const installAuthMiddleware = (app, config) => {
       ? authHeader.slice('Bearer '.length).trim()
       : null;
 
-    let jwtAuth = null;
-    if (bearer && config.jwtSecret) {
-      const verified = parseJwtHs256(bearer, config.jwtSecret);
-      if (verified.ok) {
-        const payload = verified.payload || {};
-        const userId = String(payload.sub || payload.userId || payload.user_id || '').trim();
-        const userRole = String(payload.role || payload.userRole || payload.user_role || '').trim();
-        if (userId && userRole) {
-          jwtAuth = { userId, userRole, authType: 'jwt' };
-          // Больше не прокидываем обратно в заголовки, храним только в контексте
-        }
-      } else if (authMode === 'jwt') {
-        return reply.code(401).send({
-          code: 'UNAUTHORIZED',
-          message: `JWT auth failed: ${verified.reason}`,
-          details: null,
-          requestId: req.id,
-        });
-      }
-    } else if (authMode === 'jwt') {
+    if (!bearer) {
       return reply.code(401).send({
         code: 'UNAUTHORIZED',
         message: 'Missing Bearer token',
@@ -132,11 +97,29 @@ export const installAuthMiddleware = (app, config) => {
       });
     }
 
-    // Если режим DEV, позволяем фоллбэк на заголовки. Иначе — строго JWT.
-    const fallbackAuth = authMode === 'dev' ? buildAuthContext(req) : null;
-    const auth = jwtAuth || fallbackAuth;
+    if (!config.jwtSecret) {
+      return reply.code(401).send({
+        code: 'UNAUTHORIZED',
+        message: 'JWT_SECRET is not configured on the server',
+        details: null,
+        requestId: req.id,
+      });
+    }
 
-    if (authMode === 'jwt' && !auth) {
+    const verified = parseJwtHs256(bearer, config.jwtSecret);
+    if (!verified.ok) {
+      return reply.code(401).send({
+        code: 'UNAUTHORIZED',
+        message: `JWT auth failed: ${verified.reason}`,
+        details: null,
+        requestId: req.id,
+      });
+    }
+
+    const payload = verified.payload || {};
+    const userId = String(payload.sub || payload.userId || payload.user_id || '').trim();
+    const userRole = String(payload.role || payload.userRole || payload.user_role || '').trim();
+    if (!userId || !userRole) {
       return reply.code(401).send({
         code: 'UNAUTHORIZED',
         message: 'Unable to resolve auth context',
@@ -145,7 +128,7 @@ export const installAuthMiddleware = (app, config) => {
       });
     }
 
-    req.authContext = auth;
+    req.authContext = { userId, userRole, authType: 'jwt' };
   });
 };
 

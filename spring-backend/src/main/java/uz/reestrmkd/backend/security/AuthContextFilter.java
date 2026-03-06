@@ -18,7 +18,6 @@ import uz.reestrmkd.backend.config.AppProperties;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
-import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
@@ -47,29 +46,29 @@ public class AuthContextFilter extends OncePerRequestFilter {
             return;
         }
 
-        String authMode = safeLower(appProperties.getAuthMode());
         String authHeader = request.getHeader("Authorization");
         String bearer = extractBearer(authHeader);
 
-        ActorPrincipal actor = null;
-        if (bearer != null && !appProperties.getJwtSecret().isBlank()) {
-            JwtVerification verification = parseJwtHs256(bearer, appProperties.getJwtSecret());
-            if (verification.ok()) {
-                actor = toActor(verification.payload(), "jwt");
-            } else if ("jwt".equals(authMode)) {
-                unauthorized(response, "JWT auth failed: " + verification.reason());
-                return;
-            }
-        } else if ("jwt".equals(authMode)) {
+        if (bearer == null) {
             unauthorized(response, "Missing Bearer token");
             return;
         }
 
-        if (actor == null && "dev".equals(authMode)) {
-            actor = buildFromHeaders(request);
+        if (appProperties.getJwtSecret().isBlank()) {
+            unauthorized(response, "JWT_SECRET is not configured on the server");
+            return;
         }
 
-        if ("jwt".equals(authMode) && actor == null) {
+        ActorPrincipal actor = null;
+        JwtVerification verification = parseJwtHs256(bearer, appProperties.getJwtSecret());
+        if (verification.ok()) {
+            actor = toActor(verification.payload(), "jwt");
+        } else {
+            unauthorized(response, "JWT auth failed: " + verification.reason());
+            return;
+        }
+
+        if (actor == null) {
             unauthorized(response, "Unable to resolve auth context");
             return;
         }
@@ -90,16 +89,7 @@ public class AuthContextFilter extends OncePerRequestFilter {
         if (path == null || !path.startsWith("/api/v1/")) {
             return true;
         }
-        return "/api/v1/auth/login".equals(path) || "/api/v1/catalogs/dict_system_users".equals(path);
-    }
-
-    private ActorPrincipal buildFromHeaders(HttpServletRequest request) {
-        String userId = trimOrNull(decodeHeaderValue(request.getHeader("x-user-id")));
-        String userRole = trimOrNull(request.getHeader("x-user-role"));
-        if (userId == null || userRole == null) {
-            return null;
-        }
-        return new ActorPrincipal(userId, userRole, "headers");
+        return "/api/v1/auth/login".equals(path);
     }
 
     private String extractBearer(String authHeader) {
@@ -182,29 +172,6 @@ public class AuthContextFilter extends OncePerRequestFilter {
         payload.put("message", message);
         payload.put("details", null);
         objectMapper.writeValue(response.getWriter(), payload);
-    }
-
-    private String trimOrNull(String value) {
-        if (value == null) {
-            return null;
-        }
-        String result = value.trim();
-        return result.isEmpty() ? null : result;
-    }
-
-    private String decodeHeaderValue(String value) {
-        if (value == null || value.isBlank()) {
-            return value;
-        }
-        try {
-            return URLDecoder.decode(value, StandardCharsets.UTF_8);
-        } catch (Exception ignored) {
-            return value;
-        }
-    }
-
-    private String safeLower(String value) {
-        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
 
     private record JwtVerification(boolean ok, String reason, Map<String, Object> payload) {

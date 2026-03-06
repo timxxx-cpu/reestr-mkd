@@ -19,6 +19,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -36,21 +37,63 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<LoginResponseDto> login(@Valid @RequestBody LoginRequestDto body) {
-        String username = body.username();
+        String login = body.username();
+        String password = body.password();
 
-        var rows = jdbcTemplate.queryForList("select code, name, role, is_active from dict_system_users where code = ?", username);
-        if (rows.isEmpty()) throw new ApiException("Invalid credentials", "UNAUTHORIZED", null, 401);
-        Map<String, Object> user = rows.getFirst();
-        if (!Boolean.TRUE.equals(user.get("is_active"))) throw new ApiException("User account is disabled", "FORBIDDEN", null, 403);
+        var users = jdbcTemplate.queryForList(
+            """
+                select id, login, password, full_name, status
+                from general.users
+                where login = ? and password = ? and status = true
+                limit 1
+                """,
+            login,
+            password
+        );
+        if (users.isEmpty()) throw new ApiException("Invalid credentials", "UNAUTHORIZED", null, 401);
+
+        Map<String, Object> user = users.getFirst();
+        Object userId = user.get("id");
+        var roles = jdbcTemplate.queryForList(
+            """
+                select ur.name_uk
+                from general.user_attached_roles uar
+                join general.user_role ur on ur.id = uar.role_id
+                where uar.user_id = ? and uar.status = true
+                limit 1
+                """,
+            userId
+        );
+        if (roles.isEmpty()) throw new ApiException("User role is not assigned", "FORBIDDEN", null, 403);
+
+        String role = normalizeRoleKey(roles.getFirst().get("name_uk"));
+        if (role == null) throw new ApiException("User role is not resolved", "FORBIDDEN", null, 403);
+
+        String displayName = pickFirstNonBlank(user.get("full_name"), user.get("login"), user.get("id"));
         if (jwtSecret == null || jwtSecret.isBlank()) throw new ApiException("JWT_SECRET is not configured on the server", "SERVER_ERROR", null, 500);
 
-        String token = generateJwtHs256(Map.of("sub", user.get("code"), "role", user.get("role"), "name", user.get("name")));
+        String token = generateJwtHs256(Map.of("sub", String.valueOf(userId), "role", role, "name", displayName));
         LoginResponseDto response = new LoginResponseDto(
             true,
             token,
-            new LoginUserDto(String.valueOf(user.get("code")), String.valueOf(user.get("name")), String.valueOf(user.get("role")))
+            new LoginUserDto(String.valueOf(userId), displayName, role)
         );
         return ResponseEntity.ok(response);
+    }
+
+    private String pickFirstNonBlank(Object... values) {
+        for (Object value : values) {
+            if (value == null) continue;
+            String text = String.valueOf(value).trim();
+            if (!text.isBlank()) return text;
+        }
+        return null;
+    }
+
+    private String normalizeRoleKey(Object value) {
+        if (value == null) return null;
+        String role = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
+        return role.isBlank() ? null : role;
     }
 
     private String generateJwtHs256(Map<String, Object> payload) {

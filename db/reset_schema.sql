@@ -4,8 +4,10 @@
 begin;
 
 -- Full cleanup to avoid leftover objects (tables/indexes/sequences/triggers/functions)
+drop schema if exists general cascade;
 drop schema if exists public cascade;
 create schema public;
+create schema general;
 
 create extension if not exists "pgcrypto";
 create extension if not exists "postgis";
@@ -1356,6 +1358,181 @@ insert into dict_infra_types(code, label) values ('school', 'Школа'), ('kin
 
 
 -- -----------------------------
+-- GENERAL SCHEMA (AUTH/RBAC)
+-- -----------------------------
+
+create sequence if not exists general.app_action_groups_id_seq as integer start with 52 cycle;
+create sequence if not exists general.app_actions_id_seq as integer start with 76;
+create sequence if not exists general.resource_types_id_seq as integer start with 3;
+create sequence if not exists general.resources_id_seq as integer start with 955;
+create sequence if not exists general.system_messages_id_seq as integer start with 23;
+create sequence if not exists general.system_setting_types_id_seq as integer start with 3;
+create sequence if not exists general.user_role_id_seq as integer start with 10;
+create sequence if not exists general.user_role_actions_id_seq as integer start with 2143;
+create sequence if not exists general.user_types_id_seq as integer start with 3;
+create sequence if not exists general.users_id_seq as integer start with 1081;
+create sequence if not exists general.user_attached_roles_id_seq as integer start with 196;
+
+alter sequence general.app_action_groups_id_seq owner to postgres;
+alter sequence general.app_actions_id_seq owner to postgres;
+alter sequence general.resource_types_id_seq owner to postgres;
+alter sequence general.resources_id_seq owner to postgres;
+alter sequence general.system_messages_id_seq owner to postgres;
+alter sequence general.system_setting_types_id_seq owner to postgres;
+alter sequence general.user_role_id_seq owner to postgres;
+alter sequence general.user_role_actions_id_seq owner to postgres;
+alter sequence general.user_types_id_seq owner to postgres;
+alter sequence general.users_id_seq owner to postgres;
+alter sequence general.user_attached_roles_id_seq owner to postgres;
+
+create table if not exists general.app_action_groups (
+  name_ru varchar(100),
+  name_uz varchar(100),
+  name_uk varchar(100),
+  name_en varchar(100),
+  updated_time timestamp default current_timestamp,
+  ordering smallint,
+  status boolean default true not null,
+  id integer default nextval('general.app_action_groups_id_seq'::regclass) not null primary key,
+  created_time timestamp default current_timestamp not null
+);
+
+create table if not exists general.app_actions (
+  name_ru varchar(255),
+  name_uz varchar(255),
+  name_uk varchar(255),
+  name_en varchar(255),
+  action_key varchar(255),
+  updated_time timestamp default current_timestamp,
+  status boolean default true not null,
+  group_id integer,
+  id integer default nextval('general.app_actions_id_seq'::regclass) not null primary key,
+  created_time timestamp default current_timestamp not null,
+  constraint fk_app_actions_group foreign key (group_id) references general.app_action_groups(id)
+);
+
+create table if not exists general.resource_types (
+  id integer default nextval('general.resource_types_id_seq'::regclass) not null primary key,
+  name_ru varchar(100),
+  name_uz varchar(100),
+  name_uk varchar(100),
+  name_en varchar(100),
+  status boolean default true not null,
+  created_time timestamp default current_timestamp not null,
+  updated_time timestamp default current_timestamp
+);
+
+create table if not exists general.resources (
+  id integer default nextval('general.resources_id_seq'::regclass) not null primary key,
+  resource_type_id integer,
+  name_ru varchar(255),
+  name_uz varchar(255),
+  name_uk varchar(255),
+  name_en varchar(255),
+  resource_key varchar(255),
+  status boolean default true not null,
+  created_time timestamp default current_timestamp not null,
+  updated_time timestamp default current_timestamp,
+  constraint fk_resources_type foreign key (resource_type_id) references general.resource_types(id)
+);
+
+create table if not exists general.system_messages (
+  id integer default nextval('general.system_messages_id_seq'::regclass) not null primary key,
+  code varchar(255),
+  message_ru text,
+  message_uz text,
+  message_uk text,
+  message_en text,
+  status boolean default true not null,
+  created_time timestamp default current_timestamp not null,
+  updated_time timestamp default current_timestamp
+);
+
+create table if not exists general.system_setting_types (
+  id integer default nextval('general.system_setting_types_id_seq'::regclass) not null primary key,
+  name_ru varchar(255),
+  name_uz varchar(255),
+  name_uk varchar(255),
+  name_en varchar(255),
+  status boolean default true not null,
+  created_time timestamp default current_timestamp not null,
+  updated_time timestamp default current_timestamp
+);
+
+create table if not exists general.user_types (
+  id integer default nextval('general.user_types_id_seq'::regclass) not null primary key,
+  name_ru varchar(255),
+  name_uz varchar(255),
+  name_uk varchar(255),
+  name_en varchar(255),
+  status boolean default true not null,
+  created_time timestamp default current_timestamp not null,
+  updated_time timestamp default current_timestamp
+);
+
+create table if not exists general.users (
+  id integer default nextval('general.users_id_seq'::regclass) not null primary key,
+  login varchar(255) not null,
+  password varchar(255),
+  full_name varchar(255),
+  user_type_id integer,
+  status boolean default true not null,
+  created_time timestamp default current_timestamp not null,
+  updated_time timestamp default current_timestamp,
+  constraint uq_general_users_login unique (login),
+  constraint fk_users_type foreign key (user_type_id) references general.user_types(id)
+);
+
+create table if not exists general.user_role (
+  id integer default nextval('general.user_role_id_seq'::regclass) not null primary key,
+  name_ru varchar(255),
+  name_uz varchar(255),
+  name_uk varchar(255),
+  name_en varchar(255),
+  status boolean default true not null,
+  created_time timestamp default current_timestamp not null,
+  updated_time timestamp default current_timestamp,
+  constraint uq_general_user_role_name_uk unique (name_uk)
+);
+
+create table if not exists general.user_role_actions (
+  id integer default nextval('general.user_role_actions_id_seq'::regclass) not null primary key,
+  role_id integer,
+  action_id integer,
+  resource_id integer,
+  status boolean default true not null,
+  created_time timestamp default current_timestamp not null,
+  updated_time timestamp default current_timestamp,
+  constraint fk_user_role_actions_role foreign key (role_id) references general.user_role(id),
+  constraint fk_user_role_actions_action foreign key (action_id) references general.app_actions(id),
+  constraint fk_user_role_actions_resource foreign key (resource_id) references general.resources(id)
+);
+
+create table if not exists general.user_attached_roles (
+  id integer default nextval('general.user_attached_roles_id_seq'::regclass) not null primary key,
+  user_id integer,
+  role_id integer,
+  created_time timestamp default current_timestamp not null,
+  updated_time timestamp default current_timestamp,
+  status boolean default true not null,
+  constraint fk_user_attached_roles_user foreign key (user_id) references general.users(id),
+  constraint fk_user_attached_roles_role foreign key (role_id) references general.user_role(id)
+);
+
+create index if not exists idx_general_users_status on general.users(status);
+create index if not exists idx_general_user_attached_roles_user_status on general.user_attached_roles(user_id, status);
+create index if not exists idx_general_user_attached_roles_role_status on general.user_attached_roles(role_id, status);
+
+insert into general.user_role(name_uk, name_ru, name_uz, name_en)
+values
+  ('admin', 'Администратор', 'Administrator', 'Administrator'),
+  ('branch_manager', 'Начальник филиала', 'Filial rahbari', 'Branch manager'),
+  ('technician', 'Техник-инвентаризатор', 'Texnik-inventarizator', 'Technician'),
+  ('controller', 'Бригадир-контролер', 'Nazorat brigadiri', 'Controller')
+on conflict (name_uk) do nothing;
+
+
+-- -----------------------------
 -- DEV RLS: enable + full access for anon/authenticated
 -- WARNING: only for test/dev environments
 -- -----------------------------
@@ -1365,6 +1542,12 @@ grant all on all tables in schema public to anon, authenticated, service_role;
 grant all on all sequences in schema public to anon, authenticated, service_role;
 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
 alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
+
+grant usage on schema general to anon, authenticated, service_role;
+grant all on all tables in schema general to anon, authenticated, service_role;
+grant all on all sequences in schema general to anon, authenticated, service_role;
+alter default privileges in schema general grant all on tables to anon, authenticated, service_role;
+alter default privileges in schema general grant all on sequences to anon, authenticated, service_role;
 
 do $$
 declare

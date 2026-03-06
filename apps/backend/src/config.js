@@ -27,8 +27,8 @@ export function getConfig() {
   const runtimeEnv = resolveRuntimeEnv();
   const corsOrigin = process.env.CORS_ORIGIN || process.env.FRONTEND_URL || '';
 
-  if (authMode === 'jwt' && !jwtSecret) {
-    throw new Error('Missing JWT_SECRET for AUTH_MODE=jwt');
+  if (!jwtSecret) {
+    throw new Error('Missing JWT_SECRET');
   }
 
   validateAuthMode({ authMode, runtimeEnv });
