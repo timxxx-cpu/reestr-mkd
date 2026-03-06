@@ -1,8 +1,38 @@
 package uz.reestrmkd.backend.mapper;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import uz.reestrmkd.backend.dto.*;
-import uz.reestrmkd.backend.entity.*;
+
+import uz.reestrmkd.backend.domain.project.api.ProjectContextResponseDto;
+import uz.reestrmkd.backend.domain.project.api.ProjectDbDto;
+import uz.reestrmkd.backend.domain.project.api.ProjectDocumentDbDto;
+import uz.reestrmkd.backend.domain.project.api.ProjectParticipantDbDto;
+import uz.reestrmkd.backend.domain.project.model.ProjectDocumentEntity;
+import uz.reestrmkd.backend.domain.project.model.ProjectEntity;
+import uz.reestrmkd.backend.domain.project.model.ProjectParticipantEntity;
+import uz.reestrmkd.backend.domain.registry.api.BlockConstructionDbDto;
+import uz.reestrmkd.backend.domain.registry.api.BlockEngineeringDbDto;
+import uz.reestrmkd.backend.domain.registry.api.BlockExtensionDbDto;
+import uz.reestrmkd.backend.domain.registry.api.BlockFloorMarkerDbDto;
+import uz.reestrmkd.backend.domain.registry.api.BuildingBlockDbDto;
+import uz.reestrmkd.backend.domain.registry.api.BuildingDbDto;
+import uz.reestrmkd.backend.domain.registry.model.BlockConstructionEntity;
+import uz.reestrmkd.backend.domain.registry.model.BlockEngineeringEntity;
+import uz.reestrmkd.backend.domain.registry.model.BlockExtensionEntity;
+import uz.reestrmkd.backend.domain.registry.model.BlockFloorMarkerEntity;
+import uz.reestrmkd.backend.domain.registry.model.BuildingBlockEntity;
+import uz.reestrmkd.backend.domain.registry.model.BuildingEntity;
+import uz.reestrmkd.backend.domain.workflow.api.ApplicationDbDto;
+import uz.reestrmkd.backend.domain.workflow.api.ApplicationHistoryDbDto;
+import uz.reestrmkd.backend.domain.workflow.api.ApplicationStepDbDto;
+import uz.reestrmkd.backend.domain.workflow.model.ApplicationEntity;
+import uz.reestrmkd.backend.domain.workflow.model.ApplicationHistoryEntity;
+import uz.reestrmkd.backend.domain.workflow.model.ApplicationStepEntity;
+import uz.reestrmkd.backend.domain.project.model.*;
+import uz.reestrmkd.backend.domain.workflow.model.*;
+import uz.reestrmkd.backend.domain.registry.model.*;
+import uz.reestrmkd.backend.domain.project.api.*;
+import uz.reestrmkd.backend.domain.workflow.api.*;
+import uz.reestrmkd.backend.domain.registry.api.*;
 
 import java.util.*;
 import java.util.stream.Collectors;

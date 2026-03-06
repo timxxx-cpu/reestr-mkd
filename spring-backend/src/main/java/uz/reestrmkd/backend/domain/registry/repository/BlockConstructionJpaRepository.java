@@ -1,0 +1,15 @@
+package uz.reestrmkd.backend.domain.registry.repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import uz.reestrmkd.backend.domain.registry.model.BlockConstructionEntity;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+public interface BlockConstructionJpaRepository extends JpaRepository<BlockConstructionEntity, UUID> {
+    Optional<BlockConstructionEntity> findByBlockId(UUID blockId);
+    List<BlockConstructionEntity> findByBlockIdIn(Collection<UUID> blockIds);
+}

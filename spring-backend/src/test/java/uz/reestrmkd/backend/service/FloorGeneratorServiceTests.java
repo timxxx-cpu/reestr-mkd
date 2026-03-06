@@ -1,9 +1,11 @@
 package uz.reestrmkd.backend.service;
 
 import org.junit.jupiter.api.Test;
-import uz.reestrmkd.backend.entity.BlockFloorMarkerEntity;
-import uz.reestrmkd.backend.entity.BuildingBlockEntity;
-import uz.reestrmkd.backend.entity.BuildingEntity;
+
+import uz.reestrmkd.backend.domain.registry.model.BlockFloorMarkerEntity;
+import uz.reestrmkd.backend.domain.registry.model.BuildingBlockEntity;
+import uz.reestrmkd.backend.domain.registry.model.BuildingEntity;
+import uz.reestrmkd.backend.domain.registry.service.FloorGeneratorService;
 
 import java.util.List;
 import java.util.Map;

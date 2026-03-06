@@ -1,6 +1,9 @@
 package uz.reestrmkd.backend.enums;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import uz.reestrmkd.backend.domain.project.model.ProjectStatus;
+
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

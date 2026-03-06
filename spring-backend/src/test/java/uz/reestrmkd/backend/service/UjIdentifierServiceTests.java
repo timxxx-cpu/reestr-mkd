@@ -2,6 +2,8 @@ package uz.reestrmkd.backend.service;
 
 import org.junit.jupiter.api.Test;
 
+import uz.reestrmkd.backend.domain.common.service.UjIdentifierService;
+
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

@@ -2,12 +2,13 @@ package uz.reestrmkd.backend.exception;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import uz.reestrmkd.backend.domain.common.api.ApiErrorResponse;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import uz.reestrmkd.backend.dto.ApiErrorResponse;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

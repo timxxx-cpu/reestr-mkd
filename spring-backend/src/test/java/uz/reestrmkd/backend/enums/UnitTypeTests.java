@@ -2,6 +2,8 @@ package uz.reestrmkd.backend.enums;
 
 import org.junit.jupiter.api.Test;
 
+import uz.reestrmkd.backend.domain.registry.model.UnitType;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
