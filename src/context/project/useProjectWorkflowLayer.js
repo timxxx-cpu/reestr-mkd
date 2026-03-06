@@ -10,6 +10,9 @@ const ensureWorkflowResponse = (response, actionLabel) => {
 };
 
 export const useProjectWorkflowLayer = ({
+  dbScope,
+  projectId,
+  setProjectMeta,
   mergedState,
   userProfile,
   refetch,
@@ -45,6 +48,7 @@ export const useProjectWorkflowLayer = ({
           comment: historyComment,
           userName: userProfile?.name,
           userRole: userProfile?.role,
+          idempotencyKey: `complete-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
         }),
         'complete-step'
       );
@@ -67,6 +71,7 @@ export const useProjectWorkflowLayer = ({
         reason: `Возврат с шага "${STEPS_CONFIG[currentStepIndex]?.title}".`,
         userName: userProfile?.name,
         userRole: userProfile?.role,
+        idempotencyKey: `rollback-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
       }),
       'rollback-step'
     );
@@ -85,6 +90,7 @@ export const useProjectWorkflowLayer = ({
           comment,
           userName: userProfile?.name,
           userRole: userProfile?.role,
+          idempotencyKey: `review-${action}-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
         }),
         action === 'APPROVE' ? 'review-approve' : 'review-reject'
       );
@@ -107,6 +113,7 @@ export const useProjectWorkflowLayer = ({
           stepIndex: currentStepIndex,
           userName: userProfile?.name,
           userRole: userProfile?.role,
+          idempotencyKey: `req-decline-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
         }),
         'request-decline'
       );
@@ -125,6 +132,7 @@ export const useProjectWorkflowLayer = ({
           reason: comment || 'Заявление отклонено.',
           userName: userProfile?.name,
           userRole: userProfile?.role,
+          idempotencyKey: `decline-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
         }),
         'decline'
       );
@@ -143,6 +151,7 @@ export const useProjectWorkflowLayer = ({
           comment,
           userName: userProfile?.name,
           userRole: userProfile?.role,
+          idempotencyKey: `return-decline-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
         }),
         'return-from-decline'
       );
@@ -161,6 +170,7 @@ export const useProjectWorkflowLayer = ({
           comment,
           userName: userProfile?.name,
           userRole: userProfile?.role,
+          idempotencyKey: `restore-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
         }),
         'restore'
       );

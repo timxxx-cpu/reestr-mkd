@@ -77,11 +77,20 @@ export const useProjectDataLayer = ({
 
   const getValidationSnapshot = useCallback(() => validationSnapshotRef.current, []);
 
-  const isReadOnly = useMemo(() => {
+ const isReadOnly = useMemo(() => {
     if (!userProfile) return true;
     const role = userProfile.role;
     const substatus = mergedState.applicationInfo.workflowSubstatus || WORKFLOW_SUBSTATUS.DRAFT;
-    return !canEditByRoleAndStatus(role, substatus);
+    
+    // ИСПРАВЛЕНИЕ: Администратор всегда может редактировать. Техник может редактировать в рабочих статусах.
+    // Бригадир и Контроллер при проверке (REVIEW) находятся в режиме СТРОГОГО ПРОСМОТРА.
+    if (role === 'admin') return false;
+    if (role === 'technician') {
+      return !['DRAFT', 'REVISION', 'RETURNED_BY_MANAGER', 'INTEGRATION'].includes(substatus);
+    }
+    
+    // Все остальные роли (включая controller и branch_manager) получают режим только для чтения
+    return true;
   }, [userProfile, mergedState.applicationInfo]);
 
   return {

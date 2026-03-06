@@ -27,14 +27,14 @@ export const WORKFLOW_ACTIONS = {
 /**
  * Определяет, может ли пользователь редактировать данные
  * в зависимости от роли и подстатуса workflow.
- * @param {string} role - Роль пользователя
- * @param {string} substatus - Текущий подстатус workflow
- * @returns {boolean}
  */
 export const canEditByRoleAndStatus = (role, substatus) => {
   if (role === ROLES.ADMIN) return true;
-  if (role === ROLES.CONTROLLER) return false;
-  if (role === ROLES.BRANCH_MANAGER) return false;
+  
+  // ИСПРАВЛЕНИЕ: Снимаем Read-Only для обеих проверяющих ролей
+  if (role === ROLES.CONTROLLER || role === ROLES.BRANCH_MANAGER) {
+    return substatus === WORKFLOW_SUBSTATUS.REVIEW;
+  }
 
   if (role === ROLES.TECHNICIAN) {
     return [
@@ -66,7 +66,7 @@ export const canRequestDecline = (role, substatus) => {
  * Определяет, может ли пользователь принять входящую заявку.
  */
 export const canTakeInboxApplication = role => {
-  return role === ROLES.ADMIN || role === ROLES.BRANCH_MANAGER;
+  return role === ROLES.ADMIN || role === ROLES.BRANCH_MANAGER || role === ROLES.CONTROLLER;
 };
 
 /**

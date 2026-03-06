@@ -59,7 +59,7 @@ export const createProjectDomainApi = ({
     }, {});
     const historyRes = { data: context.history || [], error: null };
     const stepsRes = { data: context.steps || [], error: null };
-    const markersRes = { data: context.block_floor_markers || [], error: null }; 
+    const markersRes = { data: context.block_floor_markers || [], error: null };
 
     if (pRes.error) throw pRes.error;
 
@@ -133,6 +133,8 @@ export const createProjectDomainApi = ({
             ? block.basement_communications
             : {},
           entrancesCount: Math.min(10, Math.max(1, Number.parseInt(block.entrances_count, 10) || 1)),
+          // ДОБАВЛЕНА ГЕОМЕТРИЯ ПОДВАЛА
+          blockGeometry: block.footprint_geojson || null,
         }));
 
       if (buildingBasements.length > 0) {
@@ -158,7 +160,6 @@ export const createProjectDomainApi = ({
       parkingPlaces: {},
     };
   },
-
 
   getProjectGeometryCandidates: async projectId => {
     if (!projectId) return [];

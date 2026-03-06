@@ -538,7 +538,7 @@ public class ProjectController {
         if (isPendingDecline && (isAdmin || isBranchManager)) actions.add("return_from_decline");
 
         boolean canTechnicianEdit = isTechnician && isAssigned && Set.of("DRAFT", "REVISION", "RETURNED_BY_MANAGER", "INTEGRATION").contains(substatus);
-        boolean canControllerEdit = isController && "REVIEW".equals(substatus);
+        boolean canControllerEdit = (isController || isBranchManager) && "REVIEW".equals(substatus);
         if (!isCompleted && !isDeclined && (canTechnicianEdit || canControllerEdit || isAdmin)) actions.add("edit");
         return actions.stream().distinct().collect(Collectors.toList());
     }

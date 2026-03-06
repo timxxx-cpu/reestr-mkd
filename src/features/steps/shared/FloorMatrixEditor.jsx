@@ -149,15 +149,17 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
     if (!activeTargetId && activeTarget?.id) setActiveTargetId(activeTarget.id);
   }, [activeTargetId, activeTarget]);
 
-  const currentBlock = useMemo(() => {
+  const queryBlockId = useMemo(() => {
     if (!activeTarget) return null;
-    if (activeTarget.kind === 'block') return activeTarget.block;
-    if (activeTarget.kind === 'basement') return activeTarget.parentBlock || null;
-    return activeTarget.parentBlock || null;
+    if (activeTarget.kind === 'block') return activeTarget.block.id;
+    // Для подвала запрашиваем этажи самого подвала, а не родительского блока
+    if (activeTarget.kind === 'basement') return activeTarget.basementId; 
+    // Для пристроек запрашиваем этажи родительского блока (т.к. они привязаны к нему через extension_id)
+    return activeTarget.parentBlockId;
   }, [activeTarget]);
 
-  // 4. Этажи из БД
-  const { floors, isLoading, updateFloor, updateFloors, isMutating } = useDirectFloors(currentBlock?.id);
+  // 4. Этажи из БД (запрашиваем по правильному ID)
+  const { floors, isLoading, updateFloor, updateFloors, isMutating } = useDirectFloors(queryBlockId);
 
   const scopedFloors = useMemo(() => {
     if (!activeTarget) return [];
@@ -165,10 +167,20 @@ export default function FloorMatrixEditor({ buildingId, onBack }) {
       return floors.filter(f => f.extensionId === activeTarget.id);
     }
     if (activeTarget.kind === 'basement') {
-      return floors.filter(f => f.basementId === activeTarget.basementId);
+      // Подвалы теперь приходят напрямую, у них block_id равен basementId.
+      // Не нужно дополнительно фильтровать по basementId, они все принадлежат этому блоку-подвалу.
+      return floors;
     }
+    // Для обычного блока возвращаем только его этажи (без пристроек и без старых привязок подвалов)
     return floors.filter(f => !f.extensionId && !f.basementId);
   }, [floors, activeTarget]);
+
+  // currentBlock оставим для определения типа здания (residential и т.д.)
+  const currentBlock = useMemo(() => {
+    if (!activeTarget) return null;
+    if (activeTarget.kind === 'block') return activeTarget.block;
+    return activeTarget.parentBlock || null;
+  }, [activeTarget]);
 
   const hiddenStylobateFloorsCount = useMemo(() => {
     if (currentBlock?.type !== 'residential') return 0;

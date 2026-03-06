@@ -806,7 +806,7 @@ public class RegistryController {
         }
     }
 
-    @PutMapping("/blocks/{blockId}/entrance-matrix/cell")
+   @PutMapping("/blocks/{blockId}/entrance-matrix/cell")
     public MapResponseDto upsertCell(@PathVariable UUID blockId, @RequestBody(required = false) MapPayloadDto payload) {
         requirePolicy("registry", "mutate", "Role cannot modify registry data");
         Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
@@ -834,10 +834,10 @@ public class RegistryController {
             floorId,
             entranceNumber
         );
-        return MapResponseDto.of(rows.isEmpty() ? Map.of("ok", true) : rows.get(0));
+        return MapResponseDto.of(rows.isEmpty() ? Map.of("ok", true) : rows.getFirst()); // getFirst() лучше чем get(0)
     }
 
-    @PutMapping("/blocks/{blockId}/entrance-matrix/batch")
+   @PutMapping("/blocks/{blockId}/entrance-matrix/batch")
     public MapResponseDto upsertMatrixBatch(@PathVariable UUID blockId, @RequestBody(required = false) MapPayloadDto payload) {
         requirePolicy("registry", "mutate", "Role cannot modify registry data");
         Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
@@ -859,20 +859,22 @@ public class RegistryController {
             }
             try {
                 MatrixValidationResult validated = validateMatrixValues(asMap(cell.get("values")));
-                valid.add(Map.of(
-                    "floorId", floorId,
-                    "entranceNumber", entranceNumber,
-                    "flatsCount", validated.flatsCount,
-                    "commercialCount", validated.commercialCount,
-                    "mopCount", validated.mopCount
-                ));
+                // ИСПРАВЛЕНИЕ: Используем HashMap вместо Map.of, так как HashMap разрешает значения null
+                Map<String, Object> validRow = new HashMap<>();
+                validRow.put("floorId", floorId);
+                validRow.put("entranceNumber", entranceNumber);
+                validRow.put("flatsCount", validated.flatsCount);
+                validRow.put("commercialCount", validated.commercialCount);
+                validRow.put("mopCount", validated.mopCount);
+                valid.add(validRow);
             } catch (ApiException ex) {
-                failed.add(Map.of(
-                    "index", index,
-                    "floorId", floorId.toString(),
-                    "entranceNumber", entranceNumber,
-                    "reason", ex.getMessage()
-                ));
+                // ИСПРАВЛЕНИЕ: Map.of() не поддерживает null, используем HashMap
+                Map<String, Object> failRow = new HashMap<>();
+                failRow.put("index", index);
+                failRow.put("floorId", floorId.toString());
+                failRow.put("entranceNumber", entranceNumber);
+                failRow.put("reason", ex.getMessage());
+                failed.add(failRow);
             }
         }
 
@@ -890,7 +892,6 @@ public class RegistryController {
 
         return MapResponseDto.of(Map.of("ok", true, "updated", valid.size(), "failed", failed));
     }
-
     @PostMapping("/blocks/{blockId}/reconcile/preview")
     public ResponseEntity<MapResponseDto> preview(@PathVariable UUID blockId) {
         List<Map<String, Object>> floors = jdbcTemplate.queryForList("select id from floors where block_id=?", blockId);
@@ -1162,10 +1163,29 @@ public class RegistryController {
         return Integer.parseInt(String.valueOf(value));
     }
 
-    private Instant toInstant(Object value) {
+   private Instant toInstant(Object value) {
         if (value instanceof Instant instant) return instant;
+        if (value instanceof java.sql.Timestamp ts) return ts.toInstant();
+        if (value instanceof java.util.Date date) return date.toInstant();
         if (value == null) return Instant.EPOCH;
-        return Instant.parse(String.valueOf(value));
+        
+        String str = String.valueOf(value).trim();
+        try {
+            return Instant.parse(str);
+        } catch (Exception e) {
+            try {
+                // Если пришла строка SQL-формата, заменяем пробел на T и добавляем Z (UTC)
+                if (str.length() > 10 && str.charAt(10) == ' ') {
+                    str = str.substring(0, 10) + "T" + str.substring(11);
+                }
+                if (!str.endsWith("Z") && !str.contains("+")) {
+                    str += "Z";
+                }
+                return Instant.parse(str);
+            } catch (Exception ex) {
+                return Instant.EPOCH; // Fallback, если дата совсем битая
+            }
+        }
     }
 
     private boolean isFlatType(String type) {

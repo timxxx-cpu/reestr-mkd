@@ -110,7 +110,8 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   const isReviewMode = appSubstatus === WORKFLOW_SUBSTATUS.REVIEW;
   const isPendingDeclineMode = isPendingDecline(appSubstatus);
 
-  const isController = user.role === ROLES.CONTROLLER || user.role === ROLES.ADMIN;
+  // ИСПРАВЛЕНИЕ: Добавляем роль BRANCH_MANAGER в список тех, кто может проверять
+  const isController = user.role === ROLES.CONTROLLER || user.role === ROLES.BRANCH_MANAGER || user.role === ROLES.ADMIN;
   const isTechnician = user.role === ROLES.TECHNICIAN;
   const canTechRequestDecline = canRequestDecline(user.role, appSubstatus);
   const canManagerReviewDecline = canReviewDeclineRequest(user.role, appSubstatus);

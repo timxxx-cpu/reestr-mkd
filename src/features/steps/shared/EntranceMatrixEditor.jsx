@@ -38,14 +38,6 @@ import {
 } from '@lib/step-validators';
 
 // --- Helpers ---
-const getBlockIcon = type => {
-  if (type === 'residential') return Building2;
-  if (type === 'parking') return Car;
-  if (type === 'infrastructure') return Box;
-  if (type === 'non_residential') return Store;
-  return LayoutGrid;
-};
-
 const isLinkedStylobateFloor = floor => {
   if (!floor) return false;
   const explicitStylobate =
@@ -66,24 +58,6 @@ const isLinkedStylobateFloor = floor => {
 };
 
 // --- Components ---
-
-const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
-  <button
-    onClick={onClick}
-    className={`
-            px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2
-            ${
-              active
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50 ring-1 ring-blue-400'
-                : 'text-slate-400 hover:text-white hover:bg-slate-700'
-            }
-        `}
-  >
-    {Icon && <Icon size={14} className={active ? 'text-blue-200' : 'opacity-70'} />}
-    {children}
-  </button>
-);
-
 const FloorTypeBadge = ({ type }) => {
   const map = {
     residential: { color: 'bg-blue-100 text-blue-700', label: 'Жилой' },
@@ -189,7 +163,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
   // --- State ---
   const [selection, setSelection] = useState(new Set()); 
   const [activeBlockIndex, setActiveBlockIndex] = useState(0);
-  const [linkedStylobateFloors, setLinkedStylobateFloors] = useState([]);
+  const [linkedExternalFloors, setLinkedExternalFloors] = useState([]);
   const [isSavingStatus, setIsSavingStatus] = useState(false);
   const [validationWarnings, setValidationWarnings] = useState([]);
   const [showWarningModal, setShowWarningModal] = useState(false);
@@ -225,37 +199,51 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
   useEffect(() => {
     let cancelled = false;
-    const loadLinkedStylobateFloors = async () => {
+    
+    const loadExternalFloors = async () => {
       if (!building?.blocks?.length || !currentBlock?.id) {
-        if (!cancelled) setLinkedStylobateFloors([]);
+        if (!cancelled) setLinkedExternalFloors([]);
         return;
       }
+      
+      // 1. Ищем связанные стилобатные блоки
       const linkedStylobateBlocks = building.blocks.filter(block => {
         if (block.type !== 'non_residential') return false;
         const detailsKey = `${building.id}_${block.id}`;
         const details = buildingDetails?.[detailsKey] || {};
-        return (
-          Array.isArray(details.parentBlocks) && details.parentBlocks.includes(currentBlock.id)
-        );
+        return Array.isArray(details.parentBlocks) && details.parentBlocks.includes(currentBlock.id);
       });
 
-      if (linkedStylobateBlocks.length === 0) {
-        if (!cancelled) setLinkedStylobateFloors([]);
+      // 2. Ищем связанные блоки подвалов
+      const linkedBasementBlocks = building.blocks.filter(block => {
+        return !!block.isBasementBlock && Array.isArray(block.linkedBlockIds) && block.linkedBlockIds.includes(currentBlock.id);
+      });
+
+      const blocksToFetch = [...linkedStylobateBlocks, ...linkedBasementBlocks];
+
+      if (blocksToFetch.length === 0) {
+        if (!cancelled) setLinkedExternalFloors([]);
         return;
       }
 
       try {
         const floorsByBlock = await Promise.all(
-          linkedStylobateBlocks.map(block => ApiService.getFloors(block.id))
+          blocksToFetch.map(block => ApiService.getFloors(block.id))
         );
-        const stylobateFloors = floorsByBlock.flat().filter(floor => isLinkedStylobateFloor(floor));
-        if (!cancelled) setLinkedStylobateFloors(stylobateFloors);
+        
+        const externalFloors = floorsByBlock.flat().filter(floor => 
+          isLinkedStylobateFloor(floor) || floor.type === 'basement' || floor.flags?.isBasement
+        );
+        
+        if (!cancelled) setLinkedExternalFloors(externalFloors);
       } catch (e) {
-        console.error('Failed to load linked stylobate floors', e);
-        if (!cancelled) setLinkedStylobateFloors([]);
+        console.error('Failed to load linked external floors', e);
+        if (!cancelled) setLinkedExternalFloors([]);
       }
     };
-    loadLinkedStylobateFloors();
+    
+    loadExternalFloors();
+    
     return () => {
       cancelled = true;
     };
@@ -269,18 +257,25 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     }
   }, [entrances.length, currentBlock, isReadOnly, syncEntrances]);
 
+  // Очистка выделения при переключении блока
+  useEffect(() => {
+    setSelection(new Set());
+  }, [activeBlockIndex]);
+
   // --- Logic ---
   const floors = useMemo(() => {
     const residentialFloors = rawFloors.filter(f => !(f.isStylobate || f.flags?.isStylobate));
     const map = new Map();
-    [...residentialFloors, ...linkedStylobateFloors].forEach(floor => {
+    [...residentialFloors, ...linkedExternalFloors].forEach(floor => {
       if (!floor?.id) return;
       map.set(floor.id, floor);
     });
     return Array.from(map.values()).sort(
       (a, b) => (Number(b.index) || 0) - (Number(a.index) || 0)
     );
-  }, [rawFloors, linkedStylobateFloors]);
+  }, [rawFloors, linkedExternalFloors]);
+
+  const hasBasements = useMemo(() => floors.some(f => f.type === 'basement' || f.flags?.isBasement), [floors]);
 
   // --- Selection & Validation ---
   const toggleCell = (floorId, entNum) => {
@@ -294,7 +289,15 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
   };
 
   const selectFloor = floorId => {
-    const newKeys = entrances.map(e => `${floorId}_${e.number}`);
+    const floor = floors.find(f => f.id === floorId);
+    const isBasement = floor?.type === 'basement' || floor?.flags?.isBasement;
+    
+    const validEntNums = isBasement && hasBasements 
+      ? [...entrances.map(e => e.number), 0] 
+      : entrances.map(e => e.number);
+
+    const newKeys = validEntNums.map(num => `${floorId}_${num}`);
+    
     setSelection(prev => {
       const next = new Set(prev);
       const allSelected = newKeys.every(k => prev.has(k));
@@ -304,7 +307,11 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
   };
 
   const selectEntrance = entNum => {
-    const newKeys = floors.map(f => `${f.id}_${entNum}`);
+    const targetFloors = entNum === 0 
+      ? floors.filter(f => f.type === 'basement' || f.flags?.isBasement) 
+      : floors;
+      
+    const newKeys = targetFloors.map(f => `${f.id}_${entNum}`);
     setSelection(prev => {
       const next = new Set(prev);
       const allSelected = newKeys.every(k => prev.has(k));
@@ -315,7 +322,11 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
 
   const clearSelection = () => setSelection(new Set());
 
-  const isFieldEnabled = useCallback((floor, field) => {
+  const isFieldEnabled = useCallback((floor, field, entNum) => {
+    if (entNum === 0) {
+      if (field === 'apts') return false;
+      return true;
+    }
     const isLinkedStylobate = floor?.blockId && currentBlock?.id && floor.blockId !== currentBlock.id;
     if (field === 'apts' && isLinkedStylobate) return true;
     return Validators.checkFieldAvailability(floor, field, isUnderground);
@@ -326,12 +337,23 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
     if (selection.size === 0) return null;
     const keys = Array.from(selection);
     
-    const selectedFloorIds = new Set(keys.map(k => k.split('_')[0]));
-    const selectedFloors = floors.filter(f => selectedFloorIds.has(f.id));
-
-    const canEditApts = selectedFloors.every(f => isFieldEnabled(f, 'apts'));
-    const canEditUnits = selectedFloors.every(f => isFieldEnabled(f, 'units'));
-    const canEditMop = selectedFloors.every(f => isFieldEnabled(f, 'mopQty'));
+    const canEditApts = keys.every(key => {
+      const [fid, entNumStr] = key.split('_');
+      const f = floors.find(fl => fl.id === fid);
+      return isFieldEnabled(f, 'apts', parseInt(entNumStr, 10));
+    });
+    
+    const canEditUnits = keys.every(key => {
+      const [fid, entNumStr] = key.split('_');
+      const f = floors.find(fl => fl.id === fid);
+      return isFieldEnabled(f, 'units', parseInt(entNumStr, 10));
+    });
+    
+    const canEditMop = keys.every(key => {
+      const [fid, entNumStr] = key.split('_');
+      const f = floors.find(fl => fl.id === fid);
+      return isFieldEnabled(f, 'mopQty', parseInt(entNumStr, 10));
+    });
 
     const firstVal = matrixMap[keys[0]] || { apts: '', units: '', mopQty: '' };
     const isUniform = field => keys.every(k => (matrixMap[k]?.[field] || '') === (firstVal[field] || ''));
@@ -355,10 +377,22 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
       setHasUnsavedChanges(true);
       const updates = [];
       selection.forEach(key => {
-          const [floorId, entNum] = key.split('_');
+          const [floorId, entNumStr] = key.split('_');
+          const entNum = parseInt(entNumStr, 10);
           const floor = floors.find(f => f.id === floorId);
-          if (floor && isFieldEnabled(floor, field)) {
-             updates.push({ floorId, entranceNumber: parseInt(entNum, 10), values: { [field]: value } });
+          if (floor && isFieldEnabled(floor, field, entNum)) {
+             // ИСПРАВЛЕНИЕ: Берем текущие данные ячейки, чтобы не стереть их на бэкенде
+             const existing = matrixMap[key] || {};
+             updates.push({ 
+                 floorId, 
+                 entranceNumber: entNum, 
+                 values: { 
+                     apts: existing.apts ?? '',
+                     units: existing.units ?? '',
+                     mopQty: existing.mopQty ?? '',
+                     [field]: value // Перезаписываем только изменяемое поле
+                 } 
+             });
           }
       });
       if (updates.length === 0) return;
@@ -571,20 +605,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
           saveLabel={isPreviewLoading ? 'Проверяем…' : isSavingStatus ? 'Сохраняем…' : 'Сохранить'}
         />
 
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full shadow-inner border border-slate-700 custom-scrollbar">
-            {residentialBlocks.map((b, i) => (
-                <DarkTabButton
-                key={b.id}
-                active={activeBlockIndex === i}
-                onClick={() => setActiveBlockIndex(i)}
-                icon={getBlockIcon(b.type)}
-                >
-                {formatBlockSwitcherLabel({ building, block: b, buildingDetails })}
-                </DarkTabButton>
-            ))}
-            </div>
-            
+        <div className="flex flex-col md:flex-row md:items-center justify-end gap-4">
             <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2 text-xs text-slate-500 mr-2 hidden sm:flex">
                     <div className="flex items-center gap-1"><div className="w-3 h-3 bg-blue-100 rounded"></div> Жилой</div>
@@ -613,31 +634,83 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
             <div className="flex-1 overflow-auto relative scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
                 <div className="min-w-max pb-10 pr-6 pl-4 pt-4">
                     
-                    {/* STICKY HEADER (Обновлен дизайн) */}
+                    {/* STICKY HEADER MATRIX */}
                     <div className="flex sticky top-0 z-40 bg-slate-100/95 backdrop-blur-md border-b border-slate-300 pb-3 pt-3 mb-2 shadow-sm">
                         {/* Corner */}
                         <div className="w-24 shrink-0 sticky left-0 z-50 bg-slate-100 border-r border-slate-300"></div> 
                         
-                        {entrances.map(e => (
-                            <div key={e.id} className="w-24 mx-1 flex flex-col items-center group shrink-0 justify-end">
-                                 <button 
-                                    onClick={() => selectEntrance(e.number)}
-                                    className="text-xs font-black text-slate-600 uppercase hover:text-blue-700 flex flex-col items-center gap-1 transition-colors"
-                                 >
-                                     <span className="bg-white/60 px-2 py-1 rounded border border-slate-200/50 shadow-sm">
-                                        Подъезд {e.number}
-                                     </span>
-                                     <ArrowDown size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-500" />
-                                 </button>
-                            </div>
-                        ))}
+                        {residentialBlocks.map((b, i) => {
+                            const isActive = i === activeBlockIndex;
+                            const blockLabel = formatBlockSwitcherLabel({ building, block: b, buildingDetails });
+
+                            // Свернутый блок
+                            if (!isActive) {
+                                return (
+                                    <button 
+                                        key={b.id} 
+                                        onClick={() => setActiveBlockIndex(i)}
+                                        className="w-12 mx-1 shrink-0 bg-slate-200/50 hover:bg-slate-300 border border-slate-300 rounded-lg flex flex-col items-center justify-center transition-colors group min-h-[60px]"
+                                        title={blockLabel}
+                                    >
+                                        <span style={{ writingMode: 'vertical-rl' }} className="rotate-180 text-xs font-bold text-slate-500 group-hover:text-slate-800 whitespace-nowrap px-1">
+                                            {blockLabel}
+                                        </span>
+                                    </button>
+                                );
+                            }
+
+                            // Активный блок
+                            return (
+                                <div key={b.id} className="flex flex-col mx-1 bg-blue-50/50 border border-blue-200 rounded-lg shadow-sm">
+                                    <div className="text-center text-xs font-bold text-blue-800 bg-blue-100/50 py-1.5 border-b border-blue-200 px-2 truncate min-h-[28px]">
+                                        {blockLabel}
+                                    </div>
+                                    <div className="flex p-1 h-full items-end">
+                                        {entrances.map(e => (
+                                            <div key={e.id} className="w-24 mx-1 flex flex-col items-center group shrink-0 justify-end">
+                                                <button 
+                                                    onClick={() => selectEntrance(e.number)}
+                                                    className="text-[11px] font-black text-slate-600 uppercase hover:text-blue-700 flex flex-col items-center gap-1 transition-colors"
+                                                >
+                                                    <span className="bg-white px-2 py-1 rounded shadow-sm border border-slate-200">
+                                                        Подъезд {e.number}
+                                                    </span>
+                                                    <ArrowDown size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-500" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        {entrances.length === 0 && (
+                                            <div className="w-24 h-8 flex items-center justify-center text-xs text-slate-400">Нет подъездов</div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                        {/* Новая колонка "Вне подъездов" */}
+                        {hasBasements && (
+                          <div className="w-24 mx-2 flex flex-col items-center group shrink-0 justify-end">
+                              <button 
+                                  onClick={() => selectEntrance(0)}
+                                  className="text-xs font-black text-slate-500 uppercase hover:text-amber-700 flex flex-col items-center gap-1 transition-colors h-full justify-end"
+                              >
+                                  <span className="bg-amber-100/60 px-2 py-1 rounded border border-amber-200/80 shadow-sm text-[10px] text-amber-900 tracking-tight leading-tight text-center mb-1">
+                                      Вне<br/>подъездов
+                                  </span>
+                                  <ArrowDown size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-amber-600" />
+                              </button>
+                          </div>
+                        )}
                     </div>
 
                     {/* GRID ROWS */}
-                    <div className="flex flex-col gap-2">
-                        {floors.map(floor => (
-                            <div key={floor.id} className="flex items-center hover:bg-slate-50 rounded-lg p-1 -ml-1 transition-colors">
-                                {/* STICKY LEFT COL (Обновлен дизайн) */}
+                    <div className="flex flex-col gap-2 min-w-max">
+                        {floors.map(floor => {
+                          const isBasement = floor.type === 'basement' || floor.flags?.isBasement;
+
+                          return (
+                            <div key={floor.id} className="flex items-stretch hover:bg-slate-50 rounded-lg p-1 -ml-1 transition-colors">
+                                {/* STICKY LEFT COL */}
                                 <div className="sticky left-0 z-30 bg-slate-50 pr-2 rounded-l-lg border-r border-slate-300 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                                     <button 
                                         onClick={() => selectFloor(floor.id)}
@@ -651,19 +724,62 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                     </button>
                                 </div>
 
-                                {/* CELLS */}
-                                {entrances.map(e => {
-                                    const key = `${floor.id}_${e.number}`;
-                                    const isSelected = selection.has(key);
-                                    const cellData = matrixMap[key] || {};
+                                {/* BLOCKS (Collapsed and Active) */}
+                                <div className="flex items-center">
+                                    {residentialBlocks.map((b, i) => {
+                                        const isActive = i === activeBlockIndex;
+                                        if (!isActive) {
+                                            return <div key={b.id} className="w-12 mx-1 shrink-0 bg-slate-100/50 border border-slate-200 border-dashed rounded-lg opacity-50 my-1 h-full min-h-[64px]"></div>;
+                                        }
 
-                                    return (
+                                        return (
+                                            <div key={b.id} className="flex px-1 mx-1 bg-blue-50/10 border-x border-blue-100/50 items-center">
+                                                {entrances.map(e => {
+                                                    const key = `${floor.id}_${e.number}`;
+                                                    const isSelected = selection.has(key);
+                                                    const cellData = matrixMap[key] || {};
+                                                    return (
+                                                        <button
+                                                            key={e.id}
+                                                            onClick={() => toggleCell(floor.id, e.number)}
+                                                            className={`
+                                                                w-24 h-16 mx-1 rounded-xl border flex flex-col items-center justify-center transition-all relative overflow-hidden shrink-0
+                                                                ${getCellColor(floor, isSelected)}
+                                                            `}
+                                                        >
+                                                            <CellContent 
+                                                                apts={cellData.apts}
+                                                                units={cellData.units}
+                                                                mops={cellData.mopQty}
+                                                                isSelected={isSelected}
+                                                            />
+                                                            {isSelected && (
+                                                                <div className="absolute top-1 right-1 bg-white/20 text-white rounded-full p-0.5 shadow-sm">
+                                                                    <Check size={10} strokeWidth={4} />
+                                                                </div>
+                                                            )}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Экстра-ячейка "Вне подъезда" (0) для подвалов */}
+                                {hasBasements && (
+                                  <div className="flex items-center px-1 mx-1">
+                                    {isBasement ? (() => {
+                                      const key = `${floor.id}_0`;
+                                      const isSelected = selection.has(key);
+                                      const cellData = matrixMap[key] || {};
+                                      return (
                                         <button
-                                            key={e.id}
-                                            onClick={() => toggleCell(floor.id, e.number)}
+                                            key="ent_0"
+                                            onClick={() => toggleCell(floor.id, 0)}
                                             className={`
-                                                w-24 h-16 mx-1 rounded-xl border flex flex-col items-center justify-center transition-all relative overflow-hidden shrink-0
-                                                ${getCellColor(floor, isSelected)}
+                                                w-24 h-16 mx-1 rounded-xl border-2 border-dashed flex flex-col items-center justify-center transition-all relative overflow-hidden shrink-0
+                                                ${isSelected ? 'bg-blue-600 ring-2 ring-blue-300 border-transparent shadow-md transform scale-[1.02] z-10' : 'bg-amber-50/50 border-amber-200 hover:bg-amber-100'}
                                             `}
                                         >
                                             <CellContent 
@@ -678,10 +794,15 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                                 </div>
                                             )}
                                         </button>
-                                    );
-                                })}
+                                      );
+                                    })() : (
+                                      <div className="w-24 h-16 mx-1 shrink-0 bg-transparent flex items-center justify-center"></div>
+                                    )}
+                                  </div>
+                                )}
                             </div>
-                        ))}
+                          );
+                        })}
                     </div>
                 </div>
             </div>
@@ -772,7 +893,7 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                                 <div className="mt-3 flex gap-2 items-start p-2 bg-amber-50 rounded border border-amber-100 text-amber-700">
                                     <AlertCircle size={14} className="shrink-0 mt-0.5"/>
                                     <p className="text-[10px] leading-tight">
-                                        В выбранном диапазоне есть этажи, где запрещено создание помещений.
+                                        В выбранном диапазоне есть этажи/зоны, где запрещено создание помещений.
                                     </p>
                                 </div>
                             )}
@@ -784,9 +905,17 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                             className="text-xs font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1"
                             onClick={() => {
                                 if(confirm('Очистить данные в выбранных ячейках?')) {
-                                    handleBulkUpdate('apts', '');
-                                    handleBulkUpdate('units', '');
-                                    handleBulkUpdate('mopQty', '');
+                                    setHasUnsavedChanges(true);
+                                    const updates = [];
+                                    selection.forEach(key => {
+                                        const [floorId, entNumStr] = key.split('_');
+                                        updates.push({ 
+                                            floorId, 
+                                            entranceNumber: parseInt(entNumStr, 10), 
+                                            values: { apts: '', units: '', mopQty: '' } 
+                                        });
+                                    });
+                                    if (updates.length > 0) updateCells(updates);
                                 }
                             }}
                          >

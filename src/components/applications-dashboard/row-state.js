@@ -35,6 +35,10 @@ export const buildProjectRowState = ({ project, user }) => {
     app.assigneeName === user.id || 
     app.assigneeName === user.username;
 
+  // ИСПРАВЛЕНИЕ: Разрешаем и controller, и branch_manager
+  const isReviewerAndReview = (user.role === ROLES.CONTROLLER || user.role === ROLES.BRANCH_MANAGER) && substatus === WORKFLOW_SUBSTATUS.REVIEW;
+  const isAdmin = user.role === ROLES.ADMIN;
+
   const fallbackCanEdit =
     (user.role === ROLES.TECHNICIAN &&
       isAssignedToCurrentTechnician &&
@@ -44,7 +48,7 @@ export const buildProjectRowState = ({ project, user }) => {
         WORKFLOW_SUBSTATUS.RETURNED_BY_MANAGER,
         WORKFLOW_SUBSTATUS.INTEGRATION,
       ].includes(substatus)) ||
-    (user.role === ROLES.CONTROLLER && substatus === WORKFLOW_SUBSTATUS.REVIEW);
+    isReviewerAndReview || isAdmin;
 
   const canEdit = availableActions?.includes('edit') || fallbackCanEdit;
 

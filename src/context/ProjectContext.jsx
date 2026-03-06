@@ -58,7 +58,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     // Используем уже вычисленный isViewMode
     if (!dbScope || !projectId || !userProfile?.name || isViewMode) return undefined;
 
-    const shouldLock = userProfile.role === 'technician' || userProfile.role === 'admin';
+   const shouldLock = ['technician', 'admin', 'controller', 'branch_manager'].includes(userProfile.role);
     if (!shouldLock) return undefined;
 
     const acquire = async () => {

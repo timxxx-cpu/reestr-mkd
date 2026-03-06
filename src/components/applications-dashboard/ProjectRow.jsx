@@ -29,7 +29,7 @@ export default function ProjectRow({
   onDecline,
   onReturnFromDecline,
   onReassign,
-  viewOnly,
+  viewOnly, // Оставляем пропс для совместимости, но не будем им блокировать права
 }) {
   const {
     app,
@@ -205,7 +205,8 @@ export default function ProjectRow({
 
       <td className="px-4 py-5 text-right align-top">
         <div className="flex flex-col items-end gap-2">
-          {!viewOnly && !isCompleted && canEdit ? (
+          {/* ИСПРАВЛЕНИЕ: Убрали !viewOnly, доверяем правам canEdit */}
+          {!isCompleted && canEdit ? (
             <Tooltip content="Взять в работу">
               <button
                 onClick={() => onSelect(project.id, 'edit')}
@@ -226,7 +227,8 @@ export default function ProjectRow({
           )}
 
           <div className="flex items-center justify-end gap-1 mt-1 opacity-40 group-hover:opacity-100 transition-opacity duration-300">
-            {!viewOnly && isPendingDeclineStatus && onReturnFromDecline && canReturnFromDecline && (
+            {/* ИСПРАВЛЕНИЕ: Тоже убрали !viewOnly для дополнительных действий */}
+            {isPendingDeclineStatus && onReturnFromDecline && canReturnFromDecline && (
               <Tooltip content="Вернуть на доработку">
                 <button
                   onClick={() => onReturnFromDecline(project.id, project.name)}
@@ -237,7 +239,7 @@ export default function ProjectRow({
               </Tooltip>
             )}
 
-            {!viewOnly && canDecline && onDecline && (
+            {canDecline && onDecline && (
               <Tooltip content="Отказать">
                 <button
                   onClick={() => onDecline(project.id, project.name)}
@@ -248,7 +250,7 @@ export default function ProjectRow({
               </Tooltip>
             )}
 
-            {!viewOnly && onReassign && canReassign && (
+            {onReassign && canReassign && (
               <Tooltip content="Сменить исполнителя">
                 <button
                   onClick={() => onReassign(project.id, project.name, app.assigneeName)}
@@ -259,7 +261,7 @@ export default function ProjectRow({
               </Tooltip>
             )}
 
-            {!viewOnly && onDelete && canDelete && (
+            {onDelete && canDelete && (
               <Tooltip content="Удалить">
                 <button
                   onClick={() => onDelete(project.id)}

@@ -160,7 +160,7 @@ public class ProjectExtendedController {
                 String geometryJson = normalizedBasementGeometry == null ? null : jsonbString(normalizedBasementGeometry);
                 // -----------------------------------------------
 
-                jdbcTemplate.update(
+             jdbcTemplate.update(
                     "insert into building_blocks(id, building_id, label, type, is_basement_block, linked_block_ids, basement_depth, basement_has_parking, basement_parking_levels, basement_communications, floors_count, floors_from, floors_to, entrances_count, elevators_count, vehicle_entries, levels_depth, light_structure_type, parent_blocks, has_basement, has_attic, has_loft, has_roof_expl, has_custom_address, custom_house_number, footprint_geojson, updated_at) " +
                         "values (?,?,?,?,?,?::uuid[],?,?,?::jsonb,?::jsonb,?,?,?,?,?,?,?,?,?::uuid[],?,?,?,?,?,?,cast(? as jsonb),now()) " +
                         "on conflict (id) do update set label=excluded.label, linked_block_ids=excluded.linked_block_ids, basement_depth=excluded.basement_depth, basement_has_parking=excluded.basement_has_parking, basement_parking_levels=excluded.basement_parking_levels, basement_communications=excluded.basement_communications, entrances_count=excluded.entrances_count, footprint_geojson=coalesce(excluded.footprint_geojson, building_blocks.footprint_geojson), updated_at=now()",
@@ -189,8 +189,14 @@ public class ProjectExtendedController {
                     false,
                     false,
                     null,
-                    geometryJson // Передаем геометрию в INSERT
+                    geometryJson 
                 );
+
+                // --- ИЗМЕНЕНИЕ: Синхронизируем этажи и подъезды для подвала ---
+                syncFloorsForBlock(basementId);
+                syncEntrancesForBlock(basementId, basementEntrances);
+                ensureEntranceMatrixForBlock(basementId);
+                // --------------------------------------------------------------
 
                 ids.add(basementId);
                 idx += 1;
@@ -1191,11 +1197,18 @@ private String buildFullAddress(String regionName, String districtName, String m
         Set<UUID> floorSet = new HashSet<>(floorIds);
         Set<Integer> entSet = new HashSet<>(entranceNumbers);
 
-        for (Map<String, Object> row : existing) {
+       for (Map<String, Object> row : existing) {
             UUID floorId = UUID.fromString(String.valueOf(row.get("floor_id")));
             int ent = toNullableInt(row.get("entrance_number")) == null ? 0 : toNullableInt(row.get("entrance_number"));
-            if (!floorSet.contains(floorId) || !entSet.contains(ent)) stale.add(UUID.fromString(String.valueOf(row.get("id"))));
-            else existingKeys.add(floorId + "|" + ent);
+            
+            // ИСПРАВЛЕНИЕ: разрешаем сохранение нулевого подъезда (ent == 0)
+            boolean isValidEntrance = entSet.contains(ent) || ent == 0;
+            
+            if (!floorSet.contains(floorId) || !isValidEntrance) {
+                stale.add(UUID.fromString(String.valueOf(row.get("id"))));
+            } else {
+                existingKeys.add(floorId + "|" + ent);
+            }
         }
 
         if (!stale.isEmpty()) {
