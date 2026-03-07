@@ -206,7 +206,7 @@ export const STEPS_CONFIG = [
   {
     id: 'passport',
     title: 'Паспорт жилого комплекса',
-    description: 'основные данные и участники строительства',
+    description: 'основные данные жилого комплекса и участники строительства',
     icon: FileText,
   },
   {
@@ -275,13 +275,13 @@ export const STEPS_CONFIG = [
   {
     id: 'registry_apartments',
     title: 'Инвентаризация квартир',
-    description: 'Жилой фонд для регистрации',
+    description: 'заполнение квартир комнатами',
     icon: Home,
   },
   {
     id: 'registry_commercial',
     title: 'Инвентаризация нежилых объектов',
-    description: 'Коммерция и офисы',
+    description: 'Встроенно-пристроенные нежилые объекты',
     icon: Briefcase,
   },
   {

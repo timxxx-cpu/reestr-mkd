@@ -16,10 +16,11 @@ class UnitTypeTests {
         assertEquals(UnitType.DUPLEX_UP, UnitType.fromValue("duplex_up"));
         assertEquals(UnitType.DUPLEX_DOWN, UnitType.fromValue("duplex_down"));
         assertEquals(UnitType.PANTRY, UnitType.fromValue("pantry"));
+        assertEquals(UnitType.PARKING_PLACE, UnitType.fromValue("parking_place"));
     }
 
     @Test
     void shouldRejectUnsupportedValue() {
-        assertThrows(IllegalArgumentException.class, () -> UnitType.fromValue("parking_place"));
+        assertThrows(IllegalArgumentException.class, () -> UnitType.fromValue("parking"));
     }
 }

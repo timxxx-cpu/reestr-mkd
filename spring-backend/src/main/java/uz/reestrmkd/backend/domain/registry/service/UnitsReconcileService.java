@@ -87,38 +87,16 @@ public class UnitsReconcileService {
             flats.sort(preserveRichDataComparator);
             comm.sort(preserveRichDataComparator);
 
-            String[] parts = key.split("_");
-            UUID floorId = UUID.fromString(parts[0]);
-            UUID entranceId = UUID.fromString(parts[1]);
-
             int desiredFlats = desired.get("flats");
             if (flats.size() > desiredFlats) {
                 flats.subList(desiredFlats, flats.size())
                     .forEach(row -> toDelete.add(UUID.fromString(String.valueOf(row.get("id")))));
-            } else if (flats.size() < desiredFlats) {
-                int toAdd = desiredFlats - flats.size();
-                for (int i = 0; i < toAdd; i++) {
-                    jdbcTemplate.update(
-                        "insert into units(id,floor_id,entrance_id,unit_type,status,created_at,updated_at) values (gen_random_uuid(),?,?,?,?,now(),now())",
-                        floorId, entranceId, "flat", "free"
-                    );
-                    added++;
-                }
             }
 
             int desiredComm = desired.get("commercial");
             if (comm.size() > desiredComm) {
                 comm.subList(desiredComm, comm.size())
                     .forEach(row -> toDelete.add(UUID.fromString(String.valueOf(row.get("id")))));
-            } else if (comm.size() < desiredComm) {
-                int toAdd = desiredComm - comm.size();
-                for (int i = 0; i < toAdd; i++) {
-                    jdbcTemplate.update(
-                        "insert into units(id,floor_id,entrance_id,unit_type,status,created_at,updated_at) values (gen_random_uuid(),?,?,?,?,now(),now())",
-                        floorId, entranceId, "office", "free"
-                    );
-                    added++;
-                }
             }
         }
 

@@ -42,11 +42,62 @@ const getBlockIcon = type => {
   return LayoutGrid;
 };
 
+const toStr = value => String(value ?? '');
+
+const BLOCK_TYPE_ZH = '\u0416';
+const BLOCK_TYPE_N = '\u041d';
+const BLOCK_TYPE_PD = '\u041f\u0414';
+
+const isResidentialBlock = block => {
+  const type = toStr(block?.type).toLowerCase();
+  const originalType = toStr(block?.originalType).toLowerCase();
+  const zh = BLOCK_TYPE_ZH.toLowerCase();
+  return type === 'residential' || type === zh || originalType === zh;
+};
+
+const isNonResidentialBlock = block => {
+  const type = toStr(block?.type).toLowerCase();
+  const originalType = toStr(block?.originalType).toLowerCase();
+  const n = BLOCK_TYPE_N.toLowerCase();
+  return type === 'non_residential' || type === n || originalType === n;
+};
+
+const isBasementBlock = block => {
+  const type = toStr(block?.type).toLowerCase();
+  const originalType = toStr(block?.originalType).toLowerCase();
+  const pd = BLOCK_TYPE_PD.toLowerCase();
+  return (
+    !!block?.isBasementBlock ||
+    !!block?.is_basement_block ||
+    type === 'basement' ||
+    type === 'bas' ||
+    type === pd ||
+    originalType === 'basement' ||
+    originalType === 'bas' ||
+    originalType === pd
+  );
+};
+
+const getBuildingId = block => block?.buildingId || block?.building_id || null;
+const getFloorBlockId = floor => floor?.blockId || floor?.block_id || null;
+const getFloorId = floor => floor?.id || null;
+const getEntranceBlockId = entrance => entrance?.blockId || entrance?.block_id || null;
+const getEntranceId = entrance => entrance?.id || null;
+const getEntranceNumber = entrance => entrance?.number;
+const getUnitFloorId = unit => unit?.floorId || unit?.floor_id || null;
+const getUnitEntranceId = unit => unit?.entranceId || unit?.entrance_id || null;
+
 const UNIT_TYPE_NAMES = {
   flat: 'Квартира',
   duplex_up: 'Двухуровневая (верх)',
   duplex_down: 'Двухуровневая (низ)',
 };
+
+const isUnitDuplex = unit =>
+  ['duplex_up', 'duplex_down'].includes(unit?.type) ||
+  !!unit?.floorIsDuplex ||
+  !!unit?.isDuplexFloor ||
+  !!unit?.isDuplex;
 
 const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
   <button
@@ -73,6 +124,10 @@ const ExplicationPanel = ({
   onResetExplication,
   onClearSelection,
   isSaving,
+  canPickFromMatrix = false,
+  isCopyPickMode = false,
+  onToggleCopyPick,
+  pickedCopyUnit = null,
   isModal = false,
 }) => {
   const isReadOnly = useReadOnly();
@@ -90,15 +145,17 @@ const ExplicationPanel = ({
   const isMulti = count > 1;
   const activeUnit = count === 1 ? selectedUnits[0] : null;
   
-  const isDuplex = selectedUnits.length > 0 && selectedUnits.every(u => ['duplex_up', 'duplex_down'].includes(u.type));
+  const isDuplex = selectedUnits.length > 0 && selectedUnits.every(isUnitDuplex);
   const [rooms, setRooms] = useState([]);
   const [hasMezzanine, setHasMezzanine] = useState(false);
   const [mezzanineType, setMezzanineType] = useState('internal');
 
-  const { data: freshUnit } = useQuery({
+  const { data: freshUnit, isFetching: isFreshUnitFetching } = useQuery({
     queryKey: ['registry-unit-explication', activeUnit?.id],
     queryFn: () => ApiService.getUnitExplicationById(activeUnit.id),
     enabled: !!activeUnit?.id && !isMulti,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   useEffect(() => {
@@ -109,7 +166,14 @@ const ExplicationPanel = ({
       return;
     }
 
-    const sourceUnit = freshUnit || activeUnit || {};
+    if (!activeUnit?.id || isFreshUnitFetching || !freshUnit) {
+      setRooms([]);
+      setHasMezzanine(false);
+      setMezzanineType('internal');
+      return;
+    }
+
+    const sourceUnit = { ...(activeUnit || {}), ...(freshUnit || {}) };
     const source = sourceUnit.explication || [];
     setHasMezzanine(!!sourceUnit.hasMezzanine);
     setMezzanineType(sourceUnit.mezzanineType || 'internal');
@@ -120,7 +184,7 @@ const ExplicationPanel = ({
         level: isDuplex ? String(r.level || 1) : '1',
         isMezzanine: !!r.isMezzanine,
     })));
-  }, [isMulti, freshUnit, activeUnit, isDuplex, count]);
+  }, [isMulti, freshUnit, activeUnit, isDuplex, count, isFreshUnitFetching]);
 
   const stats = useMemo(() => {
     let total = 0;
@@ -189,44 +253,60 @@ const ExplicationPanel = ({
       toast.error('Добавьте хотя бы одно помещение, расположенное в мезонине');
       return false;
     }
+    if (isDuplex) {
+      const hasLevel1 = rooms.some(r => Number(r.level || 1) === 1);
+      const hasLevel2 = rooms.some(r => Number(r.level || 1) === 2);
+      if (!hasLevel1 || !hasLevel2) {
+        toast.error('\u0414\u043b\u044f \u0434\u0443\u043f\u043b\u0435\u043a\u0441\u0430 \u043d\u0443\u0436\u043d\u043e \u0437\u0430\u043f\u043e\u043b\u043d\u0438\u0442\u044c \u043e\u0431\u0430 \u0443\u0440\u043e\u0432\u043d\u044f: 1 \u0438 2');
+        return false;
+      }
+    }
     return true;
   };
-const handleCopy = () => {
-    if (isReadOnly || !copySourceNum.trim()) return;
-
-    // Ищем квартиру в текущем блоке (allUnits содержит квартиры текущего блока)
-    const sourceUnit = allUnits.find(u => String(u.number || u.num) === String(copySourceNum));
-
-    if (!sourceUnit) {
-      toast.error(`Квартира №${copySourceNum} не найдена в этом блоке`);
-      return;
-    }
-
-    const sourceRooms = sourceUnit.explication || [];
-
+  const applyCopyFromUnit = (sourceUnit, sourceLabel) => {
+    const sourceRooms = sourceUnit?.explication || [];
     if (sourceRooms.length === 0) {
-       toast.error(`В квартире №${copySourceNum} нет экспликации`);
-       return;
+      toast.error(`\u0412 \u043a\u0432\u0430\u0440\u0442\u0438\u0440\u0435 \u2116${sourceLabel} \u043d\u0435\u0442 \u044d\u043a\u0441\u043f\u043b\u0438\u043a\u0430\u0446\u0438\u0438`);
+      return false;
     }
 
-    if (rooms.length > 0 && !confirm(`Заменить текущую экспликацию данными из кв. №${copySourceNum}?`)) return;
+    if (rooms.length > 0 && !confirm(`\u0417\u0430\u043c\u0435\u043d\u0438\u0442\u044c \u0442\u0435\u043a\u0443\u0449\u0443\u044e \u044d\u043a\u0441\u043f\u043b\u0438\u043a\u0430\u0446\u0438\u044e \u0434\u0430\u043d\u043d\u044b\u043c\u0438 \u0438\u0437 \u043a\u0432. \u2116${sourceLabel}?`)) {
+      return false;
+    }
 
-    // Копируем параметры мезонина
     setHasMezzanine(!!sourceUnit.hasMezzanine);
     setMezzanineType(sourceUnit.mezzanineType || 'internal');
-    
-    // Копируем комнаты с генерацией новых ID
+
     const newRooms = sourceRooms.map(r => ({
-        ...r,
-        id: crypto.randomUUID(),
-        level: isDuplex ? String(r.level || 1) : '1',
-        isMezzanine: !!r.isMezzanine,
+      ...r,
+      id: r.id || crypto.randomUUID(),
+      level: isDuplex ? String(r.level || 1) : '1',
+      isMezzanine: !!r.isMezzanine,
     }));
-    
+
     setRooms(newRooms);
-    toast.success(`Скопировано из кв. №${copySourceNum}`);
+    toast.success(`\u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u043e \u0438\u0437 \u043a\u0432. \u2116${sourceLabel}`);
     setCopySourceNum('');
+    onToggleCopyPick?.(false);
+    return true;
   };
+
+  const handleCopy = () => {
+    if (isReadOnly || !copySourceNum.trim()) return;
+    const sourceUnit = allUnits.find(u => String(u.number || u.num) === String(copySourceNum));
+    if (!sourceUnit) {
+      toast.error(`\u041a\u0432\u0430\u0440\u0442\u0438\u0440\u0430 \u2116${copySourceNum} \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430 \u0432 \u044d\u0442\u043e\u043c \u0431\u043b\u043e\u043a\u0435`);
+      return;
+    }
+    applyCopyFromUnit(sourceUnit, copySourceNum);
+  };
+
+  useEffect(() => {
+    if (!pickedCopyUnit?.id) return;
+    const sourceLabel = pickedCopyUnit.number || pickedCopyUnit.num || '?';
+    applyCopyFromUnit(pickedCopyUnit, sourceLabel);
+  }, [pickedCopyUnit]);
+
   const buildPayload = unit => ({
     ...unit,
     hasMezzanine: !isMulti ? hasMezzanine : !!unit.hasMezzanine,
@@ -237,7 +317,7 @@ const handleCopy = () => {
       type: r.type,
       area: parseFloat(r.area),
       height: parseFloat(r.height),
-      level: ['duplex_up', 'duplex_down'].includes(unit.type) ? Number(r.level || 1) : 1,
+      level: isUnitDuplex(unit) ? Number(r.level || 1) : 1,
       isMezzanine: !!r.isMezzanine,
     })),
     area: stats.total,
@@ -345,7 +425,7 @@ const handleCopy = () => {
         )}
 {!isReadOnly && (
           <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2">
-             <span className="text-[10px] font-bold text-slate-400 uppercase whitespace-nowrap">Копия из №</span>
+             <span className="text-[10px] font-bold text-slate-400 uppercase whitespace-nowrap">{'\u041a\u043e\u043f\u0438\u044f \u0438\u0437 \u2116'}</span>
              <div className="flex items-center gap-1 flex-1">
                 <input 
                   type="text" 
@@ -358,11 +438,29 @@ const handleCopy = () => {
                 <button 
                   onClick={handleCopy}
                   className="h-7 w-7 flex items-center justify-center bg-white border border-slate-300 rounded hover:text-blue-600 hover:border-blue-400 transition-colors"
-                  title="Скопировать"
+                  title={'\u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c'}
                 >
                    <Copy size={14} />
                 </button>
+                <button
+                  type="button"
+                  onClick={() => onToggleCopyPick?.(!isCopyPickMode)}
+                  disabled={!canPickFromMatrix}
+                  className={`h-7 px-2 text-[10px] font-bold border rounded transition-colors ${
+                    isCopyPickMode
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-slate-600 border-slate-300 hover:text-blue-600 hover:border-blue-400'
+                  } ${!canPickFromMatrix ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={canPickFromMatrix ? '\u0412\u044b\u0431\u0440\u0430\u0442\u044c \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a \u043a\u043b\u0438\u043a\u043e\u043c \u0432 \u043c\u0430\u0442\u0440\u0438\u0446\u0435' : '\u0420\u0435\u0436\u0438\u043c \u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d \u0442\u043e\u043b\u044c\u043a\u043e \u0432 \u043c\u0430\u0442\u0440\u0438\u0446\u0435'}
+                >
+                  {'\u0412\u044b\u0431\u0440\u0430\u0442\u044c'}
+                </button>
              </div>
+          </div>
+        )}
+        {!isReadOnly && isCopyPickMode && canPickFromMatrix && (
+          <div className="px-3 py-1.5 border-b border-slate-200 bg-blue-50 text-[11px] text-blue-700 font-semibold">
+            {'\u041a\u043b\u0438\u043a\u043d\u0438\u0442\u0435 \u043f\u043e \u043a\u0432\u0430\u0440\u0442\u0438\u0440\u0435 \u0432 \u043c\u0430\u0442\u0440\u0438\u0446\u0435 \u0434\u043b\u044f \u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f \u044d\u043a\u0441\u043f\u043b\u0438\u043a\u0430\u0446\u0438\u0438'}
           </div>
         )}
         {!isMulti && (
@@ -559,6 +657,8 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
   const [viewMode, setViewMode] = useState('matrix');
   const [isSaving, setIsSaving] = useState(false);
   const [isStepSaving, setIsStepSaving] = useState(false);
+  const [isCopyPickMode, setIsCopyPickMode] = useState(false);
+  const [pickedCopyUnit, setPickedCopyUnit] = useState(null);
 
   // --- CATALOGS ---
   const { data: roomTypesRows = [] } = useQuery({
@@ -630,52 +730,107 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
     }
 
     const { blocks = [], floors = [], entrances = [], units = [] } = fullRegistry;
-    
-    const currentBuildingBlocks = blocks.filter(b => b.buildingId === selectedBuildingId || b.building_id === selectedBuildingId);
-    
-    let residentialBlocks = currentBuildingBlocks.filter(b => b.type === 'Ж' || b.type === 'residential');
-    
+    const currentBuildingBlocks = blocks.filter(b => getBuildingId(b) === selectedBuildingId);
+    const currentBuildingBlockById = new Map(currentBuildingBlocks.map(b => [toStr(b.id), b]));
+    const buildingBlocksMeta = Array.isArray(building?.blocks) ? building.blocks : [];
+    const buildingBlockMetaById = new Map(buildingBlocksMeta.map(b => [toStr(b.id), b]));
+
+    let residentialBlocks = currentBuildingBlocks.filter(b => isResidentialBlock(b));
     if (residentialBlocks.length === 0 && currentBuildingBlocks.length > 0) {
-        residentialBlocks = currentBuildingBlocks;
+      residentialBlocks = currentBuildingBlocks;
     }
+
+    const externalBlocks = currentBuildingBlocks.filter(
+      b => !isResidentialBlock(b) && (isNonResidentialBlock(b) || isBasementBlock(b))
+    );
+
+    const relatedBlockIdsByResidentialBlock = {};
+    residentialBlocks.forEach(baseBlock => {
+      const baseId = toStr(baseBlock.id);
+      const related = new Set([baseId]);
+
+      externalBlocks.forEach(extBlock => {
+        const extId = toStr(extBlock.id);
+        const extMeta = buildingBlockMetaById.get(extId) || extBlock;
+
+        if (isBasementBlock(extMeta)) {
+          const linkedIds = Array.isArray(extMeta?.linkedBlockIds)
+            ? extMeta.linkedBlockIds
+            : Array.isArray(extBlock?.linked_block_ids)
+              ? extBlock.linked_block_ids
+              : [];
+          if (linkedIds.map(toStr).includes(baseId)) related.add(extId);
+          return;
+        }
+
+        if (isNonResidentialBlock(extMeta)) {
+          const detailsKey = `${selectedBuildingId}_${extId}`;
+          const details = buildingDetails?.[detailsKey] || {};
+          const parentBlocks = Array.isArray(details?.parentBlocks) ? details.parentBlocks : [];
+          if (parentBlocks.map(toStr).includes(baseId)) related.add(extId);
+        }
+      });
+
+      if (related.size === 1 && residentialBlocks.length === 1) {
+        externalBlocks.forEach(extBlock => related.add(toStr(extBlock.id)));
+      }
+
+      relatedBlockIdsByResidentialBlock[baseId] = related;
+    });
 
     const floorsByBlock = {};
     const entrancesByBlock = {};
     const unitsByCell = {};
 
-    residentialBlocks.forEach(b => {
-      floorsByBlock[b.id] = floors
-        .filter(f => f.blockId === b.id)
+    residentialBlocks.forEach(baseBlock => {
+      const baseId = toStr(baseBlock.id);
+      const relatedIds = relatedBlockIdsByResidentialBlock[baseId] || new Set([baseId]);
+
+      floorsByBlock[baseBlock.id] = floors
+        .filter(f => relatedIds.has(toStr(getFloorBlockId(f))))
         .sort((a, z) => (Number(z.index) || 0) - (Number(a.index) || 0));
 
-      entrancesByBlock[b.id] = entrances
-        .filter(e => e.blockId === b.id)
-        .sort((a, z) => Number(a.number) - Number(z.number));
+      entrancesByBlock[baseBlock.id] = entrances
+        .filter(e => toStr(getEntranceBlockId(e)) === baseId)
+        .sort((a, z) => Number(getEntranceNumber(a)) - Number(getEntranceNumber(z)));
     });
 
-    const blockMap = new Map(blocks.map(b => [b.id, b]));
-    const floorMap = new Map(floors.map(f => [f.id, f]));
-    const entranceMap = new Map(entrances.map(e => [e.id, e]));
+    const blockMap = new Map(currentBuildingBlocks.map(b => [toStr(b.id), b]));
+    const floorMap = new Map(floors.map(f => [toStr(getFloorId(f)), f]));
+    const entranceMap = new Map(entrances.map(e => [toStr(getEntranceId(e)), e]));
 
     units
       .filter(u => ['flat', 'duplex_up', 'duplex_down'].includes(u.type))
       .forEach(u => {
-        const floor = floorMap.get(u.floorId);
+        const floorId = toStr(getUnitFloorId(u));
+        const entranceId = getUnitEntranceId(u);
+        const floor = floorMap.get(floorId);
         if (!floor) return;
-        
-        const block = blockMap.get(floor.blockId);
-        if (!block || block.buildingId !== selectedBuildingId && block.building_id !== selectedBuildingId) return;
 
-        const cellKey = `${floor.blockId}_${u.floorId}_${u.entranceId}`;
-        if (!unitsByCell[cellKey]) unitsByCell[cellKey] = [];
+        const floorBlockId = toStr(getFloorBlockId(floor));
+        if (!currentBuildingBlockById.has(floorBlockId)) return;
 
-        unitsByCell[cellKey].push({
-          ...u,
-          floorLabel: floor.label || floor.index,
-          blockId: floor.blockId,
-          blockLabel: block?.tabLabel || block?.label || '-',
-          entrance: entranceMap.get(u.entranceId)?.number || '-',
-          isExplicationFilled: Array.isArray(u.explication) && u.explication.length > 0,
+        const hostBlockIds = residentialBlocks
+          .map(block => toStr(block.id))
+          .filter(baseId => {
+            const relatedIds = relatedBlockIdsByResidentialBlock[baseId];
+            return relatedIds && relatedIds.has(floorBlockId);
+          });
+
+        hostBlockIds.forEach(baseId => {
+          const cellKey = `${baseId}_${floorId}_${entranceId}`;
+          if (!unitsByCell[cellKey]) unitsByCell[cellKey] = [];
+
+          unitsByCell[cellKey].push({
+            ...u,
+            floorLabel: floor.label || floor.index,
+            floorIsDuplex: !!floor.isDuplex,
+            blockId: baseId,
+            sourceBlockId: floorBlockId,
+            blockLabel: blockMap.get(baseId)?.tabLabel || blockMap.get(baseId)?.label || '-',
+            entrance: entranceMap.get(toStr(entranceId))?.number || '-',
+            isExplicationFilled: Array.isArray(u.explication) && u.explication.length > 0,
+          });
         });
       });
 
@@ -684,7 +839,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
     });
 
     return { blocks: residentialBlocks, floorsByBlock, entrancesByBlock, unitsByCell };
-  }, [fullRegistry, selectedBuildingId]);
+  }, [fullRegistry, selectedBuildingId, building, buildingDetails]);
 
   // --- DERIVED STATE ---
   const activeExtensionId =
@@ -718,11 +873,9 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
         : allFloors.filter(f => !f.extensionId);
 
       return scopedFloors.filter(f => {
-          const hasExistingUnits = (prepared.entrancesByBlock[blockId] || []).some(e => {
-              const cellKey = `${blockId}_${f.id}_${e.id}`;
-              const units = prepared.unitsByCell[cellKey];
-              return units && units.length > 0;
-          });
+          const hasExistingUnits = Object.entries(prepared.unitsByCell).some(([cellKey, list]) =>
+            cellKey.startsWith(`${blockId}_${f.id}_`) && Array.isArray(list) && list.length > 0
+          );
           if (hasExistingUnits) return true;
 
           const hasPlan = (prepared.entrancesByBlock[blockId] || []).some(e => {
@@ -816,11 +969,36 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
     ? (selectedTableUnit ? [selectedTableUnit] : [])
     : selectedUnits;
 
+  useEffect(() => {
+    if (viewMode !== 'matrix' && isCopyPickMode) {
+      setIsCopyPickMode(false);
+    }
+  }, [viewMode, isCopyPickMode]);
+
   // --- HANDLERS ---
 
   const clearSelection = () => {
     setSelectedUnitIds(new Set());
     setSelectedTableUnitId(null);
+  };
+
+  const handlePickCopyUnit = async unit => {
+    if (!unit?.id) return;
+    try {
+      const fresh = await ApiService.getUnitExplicationById(unit.id);
+      setPickedCopyUnit({
+        ...(unit || {}),
+        ...(fresh || {}),
+        _pickedAt: Date.now(),
+      });
+    } catch (e) {
+      console.error(e);
+      setPickedCopyUnit({
+        ...(unit || {}),
+        _pickedAt: Date.now(),
+      });
+      toast.warning('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u044c \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a \u0438\u0437 \u0411\u0414, \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u044b \u0442\u0435\u043a\u0443\u0449\u0438\u0435 \u0434\u0430\u043d\u043d\u044b\u0435');
+    }
   };
 
   const handleTableUnitClick = unitId => {
@@ -837,8 +1015,14 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
       });
   };
 
-  const handleUnitClick = (unit, floorId, entranceId, indexInCell, event) => {
+  const handleUnitClick = async (unit, floorId, entranceId, indexInCell, event) => {
       event.stopPropagation();
+
+      if (isCopyPickMode) {
+          setIsCopyPickMode(false);
+          await handlePickCopyUnit(unit);
+          return;
+      }
 
       if (floorId === bottomFloorId && event.altKey) {
           const riserUnitIds = [];
@@ -1118,11 +1302,19 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
               </thead>
               <tbody>
                 {floors.map(f => (
-                  <tr key={f.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                  <tr
+                    key={f.id}
+                    className={`${f.isDuplex ? 'bg-purple-50/40' : ''} border-b border-slate-100 hover:bg-slate-50/50 transition-colors`}
+                  >
                     <td className="sticky left-0 z-10 bg-slate-50 border-r-2 border-slate-300 px-3 py-2 text-right font-bold text-slate-600 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
-                        <span className="text-sm">
-                            {f.label || f.index}
-                        </span>
+                        <div className="inline-flex items-center gap-1.5">
+                          <span className="text-sm">{f.label || f.index}</span>
+                          {f.isDuplex ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-purple-100 text-purple-700 border border-purple-200">
+                              D
+                            </span>
+                          ) : null}
+                        </div>
                     </td>
                     {entrances.map(e => {
                       const cellKey = `${activeBaseBlockId || activeBlock?.id}_${f.id}_${e.id}`;
@@ -1144,6 +1336,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
                                   const isSelected = selectedUnitIds.has(unit.id);
                                   const ready = unit.isExplicationFilled;
                                   const hasLiving = Number(unit.livingArea) > 0;
+                                  const duplex = isUnitDuplex(unit) || !!f.isDuplex;
                                   
                                   let chipClass = '';
                                   if (isSelected) {
@@ -1157,10 +1350,20 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
                                   } else {
                                       chipClass = 'bg-white text-slate-600 border-slate-200 hover:border-blue-300';
                                   }
+                                  if (duplex && !isSelected) {
+                                      chipClass = `${chipClass} ring-1 ring-purple-200`;
+                                      if (!ready) {
+                                        chipClass = 'bg-purple-50 text-purple-700 border-purple-200 hover:border-purple-300 ring-1 ring-purple-200';
+                                      }
+                                  }
 
-                                  let title = ready ? 'Заполнено' : 'Нет экспликации';
-                                  if (ready && !hasLiving) title = 'Заполнено (нет жилых комнат)';
-                                  
+                                  let title = ready
+                                    ? '\u0417\u0430\u043f\u043e\u043b\u043d\u0435\u043d\u043e'
+                                    : '\u041d\u0435\u0442 \u044d\u043a\u0441\u043f\u043b\u0438\u043a\u0430\u0446\u0438\u0438';
+                                  if (ready && !hasLiving) {
+                                    title = '\u0417\u0430\u043f\u043e\u043b\u043d\u0435\u043d\u043e (\u043d\u0435\u0442 \u0436\u0438\u043b\u044b\u0445 \u043a\u043e\u043c\u043d\u0430\u0442)';
+                                  }
+                                  if (duplex) title = `\u0414\u0443\u043f\u043b\u0435\u043a\u0441\n${title}`;
                                   if (isBottom) title = `Alt + Клик: выделить стояк\n${title}`;
                                   else if (isFirstEntrance) title = `Shift + Клик: выделить ряд\n${title}`;
 
@@ -1224,7 +1427,7 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
                       <td className="px-3 py-2 text-slate-600">{unit.entrance || '-'}</td>
                       <td className="px-3 py-2 text-slate-600">{unit.floorLabel || '-'}</td>
                       <td className="px-3 py-2 text-center text-slate-600">
-                        {['duplex_up', 'duplex_down'].includes(unit.type) ? 'Да' : 'Нет'}
+                        {isUnitDuplex(unit) ? 'Да' : 'Нет'}
                       </td>
                       <td className="px-3 py-2 text-center text-slate-600">
                         {unit.hasMezzanine ? 'Да' : 'Нет'}
@@ -1259,6 +1462,10 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
             onResetExplication={resetExplication}
             onClearSelection={clearSelection}
             isSaving={isSaving}
+            canPickFromMatrix
+            isCopyPickMode={isCopyPickMode}
+            onToggleCopyPick={setIsCopyPickMode}
+            pickedCopyUnit={pickedCopyUnit}
           />
         )}
       </div>
@@ -1285,6 +1492,10 @@ const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
               setSelectedTableUnitId(null);
             }}
             isSaving={isSaving}
+            canPickFromMatrix={false}
+            isCopyPickMode={false}
+            onToggleCopyPick={setIsCopyPickMode}
+            pickedCopyUnit={null}
             isModal
           />
         </Modal>

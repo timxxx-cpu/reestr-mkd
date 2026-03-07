@@ -68,7 +68,7 @@ public class WorkflowService {
         securityPolicyService.requireAllowed(actorRole, "workflow", "mutate");
 
         int currentStep = normalizeStepIndex(current.getCurrentStep());
-        int currentStage = current.getCurrentStage() == null ? 1 : current.getCurrentStage();
+        int currentStage = resolveStageByStepIndex(currentStep);
         int nextStepIndex = currentStep + 1;
         boolean stageBoundary = LAST_STEP_INDEX_BY_STAGE.get(currentStage) != null && LAST_STEP_INDEX_BY_STAGE.get(currentStage) == currentStep;
         boolean isLastStepGlobal = nextStepIndex >= TOTAL_STEPS;
@@ -102,6 +102,7 @@ public class WorkflowService {
 
         int currentStep = normalizeStepIndex(current.getCurrentStep());
         int prevIndex = Math.max(0, currentStep - 1);
+        int prevStage = resolveStageByStepIndex(prevIndex);
         String currentSubstatus = current.getWorkflowSubstatus() == null ? "DRAFT" : current.getWorkflowSubstatus();
 
         String nextSubstatus = currentSubstatus;
@@ -111,7 +112,7 @@ public class WorkflowService {
 
         return new RollbackTransition(
             prevIndex,
-            current.getCurrentStage() == null ? 1 : current.getCurrentStage(),
+            prevStage,
             "IN_PROGRESS",
             nextSubstatus
         );
@@ -121,7 +122,7 @@ public class WorkflowService {
         securityPolicyService.requireAllowed(actorRole, "workflow", "mutate");
 
         boolean isApprove = "APPROVE".equals(action);
-        int currentStage = current.getCurrentStage() == null ? 1 : current.getCurrentStage();
+        int currentStage = resolveStageByStepIndex(normalizeStepIndex(current.getCurrentStep()));
         String nextStatus = current.getStatus() == null ? "IN_PROGRESS" : current.getStatus();
         String nextSubstatus = current.getWorkflowSubstatus() == null ? "DRAFT" : current.getWorkflowSubstatus();
         int nextStepIndex = normalizeStepIndex(current.getCurrentStep());
@@ -147,6 +148,22 @@ public class WorkflowService {
         if (stepIndex == null || stepIndex < 0) return 0;
         if (stepIndex >= TOTAL_STEPS) return TOTAL_STEPS - 1;
         return stepIndex;
+    }
+
+    private int resolveStageByStepIndex(int stepIndex) {
+        int normalized = normalizeStepIndex(stepIndex);
+        int maxKnownStage = LAST_STEP_INDEX_BY_STAGE.keySet().stream()
+            .max(Integer::compareTo)
+            .orElse(1);
+
+        for (int stage = 1; stage <= maxKnownStage; stage++) {
+            Integer stageLastStep = LAST_STEP_INDEX_BY_STAGE.get(stage);
+            if (stageLastStep != null && normalized <= stageLastStep) {
+                return stage;
+            }
+        }
+
+        return maxKnownStage;
     }
 
     public record StageStepRange(int start, int end) {

@@ -22,8 +22,38 @@ import { getBlocksList } from '@lib/utils';
 import { ParkingLevelConfigSchema } from '@lib/schemas';
 
 // Вспомогательный компонент для загрузки этажей блока
+const isBasementUiBlock = block =>
+  !!block?.isBasementBlock ||
+  block?.originalType === 'basement' ||
+  block?.originalType === 'BAS' ||
+  block?.type === 'ПД' ||
+  block?.type === 'BAS';
+
+const collectLinkedBlockIds = (basement, basementMetaBlock, regularBlocksCount, defaultBlockId) => {
+  const linked = new Set();
+  const add = value => {
+    if (!value) return;
+    linked.add(String(value));
+  };
+
+  if (Array.isArray(basement?.blocks)) {
+    basement.blocks.forEach(add);
+  }
+  add(basement?.blockId);
+
+  if (Array.isArray(basementMetaBlock?.linkedBlockIds)) {
+    basementMetaBlock.linkedBlockIds.forEach(add);
+  }
+
+  if (linked.size === 0 && regularBlocksCount === 1 && defaultBlockId) {
+    linked.add(String(defaultBlockId));
+  }
+
+  return linked;
+};
+
 const ParkingRow = ({ row, isReadOnly, counts, basements, onToggle, onCountChange }) => {
-  const { floors } = useDirectFloors(row.blockId);
+  const { floors } = useDirectFloors(row.floorBlockId || row.blockId);
 
   const floor = useMemo(() => {
     if (!floors) return null;
@@ -47,12 +77,23 @@ const ParkingRow = ({ row, isReadOnly, counts, basements, onToggle, onCountChang
     if (row.isMandatory) return true;
     if (row.isBasement && row.basementId) {
       const base = basements.find(b => b.id === row.basementId);
-      return base?.parkingLevels?.[row.depthLevel] || false;
+      const rawLevelValue =
+        base?.parkingLevels?.[row.depthLevel] ??
+        base?.parkingLevels?.[String(row.depthLevel)];
+      if (typeof rawLevelValue === 'string') {
+        return rawLevelValue.trim().toLowerCase() === 'true';
+      }
+      if (typeof rawLevelValue === 'number') {
+        return rawLevelValue > 0;
+      }
+      return Boolean(rawLevelValue);
     }
     return false;
   }, [row, basements]);
 
-  const count = floor ? counts[floor.id] || '' : '';
+  const count = floor
+    ? (Object.prototype.hasOwnProperty.call(counts, floor.id) ? counts[floor.id] : '')
+    : '';
   const validationResult = ParkingLevelConfigSchema.safeParse({ count });
   const isInvalid = !validationResult.success && count !== '' && count !== 0;
 
@@ -62,9 +103,14 @@ const ParkingRow = ({ row, isReadOnly, counts, basements, onToggle, onCountChang
     onCountChange({ floorId: floor.id, count: num, buildingId: row.buildingId });
   };
 
-  const handleToggle = () => {
+  const handleToggle = nextEnabled => {
     if (!row.isBasement || isReadOnly) return;
-    onToggle({ basementId: row.basementId, level: row.depthLevel, isEnabled: !isEnabled });
+    onToggle({
+      basementId: row.basementId,
+      level: row.depthLevel,
+      isEnabled: nextEnabled,
+      floorId: floor?.id,
+    });
   };
 
   if (!floor && !row.isBasement) return null;
@@ -104,7 +150,7 @@ const ParkingRow = ({ row, isReadOnly, counts, basements, onToggle, onCountChang
             className="peer sr-only"
             checked={isEnabled}
             disabled={row.isMandatory || isReadOnly}
-            onChange={handleToggle}
+            onChange={e => handleToggle(e.target.checked)}
           />
           {row.isMandatory ? (
             <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100">
@@ -157,10 +203,28 @@ export default function ParkingConfigurator({ buildingId }) {
 
     targetBuildings.forEach(b => {
       if (b.category === 'infrastructure') return;
-      const blocks = getBlocksList(b);
+      const allBlocks = getBlocksList(b);
+      const blocks = allBlocks.filter(block => !isBasementUiBlock(block));
+      if (blocks.length === 0) return;
+      const basementMetaBlocks = Array.isArray(b?.blocks)
+        ? b.blocks.filter(block => !!block?.isBasementBlock)
+        : [];
+      const basementMetaById = new Map(
+        basementMetaBlocks.map(block => [String(block.id), block])
+      );
+      const buildingBasements = basements.filter(base => String(base.buildingId) === String(b.id));
 
       blocks.forEach(block => {
         const isParkingBuilding = b.category === 'parking_separate';
+        const linkedBasements = buildingBasements.filter(base => {
+          const linkedIds = collectLinkedBlockIds(
+            base,
+            basementMetaById.get(String(base.id)),
+            blocks.length,
+            blocks[0]?.id
+          );
+          return linkedIds.has(String(block.id));
+        });
         const commonData = {
           buildingId: b.id,
           buildingLabel: b.label,
@@ -195,8 +259,7 @@ export default function ParkingConfigurator({ buildingId }) {
                 isBasement: false,
               });
             }
-            const blockBasements = basements.filter(base => (Array.isArray(base.blocks) ? base.blocks : [base.blockId]).includes(block.id));
-            blockBasements.forEach(base => {
+            linkedBasements.forEach(base => {
               for (let d = 1; d <= base.depth; d++) {
                 rows.push({
                   ...commonData,
@@ -204,6 +267,7 @@ export default function ParkingConfigurator({ buildingId }) {
                   label: `Подвал -${d}`,
                   type: 'Подвал',
                   basementId: base.id,
+                  floorBlockId: base.id,
                   depthLevel: d,
                   isMandatory: true,
                   isBasement: true,
@@ -212,8 +276,7 @@ export default function ParkingConfigurator({ buildingId }) {
             });
           }
         } else {
-          const blockBasements = basements.filter(base => (Array.isArray(base.blocks) ? base.blocks : [base.blockId]).includes(block.id));
-          blockBasements.forEach(base => {
+          linkedBasements.forEach(base => {
             for (let d = 1; d <= base.depth; d++) {
               rows.push({
                 ...commonData,
@@ -221,6 +284,7 @@ export default function ParkingConfigurator({ buildingId }) {
                 label: `Подвал -${d}`,
                 type: 'Подвал',
                 basementId: base.id,
+                floorBlockId: base.id,
                 depthLevel: d,
                 isMandatory: false,
                 isBasement: true,
@@ -273,7 +337,7 @@ export default function ParkingConfigurator({ buildingId }) {
             <tbody className="divide-y divide-slate-100 bg-white">
               {allRows.map(row => (
                 <ParkingRow
-                  key={row.id + row.blockId}
+                  key={`${row.id}_${row.blockId}_${row.floorBlockId || ''}`}
                   row={row}
                   isReadOnly={isReadOnly}
                   counts={counts}

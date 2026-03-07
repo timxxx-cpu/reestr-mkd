@@ -166,12 +166,27 @@ export const createRegistryDomainApi = ({
   upsertMatrixCell: async (blockId, floorId, entranceNumber, values, actor = {}) => {
     requireBffEnabled('matrix.upsertMatrixCell');
 
+    const pickMatrixValue = (...candidates) => {
+      for (const candidate of candidates) {
+        if (candidate !== undefined && candidate !== null && candidate !== '') {
+          return candidate;
+        }
+      }
+      return null;
+    };
+
+    const normalizedValues = {
+      flatsCount: pickMatrixValue(values?.flatsCount, values?.apts),
+      commercialCount: pickMatrixValue(values?.commercialCount, values?.units),
+      mopCount: pickMatrixValue(values?.mopCount, values?.mopQty),
+    };
+
     const resolvedActor = resolveActor(actor);
     return BffClient.upsertMatrixCell({
       blockId,
       floorId,
       entranceNumber,
-      values,
+      values: normalizedValues,
       userName: resolvedActor.userName,
       userRole: resolvedActor.userRole,
     });
@@ -180,10 +195,28 @@ export const createRegistryDomainApi = ({
   batchUpsertMatrixCells: async (blockId, cells, actor = {}) => {
     requireBffEnabled('matrix.batchUpsertMatrixCells');
 
+    const pickMatrixValue = (...candidates) => {
+      for (const candidate of candidates) {
+        if (candidate !== undefined && candidate !== null && candidate !== '') {
+          return candidate;
+        }
+      }
+      return null;
+    };
+
+    const normalizedCells = (Array.isArray(cells) ? cells : []).map(cell => ({
+      ...cell,
+      values: {
+        flatsCount: pickMatrixValue(cell?.values?.flatsCount, cell?.values?.apts),
+        commercialCount: pickMatrixValue(cell?.values?.commercialCount, cell?.values?.units),
+        mopCount: pickMatrixValue(cell?.values?.mopCount, cell?.values?.mopQty),
+      },
+    }));
+
     const resolvedActor = resolveActor(actor);
     return BffClient.batchUpsertMatrixCells({
       blockId,
-      cells: Array.isArray(cells) ? cells : [],
+      cells: normalizedCells,
       userName: resolvedActor.userName,
       userRole: resolvedActor.userRole,
     });

@@ -22,7 +22,7 @@ public class CommonAreasService {
 
     public void upsert(Map<String, Object> data) {
         UUID floorId = parseRequiredUuid(data.get("floorId"), "floorId");
-        UUID entranceId = parseRequiredUuid(data.get("entranceId"), "entranceId");
+        UUID entranceId = parseNullableUuid(data.get("entranceId"), "entranceId");
         BigDecimal area = parseRequiredDecimal(data.get("area"), "area");
         BigDecimal height = parseRequiredDecimal(data.get("height"), "height");
         String type = String.valueOf(data.getOrDefault("type", "")).trim();
@@ -60,18 +60,24 @@ public class CommonAreasService {
             jdbcTemplate.update("delete from common_areas where floor_id in (select id from floors where block_id=?)", blockId);
             return;
         }
-        for (String f : floorIds.split(",")) {
-            jdbcTemplate.update("delete from common_areas where floor_id=?", UUID.fromString(f.trim()));
+        List<UUID> ids = parseFloorIds(floorIds);
+        if (ids.isEmpty()) {
+            return;
         }
+        String in = String.join(",", Collections.nCopies(ids.size(), "?"));
+        jdbcTemplate.update("delete from common_areas where floor_id in (" + in + ")", ids.toArray());
     }
 
     public List<Map<String, Object>> list(UUID blockId, String floorIds) {
         if (floorIds == null || floorIds.isBlank()) {
             return jdbcTemplate.queryForList("select ca.* from common_areas ca join floors f on f.id=ca.floor_id where f.block_id=?", blockId);
         }
-        List<String> arr = Arrays.stream(floorIds.split(",")).map(String::trim).toList();
-        String in = String.join(",", Collections.nCopies(arr.size(), "?"));
-        return jdbcTemplate.queryForList("select * from common_areas where floor_id in (" + in + ")", arr.toArray());
+        List<UUID> ids = parseFloorIds(floorIds);
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        String in = String.join(",", Collections.nCopies(ids.size(), "?"));
+        return jdbcTemplate.queryForList("select * from common_areas where floor_id in (" + in + ")", ids.toArray());
     }
 
     private UUID parsePersistedUuid(Object rawId) {
@@ -98,6 +104,35 @@ public class CommonAreasService {
         } catch (IllegalArgumentException ex) {
             throw new ApiException(fieldName + " must be UUID", "VALIDATION_ERROR", null, 400);
         }
+    }
+
+    private UUID parseNullableUuid(Object value, String fieldName) {
+        if (value == null) {
+            return null;
+        }
+        String raw = String.valueOf(value).trim();
+        if (raw.isBlank() || "null".equalsIgnoreCase(raw)) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw);
+        } catch (IllegalArgumentException ex) {
+            throw new ApiException(fieldName + " must be UUID", "VALIDATION_ERROR", null, 400);
+        }
+    }
+
+    private List<UUID> parseFloorIds(String floorIds) {
+        return Arrays.stream(floorIds.split(","))
+            .map(String::trim)
+            .filter(v -> !v.isBlank())
+            .map(value -> {
+                try {
+                    return UUID.fromString(value);
+                } catch (IllegalArgumentException ex) {
+                    throw new ApiException("floorIds contains invalid UUID: " + value, "VALIDATION_ERROR", null, 400);
+                }
+            })
+            .toList();
     }
 
     private BigDecimal parseRequiredDecimal(Object value, String fieldName) {

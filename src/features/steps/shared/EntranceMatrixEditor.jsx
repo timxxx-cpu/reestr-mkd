@@ -327,6 +327,12 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
       if (field === 'apts') return false;
       return true;
     }
+    const isTechnicalFloor =
+      floor?.type === 'technical' ||
+      !!floor?.isTechnical ||
+      !!floor?.flags?.isTechnical;
+    if (field === 'apts' && isTechnicalFloor) return false;
+
     const isLinkedStylobate = floor?.blockId && currentBlock?.id && floor.blockId !== currentBlock.id;
     if (field === 'apts' && isLinkedStylobate) return true;
     return Validators.checkFieldAvailability(floor, field, isUnderground);
@@ -901,9 +907,11 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                      </div>
                      
                      <div className="bg-slate-50 px-6 py-3 border-t border-slate-100 flex justify-between shrink-0">
-                         <button 
-                            className="text-xs font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1"
+                         <button
+                            disabled={isReadOnly}
+                            className={`text-xs font-bold flex items-center gap-1 ${isReadOnly ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:text-slate-600'}`}
                             onClick={() => {
+                                if (isReadOnly) return;
                                 if(confirm('Очистить данные в выбранных ячейках?')) {
                                     setHasUnsavedChanges(true);
                                     const updates = [];
@@ -921,9 +929,13 @@ export default function EntranceMatrixEditor({ buildingId, onBack }) {
                          >
                             <Eraser size={12}/> Очистить
                          </button>
-                         <button 
-                            className="text-xs font-bold text-blue-600 hover:text-blue-700"
-                            onClick={clearSelection}
+                         <button
+                            disabled={isReadOnly}
+                            className={`text-xs font-bold ${isReadOnly ? 'text-slate-300 cursor-not-allowed' : 'text-blue-600 hover:text-blue-700'}`}
+                            onClick={() => {
+                                if (isReadOnly) return;
+                                clearSelection();
+                            }}
                          >
                             Готово
                          </button>

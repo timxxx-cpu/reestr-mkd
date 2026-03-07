@@ -17,7 +17,6 @@ export function useDirectParking(projectId) {
     counts: ['direct-parking-counts', projectId],
   };
 
-  // --- READ ---
   const { data: basements = [], isLoading: loadingBasements } = useQuery({
     queryKey: keys.basements,
     queryFn: () => ApiService.getBasements(projectId),
@@ -30,20 +29,65 @@ export function useDirectParking(projectId) {
     enabled: !!projectId,
   });
 
-  // --- WRITE ---
-
-  // Включение/выключение уровня в подвале
   const toggleLevelMutation = useMutation({
     /**
-     * @param {{ basementId: string, level: number, isEnabled: boolean }} params
+     * @param {{ basementId: string, level: number, isEnabled: boolean, floorId?: string }} params
      */
     mutationFn: ({ basementId, level, isEnabled }) =>
       ApiService.toggleBasementLevel(basementId, level, isEnabled),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.basements }),
-    onError: () => toast.error('Ошибка обновления уровня'),
+
+    onMutate: async ({ basementId, level, isEnabled, floorId }) => {
+      await queryClient.cancelQueries({ queryKey: keys.basements });
+      const prevBasements = queryClient.getQueryData(keys.basements);
+      let prevCounts;
+
+      queryClient.setQueryData(keys.basements, old => {
+        const list = Array.isArray(old) ? old : [];
+        return list.map(base => {
+          if (String(base?.id) !== String(basementId)) return base;
+          const levels =
+            base?.parkingLevels && typeof base.parkingLevels === 'object' ? base.parkingLevels : {};
+          return {
+            ...base,
+            parkingLevels: {
+              ...levels,
+              [String(level)]: isEnabled,
+            },
+          };
+        });
+      });
+
+      if (!isEnabled && floorId) {
+        await queryClient.cancelQueries({ queryKey: keys.counts });
+        prevCounts = queryClient.getQueryData(keys.counts);
+        queryClient.setQueryData(keys.counts, old => {
+          const map = old && typeof old === 'object' ? old : {};
+          return {
+            ...map,
+            [floorId]: 0,
+          };
+        });
+      }
+
+      return { prevBasements, prevCounts };
+    },
+
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prevBasements !== undefined) {
+        queryClient.setQueryData(keys.basements, ctx.prevBasements);
+      }
+      if (ctx?.prevCounts !== undefined) {
+        queryClient.setQueryData(keys.counts, ctx.prevCounts);
+      }
+      toast.error('РћС€РёР±РєР° РѕР±РЅРѕРІР»РµРЅРёСЏ СѓСЂРѕРІРЅСЏ');
+    },
+
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: keys.basements });
+      queryClient.invalidateQueries({ queryKey: keys.counts });
+    },
   });
 
-  // Изменение количества мест
   const syncPlacesMutation = useMutation({
     /**
      * @param {{ floorId: string, count: number, buildingId: string }} params
@@ -52,11 +96,9 @@ export function useDirectParking(projectId) {
       ApiService.syncParkingPlaces(floorId, count, buildingId, actor),
 
     onMutate: async ({ floorId, count }) => {
-      // Оптимистичное обновление счетчика
       await queryClient.cancelQueries({ queryKey: keys.counts });
       const prev = queryClient.getQueryData(keys.counts);
 
-      // Добавлена проверка типа для old
       queryClient.setQueryData(keys.counts, old => {
         const map = old && typeof old === 'object' ? old : {};
         return {
@@ -67,9 +109,9 @@ export function useDirectParking(projectId) {
 
       return { prev };
     },
-    onError: (err, vars, ctx) => {
+    onError: (_err, _vars, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(keys.counts, ctx.prev);
-      toast.error('Ошибка синхронизации мест');
+      toast.error('РћС€РёР±РєР° СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёРё РјРµСЃС‚');
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.counts }),
   });

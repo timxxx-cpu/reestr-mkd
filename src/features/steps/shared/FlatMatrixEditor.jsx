@@ -28,7 +28,7 @@ import { ApiService } from '@lib/api-service';
 import { AuthService } from '@lib/auth-service';
 import ConfigHeader from '@/features/steps/configurator/ConfigHeader';
 import { formatBlockSwitcherLabel } from '@lib/building-details';
-import { useMatrixData } from '@hooks/useMatrixData';
+import { OUTSIDE_ENTRANCE_KEY, useMatrixData } from '@hooks/useMatrixData';
 import { useToast } from '@context/ToastContext';
 
 // Компактные стили и мини-лейблы
@@ -102,6 +102,27 @@ const isLinkedStylobateFloor = floor => {
   return !isExcluded && (Number(floor.index) || 0) > 0;
 };
 
+const isBasementFloor = floor =>
+  !!floor &&
+  (floor.type === 'basement' || floor.type === 'tsokol' || !!floor.isBasement || !!floor.flags?.isBasement);
+
+const isNonResidentialBlock = block =>
+  !!block && (block.type === 'non_residential' || block.type === 'Н' || block.originalType === 'Н');
+
+const isBasementBlock = block =>
+  !!block &&
+  (!!block.isBasementBlock ||
+    block.type === 'basement' ||
+    block.type === 'ПД' ||
+    block.type === 'BAS' ||
+    block.originalType === 'basement' ||
+    block.originalType === 'BAS');
+
+const toPositiveInt = value => {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
 const getBlockIcon = type => {
   if (type === 'residential') return Building2;
   if (type === 'parking') return Car;
@@ -122,50 +143,141 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
   const { buildings } = useDirectBuildings(projectId);
   const building = useMemo(() => buildings.find(b => b.id === buildingId), [buildings, buildingId]);
+  const residentialBlocks = useMemo(
+    () => (building?.blocks || []).filter(block => block.type === 'residential'),
+    [building]
+  );
   const typeInfo = useBuildingType(building);
   const { isParking, isInfrastructure, isUnderground } = typeInfo;
 
   const [activeBlockIndex, setActiveBlockIndex] = useState(0);
-  const currentBlock = useMemo(() => building?.blocks?.[activeBlockIndex], [building, activeBlockIndex]);
+  const currentBlock = useMemo(() => residentialBlocks[activeBlockIndex], [residentialBlocks, activeBlockIndex]);
+
+  useEffect(() => {
+    if (activeBlockIndex < residentialBlocks.length) return;
+    setActiveBlockIndex(0);
+  }, [activeBlockIndex, residentialBlocks.length]);
 
   const { floors: rawFloors } = useDirectFloors(currentBlock?.id);
-  const [linkedStylobateFloors, setLinkedStylobateFloors] = useState([]);
+  const [linkedExternalFloors, setLinkedExternalFloors] = useState([]);
   
   useEffect(() => {
     let cancelled = false;
     const loadLinked = async () => {
-      if (!building?.blocks || !currentBlock) return;
-      const linked = building.blocks.filter(b => {
-         if (b.type !== 'non_residential') return false;
-         const d = buildingDetails?.[`${building.id}_${b.id}`] || {};
-         return Array.isArray(d.parentBlocks) && d.parentBlocks.includes(currentBlock.id);
-      });
-      if (!linked.length) { if(!cancelled) setLinkedStylobateFloors([]); return; }
+      if (!building?.blocks?.length || !currentBlock?.id) {
+        if (!cancelled) setLinkedExternalFloors([]);
+        return;
+      }
+
+      const candidateExternalBlocks = building.blocks.filter(
+        block => isNonResidentialBlock(block) || isBasementBlock(block)
+      );
+
+      const blocksToFetch = candidateExternalBlocks;
+      if (!blocksToFetch.length) {
+        if (!cancelled) setLinkedExternalFloors([]);
+        return;
+      }
+
       try {
-        const res = await Promise.all(linked.map(b => ApiService.getFloors(b.id)));
-        const stylo = res.flat().filter(isLinkedStylobateFloor);
-        if (!cancelled) setLinkedStylobateFloors(stylo);
-      } catch (e) { console.error(e); }
+        const responses = await Promise.all(blocksToFetch.map(block => ApiService.getFloors(block.id)));
+        const externalFloors = responses
+          .flat()
+          .filter(
+            floor =>
+              isLinkedStylobateFloor(floor) ||
+              isBasementFloor(floor) ||
+              (Number(floor?.index) || 0) < 0
+          );
+
+        if (!cancelled) setLinkedExternalFloors(externalFloors);
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setLinkedExternalFloors([]);
+      }
     };
     loadLinked();
     return () => { cancelled = true; };
   }, [building, buildingDetails, currentBlock]);
 
-  const linkedStylobateFloorIds = useMemo(() => linkedStylobateFloors.map(f => f.id), [linkedStylobateFloors]);
+  const linkedExternalFloorIds = useMemo(
+    () => linkedExternalFloors.map(f => f.id).filter(Boolean),
+    [linkedExternalFloors]
+  );
 
   const { entrances, matrixMap } = useDirectMatrix(currentBlock?.id);
-  const { units, upsertUnit, batchUpsertUnits } = useDirectUnits(currentBlock?.id, linkedStylobateFloorIds);
+  const { units, upsertUnit, batchUpsertUnits } = useDirectUnits(currentBlock?.id, linkedExternalFloorIds);
+
+  const hasOutsideByMatrix = useMemo(
+    () =>
+      Object.entries(matrixMap || {}).some(
+        ([key, value]) =>
+          key.endsWith('_0') &&
+          (toPositiveInt(value?.apts) > 0 || toPositiveInt(value?.units) > 0)
+      ),
+    [matrixMap]
+  );
+
+  const hasOutsideByUnits = useMemo(
+    () => (units || []).some(unit => !unit?.entranceId),
+    [units]
+  );
+
+  const entranceColumns = useMemo(() => {
+    const columns = (entrances || []).map(entrance => ({
+      id: entrance.id,
+      number: entrance.number,
+      matrixNumber: entrance.number,
+      unitEntranceId: entrance.id,
+      isOutside: false,
+    }));
+
+    if (hasOutsideByMatrix || hasOutsideByUnits) {
+      columns.push({
+        id: OUTSIDE_ENTRANCE_KEY,
+        number: 0,
+        matrixNumber: 0,
+        unitEntranceId: null,
+        isOutside: true,
+      });
+    }
+
+    return columns;
+  }, [entrances, hasOutsideByMatrix, hasOutsideByUnits]);
+
+  const allCandidateFloors = useMemo(() => {
+    const localFloors = (rawFloors || []).filter(floor => !(floor.isStylobate || floor.flags?.isStylobate));
+    const merged = [...localFloors, ...linkedExternalFloors];
+    return Array.from(new Map(merged.map(floor => [floor.id, floor])).values());
+  }, [rawFloors, linkedExternalFloors]);
 
   const displayFloors = useMemo(() => {
-    const all = [...(rawFloors || []), ...linkedStylobateFloors];
-    const unique = Array.from(new Map(all.map(f => [f.id, f])).values());
-    return unique
-      .filter(f => !f.isStylobate && !f.flags?.isStylobate)
-      .filter(f => f.isDuplex || entrances.some(e => (parseInt(matrixMap[`${f.id}_${e.number}`]?.apts || 0) > 0)))
+    return allCandidateFloors
+      .filter(floor => {
+        const hasPlan = entranceColumns.some(entrance => {
+          const matrixKey = `${floor.id}_${entrance.matrixNumber}`;
+          const cell = matrixMap[matrixKey] || {};
+          return toPositiveInt(cell.apts) > 0 || toPositiveInt(cell.units) > 0;
+        });
+        const hasExistingUnits = (units || []).some(unit => unit.floorId === floor.id);
+        return !!floor.isDuplex || hasPlan || hasExistingUnits;
+      })
       .sort((a, b) => (Number(b.index) || 0) - (Number(a.index) || 0));
-  }, [rawFloors, linkedStylobateFloors, entrances, matrixMap]);
+  }, [allCandidateFloors, entranceColumns, matrixMap, units]);
 
-  const { gridMap, generateInitialUnits, prepareResetPayload } = useMatrixData(units, displayFloors, entrances, matrixMap);
+  const { gridMap, generateInitialUnits, prepareResetPayload } = useMatrixData(
+    units,
+    displayFloors,
+    entranceColumns,
+    matrixMap
+  );
+  const floorBlockIdMap = useMemo(() => {
+    const map = new Map();
+    allCandidateFloors.forEach(floor => {
+      map.set(floor.id, floor.blockId || currentBlock?.id || null);
+    });
+    return map;
+  }, [allCandidateFloors, currentBlock?.id]);
 
   const [editingUnit, setEditingUnit] = useState(null);
   const [showResetModal, setShowResetModal] = useState(false);
@@ -183,9 +295,11 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
   const handleManualFill = async () => {
     setShowFillModal(false);
     
-    const hasPlannedApts = Object.values(matrixMap).some(v => parseInt(v.apts || 0, 10) > 0);
-    if (!hasPlannedApts) {
-       toast.error('Матрица пуста. Сначала укажите количество квартир на этажах.');
+    const hasPlannedUnits = Object.values(matrixMap).some(
+      value => toPositiveInt(value?.apts) > 0 || toPositiveInt(value?.units) > 0
+    );
+    if (!hasPlannedUnits) {
+       toast.error('Матрица пуста. Сначала укажите количество квартир/офисов на этажах.');
        return;
     }
 
@@ -282,10 +396,13 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
         return;
     }
 
-    const duplicate = units.find(u => 
-        String(u.num).trim().toLowerCase() === targetNum && 
-        u.id !== editingUnit.id
-    );
+    const targetBlockId = floorBlockIdMap.get(editingUnit.floorId) || currentBlock?.id || null;
+    const duplicate = units.find(u => {
+        if (!u || u.id === editingUnit.id) return false;
+        if (String(u.num).trim().toLowerCase() !== targetNum) return false;
+        const candidateBlockId = floorBlockIdMap.get(u.floorId) || currentBlock?.id || null;
+        return candidateBlockId === targetBlockId;
+    });
 
     if (duplicate) {
         toast.error(`Номер "${editingUnit.num}" уже занят!`);
@@ -367,11 +484,11 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
   const colWidths = useMemo(() => {
     const widths = {};
-    entrances.forEach(e => {
+    entranceColumns.forEach(e => {
       let maxCount = 0;
       displayFloors.forEach(f => {
-        const matrixKey = `${f.id}_${e.number}`;
-        const count = parseInt(matrixMap[matrixKey]?.apts || 0);
+        const matrixKey = `${f.id}_${e.matrixNumber}`;
+        const count = toPositiveInt(matrixMap[matrixKey]?.apts) + toPositiveInt(matrixMap[matrixKey]?.units);
         if (count > maxCount) maxCount = count;
       });
       const CELL_WIDTH = 58; 
@@ -380,11 +497,13 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
       widths[e.id] = Math.max(80, maxCount * CELL_WIDTH + (maxCount - 1) * GAP + PADDING);
     });
     return widths;
-  }, [entrances, displayFloors, matrixMap]);
+  }, [entranceColumns, displayFloors, matrixMap]);
 
   const hasUnits = units.length > 0;
 
-  if (!building || !currentBlock) return <div className="p-12 text-center text-slate-500">Загрузка...</div>;
+  if (!building) return <div className="p-12 text-center text-slate-500">Загрузка...</div>;
+  if (residentialBlocks.length === 0) return <div className="p-12 text-center text-slate-500">Нет жилых блоков</div>;
+  if (!currentBlock) return <div className="p-12 text-center text-slate-500">Загрузка...</div>;
 
   return (
     <div className="flex flex-col h-[calc(100vh-200px)] min-h-[500px] w-full px-4 md:px-6 2xl:px-8 max-w-[2400px] mx-auto animate-in fade-in duration-500 overflow-hidden pb-4">
@@ -405,7 +524,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 shrink-0">
         <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl shadow-inner border border-slate-700 custom-scrollbar overflow-x-auto max-w-[50%]">
-          {building.blocks.map((b, i) => (
+          {residentialBlocks.map((b, i) => (
             <DarkTabButton
               key={b.id}
               active={activeBlockIndex === i}
@@ -421,9 +540,9 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-sm">
               <span className="text-[10px] font-bold text-slate-400 uppercase">Старт №:</span>
               <input
-                disabled={isReadOnly || hasUnits}
+                disabled={isReadOnly || isGenerating}
                 type="number"
-                className={`w-12 bg-transparent font-bold text-sm text-slate-700 outline-none text-center ${isReadOnly || hasUnits ? 'opacity-50' : ''}`}
+                className={`w-12 bg-transparent font-bold text-sm text-slate-700 outline-none text-center ${isReadOnly || isGenerating ? 'opacity-50' : ''}`}
                 value={startNum}
                 onChange={e => setStartNum(parseInt(e.target.value) || 1)}
               />
@@ -460,7 +579,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                 <th className="p-2 sticky left-0 z-50 bg-slate-200 border-r border-slate-300 w-16 text-center shadow-md text-[10px] font-black text-slate-600 uppercase">
                   Этаж
                 </th>
-                {entrances.map(e => (
+                {entranceColumns.map(e => (
                   <th key={e.id} className="p-2 border-r border-slate-300/50 bg-slate-100 text-center" style={{ width: colWidths[e.id], minWidth: colWidths[e.id] }}>
                     <div className="flex flex-col gap-0.5 items-center">
                       <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Подъезд</span>
@@ -497,10 +616,10 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
                       </div>
                     </td>
 
-                    {entrances.map((e) => {
+                    {entranceColumns.map((e) => {
                       const cellUnits = gridMap[f.id]?.[e.id] || [];
                       const isEvenCol = e.number % 2 === 0;
-                      const bgColor = isEvenCol ? 'bg-slate-50/30' : 'bg-white';
+                      const bgColor = e.isOutside ? 'bg-amber-50/30' : (isEvenCol ? 'bg-slate-50/30' : 'bg-white');
 
                       return (
                         <td key={e.id} className={`p-2 border-r border-slate-100 align-top ${bgColor}`} style={{ width: colWidths[e.id] }}>
@@ -691,3 +810,6 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
     </div>
   );
 }
+
+
+

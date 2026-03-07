@@ -479,7 +479,7 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
       method: 'POST',
       userName,
       userRole,
-      body: unitData,
+      body: { data: unitData },
     }),
 
   batchUpsertUnits: ({ unitsList, userName, userRole, idempotencyKey }) =>
@@ -520,7 +520,7 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
       method: 'POST',
       userName,
       userRole,
-      body: data,
+      body: { data },
     }),
 
   deleteCommonArea: ({ id, userName, userRole }) =>
@@ -569,7 +569,7 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
       method: 'PUT',
       userName,
       userRole,
-      body: { floorId, entranceNumber, values },
+      body: { data: { floorId, entranceNumber, values } },
     }),
 
   batchUpsertMatrixCells: ({ blockId, cells, userName, userRole }) =>

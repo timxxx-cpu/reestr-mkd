@@ -7,7 +7,8 @@ public enum UnitType {
     OFFICE("office"),
     DUPLEX_UP("duplex_up"),
     DUPLEX_DOWN("duplex_down"),
-    PANTRY("pantry");
+    PANTRY("pantry"),
+    PARKING_PLACE("parking_place");
 
     private final String value;
 

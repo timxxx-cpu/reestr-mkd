@@ -278,6 +278,36 @@ public final class ValidationUtils {
                             unitsByBlock.get(blockId).put(num, true);
                         }
                     }
+
+                    Map<UUID, Long> duplexUnitsByFloor = units.stream()
+                        .filter(unit -> isDuplexUnitType(unit.unitType()))
+                        .collect(Collectors.groupingBy(UnitData::floorId, Collectors.counting()));
+
+                    for (FloorData floor : floors) {
+                        if (!Boolean.TRUE.equals(floor.isDuplex())) {
+                            continue;
+                        }
+
+                        long duplexUnitsCount = duplexUnitsByFloor.getOrDefault(floor.id(), 0L);
+                        if (duplexUnitsCount > 0) {
+                            continue;
+                        }
+
+                        UUID blockId = floor.blockId();
+                        BlockData block = allBlocks.stream().filter(b -> b.id().equals(blockId)).findFirst().orElse(null);
+                        BuildingData building = findBuildingByBlock(allBuildings, blockId);
+                        String title = getEntityTitle(building, block);
+                        String floorLabel = !isBlank(floor.label())
+                            ? floor.label()
+                            : (floor.index() != null ? floor.index() + " этаж" : "этаж");
+
+                        errors.add(buildValidationError(
+                            "DUPLEX_UNITS_REQUIRED",
+                            title,
+                            floorLabel + ": Этаж отмечен как \"Дуплекс\", но дуплекс-квартиры не назначены.",
+                            Map.of("floorId", floor.id(), "blockId", floor.blockId())
+                        ));
+                    }
                 } else {
                     errors.add(buildValidationError("FLOORS_REQUIRED", "Помещения", "Сначала заполните этажи для жилых блоков", Map.of()));
                 }
@@ -398,7 +428,7 @@ public final class ValidationUtils {
         }
 
         String sql = """
-            select id, block_id, label, "index" as floor_index, floor_type, is_stylobate, height, area_proj, area_fact
+            select id, block_id, label, "index" as floor_index, floor_type, is_stylobate, is_duplex, height, area_proj, area_fact
             from floors
             where block_id in (%s)
         """.formatted(blockIds.stream().map(id -> "?").collect(Collectors.joining(",")));
@@ -411,6 +441,7 @@ public final class ValidationUtils {
             asInteger(row.get("floor_index")),
             asString(row.get("floor_type")),
             asBoolean(row.get("is_stylobate")),
+            asBoolean(row.get("is_duplex")),
             asDouble(row.get("height")),
             asDouble(row.get("area_proj")),
             asDouble(row.get("area_fact"))
@@ -423,14 +454,14 @@ public final class ValidationUtils {
         }
 
         String sql = """
-            select id, floor_id, number
+            select id, floor_id, number, unit_type
             from units
             where floor_id in (%s)
         """.formatted(floorIds.stream().map(id -> "?").collect(Collectors.joining(",")));
 
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(Objects.requireNonNull(sql), floorIds.toArray());
         return rows.stream()
-            .map(row -> new UnitData(castUuid(row.get("id")), castUuid(row.get("floor_id")), asString(row.get("number"))))
+            .map(row -> new UnitData(castUuid(row.get("id")), castUuid(row.get("floor_id")), asString(row.get("number")), asString(row.get("unit_type"))))
             .toList();
     }
 
@@ -564,6 +595,11 @@ public final class ValidationUtils {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
     }
 
+    private static boolean isDuplexUnitType(String value) {
+        String type = safe(value);
+        return "duplex_up".equals(type) || "duplex_down".equals(type);
+    }
+
     private static int parseInt(String value, Integer fallback) {
         try {
             return Integer.parseInt(Objects.requireNonNullElse(value, ""));
@@ -652,12 +688,13 @@ public final class ValidationUtils {
         Integer index,
         String floorType,
         Boolean isStylobate,
+        Boolean isDuplex,
         Double height,
         Double areaProj,
         Double areaFact
     ) {
     }
 
-    public record UnitData(UUID id, UUID floorId, String number) {
+    public record UnitData(UUID id, UUID floorId, String number, String unitType) {
     }
 }

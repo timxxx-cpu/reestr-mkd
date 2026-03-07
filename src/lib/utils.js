@@ -53,6 +53,9 @@ export function getBlocksList(building, buildingDetails = {}) {
         id: block.id, // Реальный UUID блока
         type: typeLabel, // 'Ж', 'Н' для UI
         index: index,
+        floorsCount: block.floorsCount ?? block.floors_count ?? 0,
+        isBasementBlock: !!block.isBasementBlock,
+        linkedBlockIds: Array.isArray(block.linkedBlockIds) ? block.linkedBlockIds : [],
         fullId: detailsKey, // Ключ для поиска в buildingDetails
         tabLabel: displayLabel,
         icon: Icon,

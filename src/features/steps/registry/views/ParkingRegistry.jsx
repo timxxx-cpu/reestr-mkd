@@ -96,17 +96,19 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
   const handleSaveUnit = async (originalUnit, changes) => {
     try {
       const mergedData = { ...originalUnit, ...changes };
+      const hasMezzanine = changes.hasMezzanine !== undefined
+        ? !!changes.hasMezzanine
+        : !!originalUnit.hasMezzanine;
       const payload = {
         id: mergedData.id,
-        floorId: mergedData.floorId,
-        entranceId: mergedData.entranceId,
         num: mergedData.number || mergedData.num,
-        type: mergedData.type,
         area: mergedData.area,
         livingArea: mergedData.livingArea,
         usefulArea: mergedData.usefulArea,
         rooms: mergedData.rooms,
         isSold: mergedData.isSold,
+        hasMezzanine,
+        mezzanineType: hasMezzanine ? mergedData.mezzanineType || 'internal' : null,
         explication: mergedData.explication || mergedData.roomsList,
       };
 
@@ -136,19 +138,61 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
 
     setIsAutoFilling(true);
     try {
+        const floors = Array.isArray(fullRegistry?.floors) ? fullRegistry.floors : [];
+        const blocks = Array.isArray(fullRegistry?.blocks) ? fullRegistry.blocks : [];
+        const allUnits = Array.isArray(fullRegistry?.units) ? fullRegistry.units : [];
+        const blockById = new Map(blocks.map(block => [String(block.id), block]));
+        const buildingIdByFloorId = new Map(
+            floors.map(floor => [String(floor.id), blockById.get(String(floor.blockId))?.buildingId || null])
+        );
+        const parkingSequencePattern = /^(?:(\d+)-P|-?P-?(\d+))$/i;
+        const usedParkingNumbersByBuilding = new Map();
+        const reserveParkingNumber = (targetBuildingId, rawNumber) => {
+            if (!targetBuildingId || !rawNumber) return;
+            const parsed = String(rawNumber).trim().match(parkingSequencePattern);
+            if (!parsed) return;
+            const seq = Number(parsed[1] || parsed[2]);
+            if (!Number.isFinite(seq) || seq <= 0) return;
+            const key = String(targetBuildingId);
+            if (!usedParkingNumbersByBuilding.has(key)) {
+                usedParkingNumbersByBuilding.set(key, new Set());
+            }
+            usedParkingNumbersByBuilding.get(key).add(seq);
+        };
+        const getNextParkingNumber = targetBuildingId => {
+            const key = String(targetBuildingId || '');
+            if (!usedParkingNumbersByBuilding.has(key)) {
+                usedParkingNumbersByBuilding.set(key, new Set());
+            }
+            const used = usedParkingNumbersByBuilding.get(key);
+            let seq = 1;
+            while (used.has(seq)) seq += 1;
+            used.add(seq);
+            return `${seq}-P`;
+        };
+
+        allUnits
+            .filter(unit => unit?.type === 'parking_place')
+            .forEach(unit => {
+                const targetBuildingId = buildingIdByFloorId.get(String(unit.floorId));
+                reserveParkingNumber(targetBuildingId, unit.number);
+                reserveParkingNumber(targetBuildingId, unit.num);
+            });
+
         const updates = [];
-        data.forEach((item, index) => {
+        data.forEach(item => {
             const needsNumber = !item.number;
             const needsArea = !parseFloat(item.area);
 
             if (needsNumber || needsArea) {
+                const targetBuildingId = item.buildingId || buildingIdByFloorId.get(String(item.floorId));
                 updates.push({
                     id: item.id,
-                    floorId: item.floorId,
-                    type: item.type,
-                    num: item.number || String(index + 1),
+                    num: item.number || getNextParkingNumber(targetBuildingId),
                     area: parseFloat(item.area) > 0 ? item.area : '13.25',
-                    isSold: item.isSold
+                    isSold: item.isSold,
+                    hasMezzanine: !!item.hasMezzanine,
+                    mezzanineType: item.hasMezzanine ? item.mezzanineType || 'internal' : null,
                 });
             }
         });
@@ -158,10 +202,8 @@ const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
             return;
         }
 
-        if (ApiService.batchUpsertUnits) {
-            await ApiService.batchUpsertUnits(updates, actor);
-        } else {
-            await Promise.all(updates.map(u => ApiService.upsertUnit(u, actor)));
+        for (const unit of updates) {
+            await ApiService.upsertUnit(unit, actor);
         }
 
         await queryClient.invalidateQueries({ queryKey: ['project-registry', projectId] });

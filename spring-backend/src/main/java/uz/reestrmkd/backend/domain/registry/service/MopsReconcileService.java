@@ -40,8 +40,15 @@ public class MopsReconcileService {
         );
         for (Map<String, Object> row : matrixRows) {
             Integer entranceNumber = toNullableInt(row.get("entrance_number"));
-            UUID entranceId = entranceByNumber.get(entranceNumber);
-            if (entranceId == null) continue;
+            UUID entranceId;
+            if (entranceNumber == null) {
+                continue;
+            } else if (entranceNumber == 0) {
+                entranceId = null;
+            } else {
+                entranceId = entranceByNumber.get(entranceNumber);
+                if (entranceId == null) continue;
+            }
             desiredMap.put(row.get("floor_id") + "_" + entranceId, Math.max(0, toInt(row.get("mop_count"), 0)));
         }
 

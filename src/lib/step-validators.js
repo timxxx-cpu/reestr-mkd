@@ -768,8 +768,32 @@ const validateParkingConfig = data => {
   const { composition, buildingDetails, parkingPlaces } = data;
   const errors = [];
 
+  const isBasementBlock = block =>
+    !!block?.isBasementBlock ||
+    block?.type === 'РџР”' ||
+    block?.type === 'BAS' ||
+    block?.originalType === 'basement' ||
+    block?.originalType === 'BAS';
+
+  const collectLinkedBlockIds = (basement, basementMetaBlock, regularBlocksCount, defaultBlockId) => {
+    const linked = new Set();
+    const add = value => {
+      if (!value) return;
+      linked.add(String(value));
+    };
+
+    if (Array.isArray(basement?.blocks)) basement.blocks.forEach(add);
+    add(basement?.blockId);
+    if (Array.isArray(basementMetaBlock?.linkedBlockIds)) basementMetaBlock.linkedBlockIds.forEach(add);
+
+    if (linked.size === 0 && regularBlocksCount === 1 && defaultBlockId) {
+      linked.add(String(defaultBlockId));
+    }
+    return linked;
+  };
+
   composition.forEach(building => {
-    const blocks = getBlocksList(building, buildingDetails);
+    const blocks = getBlocksList(building, buildingDetails).filter(block => !isBasementBlock(block));
 
     if (building.category === 'parking_separate') {
       const isCapital = building.constructionType === 'capital';
@@ -808,15 +832,29 @@ const validateParkingConfig = data => {
       }
     } else if (building.category.includes('residential')) {
       const features = buildingDetails[`${building.id}_features`] || {};
-      const basements = features.basements || [];
+      const basements = Array.isArray(features.basements) ? features.basements : [];
+      const basementMetaBlocks = Array.isArray(building?.blocks)
+        ? building.blocks.filter(block => !!block?.isBasementBlock)
+        : [];
+      const basementMetaById = new Map(
+        basementMetaBlocks.map(block => [String(block.id), block])
+      );
 
       blocks.forEach(block => {
-        const blockBasements = basements.filter(b => b.blocks?.includes(block.id));
+        const blockBasements = basements.filter(base => {
+          const linkedIds = collectLinkedBlockIds(
+            base,
+            basementMetaById.get(String(base.id)),
+            blocks.length,
+            blocks[0]?.id
+          );
+          return linkedIds.has(String(block.id));
+        });
 
         blockBasements.forEach(base => {
           if (!base.hasParking) return;
 
-          const depth = parseInt(base.depth || 1);
+          const depth = parseInt(base.depth || 1, 10);
           for (let d = 1; d <= depth; d++) {
             let isLevelEnabled = true;
             if (base.parkingLevels && base.parkingLevels[d] !== undefined) {
@@ -828,7 +866,7 @@ const validateParkingConfig = data => {
               const metaKey = `${block.fullId}_${levelId}_meta`;
 
               const countVal = parkingPlaces[metaKey]?.count;
-              const count = parseInt(countVal || 0);
+              const count = parseInt(countVal || 0, 10);
 
               if (!countVal || count <= 0) {
                 errors.push({

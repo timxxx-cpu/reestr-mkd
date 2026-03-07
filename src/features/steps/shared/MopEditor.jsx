@@ -1,15 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
-  Building2,
-  Car,
-  Box,
-  Store,
-  LayoutGrid,
   MousePointer2,
   CheckCircle2,
-  Plus,
-  Trash2,
   RotateCcw,
   ArrowDown,
   Check,
@@ -40,20 +33,6 @@ import {
   } from '@lib/step-validators';
 
 // --- UI COMPONENTS ---
-
-const DarkTabButton = ({ active, onClick, children, icon: Icon }) => (
-  <button
-    onClick={onClick}
-    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 ${
-      active
-        ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50 ring-1 ring-blue-400'
-        : 'text-slate-400 hover:text-white hover:bg-slate-700'
-    }`}
-  >
-    {Icon && <Icon size={14} className={active ? 'text-blue-200' : 'opacity-70'} />}
-    {children}
-  </button>
-);
 
 const FloorTypeBadge = ({ type }) => {
     const map = {
@@ -97,14 +76,6 @@ const isLinkedStylobateFloor = floor => {
   return !isExcluded && (Number(floor.index) || 0) > 0;
 };
 
-const getBlockIcon = type => {
-  if (type === 'residential') return Building2;
-  if (type === 'parking') return Car;
-  if (type === 'infrastructure') return Box;
-  if (type === 'non_residential') return Store;
-  return LayoutGrid;
-};
-
 export default function MopEditor({ buildingId, onBack }) {
   const toast = useToast();
   const currentUser = AuthService.getCurrentUser?.() || null;
@@ -133,61 +104,82 @@ export default function MopEditor({ buildingId, onBack }) {
   const typeInfo = useBuildingType(building);
   const { isUnderground, isParking, isInfrastructure } = typeInfo;
 
+  const residentialBlocks = useMemo(() => {
+    if (!building?.blocks?.length) return [];
+    return building.blocks.filter(b => b.type === 'residential');
+  }, [building]);
+
   const [activeBlockIndex, setActiveBlockIndex] = useState(0);
-  const currentBlock = useMemo(() => building?.blocks?.[activeBlockIndex], [building, activeBlockIndex]);
+  const currentBlock = useMemo(() => residentialBlocks[activeBlockIndex], [residentialBlocks, activeBlockIndex]);
 
   const { floors: rawFloors } = useDirectFloors(currentBlock?.id);
   const { entrances, matrixMap } = useDirectMatrix(currentBlock?.id);
   
-  // Stylobate Logic
-  const [linkedStylobateFloors, setLinkedStylobateFloors] = useState([]);
-  
-useEffect(() => {
+  // Linked external floors (stylobate + basements)
+  const [linkedExternalFloors, setLinkedExternalFloors] = useState([]);
+
+  useEffect(() => {
     let cancelled = false;
-    const loadLinkedStylobateFloors = async () => {
-      if (!building?.blocks?.length || !currentBlock?.id || currentBlock.type !== 'residential') {
-        if (!cancelled) setLinkedStylobateFloors(prev => prev.length === 0 ? prev : []);
+    const loadLinkedExternalFloors = async () => {
+      if (!building?.blocks?.length || !currentBlock?.id) {
+        if (!cancelled) setLinkedExternalFloors([]);
         return;
       }
+
       const linkedStylobateBlocks = building.blocks.filter(block => {
         if (block.type !== 'non_residential') return false;
         const detailsKey = `${building.id}_${block.id}`;
         const details = buildingDetails?.[detailsKey] || {};
         return Array.isArray(details.parentBlocks) && details.parentBlocks.includes(currentBlock.id);
       });
+      const linkedBasementBlocks = building.blocks.filter(block =>
+        !!block.isBasementBlock && Array.isArray(block.linkedBlockIds) && block.linkedBlockIds.includes(currentBlock.id)
+      );
+      const blocksToFetch = [...linkedStylobateBlocks, ...linkedBasementBlocks];
 
-      if (linkedStylobateBlocks.length === 0) {
-        if (!cancelled) setLinkedStylobateFloors(prev => prev.length === 0 ? prev : []);
+      if (blocksToFetch.length === 0) {
+        if (!cancelled) setLinkedExternalFloors([]);
         return;
       }
 
       try {
         const floorsByBlock = await Promise.all(
-          linkedStylobateBlocks.map(block => ApiService.getFloors(block.id))
+          blocksToFetch.map(block => ApiService.getFloors(block.id))
         );
-        const stylobateFloors = floorsByBlock.flat().filter(floor => isLinkedStylobateFloor(floor));
-        if (!cancelled) {
-          // УМНОЕ ОБНОВЛЕНИЕ: обновляем только если данные реально изменились
-          setLinkedStylobateFloors(prev => {
-            const prevIds = prev.map(f => f.id).sort().join(',');
-            const nextIds = stylobateFloors.map(f => f.id).sort().join(',');
-            return prevIds === nextIds ? prev : stylobateFloors;
-          });
-        }
+        const externalFloors = floorsByBlock.flat().filter(floor =>
+          isLinkedStylobateFloor(floor) || floor.type === 'basement' || floor.flags?.isBasement
+        );
+        if (!cancelled) setLinkedExternalFloors(externalFloors);
       } catch (e) {
-        console.error('Failed to load linked stylobate floors for mop', e);
-        if (!cancelled) setLinkedStylobateFloors(prev => prev.length === 0 ? prev : []);
+        console.error('Failed to load linked external floors for mop', e);
+        if (!cancelled) setLinkedExternalFloors([]);
       }
     };
-    loadLinkedStylobateFloors();
-    return () => { cancelled = true; };
+
+    loadLinkedExternalFloors();
+    return () => {
+      cancelled = true;
+    };
   }, [building, buildingDetails, currentBlock]);
-  const linkedStylobateFloorIds = useMemo(
-    () => linkedStylobateFloors.map(f => f.id).filter(Boolean),
-    [linkedStylobateFloors]
+  const linkedExternalFloorIds = useMemo(
+    () => linkedExternalFloors.map(f => f.id).filter(Boolean),
+    [linkedExternalFloors]
   );
 
-  const { mops, upsertMop, deleteMop, clearAllMops } = useDirectCommonAreas(currentBlock?.id, linkedStylobateFloorIds);
+  const mopFloorIds = useMemo(() => {
+    const ids = new Set();
+    (rawFloors || []).forEach(f => {
+      if (!f?.id) return;
+      if (f?.isStylobate || f?.flags?.isStylobate) return;
+      ids.add(f.id);
+    });
+    linkedExternalFloorIds.forEach(id => {
+      if (id) ids.add(id);
+    });
+    return Array.from(ids);
+  }, [rawFloors, linkedExternalFloorIds]);
+
+  const { mops, upsertMop, deleteMop, clearAllMops } = useDirectCommonAreas(currentBlock?.id, mopFloorIds);
   const { options: mopTypeOptions } = useCatalog('dict_mop_types');
 
   const mopLabelByCode = useMemo(() => {
@@ -197,30 +189,47 @@ useEffect(() => {
   }, [mopTypeOptions]);
 
   const floors = useMemo(() => {
-    const mergedFloors = [...(rawFloors || []), ...linkedStylobateFloors];
-    const uniqueFloors = Array.from(new Map(mergedFloors.map(floor => [floor.id, floor])).values());
+    const residentialFloors = (rawFloors || []).filter(f => !(f?.isStylobate || f?.flags?.isStylobate));
+    const map = new Map();
+    [...residentialFloors, ...linkedExternalFloors].forEach(floor => {
+      if (!floor?.id) return;
+      map.set(floor.id, floor);
+    });
+    return Array.from(map.values()).sort((a, b) => (Number(b.index) || 0) - (Number(a.index) || 0));
+  }, [rawFloors, linkedExternalFloors]);
 
-    return uniqueFloors
-      .filter(f => !f?.isStylobate && !f?.flags?.isStylobate)
-      .filter(f => {
-        if (!f) return false;
-        if (isParking && !isUnderground) return false;
-        if (!isParking && !building?.category?.includes('residential')) return false;
-        return true;
-      })
-      .sort((a, b) => (Number(b.index) || 0) - (Number(a.index) || 0));
-  }, [rawFloors, linkedStylobateFloors, isParking, isUnderground, building?.category]);
+  const hasBasements = useMemo(
+    () => floors.some(f => f.type === 'basement' || f.flags?.isBasement),
+    [floors]
+  );
+
+  const entranceIdByNumber = useMemo(() => {
+    const map = {};
+    entrances.forEach(e => {
+      map[e.number] = e.id;
+    });
+    return map;
+  }, [entrances]);
+
+  const entranceNumberById = useMemo(() => {
+    const map = {};
+    entrances.forEach(e => {
+      map[e.id] = e.number;
+    });
+    return map;
+  }, [entrances]);
 
   const mopGrid = useMemo(() => {
     const grid = {};
     mops.forEach(m => {
       if (!grid[m.floorId]) grid[m.floorId] = {};
-      if (!grid[m.floorId][m.entranceId]) grid[m.floorId][m.entranceId] = [];
-      grid[m.floorId][m.entranceId].push(m);
+      const entranceNumber = m.entranceId ? entranceNumberById[m.entranceId] : 0;
+      if (entranceNumber === undefined || entranceNumber === null) return;
+      if (!grid[m.floorId][entranceNumber]) grid[m.floorId][entranceNumber] = [];
+      grid[m.floorId][entranceNumber].push(m);
     });
     return grid;
-  }, [mops]);
-
+  }, [mops, entranceNumberById]);
   // --- STATE ---
   const [isSavingStatus, setIsSavingStatus] = useState(false);
   const [selection, setSelection] = useState(new Set());
@@ -229,18 +238,21 @@ useEffect(() => {
   const [showWarningModal, setShowWarningModal] = useState(false);
 
   useEffect(() => {
+    if (activeBlockIndex < residentialBlocks.length) return;
+    setActiveBlockIndex(0);
+  }, [activeBlockIndex, residentialBlocks.length]);
+
+  useEffect(() => {
     // УМНОЕ ОБНОВЛЕНИЕ: не перезаписываем пустые массивы и сеты, если они уже пустые
     setSelection(prev => prev.size === 0 ? prev : new Set());
     setDraftRows(prev => prev.length === 0 ? prev : []);
   }, [activeBlockIndex]);
 
   // --- HELPER: GET TARGET QTY ---
-  const getTargetQty = useCallback((floorId, entranceId) => {
-      const entranceObj = entrances.find(e => e.id === entranceId);
-      if (!entranceObj) return 0;
-      const matrixKey = `${floorId}_${entranceObj.number}`;
+  const getTargetQty = useCallback((floorId, entranceNumber) => {
+      const matrixKey = `${floorId}_${entranceNumber}`;
       return parseInt(matrixMap[matrixKey]?.mopQty || 0, 10);
-  }, [entrances, matrixMap]);
+  }, [matrixMap]);
 
   // --- ACTIONS ---
   const handleResetAll = async () => {
@@ -279,17 +291,17 @@ useEffect(() => {
       return !hasMismatch;
   };
 
-  const isCellSelectable = (floorId, entranceId) => {
-      return getTargetQty(floorId, entranceId) > 0;
+  const isCellSelectable = (floorId, entranceNumber) => {
+      return getTargetQty(floorId, entranceNumber) > 0;
   };
 
-  const toggleCell = (floorId, entranceId) => {
-    if (!isCellSelectable(floorId, entranceId)) {
+  const toggleCell = (floorId, entranceNumber) => {
+    if (!isCellSelectable(floorId, entranceNumber)) {
         toast.error('В этой ячейке не запланировано создание МОП');
         return;
     }
 
-    const key = `${floorId}_${entranceId}`;
+    const key = `${floorId}_${entranceNumber}`;
     setSelection(prev => {
       const next = new Set(prev);
       if (next.has(key)) {
@@ -307,55 +319,56 @@ useEffect(() => {
   };
 
   const selectFloor = floorId => {
-    // 1. Filter only selectable cells (qty > 0)
-    const keys = entrances
-        .map(e => `${floorId}_${e.id}`)
-        .filter(k => {
-             const [f, e] = k.split('_');
-             return isCellSelectable(f, e);
-        });
+    const floor = floors.find(f => f.id === floorId);
+    const isBasement = floor?.type === 'basement' || floor?.flags?.isBasement;
+    const entranceNumbers = isBasement && hasBasements
+      ? [...entrances.map(e => e.number), 0]
+      : entrances.map(e => e.number);
+
+    const keys = entranceNumbers
+      .map(entNum => `${floorId}_${entNum}`)
+      .filter(k => {
+        const [f, e] = k.split('_');
+        return isCellSelectable(f, e);
+      });
 
     if (keys.length === 0) {
-        toast.error('На этом этаже нет ячеек для заполнения МОП');
-        return;
+      toast.error('На этом этаже нет ячеек для заполнения МОП');
+      return;
     }
-    
+
     setSelection(prev => {
       let targetKeys = keys;
       if (prev.size > 0) {
-          // Filter keys that match existing selection QTY
-          const firstKey = Array.from(prev)[0];
-          const [fId, eId] = firstKey.split('_');
-          const requiredQty = getTargetQty(fId, eId);
-          
-          targetKeys = keys.filter(k => {
-              const [fid, eid] = k.split('_');
-              return getTargetQty(fid, eid) === requiredQty;
-          });
-          
-          if (targetKeys.length < keys.length && targetKeys.length > 0) {
-              toast.success('Выбраны только ячейки с совпадающим количеством МОП');
-          } else if (targetKeys.length === 0) {
-              toast.error('Нет ячеек, совпадающих по количеству с текущим выбором');
-              return prev;
-          }
+        const firstKey = Array.from(prev)[0];
+        const [fId, eId] = firstKey.split('_');
+        const requiredQty = getTargetQty(fId, eId);
+
+        targetKeys = keys.filter(k => {
+          const [fid, eid] = k.split('_');
+          return getTargetQty(fid, eid) === requiredQty;
+        });
+
+        if (targetKeys.length < keys.length && targetKeys.length > 0) {
+          toast.success('Выбраны только ячейки с совпадающим количеством МОП');
+        } else if (targetKeys.length === 0) {
+          toast.error('Нет ячеек, совпадающих по количеству с текущим выбором');
+          return prev;
+        }
       } else {
-          // If fresh selection, prevent mixing quantities
-          const groups = {};
-          keys.forEach(k => {
-              const [fid, eid] = k.split('_');
-              const qty = getTargetQty(fid, eid);
-              // keys already filtered for > 0, so no need to check again
-              if (!groups[qty]) groups[qty] = [];
-              groups[qty].push(k);
-          });
-          
-          const qtys = Object.keys(groups);
-          if (qtys.length > 1) {
-              toast.error('В этом ряду разное количество МОП. Выберите ячейки вручную.');
-              return prev;
-          }
-          // If only 1 group, all good
+        const groups = {};
+        keys.forEach(k => {
+          const [fid, eid] = k.split('_');
+          const qty = getTargetQty(fid, eid);
+          if (!groups[qty]) groups[qty] = [];
+          groups[qty].push(k);
+        });
+
+        const qtys = Object.keys(groups);
+        if (qtys.length > 1) {
+          toast.error('В этом ряду разное количество МОП. Выберите ячейки вручную.');
+          return prev;
+        }
       }
 
       const next = new Set(prev);
@@ -365,58 +378,60 @@ useEffect(() => {
     });
   };
 
-  const selectEntrance = entranceId => {
-    // 1. Filter only selectable cells (qty > 0)
-    const keys = floors
-        .map(f => `${f.id}_${entranceId}`)
-        .filter(k => {
-             const [f, e] = k.split('_');
-             return isCellSelectable(f, e);
-        });
+  const selectEntrance = entranceNumber => {
+    const targetFloors = entranceNumber === 0
+      ? floors.filter(f => f.type === 'basement' || f.flags?.isBasement)
+      : floors;
+
+    const keys = targetFloors
+      .map(f => `${f.id}_${entranceNumber}`)
+      .filter(k => {
+        const [f, e] = k.split('_');
+        return isCellSelectable(f, e);
+      });
 
     if (keys.length === 0) {
-        toast.error('В этом подъезде нет ячеек для заполнения МОП');
-        return;
+      toast.error('В этом столбце нет ячеек для заполнения МОП');
+      return;
     }
 
     setSelection(prev => {
-        let targetKeys = keys;
-        if (prev.size > 0) {
-            const firstKey = Array.from(prev)[0];
-            const [fId, eId] = firstKey.split('_');
-            const requiredQty = getTargetQty(fId, eId);
-            
-            targetKeys = keys.filter(k => {
-                const [fid, eid] = k.split('_');
-                return getTargetQty(fid, eid) === requiredQty;
-            });
+      let targetKeys = keys;
+      if (prev.size > 0) {
+        const firstKey = Array.from(prev)[0];
+        const [fId, eId] = firstKey.split('_');
+        const requiredQty = getTargetQty(fId, eId);
 
-            if (targetKeys.length === 0) {
-                toast.error('Нет ячеек, совпадающих по количеству');
-                return prev;
-            }
-        } else {
-            const groups = {};
-            keys.forEach(k => {
-                const [fid, eid] = k.split('_');
-                const qty = getTargetQty(fid, eid);
-                if (!groups[qty]) groups[qty] = [];
-                groups[qty].push(k);
-            });
-            const qtys = Object.keys(groups);
-            if (qtys.length > 1) {
-                toast.error('В этом столбце разное количество МОП. Выберите вручную.');
-                return prev;
-            }
+        targetKeys = keys.filter(k => {
+          const [fid, eid] = k.split('_');
+          return getTargetQty(fid, eid) === requiredQty;
+        });
+
+        if (targetKeys.length === 0) {
+          toast.error('Нет ячеек, совпадающих по количеству');
+          return prev;
         }
+      } else {
+        const groups = {};
+        keys.forEach(k => {
+          const [fid, eid] = k.split('_');
+          const qty = getTargetQty(fid, eid);
+          if (!groups[qty]) groups[qty] = [];
+          groups[qty].push(k);
+        });
+        const qtys = Object.keys(groups);
+        if (qtys.length > 1) {
+          toast.error('В этом столбце разное количество МОП. Выберите вручную.');
+          return prev;
+        }
+      }
 
-        const next = new Set(prev);
-        const allSelected = targetKeys.every(k => next.has(k));
-        targetKeys.forEach(k => (allSelected ? next.delete(k) : next.add(k)));
-        return next;
+      const next = new Set(prev);
+      const allSelected = targetKeys.every(k => next.has(k));
+      targetKeys.forEach(k => (allSelected ? next.delete(k) : next.add(k)));
+      return next;
     });
   };
-
   const clearSelection = () => setSelection(new Set());
 
   useEffect(() => {
@@ -491,9 +506,10 @@ useEffect(() => {
     const selected = Array.from(selection);
     
     const updates = selected.map(async (key) => {
-      const [floorId, entranceId] = key.split('_');
-      
-      const existing = mopGrid[floorId]?.[entranceId] || [];
+      const [floorId, entranceNumberRaw] = key.split('_');
+      const entranceNumber = parseInt(entranceNumberRaw, 10);
+      const entranceId = entranceNumber === 0 ? null : entranceIdByNumber[entranceNumber];
+      const existing = mopGrid[floorId]?.[entranceNumber] || [];
       for (const m of existing) {
         // Удаляем только записи с настоящим ID из БД
         if (m.id && !String(m.id).startsWith('temp-')) {
@@ -523,8 +539,9 @@ useEffect(() => {
     setHasUnsavedChanges(true);
     const selected = Array.from(selection);
     const updates = selected.map(async (key) => {
-      const [floorId, entranceId] = key.split('_');
-      const existing = mopGrid[floorId]?.[entranceId] || [];
+      const [floorId, entranceNumberRaw] = key.split('_');
+      const entranceNumber = parseInt(entranceNumberRaw, 10);
+      const existing = mopGrid[floorId]?.[entranceNumber] || [];
       for (const m of existing) {
         // Удаляем только записи с настоящим ID из БД
         if (m.id && !String(m.id).startsWith('temp-')) {
@@ -590,12 +607,11 @@ useEffect(() => {
   };
 
   // --- RENDER HELPERS ---
-  const getCellColor = (floor, entranceId, isSelected) => {
+  const getCellColor = (floor, entranceNumber, isSelected) => {
      if (isSelected) return 'bg-blue-600 ring-2 ring-blue-300 border-transparent shadow-md transform scale-[1.02] z-10';
      
-     const matrixKey = `${floor.id}_${entrances.find(e=>e.id === entranceId)?.number}`;
-     const targetQty = parseInt(matrixMap[matrixKey]?.mopQty || 0, 10);
-     const currentMops = mopGrid[floor.id]?.[entranceId] || [];
+     const targetQty = getTargetQty(floor.id, entranceNumber);
+     const currentMops = mopGrid[floor.id]?.[entranceNumber] || [];
      const isFilled = targetQty > 0 && currentMops.length >= targetQty;
      const hasSome = currentMops.length > 0;
      const isZeroPlan = targetQty === 0;
@@ -609,9 +625,13 @@ useEffect(() => {
      return 'bg-slate-50 border-slate-200';
   };
 
-  const isStepAvailable = (building?.category?.includes('residential') || (isParking && isUnderground)) && !!currentBlock;
+  const isStepAvailable = !!currentBlock;
 
-  if (!building || !currentBlock) return <div className="p-8 text-center text-slate-500">Загрузка...</div>;
+  if (!building) return <div className="p-8 text-center text-slate-500">Загрузка...</div>;
+  if (residentialBlocks.length === 0) {
+    return <div className="p-8 text-center text-slate-500">Нет жилых блоков</div>;
+  }
+  if (!currentBlock) return <div className="p-8 text-center text-slate-500">Загрузка...</div>;
   if (!isStepAvailable) {
       return (
         <div className="flex flex-col items-center justify-center h-[50vh] text-center space-y-4 animate-in fade-in">
@@ -646,20 +666,7 @@ useEffect(() => {
             saveLabel={isSavingStatus ? 'Сохранение...' : 'Сохранить и выйти'}
          />
 
-         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-             <div className="flex items-center gap-1.5 p-1.5 bg-slate-800 rounded-xl w-max overflow-x-auto max-w-full shadow-inner border border-slate-700 custom-scrollbar">
-                {(building.blocks || []).map((b, i) => (
-                    <DarkTabButton
-                        key={b.id}
-                        active={activeBlockIndex === i}
-                        onClick={() => setActiveBlockIndex(i)}
-                        icon={getBlockIcon(b.type)}
-                    >
-                        {formatBlockSwitcherLabel({ building, block: b, buildingDetails })}
-                    </DarkTabButton>
-                ))}
-             </div>
-             
+         <div className="flex flex-col md:flex-row md:items-center justify-end gap-4">
              {/* Legend & Actions */}
              <div className="flex items-center gap-4">
                  <div className="hidden md:flex items-center gap-3 text-xs text-slate-500">
@@ -691,83 +698,181 @@ useEffect(() => {
                 <div className="flex-1 overflow-auto relative scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
                     <div className="min-w-max pb-10 pr-6 pl-4 pt-4">
                         
-                        {/* STICKY HEADER - ENTRANCES */}
+                        {/* STICKY HEADER MATRIX */}
                         <div className="flex sticky top-0 z-40 bg-slate-100/95 backdrop-blur-md border-b border-slate-300 pb-3 pt-3 mb-2 shadow-sm">
                             <div className="w-24 shrink-0 sticky left-0 z-50 bg-slate-100 border-r border-slate-300"></div>
-                            {entrances.map(e => (
-                                <div key={e.id} className="w-24 mx-1 flex flex-col items-center group shrink-0 justify-end">
-                                    <button 
-                                        onClick={() => selectEntrance(e.id)}
-                                        className="text-xs font-black text-slate-600 uppercase hover:text-blue-700 flex flex-col items-center gap-1 transition-colors"
+
+                            {residentialBlocks.map((b, i) => {
+                                const isActive = i === activeBlockIndex;
+                                const blockLabel = formatBlockSwitcherLabel({ building, block: b, buildingDetails });
+
+                                if (!isActive) {
+                                    return (
+                                        <button
+                                            key={b.id}
+                                            onClick={() => setActiveBlockIndex(i)}
+                                            className="w-12 mx-1 shrink-0 bg-slate-200/50 hover:bg-slate-300 border border-slate-300 rounded-lg flex flex-col items-center justify-center transition-colors group min-h-[60px]"
+                                            title={blockLabel}
+                                        >
+                                            <span style={{ writingMode: 'vertical-rl' }} className="rotate-180 text-xs font-bold text-slate-500 group-hover:text-slate-800 whitespace-nowrap px-1">
+                                                {blockLabel}
+                                            </span>
+                                        </button>
+                                    );
+                                }
+
+                                return (
+                                    <div key={b.id} className="flex flex-col mx-1 bg-blue-50/50 border border-blue-200 rounded-lg shadow-sm">
+                                        <div className="text-center text-xs font-bold text-blue-800 bg-blue-100/50 py-1.5 border-b border-blue-200 px-2 truncate min-h-[28px]">
+                                            {blockLabel}
+                                        </div>
+                                        <div className="flex p-1 h-full items-end">
+                                            {entrances.map(e => (
+                                                <div key={e.id} className="w-24 mx-1 flex flex-col items-center group shrink-0 justify-end">
+                                                    <button
+                                                        onClick={() => selectEntrance(e.number)}
+                                                        className="text-[11px] font-black text-slate-600 uppercase hover:text-blue-700 flex flex-col items-center gap-1 transition-colors"
+                                                    >
+                                                        <span className="bg-white px-2 py-1 rounded shadow-sm border border-slate-200">
+                                                            Подъезд {e.number}
+                                                        </span>
+                                                        <ArrowDown size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-500" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            {entrances.length === 0 && (
+                                                <div className="w-24 h-8 flex items-center justify-center text-xs text-slate-400">Нет подъездов</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+
+                            {hasBasements && (
+                                <div className="w-24 mx-2 flex flex-col items-center group shrink-0 justify-end">
+                                    <button
+                                        onClick={() => selectEntrance(0)}
+                                        className="text-xs font-black text-slate-500 uppercase hover:text-amber-700 flex flex-col items-center gap-1 transition-colors h-full justify-end"
                                     >
-                                        <span className="bg-white/60 px-2 py-1 rounded border border-slate-200/50 shadow-sm">
-                                            Подъезд {e.number}
+                                        <span className="bg-amber-100/60 px-2 py-1 rounded border border-amber-200/80 shadow-sm text-[10px] text-amber-900 tracking-tight leading-tight text-center mb-1">
+                                            Вне<br/>подъездов
                                         </span>
-                                        <ArrowDown size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-500" />
+                                        <ArrowDown size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-amber-600" />
                                     </button>
                                 </div>
-                            ))}
+                            )}
                         </div>
 
                         {/* MATRIX ROWS */}
-                        <div className="flex flex-col gap-2">
-                            {floors.map(floor => (
-                                <div key={floor.id} className="flex items-center hover:bg-slate-50 rounded-lg p-1 -ml-1 transition-colors">
-                                    {/* STICKY LEFT COL - FLOORS */}
-                                    <div className="sticky left-0 z-30 bg-slate-50 pr-2 rounded-l-lg border-r border-slate-300 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
-                                        <button 
-                                            onClick={() => selectFloor(floor.id)}
-                                            className="w-24 shrink-0 text-right pr-4 group flex flex-col items-end py-3"
-                                        >
-                                            <span className="font-black text-sm text-slate-700 group-hover:text-blue-600 transition-colors">
-                                                {floor.label || floor.index}
-                                            </span>
-                                            <FloorTypeBadge type={floor.type} />
-                                        </button>
-                                    </div>
-
-                                    {/* CELLS */}
-                                    {entrances.map(e => {
-                                        const key = `${floor.id}_${e.id}`;
-                                        const isSelected = selection.has(key);
-                                        const matrixKey = `${floor.id}_${e.number}`;
-                                        const targetQty = parseInt(matrixMap[matrixKey]?.mopQty || 0, 10);
-                                        const currentMops = mopGrid[floor.id]?.[e.id] || [];
-                                        const factQty = currentMops.length;
-
-                                        return (
+                        <div className="flex flex-col gap-2 min-w-max">
+                            {floors.map(floor => {
+                                const isBasement = floor.type === 'basement' || floor.flags?.isBasement;
+                                return (
+                                    <div key={floor.id} className="flex items-stretch hover:bg-slate-50 rounded-lg p-1 -ml-1 transition-colors">
+                                        <div className="sticky left-0 z-30 bg-slate-50 pr-2 rounded-l-lg border-r border-slate-300 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                                             <button
-                                                key={e.id}
-                                                onClick={() => toggleCell(floor.id, e.id)}
-                                                className={`
-                                                    w-24 h-16 mx-1 rounded-xl border flex flex-col items-center justify-center transition-all relative overflow-hidden shrink-0
-                                                    ${getCellColor(floor, e.id, isSelected)}
-                                                `}
+                                                onClick={() => selectFloor(floor.id)}
+                                                className="w-24 shrink-0 text-right pr-4 group flex flex-col items-end py-3"
                                             >
-                                                {targetQty > 0 || factQty > 0 ? (
-                                                    <>
-                                                        <div className="flex items-baseline gap-0.5">
-                                                            <span className={`text-xl font-black ${isSelected ? 'text-white' : 'text-slate-700'}`}>{factQty}</span>
-                                                            <span className={`text-xs font-bold opacity-50 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>/ {targetQty}</span>
-                                                        </div>
-                                                        <span className={`text-[9px] font-bold uppercase mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
-                                                            МОП
-                                                        </span>
-                                                    </>
-                                                ) : (
-                                                    <span className={`text-2xl font-black opacity-10 ${isSelected ? 'text-white' : 'text-slate-400'}`}>-</span>
-                                                )}
-                                                
-                                                {isSelected && (
-                                                    <div className="absolute top-1 right-1 bg-white/20 text-white rounded-full p-0.5 shadow-sm">
-                                                        <Check size={10} strokeWidth={4} />
-                                                    </div>
-                                                )}
+                                                <span className="font-black text-sm text-slate-700 group-hover:text-blue-600 transition-colors">
+                                                    {floor.label || floor.index}
+                                                </span>
+                                                <FloorTypeBadge type={floor.type} />
                                             </button>
-                                        );
-                                    })}
-                                </div>
-                            ))}
+                                        </div>
+
+                                        <div className="flex items-center">
+                                            {residentialBlocks.map((b, i) => {
+                                                const isActive = i === activeBlockIndex;
+                                                if (!isActive) {
+                                                    return <div key={b.id} className="w-12 mx-1 shrink-0 bg-slate-100/50 border border-slate-200 border-dashed rounded-lg opacity-50 my-1 h-full min-h-[64px]"></div>;
+                                                }
+
+                                                return (
+                                                    <div key={b.id} className="flex px-1 mx-1 bg-blue-50/10 border-x border-blue-100/50 items-center">
+                                                        {entrances.map(e => {
+                                                            const key = `${floor.id}_${e.number}`;
+                                                            const isSelected = selection.has(key);
+                                                            const targetQty = getTargetQty(floor.id, e.number);
+                                                            const currentMops = mopGrid[floor.id]?.[e.number] || [];
+                                                            const factQty = currentMops.length;
+
+                                                            return (
+                                                                <button
+                                                                    key={e.id}
+                                                                    onClick={() => toggleCell(floor.id, e.number)}
+                                                                    className={`
+                                                                        w-24 h-16 mx-1 rounded-xl border flex flex-col items-center justify-center transition-all relative overflow-hidden shrink-0
+                                                                        ${getCellColor(floor, e.number, isSelected)}
+                                                                    `}
+                                                                >
+                                                                    {targetQty > 0 || factQty > 0 ? (
+                                                                        <>
+                                                                            <div className="flex items-baseline gap-0.5">
+                                                                                <span className={`text-xl font-black ${isSelected ? 'text-white' : 'text-slate-700'}`}>{factQty}</span>
+                                                                                <span className={`text-xs font-bold opacity-50 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>/ {targetQty}</span>
+                                                                            </div>
+                                                                            <span className={`text-[9px] font-bold uppercase mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>МОП</span>
+                                                                        </>
+                                                                    ) : (
+                                                                        <span className={`text-2xl font-black opacity-10 ${isSelected ? 'text-white' : 'text-slate-400'}`}>-</span>
+                                                                    )}
+                                                                    {isSelected && (
+                                                                        <div className="absolute top-1 right-1 bg-white/20 text-white rounded-full p-0.5 shadow-sm">
+                                                                            <Check size={10} strokeWidth={4} />
+                                                                        </div>
+                                                                    )}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
+                                        {hasBasements && (
+                                            <div className="flex items-center px-1 mx-1">
+                                                {isBasement ? (() => {
+                                                    const key = `${floor.id}_0`;
+                                                    const isSelected = selection.has(key);
+                                                    const targetQty = getTargetQty(floor.id, 0);
+                                                    const currentMops = mopGrid[floor.id]?.[0] || [];
+                                                    const factQty = currentMops.length;
+                                                    return (
+                                                        <button
+                                                            key="ent_0"
+                                                            onClick={() => toggleCell(floor.id, 0)}
+                                                            className={`
+                                                                w-24 h-16 mx-1 rounded-xl border flex flex-col items-center justify-center transition-all relative overflow-hidden shrink-0
+                                                                ${getCellColor(floor, 0, isSelected)}
+                                                            `}
+                                                        >
+                                                            {targetQty > 0 || factQty > 0 ? (
+                                                                <>
+                                                                    <div className="flex items-baseline gap-0.5">
+                                                                        <span className={`text-xl font-black ${isSelected ? 'text-white' : 'text-slate-700'}`}>{factQty}</span>
+                                                                        <span className={`text-xs font-bold opacity-50 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>/ {targetQty}</span>
+                                                                    </div>
+                                                                    <span className={`text-[9px] font-bold uppercase mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>МОП</span>
+                                                                </>
+                                                            ) : (
+                                                                <span className={`text-2xl font-black opacity-10 ${isSelected ? 'text-white' : 'text-slate-400'}`}>-</span>
+                                                            )}
+                                                            {isSelected && (
+                                                                <div className="absolute top-1 right-1 bg-white/20 text-white rounded-full p-0.5 shadow-sm">
+                                                                    <Check size={10} strokeWidth={4} />
+                                                                </div>
+                                                            )}
+                                                        </button>
+                                                    );
+                                                })() : (
+                                                    <div className="w-24 h-16 mx-1 shrink-0 bg-transparent"></div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
@@ -916,3 +1021,11 @@ useEffect(() => {
     </div>
   );
 }
+
+
+
+
+
+
+
+

@@ -1,18 +1,24 @@
 package uz.reestrmkd.backend.domain.registry.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import uz.reestrmkd.backend.exception.ApiException;
 
+import java.nio.charset.StandardCharsets;
+import java.sql.Array;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 @Service
 public class BasementService {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private final JdbcTemplate jdbcTemplate;
 
     public BasementService(JdbcTemplate jdbcTemplate) {
@@ -83,31 +89,28 @@ public class BasementService {
             isEnabled,
             basementId
         );
+
+        if (!isEnabled) {
+            jdbcTemplate.update(
+                """
+                    delete from units u
+                    using floors f
+                    where u.floor_id = f.id
+                      and f.block_id = ?
+                      and f."index" = ?
+                      and u.unit_type = 'parking_place'
+                """,
+                basementId,
+                -level
+            );
+        }
     }
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> mapBasementRow(Map<String, Object> row) {
-        Object linkedIdsRaw = row.get("linked_block_ids");
-        List<String> blocks = new ArrayList<>();
-        if (linkedIdsRaw instanceof Object[] arr) {
-            for (Object item : arr) {
-                if (item != null) blocks.add(String.valueOf(item));
-            }
-        } else if (linkedIdsRaw instanceof List<?> list) {
-            for (Object item : list) {
-                if (item != null) blocks.add(String.valueOf(item));
-            }
-        }
-
-        Object levelsRaw = row.get("basement_parking_levels");
-        Map<String, Object> parkingLevels = levelsRaw instanceof Map<?, ?>
-            ? new HashMap<>((Map<String, Object>) levelsRaw)
-            : new HashMap<>();
-
-        Object commRaw = row.get("basement_communications");
-        Map<String, Object> communications = commRaw instanceof Map<?, ?>
-            ? new HashMap<>((Map<String, Object>) commRaw)
-            : new HashMap<>();
+        List<String> blocks = parseLinkedBlockIds(row.get("linked_block_ids"));
+        Map<String, Object> parkingLevels = parseObjectMap(row.get("basement_parking_levels"));
+        Map<String, Object> communications = parseObjectMap(row.get("basement_communications"));
 
         int entrancesCount = 1;
         Object entrancesRaw = row.get("entrances_count");
@@ -121,16 +124,104 @@ public class BasementService {
             }
         }
 
-        return Map.of(
-            "id", String.valueOf(row.get("id")),
-            "buildingId", String.valueOf(row.get("building_id")),
-            "blockId", blocks.isEmpty() ? null : blocks.get(0),
-            "blocks", blocks,
-            "depth", row.get("basement_depth") == null ? 1 : ((Number) row.get("basement_depth")).intValue(),
-            "hasParking", Boolean.TRUE.equals(row.get("basement_has_parking")),
-            "parkingLevels", parkingLevels,
-            "communications", communications,
-            "entrancesCount", Math.min(10, Math.max(1, entrancesCount))
-        );
+        Map<String, Object> mapped = new LinkedHashMap<>();
+        mapped.put("id", String.valueOf(row.get("id")));
+        mapped.put("buildingId", String.valueOf(row.get("building_id")));
+        mapped.put("blockId", blocks.isEmpty() ? null : blocks.get(0));
+        mapped.put("blocks", blocks);
+        mapped.put("depth", row.get("basement_depth") == null ? 1 : ((Number) row.get("basement_depth")).intValue());
+        mapped.put("hasParking", Boolean.TRUE.equals(row.get("basement_has_parking")));
+        mapped.put("parkingLevels", parkingLevels);
+        mapped.put("communications", communications);
+        mapped.put("entrancesCount", Math.min(10, Math.max(1, entrancesCount)));
+        return mapped;
+    }
+
+    private List<String> parseLinkedBlockIds(Object linkedIdsRaw) {
+        List<String> blocks = new ArrayList<>();
+        if (linkedIdsRaw == null) {
+            return blocks;
+        }
+
+        if (linkedIdsRaw instanceof Array sqlArray) {
+            try {
+                Object raw = sqlArray.getArray();
+                if (raw instanceof Object[] arr) {
+                    for (Object item : arr) {
+                        if (item != null) blocks.add(String.valueOf(item));
+                    }
+                }
+                return blocks;
+            } catch (Exception ignored) {
+                return blocks;
+            }
+        }
+
+        if (linkedIdsRaw instanceof Object[] arr) {
+            for (Object item : arr) {
+                if (item != null) blocks.add(String.valueOf(item));
+            }
+            return blocks;
+        }
+
+        if (linkedIdsRaw instanceof List<?> list) {
+            for (Object item : list) {
+                if (item != null) blocks.add(String.valueOf(item));
+            }
+            return blocks;
+        }
+
+        String raw = String.valueOf(linkedIdsRaw).trim();
+        if (raw.startsWith("{") && raw.endsWith("}")) {
+            String inner = raw.substring(1, raw.length() - 1).trim();
+            if (!inner.isEmpty()) {
+                for (String part : inner.split(",")) {
+                    String value = part.trim();
+                    if (!value.isEmpty() && !"null".equalsIgnoreCase(value)) {
+                        blocks.add(value);
+                    }
+                }
+            }
+        }
+        return blocks;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseObjectMap(Object value) {
+        if (value == null) {
+            return new HashMap<>();
+        }
+
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> result = new HashMap<>();
+            map.forEach((k, v) -> result.put(String.valueOf(k), v));
+            return result;
+        }
+
+        String raw = extractJsonOrText(value);
+        if (raw == null || raw.isBlank() || "{}".equals(raw)) {
+            return new HashMap<>();
+        }
+
+        try {
+            return OBJECT_MAPPER.readValue(raw.getBytes(StandardCharsets.UTF_8), new TypeReference<Map<String, Object>>() {
+            });
+        } catch (Exception ignored) {
+            return new HashMap<>();
+        }
+    }
+
+    private String extractJsonOrText(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if ("org.postgresql.util.PGobject".equals(value.getClass().getName())) {
+            try {
+                return String.valueOf(value.getClass().getMethod("getValue").invoke(value));
+            } catch (Exception ignored) {
+                return String.valueOf(value);
+            }
+        }
+        return String.valueOf(value);
     }
 }

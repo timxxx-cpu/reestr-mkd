@@ -43,6 +43,10 @@ public class UnitService {
                 .orElseThrow(() -> new ApiException("Unit not found", "NOT_FOUND", null, 404));
         }
 
+        if (unit.getHasMezzanine() == null) {
+            unit.setHasMezzanine(Boolean.FALSE);
+        }
+
         Instant now = Instant.now();
         if (unit.getId() == null) {
             unit.setId(UUID.randomUUID());
@@ -66,7 +70,7 @@ public class UnitService {
             if (data.containsKey("isSold")) unit.setStatus(Boolean.TRUE.equals(data.get("isSold")) ? "sold" : "free");
             if (data.containsKey("cadastreNumber")) unit.setCadastreNumber(asNullableString(data.get("cadastreNumber")));
             if (data.containsKey("addressId")) unit.setAddressId(parseOptionalUuid(data.get("addressId")));
-            if (data.containsKey("hasMezzanine")) unit.setHasMezzanine(parseBoolean(data.get("hasMezzanine")));
+            if (data.containsKey("hasMezzanine")) unit.setHasMezzanine(parseBooleanOrDefaultFalse(data.get("hasMezzanine")));
             if (data.containsKey("mezzanineType")) unit.setMezzanineType(asNullableString(data.get("mezzanineType")));
         } else {
             unit.setFloorId(parseRequiredUuid(data.get("floorId"), "floorId"));
@@ -81,7 +85,7 @@ public class UnitService {
             if (data.containsKey("isSold")) unit.setStatus(Boolean.TRUE.equals(data.get("isSold")) ? "sold" : "free");
             unit.setCadastreNumber(asNullableString(data.get("cadastreNumber")));
             unit.setAddressId(parseOptionalUuid(data.get("addressId")));
-            unit.setHasMezzanine(parseBoolean(data.get("hasMezzanine")));
+            unit.setHasMezzanine(parseBooleanOrDefaultFalse(data.get("hasMezzanine")));
             unit.setMezzanineType(asNullableString(data.get("mezzanineType")));
         }
 
@@ -187,17 +191,17 @@ public class UnitService {
 
                 if (existing.isEmpty()) {
                     jdbcTemplate.update(
-                        "insert into units(id,floor_id,entrance_id,number,unit_type,total_area,living_area,useful_area,rooms_count,status,cadastre_number,address_id,unit_code,created_at,updated_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?,now(),now())",
+                        "insert into units(id,floor_id,entrance_id,number,unit_type,total_area,living_area,useful_area,rooms_count,status,cadastre_number,address_id,has_mezzanine,mezzanine_type,unit_code,created_at,updated_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,now(),now())",
                         unit.id(), unit.floorId(), unit.entranceId(), unit.number(), unit.unitType(), unit.totalArea(), unit.livingArea(), unit.usefulArea(), unit.rooms(), 
                         unit.status() != null ? unit.status() : "free", 
-                        unit.cadastreNumber(), unit.addressId(), finalUnitCode
+                        unit.cadastreNumber(), unit.addressId(), unit.hasMezzanine(), unit.mezzanineType(), finalUnitCode
                     );
                 } else {
                     jdbcTemplate.update(
-                        "update units set floor_id=?, entrance_id=?, number=?, unit_type=?, total_area=?, living_area=?, useful_area=?, rooms_count=?, status=?, cadastre_number=?, address_id=?, unit_code=?, updated_at=now() where id=?",
+                        "update units set floor_id=?, entrance_id=?, number=?, unit_type=?, total_area=?, living_area=?, useful_area=?, rooms_count=?, status=?, cadastre_number=?, address_id=?, has_mezzanine=?, mezzanine_type=?, unit_code=?, updated_at=now() where id=?",
                         unit.floorId(), unit.entranceId(), unit.number(), unit.unitType(), unit.totalArea(), unit.livingArea(), unit.usefulArea(), unit.rooms(), 
                         unit.status() != null ? unit.status() : "free", 
-                        unit.cadastreNumber(), unit.addressId(), finalUnitCode, unit.id()
+                        unit.cadastreNumber(), unit.addressId(), unit.hasMezzanine(), unit.mezzanineType(), finalUnitCode, unit.id()
                     );
                 }
                 updated++;
@@ -247,6 +251,8 @@ public class UnitService {
             source.containsKey("isSold") ? (Boolean.TRUE.equals(source.get("isSold")) ? "sold" : "free") : source.get("status"),
             source.get("cadastreNumber"),
             source.get("addressId"),
+            source.containsKey("hasMezzanine") ? parseBooleanOrDefaultFalse(source.get("hasMezzanine")) : Boolean.FALSE,
+            source.containsKey("mezzanineType") ? asNullableString(source.get("mezzanineType")) : null,
             source.containsKey("unitCode") ? (String) source.get("unitCode") : null
         );
     }
@@ -317,19 +323,29 @@ public class UnitService {
             args.toArray()
         );
 
+        Set<UUID> payloadIds = items.stream()
+            .map(NormalizedUnitPayload::id)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toSet());
+
         for (Map<String, Object> row : existingRows) {
             UUID existingId = UUID.fromString(String.valueOf(row.get("id")));
+            if (payloadIds.contains(existingId)) {
+                // This unit will be updated in the same batch, so its current DB number
+                // must not block renumbering/permutation inside the payload.
+                continue;
+            }
+
             UUID existingBlockId = UUID.fromString(String.valueOf(row.get("block_id")));
             String existingNumber = String.valueOf(row.get("unit_num"));
 
-            boolean presentInPayload = items.stream().anyMatch(item -> {
+            boolean conflictsByNumber = items.stream().anyMatch(item -> {
                 UUID itemBlockId = blockByFloor.get(item.floorId());
                 return existingBlockId.equals(itemBlockId)
-                    && item.number().trim().equalsIgnoreCase(existingNumber)
-                    && existingId.equals(item.id());
+                    && item.number().trim().equalsIgnoreCase(existingNumber);
             });
 
-            if (!presentInPayload) {
+            if (conflictsByNumber) {
                 throw new ApiException("Unit num already exists in block: " + existingNumber, "VALIDATION_ERROR", null, 400);
             }
         }
@@ -390,6 +406,11 @@ public class UnitService {
         return Boolean.parseBoolean(String.valueOf(value));
     }
 
+    private Boolean parseBooleanOrDefaultFalse(Object value) {
+        Boolean parsed = parseBoolean(value);
+        return parsed == null ? Boolean.FALSE : parsed;
+    }
+
     private String asNullableString(Object value) {
         if (value == null) return null;
         String stringValue = String.valueOf(value).trim();
@@ -409,6 +430,8 @@ public class UnitService {
         Object status,
         Object cadastreNumber,
         Object addressId,
+        Boolean hasMezzanine,
+        String mezzanineType,
         String unitCode
     ) {
     }
