@@ -2,6 +2,7 @@ package uz.reestrmkd.backend.security;
 
 import org.springframework.core.MethodParameter;
 import org.springframework.lang.NonNull;
+import org.springframework.lang.Nullable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -14,7 +15,7 @@ import org.springframework.web.method.support.ModelAndViewContainer;
 public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolver {
 
     @Override
-    public boolean supportsParameter(MethodParameter parameter) {
+    public boolean supportsParameter(@NonNull MethodParameter parameter) {
         // Резолвер срабатывает только если есть аннотация @CurrentUser и тип параметра ActorPrincipal
         return parameter.hasParameterAnnotation(CurrentUser.class) &&
                parameter.getParameterType().equals(ActorPrincipal.class);
@@ -22,9 +23,9 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
 
     @Override
     public Object resolveArgument(@NonNull MethodParameter parameter,
-                                  ModelAndViewContainer mavContainer,
+                                  @Nullable ModelAndViewContainer mavContainer,
                                   @NonNull NativeWebRequest webRequest,
-                                  WebDataBinderFactory binderFactory) {
+                                  @Nullable WebDataBinderFactory binderFactory) {
         
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         

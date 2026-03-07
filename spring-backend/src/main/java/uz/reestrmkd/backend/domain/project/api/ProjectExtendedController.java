@@ -348,7 +348,7 @@ public class ProjectExtendedController {
 
         Map<String, Object> complexInfo = asMap(body.get("complexInfo"));
         if (!complexInfo.isEmpty()) {
-            projectService.mergeComplexInfo(projectId, complexInfo);
+            projectService.mergeComplexInfo(Objects.requireNonNull(projectId), complexInfo);
         }
 
         Map<String, Object> applicationInfo = asMap(body.get("applicationInfo"));
@@ -1017,7 +1017,7 @@ Map<String, Object> participants = new LinkedHashMap<>();
         return response;
     }
     @GetMapping("/versions") public ItemsResponseDto versions(@RequestParam(required=false) String entityType,@RequestParam(required=false) UUID entityId){ if(entityType!=null && entityId!=null) return new ItemsResponseDto(jdbcTemplate.queryForList("select * from object_versions where entity_type=? and entity_id=? order by version_number desc",entityType,entityId)); return new ItemsResponseDto(jdbcTemplate.queryForList("select * from object_versions order by updated_at desc limit 100")); }
-    @PostMapping("/versions") public MapResponseDto createVersion(@RequestBody(required = false) MapPayloadDto payload){ Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data(); return MapResponseDto.of(Map.of("result",versionService.createPendingVersionsForApplication(UUID.fromString(String.valueOf(body.get("projectId"))), UUID.fromString(String.valueOf(body.get("applicationId"))), body.get("createdBy")==null?null:String.valueOf(body.get("createdBy"))))); }
+    @PostMapping("/versions") public MapResponseDto createVersion(@RequestBody(required = false) MapPayloadDto payload){ Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data(); UUID projectId = Objects.requireNonNull(UUID.fromString(String.valueOf(body.get("projectId")))); UUID applicationId = Objects.requireNonNull(UUID.fromString(String.valueOf(body.get("applicationId")))); return MapResponseDto.of(Map.of("result",versionService.createPendingVersionsForApplication(projectId, applicationId, body.get("createdBy")==null?null:String.valueOf(body.get("createdBy"))))); }
     @PostMapping("/versions/{versionId}/approve") public OkResponseDto approveVersion(@PathVariable Long versionId){jdbcTemplate.update("update object_versions set version_status='CURRENT', updated_at=now() where id=?",versionId);return new OkResponseDto(true);}    
     @PostMapping("/versions/{versionId}/decline") public OkResponseDto declineVersion(@PathVariable Long versionId){jdbcTemplate.update("update object_versions set version_status='DECLINED', updated_at=now() where id=?",versionId);return new OkResponseDto(true);}    
     @GetMapping("/versions/{versionId}/snapshot") public MapResponseDto snapshot(@PathVariable Long versionId){return MapResponseDto.of(jdbcTemplate.queryForMap("select snapshot_data from object_versions where id=?",versionId));}    
@@ -1113,10 +1113,12 @@ private String buildFullAddress(String regionName, String districtName, String m
     }
 
     private void syncFloorsForBlock(UUID blockId) {
-        BuildingBlockEntity block = blockRepo.findById(blockId).orElseThrow(() -> new ApiException("Block not found", "NOT_FOUND", null, 404));
-        BuildingEntity building = buildingRepo.findById(block.getBuildingId()).orElseThrow(() -> new ApiException("Building not found", "NOT_FOUND", null, 404));
-        List<BuildingBlockEntity> allBlocks = blockRepo.findByBuildingId(block.getBuildingId());
-        List<BlockFloorMarkerEntity> markers = markerRepo.findByBlockIdIn(List.of(blockId));
+        UUID nonNullBlockId = Objects.requireNonNull(blockId);
+        BuildingBlockEntity block = blockRepo.findById(nonNullBlockId).orElseThrow(() -> new ApiException("Block not found", "NOT_FOUND", null, 404));
+        UUID buildingId = Objects.requireNonNull(block.getBuildingId());
+        BuildingEntity building = buildingRepo.findById(buildingId).orElseThrow(() -> new ApiException("Building not found", "NOT_FOUND", null, 404));
+        List<BuildingBlockEntity> allBlocks = blockRepo.findByBuildingId(buildingId);
+        List<BlockFloorMarkerEntity> markers = markerRepo.findByBlockIdIn(List.of(nonNullBlockId));
         List<Map<String, Object>> generated = floorGeneratorService.generateFloorsModel(block, building, allBlocks, markers);
 
         List<Map<String, Object>> existingFloors = jdbcTemplate.queryForList(
@@ -1296,19 +1298,6 @@ private String buildFullAddress(String regionName, String districtName, String m
     private List<Map<String, Object>> asList(Object value) {
         if (!(value instanceof List<?> list)) return List.of();
         return list.stream().filter(Map.class::isInstance).map(v -> (Map<String, Object>) v).toList();
-    }
-
-    private void putIfPresentPreserve(Map<String, Object> target, String key, String value) {
-        if (value == null) return;
-        if (value.isBlank()) return;
-        target.put(key, value);
-    }
-
-    private void putIfNotBlank(Map<String, Object> target, String key, String value) {
-        if (value == null) return;
-        String normalized = value.trim();
-        if (normalized.isBlank()) return;
-        target.put(key, normalized);
     }
 
     private Integer toNullableInt(Object value) {

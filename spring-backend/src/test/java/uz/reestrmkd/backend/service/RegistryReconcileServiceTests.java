@@ -15,6 +15,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@SuppressWarnings("null")
 class RegistryReconcileServiceTests {
 
     @Mock private FloorsReconcileService floorsReconcileService;

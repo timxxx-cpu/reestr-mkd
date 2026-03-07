@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@SuppressWarnings("null")
 class FloorsReconcileServiceTests {
 
     @Mock

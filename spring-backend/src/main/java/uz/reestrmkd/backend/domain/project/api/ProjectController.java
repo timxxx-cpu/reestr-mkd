@@ -178,7 +178,7 @@ public class ProjectController {
         }
 
         appSql.append(" order by updated_at desc");
-        List<Map<String, Object>> apps = jdbcTemplate.queryForList(appSql.toString(), args.toArray());
+        List<Map<String, Object>> apps = jdbcTemplate.queryForList(Objects.requireNonNull(appSql.toString()), args.toArray());
 
         List<Map<String, Object>> filteredApps = new ArrayList<>(apps);
         String searchTrimmed = search == null ? null : search.trim();
@@ -214,7 +214,7 @@ public class ProjectController {
         List<Object> projectArgs = new ArrayList<>();
         projectArgs.add(scope);
         projectArgs.addAll(projectIds);
-        List<Map<String, Object>> projects = jdbcTemplate.queryForList(projectSql.toString(), projectArgs.toArray());
+        List<Map<String, Object>> projects = jdbcTemplate.queryForList(Objects.requireNonNull(projectSql.toString()), projectArgs.toArray());
 
         Map<String, Map<String, Object>> appByProject = new HashMap<>();
         for (Map<String, Object> app : filteredApps) {
@@ -708,7 +708,7 @@ public class ProjectController {
             args.add(assignee);
         }
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), args.toArray());
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(Objects.requireNonNull(sql.toString()), args.toArray());
         Set<String> workSubstatuses = Set.of("DRAFT", "REVISION", "RETURNED_BY_MANAGER");
 
         int work = 0, review = 0, integration = 0, pendingDecline = 0, declined = 0, registryApplications = 0, registryComplexes = 0;

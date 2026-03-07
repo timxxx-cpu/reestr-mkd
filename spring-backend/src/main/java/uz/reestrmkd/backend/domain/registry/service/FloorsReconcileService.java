@@ -1,6 +1,7 @@
 package uz.reestrmkd.backend.domain.registry.service;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import uz.reestrmkd.backend.domain.registry.model.BuildingEntity;
 import uz.reestrmkd.backend.domain.registry.model.BlockFloorMarkerEntity;
@@ -18,6 +19,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -45,10 +47,10 @@ public class FloorsReconcileService {
         this.floorGeneratorService = floorGeneratorService;
     }
 
-    public FloorsReconcileResult reconcile(UUID blockId) {
+    public FloorsReconcileResult reconcile(@NonNull UUID blockId) {
         BuildingBlockEntity block = blockRepo.findById(blockId)
             .orElseThrow(() -> new ApiException("Block not found", "NOT_FOUND", null, 404));
-        BuildingEntity building = buildingRepo.findById(block.getBuildingId())
+        BuildingEntity building = buildingRepo.findById(Objects.requireNonNull(block.getBuildingId()))
             .orElseThrow(() -> new ApiException("Building not found", "NOT_FOUND", null, 404));
         List<BuildingBlockEntity> allBlocks = blockRepo.findByBuildingId(block.getBuildingId());
         List<BlockFloorMarkerEntity> markers = markerRepo.findByBlockIdIn(List.of(blockId));

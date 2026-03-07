@@ -1,5 +1,6 @@
 package uz.reestrmkd.backend.domain.registry.service;
 
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
@@ -20,13 +21,13 @@ public class RegistryReconcileService {
         this.entranceMatrixEnsureService = entranceMatrixEnsureService;
     }
 
-    public FloorsReconcileService.FloorsReconcileResult reconcileFloors(UUID blockId) {
+    public FloorsReconcileService.FloorsReconcileResult reconcileFloors(@NonNull UUID blockId) {
         FloorsReconcileService.FloorsReconcileResult result = floorsReconcileService.reconcile(blockId);
         entranceMatrixEnsureService.ensureForBlock(blockId);
         return result;
     }
 
-    public EntranceReconcileService.EntranceReconcileResult reconcileEntrances(UUID blockId, int count) {
+    public EntranceReconcileService.EntranceReconcileResult reconcileEntrances(@NonNull UUID blockId, int count) {
         EntranceReconcileService.EntranceReconcileResult result = entranceReconcileService.reconcile(blockId, count);
         entranceMatrixEnsureService.ensureForBlock(blockId);
         return result;

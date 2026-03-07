@@ -1,5 +1,6 @@
 package uz.reestrmkd.backend.domain.registry.service;
 
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import uz.reestrmkd.backend.domain.registry.model.BlockExtensionEntity;
 import uz.reestrmkd.backend.domain.registry.repository.BlockExtensionJpaRepository;
@@ -17,11 +18,11 @@ public class BlockExtensionService {
         this.extensionRepo = extensionRepo;
     }
 
-    public List<BlockExtensionEntity> listByBlock(UUID blockId) {
+    public List<BlockExtensionEntity> listByBlock(@NonNull UUID blockId) {
         return extensionRepo.findByParentBlockIdIn(List.of(blockId));
     }
 
-    public BlockExtensionEntity create(UUID blockId, CreateExtensionCommand command) {
+    public BlockExtensionEntity create(@NonNull UUID blockId, CreateExtensionCommand command) {
         BlockExtensionEntity e = new BlockExtensionEntity();
         e.setId(UUID.randomUUID());
         e.setParentBlockId(blockId);
@@ -39,7 +40,7 @@ public class BlockExtensionService {
         return extensionRepo.save(e);
     }
 
-    public void update(UUID extensionId, UpdateExtensionCommand command) {
+    public void update(@NonNull UUID extensionId, UpdateExtensionCommand command) {
         BlockExtensionEntity e = extensionRepo.findById(extensionId)
             .orElseThrow(() -> new ApiException("Extension not found", "NOT_FOUND", null, 404));
         if (command.label() != null) e.setLabel(command.label());
@@ -49,7 +50,7 @@ public class BlockExtensionService {
         extensionRepo.save(e);
     }
 
-    public void delete(UUID extensionId) {
+    public void delete(@NonNull UUID extensionId) {
         extensionRepo.deleteById(extensionId);
     }
 }

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Array;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -402,7 +403,7 @@ public final class ValidationUtils {
             where block_id in (%s)
         """.formatted(blockIds.stream().map(id -> "?").collect(Collectors.joining(",")));
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, blockIds.toArray());
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(Objects.requireNonNull(sql), blockIds.toArray());
         return rows.stream().map(row -> new FloorData(
             castUuid(row.get("id")),
             castUuid(row.get("block_id")),
@@ -427,7 +428,7 @@ public final class ValidationUtils {
             where floor_id in (%s)
         """.formatted(floorIds.stream().map(id -> "?").collect(Collectors.joining(",")));
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, floorIds.toArray());
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(Objects.requireNonNull(sql), floorIds.toArray());
         return rows.stream()
             .map(row -> new UnitData(castUuid(row.get("id")), castUuid(row.get("floor_id")), asString(row.get("number"))))
             .toList();
@@ -471,7 +472,7 @@ public final class ValidationUtils {
         }
 
         try {
-            return OBJECT_MAPPER.readValue(raw, new TypeReference<List<String>>() {
+            return OBJECT_MAPPER.readValue(raw.getBytes(StandardCharsets.UTF_8), new TypeReference<List<String>>() {
             });
         } catch (Exception ignored) {
             return List.of();
@@ -485,7 +486,7 @@ public final class ValidationUtils {
         }
 
         try {
-            return OBJECT_MAPPER.readValue(raw, new TypeReference<Map<String, Object>>() {
+            return OBJECT_MAPPER.readValue(raw.getBytes(StandardCharsets.UTF_8), new TypeReference<Map<String, Object>>() {
             });
         } catch (Exception ignored) {
             return new LinkedHashMap<>();

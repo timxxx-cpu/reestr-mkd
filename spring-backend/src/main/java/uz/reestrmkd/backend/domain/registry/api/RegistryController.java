@@ -3,6 +3,7 @@ package uz.reestrmkd.backend.domain.registry.api;
 import jakarta.validation.Valid;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,7 +30,6 @@ import uz.reestrmkd.backend.security.ActorPrincipal;
 import uz.reestrmkd.backend.security.CurrentUser;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -89,13 +89,13 @@ public class RegistryController {
     }
 
     @GetMapping("/projects/{projectId}/parking-counts")
-    public MapResponseDto parkingCounts(@PathVariable UUID projectId) {
+    public MapResponseDto parkingCounts(@PathVariable @NonNull UUID projectId) {
         return MapResponseDto.of(new HashMap<>(registryQueryService.loadParkingCounts(projectId)));
     }
 
     @PostMapping("/floors/{floorId}/parking-places/sync")
     public MapResponseDto syncParking(
-        @PathVariable UUID floorId,
+        @PathVariable @NonNull UUID floorId,
         @RequestBody(required = false) @Valid SyncParkingPlacesRequestDto payload,
         @CurrentUser ActorPrincipal actor
     ) {
@@ -106,22 +106,22 @@ public class RegistryController {
     }
 
     @GetMapping("/blocks/{blockId}/floors")
-    public ItemsResponseDto getFloors(@PathVariable UUID blockId) {
+    public ItemsResponseDto getFloors(@PathVariable @NonNull UUID blockId) {
         return new ItemsResponseDto(blockStructureQueryService.listFloors(blockId));
     }
 
     @GetMapping("/blocks/{blockId}/entrances")
-    public ItemsResponseDto getEntrances(@PathVariable UUID blockId) {
+    public ItemsResponseDto getEntrances(@PathVariable @NonNull UUID blockId) {
         return new ItemsResponseDto(blockStructureQueryService.listEntrances(blockId));
     }
 
     @GetMapping("/blocks/{blockId}/extensions")
-    public List<BlockExtensionEntity> getExtensions(@PathVariable UUID blockId) {
+    public List<BlockExtensionEntity> getExtensions(@PathVariable @NonNull UUID blockId) {
         return blockExtensionService.listByBlock(blockId);
     }
 
     @PostMapping("/blocks/{blockId}/extensions")
-    public BlockExtensionEntity createExtension(@PathVariable UUID blockId, @RequestBody(required = false) @Valid CreateExtensionRequestDto payload) {
+    public BlockExtensionEntity createExtension(@PathVariable @NonNull UUID blockId, @RequestBody(required = false) @Valid CreateExtensionRequestDto payload) {
         CreateExtensionCommand command = payload == null
             ? new CreateExtensionCommand(null, null, null, null, null, null, null, null, null)
             : payload.toCommand();
@@ -129,7 +129,7 @@ public class RegistryController {
     }
 
     @PutMapping("/extensions/{extensionId}")
-    public MapResponseDto updateExt(@PathVariable UUID extensionId, @RequestBody(required = false) @Valid UpdateExtensionRequestDto payload) {
+    public MapResponseDto updateExt(@PathVariable @NonNull UUID extensionId, @RequestBody(required = false) @Valid UpdateExtensionRequestDto payload) {
         UpdateExtensionCommand command = payload == null
             ? new UpdateExtensionCommand(null, null, null)
             : payload.toCommand();
@@ -138,13 +138,13 @@ public class RegistryController {
     }
 
     @DeleteMapping("/extensions/{extensionId}")
-    public MapResponseDto delExt(@PathVariable UUID extensionId) {
+    public MapResponseDto delExt(@PathVariable @NonNull UUID extensionId) {
         blockExtensionService.delete(extensionId);
         return MapResponseDto.of(Map.of("ok", true));
     }
 
     @GetMapping("/units/{unitId}/explication")
-    public ResponseEntity<?> explication(@PathVariable UUID unitId) {
+    public ResponseEntity<?> explication(@PathVariable @NonNull UUID unitId) {
         Map<String, Object> result = registryUnitQueryService.loadUnitExplication(unitId);
         if (result == null) {
             return ResponseEntity.ok().body(null);
@@ -154,7 +154,7 @@ public class RegistryController {
 
     @GetMapping("/blocks/{blockId}/units")
     public MapResponseDto units(
-        @PathVariable UUID blockId,
+        @PathVariable @NonNull UUID blockId,
         @RequestParam(required = false) String floorIds,
         @RequestParam(required = false) String search,
         @RequestParam(required = false) String type,
@@ -177,7 +177,7 @@ public class RegistryController {
     }
 
     @PostMapping("/blocks/{blockId}/units/reconcile")
-    public MapResponseDto reconcileUnits(@PathVariable UUID blockId, @CurrentUser ActorPrincipal actor) {
+    public MapResponseDto reconcileUnits(@PathVariable @NonNull UUID blockId, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         var result = registryMutationsService.reconcileUnits(blockId);
         return MapResponseDto.of(Map.of(
@@ -188,7 +188,7 @@ public class RegistryController {
     }
 
     @PostMapping("/blocks/{blockId}/common-areas/reconcile")
-    public MapResponseDto reconcileMops(@PathVariable UUID blockId, @CurrentUser ActorPrincipal actor) {
+    public MapResponseDto reconcileMops(@PathVariable @NonNull UUID blockId, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         var result = registryMutationsService.reconcileMops(blockId);
         return MapResponseDto.of(Map.of("removed", result.removed(), "checkedCells", result.checkedCells()));
@@ -217,30 +217,30 @@ public class RegistryController {
     }
 
     @DeleteMapping("/common-areas/{id}")
-    public MapResponseDto deleteCommon(@PathVariable UUID id) {
+    public MapResponseDto deleteCommon(@PathVariable @NonNull UUID id) {
         registryCommonAreasService.delete(id);
         return MapResponseDto.of(Map.of("ok", true));
     }
 
     @PostMapping("/blocks/{blockId}/common-areas/clear")
-    public MapResponseDto clearCommon(@PathVariable UUID blockId, @RequestBody(required = false) @Valid ClearCommonAreasRequestDto payload) {
+    public MapResponseDto clearCommon(@PathVariable @NonNull UUID blockId, @RequestBody(required = false) @Valid ClearCommonAreasRequestDto payload) {
         String floorIds = payload == null ? "" : payload.safeFloorIds();
         registryCommonAreasService.clear(blockId, floorIds);
         return MapResponseDto.of(Map.of("ok", true));
     }
 
     @GetMapping("/blocks/{blockId}/common-areas")
-    public ItemsResponseDto commonAreas(@PathVariable UUID blockId, @RequestParam(required = false) String floorIds) {
+    public ItemsResponseDto commonAreas(@PathVariable @NonNull UUID blockId, @RequestParam(required = false) String floorIds) {
         return new ItemsResponseDto(registryCommonAreasService.list(blockId, floorIds));
     }
 
     @GetMapping("/blocks/{blockId}/entrance-matrix")
-    public ItemsResponseDto matrix(@PathVariable UUID blockId) {
+    public ItemsResponseDto matrix(@PathVariable @NonNull UUID blockId) {
         return new ItemsResponseDto(registryEntranceMatrixService.listByBlock(blockId));
     }
 
     @PutMapping("/floors/{floorId}")
-    public MapResponseDto updateFloor(@PathVariable UUID floorId, @RequestBody(required = false) @Valid UpdateFloorRequestDto payload, @CurrentUser ActorPrincipal actor) {
+    public MapResponseDto updateFloor(@PathVariable @NonNull UUID floorId, @RequestBody(required = false) @Valid UpdateFloorRequestDto payload, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         Map<String, Object> updates = payload == null ? Map.of() : payload.safeUpdates();
         return MapResponseDto.of(floorsUpdateService.updateFloor(floorId, updates));
@@ -256,7 +256,7 @@ public class RegistryController {
 
 
     @PostMapping("/blocks/{blockId}/floors/reconcile")
-    public MapResponseDto reconcileFloors(@PathVariable UUID blockId, @CurrentUser ActorPrincipal actor) {
+    public MapResponseDto reconcileFloors(@PathVariable @NonNull UUID blockId, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         var result = registryReconcileService.reconcileFloors(blockId);
         return MapResponseDto.of(Map.of("ok", true, "deleted", result.deleted(), "upserted", result.upserted()));
@@ -264,7 +264,7 @@ public class RegistryController {
 
     @PostMapping("/blocks/{blockId}/entrances/reconcile")
     public MapResponseDto reconcileEntrances(
-        @PathVariable UUID blockId,
+        @PathVariable @NonNull UUID blockId,
         @RequestBody(required = false) @Valid ReconcileEntrancesRequestDto payload,
         @CurrentUser ActorPrincipal actor
     ) {
@@ -281,21 +281,21 @@ public class RegistryController {
     }
 
    @PutMapping("/blocks/{blockId}/entrance-matrix/cell")
-    public MapResponseDto upsertCell(@PathVariable UUID blockId, @RequestBody(required = false) @Valid UpsertEntranceMatrixCellRequestDto payload, @CurrentUser ActorPrincipal actor) {
+    public MapResponseDto upsertCell(@PathVariable @NonNull UUID blockId, @RequestBody(required = false) @Valid UpsertEntranceMatrixCellRequestDto payload, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         Map<String, Object> body = payload == null ? Map.of() : payload.safeData();
         return MapResponseDto.of(registryEntranceMatrixService.upsertCell(blockId, body));
     }
 
    @PutMapping("/blocks/{blockId}/entrance-matrix/batch")
-    public MapResponseDto upsertMatrixBatch(@PathVariable UUID blockId, @RequestBody(required = false) @Valid UpsertEntranceMatrixBatchRequestDto payload, @CurrentUser ActorPrincipal actor) {
+    public MapResponseDto upsertMatrixBatch(@PathVariable @NonNull UUID blockId, @RequestBody(required = false) @Valid UpsertEntranceMatrixBatchRequestDto payload, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         List<Map<String, Object>> cells = payload == null ? List.of() : payload.safeCells();
         return MapResponseDto.of(registryEntranceMatrixService.upsertBatch(blockId, cells));
     }
     
     @PostMapping("/blocks/{blockId}/reconcile/preview")
-    public ResponseEntity<MapResponseDto> preview(@PathVariable UUID blockId) {
+    public ResponseEntity<MapResponseDto> preview(@PathVariable @NonNull UUID blockId) {
         return ResponseEntity.ok(MapResponseDto.of(reconcilePreviewService.preview(blockId)));
     }
 

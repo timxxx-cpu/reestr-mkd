@@ -27,12 +27,6 @@ import uz.reestrmkd.backend.domain.workflow.api.ApplicationStepDbDto;
 import uz.reestrmkd.backend.domain.workflow.model.ApplicationEntity;
 import uz.reestrmkd.backend.domain.workflow.model.ApplicationHistoryEntity;
 import uz.reestrmkd.backend.domain.workflow.model.ApplicationStepEntity;
-import uz.reestrmkd.backend.domain.project.model.*;
-import uz.reestrmkd.backend.domain.workflow.model.*;
-import uz.reestrmkd.backend.domain.registry.model.*;
-import uz.reestrmkd.backend.domain.project.api.*;
-import uz.reestrmkd.backend.domain.workflow.api.*;
-import uz.reestrmkd.backend.domain.registry.api.*;
 
 import java.util.*;
 import java.util.stream.Collectors;

@@ -7,6 +7,7 @@ import uz.reestrmkd.backend.domain.registry.repository.FloorJpaRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -40,7 +41,7 @@ public class RegistryQueryService {
         sql.append(" order by project_name asc limit ? offset ?");
         args.add(safeLimit);
         args.add(offset);
-        return jdbcTemplate.queryForList(sql.toString(), args.toArray());
+        return jdbcTemplate.queryForList(Objects.requireNonNull(sql.toString()), args.toArray());
     }
 
     public Map<String, Integer> loadParkingCounts(UUID projectId) {

@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -92,7 +93,7 @@ public class RegistryBlockUnitsQueryService {
         args.add(normalizedLimit);
         args.add(offset);
 
-        List<Map<String, Object>> units = jdbcTemplate.queryForList(sql.toString(), args.toArray());
+        List<Map<String, Object>> units = jdbcTemplate.queryForList(Objects.requireNonNull(sql.toString()), args.toArray());
 
         Set<UUID> entranceBlockIds = new LinkedHashSet<>();
         entranceBlockIds.add(blockId);

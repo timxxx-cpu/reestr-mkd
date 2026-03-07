@@ -1,5 +1,6 @@
 package uz.reestrmkd.backend.domain.registry.service;
 
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import uz.reestrmkd.backend.domain.registry.model.RoomEntity;
 import uz.reestrmkd.backend.domain.registry.model.UnitEntity;
@@ -22,7 +23,7 @@ public class RegistryUnitQueryService {
         this.roomJpaRepository = roomJpaRepository;
     }
 
-    public Map<String, Object> loadUnitExplication(UUID unitId) {
+    public Map<String, Object> loadUnitExplication(@NonNull UUID unitId) {
         UnitEntity unitEntity = unitJpaRepository.findById(unitId).orElse(null);
         if (unitEntity == null) {
             return null;

@@ -1,6 +1,7 @@
 package uz.reestrmkd.backend.domain.workflow.service;
 
 import jakarta.transaction.Transactional;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 
 import uz.reestrmkd.backend.domain.workflow.model.ApplicationEntity;
@@ -38,12 +39,12 @@ public class ApplicationRepositoryService {
         this.lockRepo = lockRepo;
     }
 
-    public Optional<ApplicationEntity> getApplication(UUID applicationId) {
+    public Optional<ApplicationEntity> getApplication(@NonNull UUID applicationId) {
         return applicationRepo.findById(applicationId);
     }
 
     @Transactional
-    public Optional<ApplicationEntity> updateApplicationState(UUID applicationId, String nextStatus, String nextSubstatus, Integer nextStep, Integer nextStage) {
+    public Optional<ApplicationEntity> updateApplicationState(@NonNull UUID applicationId, String nextStatus, String nextSubstatus, Integer nextStep, Integer nextStage) {
         int updated = applicationRepo.updateWorkflowState(applicationId, nextStatus, nextSubstatus, nextStep, nextStage, Instant.now());
         if (updated == 0) {
             return Optional.empty();
