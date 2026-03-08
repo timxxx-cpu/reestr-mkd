@@ -1,3 +1,5 @@
+import { ROLE_IDS } from '../roles';
+
 export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveActor, createIdempotencyKey }) => ({
   getIntegrationStatus: async projectId => {
     requireBffEnabled('integration.getIntegrationStatus');
@@ -13,6 +15,7 @@ export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveA
       field,
       status,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -26,6 +29,7 @@ export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveA
       buildingId: id,
       cadastre,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -39,24 +43,26 @@ export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveA
       unitId: id,
       cadastre,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
 
- declineApplication: async ({ applicationId, userName, reason, userRole = 'branch_manager', nextSubstatus, prevStatus }) => {
+ declineApplication: async ({ applicationId, userName, reason, userRole = 'branch_manager', userRoleId = ROLE_IDS.BRANCH_MANAGER, nextSubstatus, prevStatus }) => {
     requireBffEnabled('workflow.declineApplication');
 
     return BffClient.declineApplication({
       applicationId,
       reason,
       userName,
+      userRoleId,
       userRole,
       // Опционально: если бэкенд научится понимать эти статусы, можно передавать их и в BffClient
       idempotencyKey: createIdempotencyKey('workflow-decline', [applicationId]),
     });
   },
 
-  requestDecline: async ({ applicationId, reason, stepIndex, requestedBy, userRole = 'technician' }) => {
+  requestDecline: async ({ applicationId, reason, stepIndex, requestedBy, userRole = 'technician', userRoleId = ROLE_IDS.TECHNICIAN }) => {
     requireBffEnabled('workflow.requestDecline');
 
     return BffClient.requestDecline({
@@ -64,24 +70,26 @@ export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveA
       reason,
       stepIndex,
       userName: requestedBy,
+      userRoleId,
       userRole,
       idempotencyKey: createIdempotencyKey('workflow-request-decline', [applicationId, stepIndex]),
     });
   },
 
-  returnFromDecline: async ({ applicationId, userName, userRole = 'branch_manager', comment }) => {
+  returnFromDecline: async ({ applicationId, userName, userRole = 'branch_manager', userRoleId = ROLE_IDS.BRANCH_MANAGER, comment }) => {
     requireBffEnabled('workflow.returnFromDecline');
 
     return BffClient.returnFromDecline({
       applicationId,
       comment,
       userName,
+      userRoleId,
       userRole,
       idempotencyKey: createIdempotencyKey('workflow-return-from-decline', [applicationId]),
     });
   },
 
- assignTechnician: async ({ applicationId, assigneeUserId, userName = 'system', userRole = 'branch_manager', reason = null }) => {
+ assignTechnician: async ({ applicationId, assigneeUserId, userName = 'system', userRole = 'branch_manager', userRoleId = ROLE_IDS.BRANCH_MANAGER, reason = null }) => {
     requireBffEnabled('workflow.assignTechnician');
 
     return BffClient.assignTechnician({
@@ -89,18 +97,20 @@ export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveA
       assigneeUserId, // Теперь переменные совпадают
       reason,
       userName,
+      userRoleId,
       userRole,
       idempotencyKey: createIdempotencyKey('workflow-assign-technician', [applicationId, assigneeUserId]),
     });
   },
 
-  restoreApplication: async ({ applicationId, userName, userRole = 'admin', comment }) => {
+  restoreApplication: async ({ applicationId, userName, userRole = 'admin', userRoleId = ROLE_IDS.ADMIN, comment }) => {
     requireBffEnabled('workflow.restoreApplication');
 
     return BffClient.restoreApplication({
       applicationId,
       comment,
       userName,
+      userRoleId,
       userRole,
       idempotencyKey: createIdempotencyKey('workflow-restore', [applicationId]),
     });

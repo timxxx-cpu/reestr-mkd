@@ -39,6 +39,7 @@ import {
 import { useWorkflowActions } from '@components/workflow/useWorkflowActions';
 import { useWorkflowBarState } from '@components/workflow/useWorkflowBarState';
 import { useWorkflowOperations } from '@components/workflow/useWorkflowOperations';
+import { ROLE_IDS, getRoleKey, hasAnyRole, hasRole } from '@lib/roles';
 
 // Шаги, на которых сохранение выполняется через локальные формы (блокируем верхние кнопки)
 const STEPS_WITH_CUSTOM_SAVE = [
@@ -111,10 +112,12 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   const isPendingDeclineMode = isPendingDecline(appSubstatus);
 
   // ИСПРАВЛЕНИЕ: Добавляем роль BRANCH_MANAGER в список тех, кто может проверять
-  const isController = user.role === ROLES.CONTROLLER || user.role === ROLES.BRANCH_MANAGER || user.role === ROLES.ADMIN;
-  const isTechnician = user.role === ROLES.TECHNICIAN;
-  const canTechRequestDecline = canRequestDecline(user.role, appSubstatus);
-  const canManagerReviewDecline = canReviewDeclineRequest(user.role, appSubstatus);
+  const userRole = getRoleKey(user?.roleId ?? user?.role);
+  const isController = hasAnyRole(user, [ROLE_IDS.CONTROLLER, ROLE_IDS.BRANCH_MANAGER, ROLE_IDS.ADMIN]);
+  const isTechnician = hasRole(user, ROLE_IDS.TECHNICIAN);
+  const isAdmin = hasRole(user, ROLE_IDS.ADMIN);
+  const canTechRequestDecline = canRequestDecline(userRole, appSubstatus);
+  const canManagerReviewDecline = canReviewDeclineRequest(userRole, appSubstatus);
 
   const currentStageNum = getStepStage(currentStep);
 
@@ -203,7 +206,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   });
 
   const shortcutsEnabled =
-    (isTechnician || user.role === ROLES.ADMIN) &&
+    (isTechnician || isAdmin) &&
     !isReviewMode &&
     isCurrentTask &&
     !isReadOnly &&
@@ -400,7 +403,7 @@ export default function WorkflowBar({ user, currentStep, setCurrentStep, onExit,
   }
 
   if (
-    (isTechnician || user.role === ROLES.ADMIN) &&
+    (isTechnician || isAdmin) &&
     !isReviewMode &&
     !isPendingDeclineMode &&
     isCurrentTask &&

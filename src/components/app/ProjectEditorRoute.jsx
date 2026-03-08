@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useToast } from '@context/ToastContext';
 import { useProject } from '@context/ProjectContext';
 import { STEPS_CONFIG, ROLES, WORKFLOW_STAGES } from '@lib/constants';
+import { hasRole, ROLE_IDS } from '@lib/roles';
 
 import Sidebar from '@components/Sidebar';
 import StepIndicator from '@components/StepIndicator';
@@ -48,7 +49,7 @@ export default function ProjectEditorRoute({ user }) {
     initialRedirectDone.current = true;
   }, [applicationInfo?.id, applicationInfo?.currentStepIndex, isViewMode]);
 
-  const isTechnician = user.role === ROLES.TECHNICIAN;
+  const isTechnician = hasRole(user, ROLE_IDS.TECHNICIAN);
   const taskIndex = applicationInfo?.currentStepIndex || 0;
   const isCurrentTask = currentStep === taskIndex;
 

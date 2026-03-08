@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { ApiService } from '@lib/api-service';
 import { getDeclineSubstatusByRole } from './action-rules';
+import { getRoleId, getRoleKey } from '@lib/roles';
 
 export function useProjectModerationActions({
   user,
@@ -41,10 +42,11 @@ export function useProjectModerationActions({
       } else if (type === 'DECLINE') {
         await ApiService.declineApplication({
           applicationId: payload.projectAppId,
-          nextSubstatus: getDeclineSubstatusByRole(user.role),
+          nextSubstatus: getDeclineSubstatusByRole(getRoleKey(user?.roleId ?? user?.role)),
           prevStatus: payload.currentStatus,
           userName: user.name,
-          userRole: user.role,
+          userRoleId: getRoleId(user?.roleId ?? user?.role),
+          userRole: getRoleKey(user?.roleId ?? user?.role),
           reason: result,
         });
         toast.success('Заявление отклонено');

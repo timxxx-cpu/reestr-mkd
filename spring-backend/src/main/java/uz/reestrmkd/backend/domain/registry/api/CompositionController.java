@@ -15,6 +15,7 @@ import uz.reestrmkd.backend.domain.common.api.MapResponseDto;
 import uz.reestrmkd.backend.domain.registry.service.CompositionBuildingService;
 import uz.reestrmkd.backend.exception.ApiException;
 import uz.reestrmkd.backend.security.ActorPrincipal;
+import uz.reestrmkd.backend.security.PolicyGuard;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,6 +24,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1")
+@PolicyGuard(domain = "composition", action = "read", message = "Role cannot read composition")
 public class CompositionController {
 
     private final SecurityPolicyService securityPolicyService;
@@ -43,6 +45,7 @@ public class CompositionController {
 
     @PostMapping("/projects/{projectId}/buildings")
     @Transactional
+    @PolicyGuard(domain = "composition", action = "mutate", message = "Role cannot modify composition")
     public MapResponseDto create(@PathVariable UUID projectId, @RequestBody(required = false) Map<String, Object> body) {
         requirePolicy("composition", "mutate", "Role cannot modify composition");
         Map<String, Object> buildingData = asMap(body == null ? null : body.get("buildingData"));
@@ -52,6 +55,7 @@ public class CompositionController {
 
     @PutMapping("/buildings/{buildingId}")
     @Transactional
+    @PolicyGuard(domain = "composition", action = "mutate", message = "Role cannot modify composition")
     public MapResponseDto update(@PathVariable UUID buildingId, @RequestBody(required = false) Map<String, Object> body) {
         requirePolicy("composition", "mutate", "Role cannot modify composition");
         Map<String, Object> buildingData = asMap(body == null ? null : body.get("buildingData"));
@@ -61,6 +65,7 @@ public class CompositionController {
 
     @DeleteMapping("/buildings/{buildingId}")
     @Transactional
+    @PolicyGuard(domain = "composition", action = "mutate", message = "Role cannot modify composition")
     public MapResponseDto delete(@PathVariable UUID buildingId) {
         requirePolicy("composition", "mutate", "Role cannot modify composition");
         return MapResponseDto.of(compositionBuildingService.deleteBuilding(buildingId));
@@ -87,7 +92,7 @@ public class CompositionController {
         if (authentication == null || !(authentication.getPrincipal() instanceof ActorPrincipal actor)) {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
-        if (!securityPolicyService.allowByPolicy(actor.userRole(), module, action)) {
+        if (!securityPolicyService.allowByPolicy(actor.userRoleId(), module, action)) {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
     }

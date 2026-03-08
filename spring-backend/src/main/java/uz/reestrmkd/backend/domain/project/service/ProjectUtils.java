@@ -1,9 +1,10 @@
 package uz.reestrmkd.backend.domain.project.service;
 
+import uz.reestrmkd.backend.domain.auth.model.UserRole;
+
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 public final class ProjectUtils {
@@ -55,11 +56,11 @@ public final class ProjectUtils {
         Set<String> actions = new LinkedHashSet<>();
         actions.add("view");
 
-        String role = actorRole == null ? "" : actorRole.toLowerCase(Locale.ROOT);
-        boolean isAdmin = "admin".equals(role);
-        boolean isBranchManager = "branch_manager".equals(role);
-        boolean isTechnician = "technician".equals(role);
-        boolean isController = "controller".equals(role);
+        UserRole role = UserRole.fromKey(actorRole).orElse(null);
+        boolean isAdmin = role == UserRole.ADMIN;
+        boolean isBranchManager = role == UserRole.BRANCH_MANAGER;
+        boolean isTechnician = role == UserRole.TECHNICIAN;
+        boolean isController = role == UserRole.CONTROLLER;
 
         boolean isAssigned = app.assigneeName() == null || app.assigneeName().isBlank() || app.assigneeName().equals(actorUserId);
 

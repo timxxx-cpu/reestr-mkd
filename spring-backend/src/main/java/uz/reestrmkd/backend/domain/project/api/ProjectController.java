@@ -23,6 +23,7 @@ import uz.reestrmkd.backend.domain.registry.service.RegistryValidationService;
 import uz.reestrmkd.backend.domain.registry.service.ValidationUtils;
 import uz.reestrmkd.backend.security.ActorPrincipal;
 import uz.reestrmkd.backend.security.CurrentUser;
+import uz.reestrmkd.backend.security.PolicyGuard;
 
 import java.util.List;
 import java.util.Map;
@@ -30,6 +31,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1")
+@PolicyGuard(domain = "projectExtended", action = "read", message = "Role cannot read project data")
 public class ProjectController {
 
     private final RegistryValidationService registryValidationService;
@@ -56,6 +58,7 @@ public class ProjectController {
     }
 
     @PostMapping("/projects/from-application")
+    @PolicyGuard(domain = "projectInit", action = "createFromApplication", message = "Role cannot create project from application")
     public MapResponseDto createFromApplication(
         @RequestBody(required = false) MapPayloadDto payload,
         @CurrentUser ActorPrincipal actor
@@ -107,6 +110,7 @@ public class ProjectController {
     }
 
     @PostMapping("/projects/{projectId}/validation/step")
+    @PolicyGuard(domain = "validation", action = "mutate", message = "Role cannot validate project step")
     public MapResponseDto validateStep(@PathVariable UUID projectId, @Valid @RequestBody ValidationStepRequestDto body) {
         String stepId = body.stepId() == null ? "" : body.stepId();
         ValidationUtils.ValidationResult validationResult = registryValidationService.buildStepValidationResult(projectId, stepId);

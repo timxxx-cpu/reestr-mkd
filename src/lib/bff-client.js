@@ -1,5 +1,6 @@
 import { AuthService } from './auth-service';
 import { trackOperationSource } from './operation-source-tracker';
+import { getRoleId, getRoleKey } from './roles';
 const isBffEnabled = () => {
   const raw = import.meta.env.VITE_BFF_ENABLED;
   if (raw === undefined) return true;
@@ -45,6 +46,7 @@ class BffError extends Error {
  * @property {string} [userId]
  * @property {string} [userName]
  * @property {string} [userRole]
+ * @property {number} [userRoleId]
  * @property {string} [idempotencyKey]
  */
 
@@ -53,7 +55,7 @@ class BffError extends Error {
  * @param {RequestOptions} [options]
  */
 async function request(path, options = {}) {
-  const { method = 'GET', body, userId, userName, userRole, idempotencyKey } = options;
+  const { method = 'GET', body, userId, userName, userRole, userRoleId, idempotencyKey } = options;
   const clientRequestId = generateClientRequestId();
 
   const headers = {
@@ -64,9 +66,11 @@ async function request(path, options = {}) {
 
   const currentUser = AuthService.getCurrentUser?.() || null;
   const resolvedUserId = userId || currentUser?.id || userName;
-  const resolvedUserRole = userRole || currentUser?.role;
+  const resolvedUserRoleId = getRoleId(userRoleId ?? currentUser?.roleId ?? userRole);
+  const resolvedUserRole = getRoleKey(userRole ?? currentUser?.role ?? resolvedUserRoleId);
 
   if (resolvedUserId) headers['x-user-id'] = encodeURIComponent(String(resolvedUserId));
+  if (resolvedUserRoleId) headers['x-user-role-id'] = String(resolvedUserRoleId);
   if (resolvedUserRole) headers['x-user-role'] = String(resolvedUserRole);
   if (idempotencyKey) headers['x-idempotency-key'] = idempotencyKey;
   if (body !== undefined && body !== null) {
@@ -156,18 +160,20 @@ async function request(path, options = {}) {
   getCatalogAll: ({ table }) =>
     request(`/api/v1/catalogs/${encodeURIComponent(table)}`),
 
-  upsertCatalogItem: ({ table, item, userName, userRole }) =>
+  upsertCatalogItem: ({ table, item, userName, userRole, userRoleId }) =>
     request(`/api/v1/catalogs/${encodeURIComponent(table)}/upsert`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { item },
     }),
 
-  setCatalogItemActive: ({ table, id, isActive, userName, userRole }) =>
+  setCatalogItemActive: ({ table, id, isActive, userName, userRole, userRoleId }) =>
     request(`/api/v1/catalogs/${encodeURIComponent(table)}/${encodeURIComponent(id)}/active`, {
       method: 'PUT',
       userName,
+      userRoleId,
       userRole,
       body: { isActive },
     }),
@@ -371,26 +377,29 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
   getIntegrationStatus: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/integration-status`),
 
-  updateIntegrationStatus: ({ projectId, field, status, userName, userRole }) =>
+  updateIntegrationStatus: ({ projectId, field, status, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/integration-status`, {
       method: 'PUT',
       userName,
+      userRoleId,
       userRole,
       body: { field, status },
     }),
 
-  updateBuildingCadastre: ({ buildingId, cadastre, userName, userRole }) =>
+  updateBuildingCadastre: ({ buildingId, cadastre, userName, userRole, userRoleId }) =>
     request(`/api/v1/buildings/${buildingId}/cadastre`, {
       method: 'PUT',
       userName,
+      userRoleId,
       userRole,
       body: { cadastre },
     }),
 
-  updateUnitCadastre: ({ unitId, cadastre, userName, userRole }) =>
+  updateUnitCadastre: ({ unitId, cadastre, userName, userRole, userRoleId }) =>
     request(`/api/v1/units/${unitId}/cadastre`, {
       method: 'PUT',
       userName,
+      userRoleId,
       userRole,
       body: { cadastre },
     }),
@@ -592,26 +601,29 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
     resolveApplicationId: ({ projectId, scope }) =>
     request(`/api/v1/projects/${projectId}/application-id?scope=${encodeURIComponent(scope || '')}`),
 
-  acquireApplicationLock: ({ applicationId, userName, userRole, ttlMinutes = 20 }) =>
+  acquireApplicationLock: ({ applicationId, userName, userRole, userRoleId, ttlMinutes = 20 }) =>
     request(`/api/v1/applications/${applicationId}/locks/acquire`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { ttlSeconds: Math.max(60, Math.floor(ttlMinutes * 60)) },
     }),
 
-  refreshApplicationLock: ({ applicationId, userName, userRole, ttlMinutes = 20 }) =>
+  refreshApplicationLock: ({ applicationId, userName, userRole, userRoleId, ttlMinutes = 20 }) =>
     request(`/api/v1/applications/${applicationId}/locks/refresh`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { ttlSeconds: Math.max(60, Math.floor(ttlMinutes * 60)) },
     }),
 
-  releaseApplicationLock: ({ applicationId, userName, userRole }) =>
+  releaseApplicationLock: ({ applicationId, userName, userRole, userRoleId }) =>
     request(`/api/v1/applications/${applicationId}/locks/release`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: {},
     }),
@@ -652,46 +664,51 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
       body: { reason },
     }),
 
-  assignTechnician: ({ applicationId, assigneeUserId, reason, userName, userRole, idempotencyKey }) =>
+  assignTechnician: ({ applicationId, assigneeUserId, reason, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/applications/${applicationId}/workflow/assign-technician`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { assigneeUserId, reason },
     }),
 
-  requestDecline: ({ applicationId, reason, stepIndex, userName, userRole, idempotencyKey }) =>
+  requestDecline: ({ applicationId, reason, stepIndex, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/applications/${applicationId}/workflow/request-decline`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { reason, stepIndex },
     }),
 
-  declineApplication: ({ applicationId, reason, userName, userRole, idempotencyKey }) =>
+  declineApplication: ({ applicationId, reason, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/applications/${applicationId}/workflow/decline`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { reason },
     }),
 
-  returnFromDecline: ({ applicationId, comment, userName, userRole, idempotencyKey }) =>
+  returnFromDecline: ({ applicationId, comment, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/applications/${applicationId}/workflow/return-from-decline`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { comment },
     }),
 
-  restoreApplication: ({ applicationId, comment, userName, userRole, idempotencyKey }) =>
+  restoreApplication: ({ applicationId, comment, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/applications/${applicationId}/workflow/restore`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { comment },

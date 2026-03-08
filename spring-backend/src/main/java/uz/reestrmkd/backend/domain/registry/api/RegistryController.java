@@ -28,12 +28,14 @@ import uz.reestrmkd.backend.domain.registry.service.UpdateExtensionCommand;
 import uz.reestrmkd.backend.exception.ApiException;
 import uz.reestrmkd.backend.security.ActorPrincipal;
 import uz.reestrmkd.backend.security.CurrentUser;
+import uz.reestrmkd.backend.security.PolicyGuard;
 
 import java.util.*;
 
 @RestController
 @RequestMapping("/api/v1")
 @Validated
+@PolicyGuard(domain = "registry", action = "read", message = "Role cannot read registry data")
 public class RegistryController {
     private final SecurityPolicyService securityPolicyService;
     private final ParkingSyncService parkingSyncService;
@@ -94,6 +96,7 @@ public class RegistryController {
     }
 
     @PostMapping("/floors/{floorId}/parking-places/sync")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto syncParking(
         @PathVariable @NonNull UUID floorId,
         @RequestBody(required = false) @Valid SyncParkingPlacesRequestDto payload,
@@ -121,6 +124,7 @@ public class RegistryController {
     }
 
     @PostMapping("/blocks/{blockId}/extensions")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public BlockExtensionEntity createExtension(@PathVariable @NonNull UUID blockId, @RequestBody(required = false) @Valid CreateExtensionRequestDto payload) {
         CreateExtensionCommand command = payload == null
             ? new CreateExtensionCommand(null, null, null, null, null, null, null, null, null)
@@ -129,6 +133,7 @@ public class RegistryController {
     }
 
     @PutMapping("/extensions/{extensionId}")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto updateExt(@PathVariable @NonNull UUID extensionId, @RequestBody(required = false) @Valid UpdateExtensionRequestDto payload) {
         UpdateExtensionCommand command = payload == null
             ? new UpdateExtensionCommand(null, null, null)
@@ -138,6 +143,7 @@ public class RegistryController {
     }
 
     @DeleteMapping("/extensions/{extensionId}")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto delExt(@PathVariable @NonNull UUID extensionId) {
         blockExtensionService.delete(extensionId);
         return MapResponseDto.of(Map.of("ok", true));
@@ -169,6 +175,7 @@ public class RegistryController {
     }
 
     @PostMapping("/units/upsert")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto upsertUnit(@RequestBody(required = false) @Valid UpsertUnitRequestDto payload, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         Map<String, Object> data = payload == null ? Map.of() : payload.safeData();
@@ -177,6 +184,7 @@ public class RegistryController {
     }
 
     @PostMapping("/blocks/{blockId}/units/reconcile")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto reconcileUnits(@PathVariable @NonNull UUID blockId, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         var result = registryMutationsService.reconcileUnits(blockId);
@@ -188,6 +196,7 @@ public class RegistryController {
     }
 
     @PostMapping("/blocks/{blockId}/common-areas/reconcile")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto reconcileMops(@PathVariable @NonNull UUID blockId, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         var result = registryMutationsService.reconcileMops(blockId);
@@ -195,6 +204,7 @@ public class RegistryController {
     }
 
     @PostMapping("/units/batch-upsert")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto batchUpsertUnits(@RequestBody(required = false) @Valid BatchUpsertUnitsRequestDto payload, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         List<Map<String, Object>> items = payload == null ? List.of() : payload.resolveItems();
@@ -203,6 +213,7 @@ public class RegistryController {
     }
 
     @PostMapping("/common-areas/upsert")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto upsertCommon(@RequestBody(required = false) @Valid UpsertCommonAreaRequestDto payload) {
         Map<String, Object> data = payload == null ? Map.of() : payload.safeData();
         registryCommonAreasService.upsert(data);
@@ -210,6 +221,7 @@ public class RegistryController {
     }
 
     @PostMapping("/common-areas/batch-upsert")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto batchUpsertMops(@RequestBody(required = false) @Valid BatchUpsertCommonAreasRequestDto payload) {
         List<Map<String, Object>> items = payload == null ? List.of() : payload.resolveItems();
         int count = registryCommonAreasService.batchUpsert(items);
@@ -217,12 +229,14 @@ public class RegistryController {
     }
 
     @DeleteMapping("/common-areas/{id}")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto deleteCommon(@PathVariable @NonNull UUID id) {
         registryCommonAreasService.delete(id);
         return MapResponseDto.of(Map.of("ok", true));
     }
 
     @PostMapping("/blocks/{blockId}/common-areas/clear")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto clearCommon(@PathVariable @NonNull UUID blockId, @RequestBody(required = false) @Valid ClearCommonAreasRequestDto payload) {
         String floorIds = payload == null ? "" : payload.safeFloorIds();
         registryCommonAreasService.clear(blockId, floorIds);
@@ -240,6 +254,7 @@ public class RegistryController {
     }
 
     @PutMapping("/floors/{floorId}")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto updateFloor(@PathVariable @NonNull UUID floorId, @RequestBody(required = false) @Valid UpdateFloorRequestDto payload, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         Map<String, Object> updates = payload == null ? Map.of() : payload.safeUpdates();
@@ -247,6 +262,7 @@ public class RegistryController {
     }
 
     @PutMapping("/floors/batch")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto updateFloorsBatch(@RequestBody(required = false) @Valid UpdateFloorsBatchRequestDto payload, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         List<Map<String, Object>> items = payload == null ? List.of() : payload.safeItems();
@@ -256,6 +272,7 @@ public class RegistryController {
 
 
     @PostMapping("/blocks/{blockId}/floors/reconcile")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto reconcileFloors(@PathVariable @NonNull UUID blockId, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         var result = registryReconcileService.reconcileFloors(blockId);
@@ -263,6 +280,7 @@ public class RegistryController {
     }
 
     @PostMapping("/blocks/{blockId}/entrances/reconcile")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto reconcileEntrances(
         @PathVariable @NonNull UUID blockId,
         @RequestBody(required = false) @Valid ReconcileEntrancesRequestDto payload,
@@ -281,6 +299,7 @@ public class RegistryController {
     }
 
    @PutMapping("/blocks/{blockId}/entrance-matrix/cell")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto upsertCell(@PathVariable @NonNull UUID blockId, @RequestBody(required = false) @Valid UpsertEntranceMatrixCellRequestDto payload, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         Map<String, Object> body = payload == null ? Map.of() : payload.safeData();
@@ -288,6 +307,7 @@ public class RegistryController {
     }
 
    @PutMapping("/blocks/{blockId}/entrance-matrix/batch")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot modify registry data")
     public MapResponseDto upsertMatrixBatch(@PathVariable @NonNull UUID blockId, @RequestBody(required = false) @Valid UpsertEntranceMatrixBatchRequestDto payload, @CurrentUser ActorPrincipal actor) {
         requirePolicy(actor, "registry", "mutate", "Role cannot modify registry data");
         List<Map<String, Object>> cells = payload == null ? List.of() : payload.safeCells();
@@ -295,6 +315,7 @@ public class RegistryController {
     }
     
     @PostMapping("/blocks/{blockId}/reconcile/preview")
+    @PolicyGuard(domain = "registry", action = "mutate", message = "Role cannot preview registry reconciliation")
     public ResponseEntity<MapResponseDto> preview(@PathVariable @NonNull UUID blockId) {
         return ResponseEntity.ok(MapResponseDto.of(reconcilePreviewService.preview(blockId)));
     }
@@ -304,7 +325,7 @@ public class RegistryController {
         if (actor == null) {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
-        if (!securityPolicyService.allowByPolicy(actor.userRole(), module, action)) {
+        if (!securityPolicyService.allowByPolicy(actor.userRoleId(), module, action)) {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
     }

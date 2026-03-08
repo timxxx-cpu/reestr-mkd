@@ -1,5 +1,6 @@
 import { BffClient } from '@lib/bff-client';
 import { AuthService } from '@lib/auth-service';
+import { ROLE_IDS, getRoleId, getRoleKey } from '@lib/roles';
 
 export const resolveActor = (actor = {}) => {
   const currentUser = AuthService.getCurrentUser?.() || null;
@@ -12,7 +13,9 @@ export const resolveActor = (actor = {}) => {
       currentUser?.email ||
       currentUser?.id ||
       'unknown',
-    userRole: actor.userRole || currentUser?.role || 'technician',
+    userRoleId: getRoleId(actor.userRoleId ?? actor.userRole ?? currentUser?.roleId ?? currentUser?.role) || ROLE_IDS.TECHNICIAN,
+    userRole:
+      getRoleKey(actor.userRole ?? actor.userRoleId ?? currentUser?.role ?? currentUser?.roleId) || 'technician',
   };
 };
 

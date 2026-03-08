@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { APP_STATUS, WORKFLOW_SUBSTATUS } from '../../lib/constants';
 import { canEditByRoleAndStatus } from '../../lib/workflow-state-machine';
+import { ROLE_IDS, hasRole } from '../../lib/roles';
 
 export const useProjectDataLayer = ({
   serverData,
@@ -77,15 +78,14 @@ export const useProjectDataLayer = ({
 
   const getValidationSnapshot = useCallback(() => validationSnapshotRef.current, []);
 
- const isReadOnly = useMemo(() => {
+  const isReadOnly = useMemo(() => {
     if (!userProfile) return true;
-    const role = userProfile.role;
     const substatus = mergedState.applicationInfo.workflowSubstatus || WORKFLOW_SUBSTATUS.DRAFT;
     
     // ИСПРАВЛЕНИЕ: Администратор всегда может редактировать. Техник может редактировать в рабочих статусах.
     // Бригадир и Контроллер при проверке (REVIEW) находятся в режиме СТРОГОГО ПРОСМОТРА.
-    if (role === 'admin') return false;
-    if (role === 'technician') {
+    if (hasRole(userProfile, ROLE_IDS.ADMIN)) return false;
+    if (hasRole(userProfile, ROLE_IDS.TECHNICIAN)) {
       return !['DRAFT', 'REVISION', 'RETURNED_BY_MANAGER', 'INTEGRATION'].includes(substatus);
     }
     

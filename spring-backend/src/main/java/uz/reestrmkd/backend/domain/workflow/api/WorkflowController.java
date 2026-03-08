@@ -3,6 +3,7 @@ package uz.reestrmkd.backend.domain.workflow.api;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
+import uz.reestrmkd.backend.domain.auth.model.UserRole;
 import uz.reestrmkd.backend.domain.auth.service.SecurityPolicyService;
 import uz.reestrmkd.backend.domain.common.api.MapResponseDto;
 import uz.reestrmkd.backend.domain.workflow.model.ApplicationEntity;
@@ -12,6 +13,7 @@ import uz.reestrmkd.backend.domain.workflow.service.WorkflowService;
 import uz.reestrmkd.backend.exception.ApiException;
 import uz.reestrmkd.backend.security.ActorPrincipal;
 import uz.reestrmkd.backend.security.CurrentUser;
+import uz.reestrmkd.backend.security.PolicyGuard;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -34,10 +36,10 @@ public class WorkflowController {
     }
 
     @PostMapping("/complete-step")
+    @PolicyGuard(domain = "workflow", action = "mutate", message = "Role cannot mutate workflow")
     public MapResponseDto completeStep(
             @PathVariable @org.springframework.lang.NonNull UUID applicationId, 
             @Valid @RequestBody CompleteStepRequestDto body, 
-            @RequestHeader(value = "x-user-role", required = false) String role,
             @CurrentUser ActorPrincipal actor
     ) {
         requirePolicy(actor, "workflow", "mutate", "Role cannot mutate workflow");
@@ -52,7 +54,7 @@ public class WorkflowController {
             throw new ApiException("stepIndex does not match current step", "INVALID_STEP_STATE", Map.of("expectedStepIndex", currentStep, "gotStepIndex", stepIndex), 409);
         }
 
-        var t = workflowService.buildCompletionTransition(app, role == null ? actor.userRole() : role);
+        var t = workflowService.buildCompletionTransition(app, actor.userRoleId());
         ApplicationEntity updated = applicationRepositoryService.updateApplicationState(applicationId, t.nextStatus(), t.nextSubstatus(), t.nextStepIndex(), t.nextStage()).orElseThrow(() -> new ApiException("Application not found", "NOT_FOUND", null, 404));
         applicationRepositoryService.updateStepCompletion(applicationId, stepIndex, true);
         UUID historyEventId = applicationRepositoryService.addHistory(applicationId, "COMPLETE_STEP", app.getStatus(), t.nextStatus(), actor.userId(), body.comment() == null ? "Step completed" : body.comment());
@@ -60,16 +62,16 @@ public class WorkflowController {
     }
 
     @PostMapping("/rollback-step")
+    @PolicyGuard(domain = "workflow", action = "mutate", message = "Role cannot mutate workflow")
     public MapResponseDto rollback(
             @PathVariable @org.springframework.lang.NonNull UUID applicationId, 
             @Valid @RequestBody WorkflowActionRequestDto body, 
-            @RequestHeader(value = "x-user-role", required = false) String role,
             @CurrentUser ActorPrincipal actor
     ) {
         requirePolicy(actor, "workflow", "mutate", "Role cannot mutate workflow");
         applicationRepositoryService.assertActiveActorLock(applicationId, actor.userId());
         ApplicationEntity app = getApp(applicationId);
-        var t = workflowService.buildRollbackTransition(app, role == null ? actor.userRole() : role);
+        var t = workflowService.buildRollbackTransition(app, actor.userRoleId());
         ApplicationEntity updated = applicationRepositoryService.updateApplicationState(applicationId, t.nextStatus(), t.nextSubstatus(), t.nextStepIndex(), t.nextStage()).orElseThrow(() -> new ApiException("Application not found", "NOT_FOUND", null, 404));
         applicationRepositoryService.updateStepCompletion(applicationId, app.getCurrentStep() == null ? 0 : app.getCurrentStep(), false);
         UUID historyEventId = applicationRepositoryService.addHistory(applicationId, "ROLLBACK_STEP", app.getStatus(), t.nextStatus(), actor.userId(), body.reason() == null ? "Rollback step" : body.reason());
@@ -77,26 +79,27 @@ public class WorkflowController {
     }
 
     @PostMapping("/review-approve")
+    @PolicyGuard(domain = "workflow", action = "mutate", message = "Role cannot mutate workflow")
     public MapResponseDto reviewApprove(
             @PathVariable @org.springframework.lang.NonNull UUID applicationId, 
             @Valid @RequestBody WorkflowActionRequestDto body, 
-            @RequestHeader(value = "x-user-role", required = false) String role,
             @CurrentUser ActorPrincipal actor
     ) {
-        return review(applicationId, body, role, "APPROVE", "REVIEW_APPROVE", actor);
+        return review(applicationId, body, "APPROVE", "REVIEW_APPROVE", actor);
     }
 
     @PostMapping("/review-reject")
+    @PolicyGuard(domain = "workflow", action = "mutate", message = "Role cannot mutate workflow")
     public MapResponseDto reviewReject(
             @PathVariable @org.springframework.lang.NonNull UUID applicationId, 
             @Valid @RequestBody WorkflowActionRequestDto body, 
-            @RequestHeader(value = "x-user-role", required = false) String role,
             @CurrentUser ActorPrincipal actor
     ) {
-        return review(applicationId, body, role, "REJECT", "REVIEW_REJECT", actor);
+        return review(applicationId, body, "REJECT", "REVIEW_REJECT", actor);
     }
 
     @PostMapping("/assign-technician")
+    @PolicyGuard(domain = "workflow", action = "assignTechnician", message = "Role cannot assign technician")
     public MapResponseDto assign(
             @PathVariable @org.springframework.lang.NonNull UUID applicationId, 
             @Valid @RequestBody AssignTechnicianRequestDto body,
@@ -117,6 +120,7 @@ public class WorkflowController {
     }
 
     @PostMapping("/request-decline")
+    @PolicyGuard(domain = "workflow", action = "requestDecline", message = "Role cannot request decline")
     public MapResponseDto requestDecline(
             @PathVariable @org.springframework.lang.NonNull UUID applicationId, 
             @Valid @RequestBody RequestDeclineRequestDto body,
@@ -142,6 +146,7 @@ public class WorkflowController {
     }
 
     @PostMapping("/decline")
+    @PolicyGuard(domain = "workflow", action = "decline", message = "Role cannot decline workflow")
     public MapResponseDto decline(
             @PathVariable @org.springframework.lang.NonNull UUID applicationId, 
             @Valid @RequestBody WorkflowActionRequestDto body,
@@ -149,9 +154,10 @@ public class WorkflowController {
     ) {
         requirePolicy(actor, "workflow", "decline", "Role cannot decline workflow");
         ApplicationEntity app = getApp(applicationId);
-        String declinedSubstatus = switch (actor.userRole()) {
-            case "controller" -> "DECLINED_BY_CONTROLLER";
-            case "branch_manager" -> "DECLINED_BY_MANAGER";
+        UserRole actorRole = actor.role();
+        String declinedSubstatus = switch (actorRole == null ? UserRole.ADMIN : actorRole) {
+            case CONTROLLER -> "DECLINED_BY_CONTROLLER";
+            case BRANCH_MANAGER -> "DECLINED_BY_MANAGER";
             default -> "DECLINED_BY_ADMIN";
         };
         String prevStatus = app.getStatus();
@@ -164,6 +170,7 @@ public class WorkflowController {
     }
 
     @PostMapping("/return-from-decline")
+    @PolicyGuard(domain = "workflow", action = "returnFromDecline", message = "Role cannot return from decline")
     public MapResponseDto returnFromDecline(
             @PathVariable @org.springframework.lang.NonNull UUID applicationId, 
             @Valid @RequestBody WorkflowActionRequestDto body,
@@ -188,6 +195,7 @@ public class WorkflowController {
     }
 
     @PostMapping("/restore")
+    @PolicyGuard(domain = "workflow", action = "restore", message = "Role cannot restore workflow")
     public MapResponseDto restore(
             @PathVariable @org.springframework.lang.NonNull UUID applicationId, 
             @Valid @RequestBody WorkflowActionRequestDto body,
@@ -204,10 +212,10 @@ public class WorkflowController {
         return workflowResponse(app, historyEventId);
     }
 
-    private MapResponseDto review(@org.springframework.lang.NonNull UUID applicationId, WorkflowActionRequestDto body, String role, String action, String historyAction, ActorPrincipal actor) {
+    private MapResponseDto review(@org.springframework.lang.NonNull UUID applicationId, WorkflowActionRequestDto body, String action, String historyAction, ActorPrincipal actor) {
         requirePolicy(actor, "workflow", "mutate", "Role cannot mutate workflow");
         ApplicationEntity app = getApp(applicationId);
-        var t = workflowService.buildReviewTransition(app, action, role == null ? actor.userRole() : role);
+        var t = workflowService.buildReviewTransition(app, action, actor.userRoleId());
         ApplicationEntity updated = applicationRepositoryService.updateApplicationState(applicationId, t.nextStatus(), t.nextSubstatus(), t.nextStepIndex(), t.nextStage()).orElseThrow(() -> new ApiException("Application not found", "NOT_FOUND", null, 404));
         int reviewedStage = Math.max(1, (app.getCurrentStage() == null ? 1 : app.getCurrentStage()) - 1);
         applicationRepositoryService.updateStageVerification(applicationId, reviewedStage, "APPROVE".equals(action));
@@ -234,7 +242,7 @@ public class WorkflowController {
         if (actor == null) {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
-        if (!securityPolicyService.allowByPolicy(actor.userRole(), module, action)) {
+        if (!securityPolicyService.allowByPolicy(actor.userRoleId(), module, action)) {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
     }

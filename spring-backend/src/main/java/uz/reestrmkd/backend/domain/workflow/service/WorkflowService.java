@@ -64,8 +64,8 @@ public class WorkflowService {
         return new StageStepRange(rangeStart, rangeEnd);
     }
 
-    public CompletionTransition buildCompletionTransition(ApplicationEntity current, String actorRole) {
-        securityPolicyService.requireAllowed(actorRole, "workflow", "mutate");
+    public CompletionTransition buildCompletionTransition(ApplicationEntity current, Long actorRoleId) {
+        securityPolicyService.requireAllowed(actorRoleId, "workflow", "mutate");
 
         int currentStep = normalizeStepIndex(current.getCurrentStep());
         int currentStage = resolveStageByStepIndex(currentStep);
@@ -97,8 +97,8 @@ public class WorkflowService {
         return new CompletionTransition(nextStepIndex, nextStatus, nextSubstatus, nextStage);
     }
 
-    public RollbackTransition buildRollbackTransition(ApplicationEntity current, String actorRole) {
-        securityPolicyService.requireAllowed(actorRole, "workflow", "mutate");
+    public RollbackTransition buildRollbackTransition(ApplicationEntity current, Long actorRoleId) {
+        securityPolicyService.requireAllowed(actorRoleId, "workflow", "mutate");
 
         int currentStep = normalizeStepIndex(current.getCurrentStep());
         int prevIndex = Math.max(0, currentStep - 1);
@@ -118,8 +118,8 @@ public class WorkflowService {
         );
     }
 
-    public ReviewTransition buildReviewTransition(ApplicationEntity current, String action, String actorRole) {
-        securityPolicyService.requireAllowed(actorRole, "workflow", "mutate");
+    public ReviewTransition buildReviewTransition(ApplicationEntity current, String action, Long actorRoleId) {
+        securityPolicyService.requireAllowed(actorRoleId, "workflow", "mutate");
 
         boolean isApprove = "APPROVE".equals(action);
         int currentStage = resolveStageByStepIndex(normalizeStepIndex(current.getCurrentStep()));

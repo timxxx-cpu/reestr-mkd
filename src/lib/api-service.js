@@ -13,6 +13,7 @@ import { createRegistryDomainApi } from './api/registry-domain';
 import { createProjectDomainApi } from './api/project-domain';
 import { BffClient } from './bff-client';
 import { resolveActor, requireBffEnabled, createIdempotencyKey } from './api/api-core';
+import { normalizeUserRole } from './roles';
 
 
 
@@ -31,7 +32,8 @@ const LegacyApiService = {
       id: u.id,
       code: u.code,
       name: u.name,
-      role: u.role,
+      roleId: u.roleId ?? u.role_id ?? null,
+      role: normalizeUserRole(u)?.role ?? u.role ?? null,
       group: u.group_name || u.name,
       sortOrder: u.sort_order || 100,
     }));
@@ -180,7 +182,7 @@ const LegacyApiService = {
   },
 
   // --- WORK LOCK (защита от одновременного редактирования) ---
- acquireApplicationLock: async ({ scope, projectId, userName, userRole, ttlMinutes = 20 }) => {
+ acquireApplicationLock: async ({ scope, projectId, userName, userRole, userRoleId, ttlMinutes = 20 }) => {
     requireBffEnabled('locks.acquireApplicationLock');
 
     const res = await BffClient.resolveApplicationId({ projectId, scope });
@@ -190,23 +192,24 @@ const LegacyApiService = {
       applicationId: res.applicationId,
       userName,
       userRole,
+      userRoleId,
       ttlMinutes,
     });
     return { ...response, applicationId: res.applicationId };
   },
 
 
-  refreshApplicationLock: async ({ applicationId, userName, userRole = 'technician', ttlMinutes = 20 }) => {
+  refreshApplicationLock: async ({ applicationId, userName, userRole, userRoleId, ttlMinutes = 20 }) => {
     requireBffEnabled('locks.refreshApplicationLock');
-    return BffClient.refreshApplicationLock({ applicationId, userName, userRole, ttlMinutes });
+    return BffClient.refreshApplicationLock({ applicationId, userName, userRole, userRoleId, ttlMinutes });
   },
 
 
-  releaseApplicationLock: async ({ applicationId, userName, userRole = 'technician' }) => {
+  releaseApplicationLock: async ({ applicationId, userName, userRole, userRoleId }) => {
     if (!applicationId) return { ok: false };
 
     requireBffEnabled('locks.releaseApplicationLock');
-    return BffClient.releaseApplicationLock({ applicationId, userName, userRole });
+    return BffClient.releaseApplicationLock({ applicationId, userName, userRole, userRoleId });
   },
 
 

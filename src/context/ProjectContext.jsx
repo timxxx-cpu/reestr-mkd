@@ -9,6 +9,7 @@ import { useProjectDataLayer } from './project/useProjectDataLayer';
 import { useProjectSyncLayer } from './project/useProjectSyncLayer';
 import { useProjectWorkflowLayer } from './project/useProjectWorkflowLayer';
 import { evaluateBuildingFillStatusForStep, BLOCK_FILL_STATUS } from '../lib/step-validators';
+import { ROLE_IDS, hasAnyRole, getRoleId, getRoleKey } from '../lib/roles';
 
 const ProjectContext = createContext(null);
 
@@ -58,7 +59,12 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     // Используем уже вычисленный isViewMode
     if (!dbScope || !projectId || !userProfile?.name || isViewMode) return undefined;
 
-   const shouldLock = ['technician', 'admin', 'controller', 'branch_manager'].includes(userProfile.role);
+   const shouldLock = hasAnyRole(userProfile, [
+    ROLE_IDS.TECHNICIAN,
+    ROLE_IDS.ADMIN,
+    ROLE_IDS.CONTROLLER,
+    ROLE_IDS.BRANCH_MANAGER,
+   ]);
     if (!shouldLock) return undefined;
 
     const acquire = async () => {
@@ -67,6 +73,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           scope: dbScope,
           projectId,
           userName: userProfile.name,
+          userRoleId: userProfile.roleId,
           userRole: userProfile.role,
         });
 
@@ -86,6 +93,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
           ApiService.refreshApplicationLock({
             applicationId: acquiredApplicationId,
             userName: userProfile.name,
+            userRoleId: userProfile.roleId,
             userRole: userProfile.role,
           }).catch(() => {});
         }, 60000);
@@ -106,6 +114,7 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         ApiService.releaseApplicationLock({
           applicationId: acquiredApplicationId,
           userName: userProfile?.name,
+          userRoleId: userProfile?.roleId,
           userRole: userProfile?.role,
         }).catch(() => {});
       }
@@ -117,7 +126,8 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
   const currentUser = AuthService.getCurrentUser?.() || null;
   const actor = useMemo(() => ({
     userName: userProfile?.name || currentUser?.displayName || currentUser?.email || 'unknown',
-    userRole: userProfile?.role || currentUser?.role || 'technician',
+    userRoleId: getRoleId(userProfile?.roleId ?? userProfile?.role ?? currentUser?.roleId ?? currentUser?.role) || ROLE_IDS.TECHNICIAN,
+    userRole: getRoleKey(userProfile?.role ?? userProfile?.roleId ?? currentUser?.role ?? currentUser?.roleId) || 'technician',
   }), [userProfile, currentUser]);
 
   const { saveData, saveProjectImmediate } = useProjectSyncLayer({

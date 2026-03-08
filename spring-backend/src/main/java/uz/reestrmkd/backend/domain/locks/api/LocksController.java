@@ -6,12 +6,14 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import uz.reestrmkd.backend.domain.auth.model.UserRole;
 import uz.reestrmkd.backend.domain.workflow.model.ApplicationEntity;
 import uz.reestrmkd.backend.domain.workflow.model.ApplicationLockEntity;
 import uz.reestrmkd.backend.domain.workflow.repository.ApplicationJpaRepository;
 import uz.reestrmkd.backend.domain.workflow.repository.ApplicationLockJpaRepository;
 import uz.reestrmkd.backend.exception.ApiException;
 import uz.reestrmkd.backend.security.ActorPrincipal;
+import uz.reestrmkd.backend.security.PolicyGuard;
 import org.springframework.lang.NonNull;
 
 import java.time.Instant;
@@ -20,6 +22,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/applications/{applicationId}/locks")
+@PolicyGuard(domain = "locks", action = "read", message = "Role cannot read lock state")
 public class LocksController {
     private final ApplicationLockJpaRepository lockRepo;
     private final ApplicationJpaRepository applicationRepo;
@@ -45,15 +48,16 @@ public class LocksController {
     }
 
     @PostMapping("/acquire")
+    @PolicyGuard(domain = "locks", action = "mutate", message = "Role cannot manage locks")
     public LockAcquireResponseDto acquire(@PathVariable @NonNull UUID applicationId, @Valid @RequestBody(required = false) LockAcquireRequestDto body) {
         ActorPrincipal actor = resolveActor();
         String userId = actor.userId();
-        String role = actor.userRole();
+        UserRole role = actor.role();
 
         ApplicationEntity app = applicationRepo.findById(applicationId)
             .orElseThrow(() -> new ApiException("Application not found", "NOT_FOUND", null, 404));
 
-        if ("technician".equals(role) && app.getAssigneeName() != null && !app.getAssigneeName().equals(userId)) {
+        if (role == UserRole.TECHNICIAN && app.getAssigneeName() != null && !app.getAssigneeName().equals(userId)) {
             throw new ApiException("Заявка назначена на " + app.getAssigneeName() + ". Взять в работу нельзя.", "ASSIGNEE_MISMATCH", null, 403);
         }
 
@@ -69,7 +73,7 @@ public class LocksController {
             ApplicationLockEntity lock = existing == null ? new ApplicationLockEntity() : existing;
             lock.setApplicationId(applicationId);
             lock.setOwnerUserId(userId);
-            lock.setOwnerRole(role);
+            lock.setOwnerRole(role == null ? null : role.key());
             lock.setAcquiredAt(Instant.now());
             lock.setExpiresAt(Instant.now().plusSeconds(Math.max(60, ttl)));
             lock.setUpdatedAt(Instant.now());
@@ -87,6 +91,7 @@ public class LocksController {
     }
 
     @PostMapping("/refresh")
+    @PolicyGuard(domain = "locks", action = "mutate", message = "Role cannot manage locks")
     public LockAcquireResponseDto refresh(@PathVariable @NonNull UUID applicationId, @Valid @RequestBody(required = false) LockAcquireRequestDto body) {
         ActorPrincipal actor = resolveActor();
         String userId = actor.userId();
@@ -107,6 +112,7 @@ public class LocksController {
     }
 
     @PostMapping("/release")
+    @PolicyGuard(domain = "locks", action = "mutate", message = "Role cannot manage locks")
     public LockAcquireResponseDto release(@PathVariable @NonNull UUID applicationId) {
         ActorPrincipal actor = resolveActor();
         String userId = actor.userId();

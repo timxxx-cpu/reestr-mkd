@@ -76,6 +76,8 @@ class CatalogControllerTests {
 
     @Test
     void shouldDelegateSetActiveToService() {
+        setActor("branch_manager");
+
         boolean ok = controller.setActive("dict_unit_types", "x1", new CatalogActiveRequestDto(true)).getBody().ok();
 
         verify(catalogService).setActive("dict_unit_types", "x1", new CatalogActiveRequestDto(true));

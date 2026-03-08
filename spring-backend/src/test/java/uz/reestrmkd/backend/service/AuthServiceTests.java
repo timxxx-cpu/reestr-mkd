@@ -38,7 +38,7 @@ class AuthServiceTests {
         user.setStatus(true);
 
         UserRoleEntity role = new UserRoleEntity();
-        role.setId(3L);
+        role.setId(100L);
         role.setNameUk("Technician");
 
         when(userJpaRepository.findFirstByUsernameAndPasswordAndStatusTrue("tim", "secret"))
@@ -53,11 +53,13 @@ class AuthServiceTests {
         assertThat(response.ok()).isTrue();
         assertThat(response.user().id()).isEqualTo("tim");
         assertThat(response.user().name()).isEqualTo("Tim User");
+        assertThat(response.user().roleId()).isEqualTo(100L);
         assertThat(response.user().role()).isEqualTo("technician");
         assertThat(response.token().split("\\.")).hasSize(3);
 
         String payloadJson = new String(Base64.getUrlDecoder().decode(response.token().split("\\.")[1]));
         assertThat(payloadJson).contains("\"sub\":\"tim\"");
+        assertThat(payloadJson).contains("\"roleId\":100");
         assertThat(payloadJson).contains("\"role\":\"technician\"");
     }
 

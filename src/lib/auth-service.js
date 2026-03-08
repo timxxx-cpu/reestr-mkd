@@ -1,3 +1,4 @@
+import { normalizeUserRole } from './roles';
 const getBffBaseUrl = () => import.meta.env.VITE_BFF_BASE_URL || 'http://localhost:8787';
 
 // Простой массив подписчиков для замены функционала Firebase onAuthStateChanged
@@ -9,7 +10,7 @@ const readCachedUser = () => {
   if (!userStr) return null;
 
   try {
-    return JSON.parse(userStr);
+    return normalizeUserRole(JSON.parse(userStr));
   } catch {
     return null;
   }
@@ -38,13 +39,15 @@ export const AuthService = {
     const data = await res.json();
     
     // Сохраняем токен
+    const normalizedUser = normalizeUserRole(data.user);
+
     localStorage.setItem('jwt_token', data.token);
-    localStorage.setItem('current_user', JSON.stringify(data.user));
+    localStorage.setItem('current_user', JSON.stringify(normalizedUser));
     
     // Уведомляем React (App.jsx), что пользователь вошел
-    subscribers.forEach(cb => cb(data.user));
+    subscribers.forEach(cb => cb(normalizedUser));
     
-    return data.user;
+    return normalizedUser;
   },
 
   logout() {

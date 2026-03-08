@@ -7,6 +7,7 @@ import uz.reestrmkd.backend.domain.auth.api.LoginRequestDto;
 import uz.reestrmkd.backend.domain.auth.api.LoginResponseDto;
 import uz.reestrmkd.backend.domain.auth.api.LoginUserDto;
 import uz.reestrmkd.backend.domain.auth.model.UserEntity;
+import uz.reestrmkd.backend.domain.auth.model.UserRole;
 import uz.reestrmkd.backend.domain.auth.model.UserRoleEntity;
 import uz.reestrmkd.backend.domain.auth.repository.UserJpaRepository;
 import uz.reestrmkd.backend.domain.auth.repository.UserRoleJpaRepository;
@@ -17,7 +18,6 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -47,7 +47,8 @@ public class AuthService {
         UserRoleEntity roleEntity = userRoleJpaRepository.findFirstByUserId(user.getId())
             .orElseThrow(() -> new ApiException("User role is not assigned", "FORBIDDEN", null, 403));
 
-        String role = normalizeRoleKey(roleEntity.getNameUk());
+        UserRole role = UserRole.fromId(roleEntity.getId())
+            .orElseGet(() -> UserRole.fromKey(roleEntity.getNameUk()).orElse(null));
         if (role == null) {
             throw new ApiException("User role is not resolved", "FORBIDDEN", null, 403);
         }
@@ -56,8 +57,13 @@ public class AuthService {
         }
 
         String displayName = pickFirstNonBlank(user.getFullName(), user.getUsername(), user.getId());
-        String token = generateJwtHs256(Map.of("sub", user.getUsername(), "role", role, "name", displayName));
-        return new LoginResponseDto(true, token, new LoginUserDto(user.getUsername(), displayName, role));
+        String token = generateJwtHs256(Map.of(
+            "sub", user.getUsername(),
+            "roleId", role.id(),
+            "role", role.key(),
+            "name", displayName
+        ));
+        return new LoginResponseDto(true, token, new LoginUserDto(user.getUsername(), displayName, role.id(), role.key()));
     }
 
     private String pickFirstNonBlank(Object... values) {
@@ -71,14 +77,6 @@ public class AuthService {
             }
         }
         return null;
-    }
-
-    private String normalizeRoleKey(String value) {
-        if (value == null) {
-            return null;
-        }
-        String role = value.trim().toLowerCase(Locale.ROOT);
-        return role.isBlank() ? null : role;
     }
 
     private String generateJwtHs256(Map<String, Object> payload) {

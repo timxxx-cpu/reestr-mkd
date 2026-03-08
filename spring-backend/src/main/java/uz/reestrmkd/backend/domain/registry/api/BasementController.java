@@ -14,6 +14,7 @@ import uz.reestrmkd.backend.domain.registry.service.BasementService;
 import uz.reestrmkd.backend.exception.ApiException;
 import uz.reestrmkd.backend.security.ActorPrincipal;
 import uz.reestrmkd.backend.security.CurrentUser;
+import uz.reestrmkd.backend.security.PolicyGuard;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -23,6 +24,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1")
+@PolicyGuard(domain = "projectExtended", action = "read", message = "Role cannot read basement data")
 public class BasementController {
     private final BasementService basementService;
     private final SecurityPolicyService securityPolicyService;
@@ -54,6 +56,7 @@ public class BasementController {
     }
 
     @PutMapping("/basements/{basementId}/parking-levels/{level}")
+    @PolicyGuard(domain = "projectExtended", action = "mutate", message = "Role cannot modify basement levels")
     public MapResponseDto toggleBasementLevel(
         @PathVariable UUID basementId,
         @PathVariable int level,
@@ -71,7 +74,7 @@ public class BasementController {
         if (actor == null) {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
-        if (!securityPolicyService.allowByPolicy(actor.userRole(), module, action)) {
+        if (!securityPolicyService.allowByPolicy(actor.userRoleId(), module, action)) {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
     }

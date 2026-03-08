@@ -11,9 +11,11 @@ import uz.reestrmkd.backend.domain.common.api.ItemsResponseDto;
 import uz.reestrmkd.backend.domain.common.api.OkResponseDto;
 import uz.reestrmkd.backend.exception.ApiException;
 import uz.reestrmkd.backend.security.ActorPrincipal;
+import uz.reestrmkd.backend.security.PolicyGuard;
 
 @RestController
 @RequestMapping("/api/v1/catalogs")
+@PolicyGuard(domain = "catalogs", action = "read", message = "Role cannot read catalogs")
 public class CatalogController {
     private final CatalogService catalogService;
     private final SecurityPolicyService securityPolicyService;
@@ -29,6 +31,7 @@ public class CatalogController {
     }
 
     @PostMapping("/{table}/upsert")
+    @PolicyGuard(domain = "catalogs", action = "mutate", message = "Role cannot modify catalogs")
     public OkResponseDto upsert(@PathVariable String table, @Valid @RequestBody CatalogUpsertRequestDto body) {
         requirePolicy("catalogs", "mutate", "Role cannot modify catalogs");
         catalogService.upsert(table, body);
@@ -36,7 +39,9 @@ public class CatalogController {
     }
 
     @PutMapping("/{table}/{id}/active")
+    @PolicyGuard(domain = "catalogs", action = "mutate", message = "Role cannot modify catalogs")
     public ResponseEntity<OkResponseDto> setActive(@PathVariable String table, @PathVariable String id, @Valid @RequestBody CatalogActiveRequestDto body) {
+        requirePolicy("catalogs", "mutate", "Role cannot modify catalogs");
         catalogService.setActive(table, id, body);
         return ResponseEntity.ok(new OkResponseDto(true));
     }
@@ -46,7 +51,7 @@ public class CatalogController {
         if (authentication == null || !(authentication.getPrincipal() instanceof ActorPrincipal actor)) {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
-        if (!securityPolicyService.allowByPolicy(actor.userRole(), module, action)) {
+        if (!securityPolicyService.allowByPolicy(actor.userRoleId(), module, action)) {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
     }

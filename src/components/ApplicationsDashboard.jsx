@@ -19,6 +19,7 @@ import {
   ROLES,
   APP_STATUS,
 } from '@lib/constants';
+import { getRoleKey, hasRole, ROLE_IDS } from '@lib/roles';
 import {
   canTakeInboxApplication,
 } from '@lib/workflow-state-machine';
@@ -117,14 +118,15 @@ const ApplicationsDashboard = ({
   const toast = useToast();
   const { options: externalSystemOptions } = useCatalog('dict_external_systems');
 
-  const isAdmin = user.role === ROLES.ADMIN;
-  const isBranchManager = user.role === ROLES.BRANCH_MANAGER;
+  const userRole = getRoleKey(user?.roleId ?? user?.role);
+  const isAdmin = hasRole(user, ROLE_IDS.ADMIN);
+  const isBranchManager = hasRole(user, ROLE_IDS.BRANCH_MANAGER);
   const canViewInbox = isAdmin || isBranchManager;
 
   // Авто-выбор фильтра по роли
   useEffect(() => {
-    setTaskFilter(getDefaultTaskFilterForRole(user.role));
-  }, [user.role]);
+    setTaskFilter(getDefaultTaskFilterForRole(userRole));
+  }, [userRole]);
 
   useEffect(() => {
     setProjectsPage(1);
@@ -393,7 +395,7 @@ const ApplicationsDashboard = ({
             <InboxTable 
                data={incomingApps} 
                onTake={handleTakeToWork} 
-               canTake={canTakeInboxApplication(user.role)} 
+               canTake={canTakeInboxApplication(userRole)} 
             />
           ) : (
             <div className="flex-1 min-h-0 flex flex-col">

@@ -7,6 +7,7 @@ import {
   STEPS_CONFIG,
 } from '../../lib/constants.js';
 import { getStageColor } from '../../lib/utils.js';
+import { ROLE_IDS, hasAnyRole, hasRole } from '../../lib/roles.js';
 
 export const buildProjectRowState = ({ project, user }) => {
   const app = project.applicationInfo || {};
@@ -36,11 +37,12 @@ export const buildProjectRowState = ({ project, user }) => {
     app.assigneeName === user.username;
 
   // ИСПРАВЛЕНИЕ: Разрешаем и controller, и branch_manager
-  const isReviewerAndReview = (user.role === ROLES.CONTROLLER || user.role === ROLES.BRANCH_MANAGER) && substatus === WORKFLOW_SUBSTATUS.REVIEW;
-  const isAdmin = user.role === ROLES.ADMIN;
+  const isReviewerAndReview =
+    hasAnyRole(user, [ROLE_IDS.CONTROLLER, ROLE_IDS.BRANCH_MANAGER]) && substatus === WORKFLOW_SUBSTATUS.REVIEW;
+  const isAdmin = hasRole(user, ROLE_IDS.ADMIN);
 
   const fallbackCanEdit =
-    (user.role === ROLES.TECHNICIAN &&
+    (hasRole(user, ROLE_IDS.TECHNICIAN) &&
       isAssignedToCurrentTechnician &&
       [
         WORKFLOW_SUBSTATUS.DRAFT,
@@ -66,13 +68,13 @@ export const buildProjectRowState = ({ project, user }) => {
     canEdit,
     canDecline:
       (availableActions?.includes('decline') || false) &&
-      [ROLES.ADMIN, ROLES.BRANCH_MANAGER, ROLES.CONTROLLER].includes(user.role),
+      hasAnyRole(user, [ROLE_IDS.ADMIN, ROLE_IDS.BRANCH_MANAGER, ROLE_IDS.CONTROLLER]),
     canReturnFromDecline:
       (availableActions?.includes('return_from_decline') || false) &&
-      [ROLES.ADMIN, ROLES.BRANCH_MANAGER].includes(user.role),
+      hasAnyRole(user, [ROLE_IDS.ADMIN, ROLE_IDS.BRANCH_MANAGER]),
     canReassign:
       (availableActions?.includes('reassign') || false) &&
-      [ROLES.ADMIN, ROLES.BRANCH_MANAGER].includes(user.role),
-    canDelete: (availableActions?.includes('delete') || false) && user.role === ROLES.ADMIN,
+      hasAnyRole(user, [ROLE_IDS.ADMIN, ROLE_IDS.BRANCH_MANAGER]),
+    canDelete: (availableActions?.includes('delete') || false) && hasRole(user, ROLE_IDS.ADMIN),
   };
 };

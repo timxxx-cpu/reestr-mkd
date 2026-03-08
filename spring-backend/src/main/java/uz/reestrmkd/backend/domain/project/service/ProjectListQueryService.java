@@ -2,6 +2,7 @@ package uz.reestrmkd.backend.domain.project.service;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import uz.reestrmkd.backend.domain.auth.model.UserRole;
 import uz.reestrmkd.backend.domain.common.api.PagedItemsResponseDto;
 import uz.reestrmkd.backend.domain.project.repository.ProjectJpaRepository;
 import uz.reestrmkd.backend.domain.workflow.model.ApplicationEntity;
@@ -210,13 +211,13 @@ public class ProjectListQueryService {
         boolean isDeclined = "DECLINED".equals(status);
         boolean isPendingDecline = "PENDING_DECLINE".equals(substatus);
 
-        String role = actor == null ? null : actor.userRole();
+        UserRole role = actor == null ? null : actor.role();
         String userId = actor == null ? null : actor.userId();
 
-        boolean isAdmin = "admin".equals(role);
-        boolean isBranchManager = "branch_manager".equals(role);
-        boolean isTechnician = "technician".equals(role);
-        boolean isController = "controller".equals(role);
+        boolean isAdmin = role == UserRole.ADMIN;
+        boolean isBranchManager = role == UserRole.BRANCH_MANAGER;
+        boolean isTechnician = role == UserRole.TECHNICIAN;
+        boolean isController = role == UserRole.CONTROLLER;
         boolean isAssigned = app.get("assigneeName") == null || Objects.equals(String.valueOf(app.get("assigneeName")), userId);
 
         List<String> actions = new ArrayList<>();

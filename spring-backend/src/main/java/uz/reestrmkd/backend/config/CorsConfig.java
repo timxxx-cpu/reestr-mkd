@@ -92,6 +92,7 @@ public class CorsConfig {
             "Origin",
             "x-user-id",
             "x-user-role",
+            "x-user-role-id",
             "x-idempotency-key",
             "x-client-request-id",
             "x-operation-source"

@@ -4,6 +4,7 @@ import { STEPS_CONFIG, WORKFLOW_STAGES, APP_STATUS, ROLES } from '@lib/constants
 import { useProject } from '@context/ProjectContext';
 // Импорт утилиты
 import { getStepStage } from '@lib/workflow-utils';
+import { ROLE_IDS, hasRole } from '@lib/roles';
 
 export default function StepIndicator({ currentStep }) {
   const { applicationInfo, userProfile } = useProject();
@@ -22,10 +23,11 @@ export default function StepIndicator({ currentStep }) {
 
   const currentStage = applicationInfo?.currentStage || 1;
   const isProjectCompleted = applicationInfo?.status === APP_STATUS.COMPLETED;
+  const isTechnician = hasRole(userProfile, ROLE_IDS.TECHNICIAN);
 
   // Техник видит свои completed, Бригадир свои verified
   const completedList =
-    userProfile?.role === ROLES.TECHNICIAN
+    isTechnician
       ? applicationInfo?.completedSteps || []
       : applicationInfo?.verifiedSteps || [];
 

@@ -37,12 +37,14 @@ import uz.reestrmkd.backend.domain.workflow.service.ApplicationRepositoryService
 
 import uz.reestrmkd.backend.exception.ApiException;
 import uz.reestrmkd.backend.security.ActorPrincipal;
+import uz.reestrmkd.backend.security.PolicyGuard;
 
 import java.time.Instant;
 import java.util.*;
 
 @RestController
 @RequestMapping("/api/v1")
+@PolicyGuard(domain = "projectExtended", action = "read", message = "Role cannot read project data")
 public class ProjectExtendedController {
     private final ProjectContextService projectContextService;
     private final VersionService versionService;
@@ -99,12 +101,14 @@ public class ProjectExtendedController {
     public ProjectContextResponseDto context(@PathVariable UUID projectId, @RequestParam String scope){ return projectContextService.getProjectContext(projectId, scope); }
 
     @PostMapping("/projects/{projectId}/context-building-details/save")
+    @PolicyGuard(domain = "projectExtended", action = "mutate", message = "Role cannot save building details")
     public MapResponseDto saveBd(@PathVariable UUID projectId, @RequestBody(required = false) BuildingDetailsSaveRequestDto payload) {
         requirePolicy("projectExtended", "mutate", "Role cannot save building details");
         return MapResponseDto.of(projectBuildingDetailsService.saveBuildingDetails(projectId, payload));
     }
     @PostMapping("/projects/{projectId}/context-meta/save")
     @Transactional
+    @PolicyGuard(domain = "projectExtended", action = "mutate", message = "Role cannot save context meta")
         public MapResponseDto saveMeta(@PathVariable UUID projectId, @RequestBody(required = false) MapPayloadDto payload) {
         Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
         requirePolicy("projectExtended", "mutate", "Role cannot save context meta");
@@ -151,6 +155,7 @@ public class ProjectExtendedController {
 
     @PostMapping("/projects/{projectId}/step-block-statuses/save")
     @Transactional
+    @PolicyGuard(domain = "projectExtended", action = "mutate", message = "Role cannot save step block statuses")
     public MapResponseDto saveStep(@PathVariable UUID projectId, @RequestBody(required = false) MapPayloadDto payload) {
         Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
         requirePolicy("projectExtended", "mutate", "Role cannot save step block statuses");
@@ -176,6 +181,7 @@ public class ProjectExtendedController {
     }
 
 @PostMapping("/projects/{projectId}/geometry-candidates/import")
+    @PolicyGuard(domain = "projectExtended", action = "mutate", message = "Role cannot import geometry candidates")
     public MapResponseDto importCandidates(@PathVariable UUID projectId, @RequestBody(required = false) GeometryCandidatesImportRequestDto payload){
         requirePolicy("projectExtended", "mutate", "Role cannot import geometry candidates");
         List<GeometryCandidateImportItemDto> candidates = payload == null || payload.candidates() == null ? List.of() : payload.candidates();
@@ -187,6 +193,7 @@ public class ProjectExtendedController {
 
     @PostMapping("/projects/{projectId}/land-plot/select")
     @Transactional
+    @PolicyGuard(domain = "projectExtended", action = "mutate", message = "Role cannot select land plot geometry")
     public OkResponseDto selectLand(@PathVariable UUID projectId, @RequestBody(required = false) Map<String, Object> payload) {
         requirePolicy("projectExtended", "mutate", "Role cannot select land plot geometry");
         UUID candidateId = extractCandidateId(payload);
@@ -198,6 +205,7 @@ public class ProjectExtendedController {
     }
     @PostMapping("/projects/{projectId}/land-plot/unselect")
     @Transactional
+    @PolicyGuard(domain = "projectExtended", action = "mutate", message = "Role cannot unselect land plot geometry")
     public OkResponseDto unselectLand(@PathVariable UUID projectId) {
         requirePolicy("projectExtended", "mutate", "Role cannot unselect land plot geometry");
         projectGeometryService.unselectLand(projectId);
@@ -206,6 +214,7 @@ public class ProjectExtendedController {
 
     @DeleteMapping("/projects/{projectId}/geometry-candidates/{candidateId}")
     @Transactional
+    @PolicyGuard(domain = "projectExtended", action = "mutate", message = "Role cannot delete geometry candidate")
     public OkResponseDto delCandidate(@PathVariable UUID projectId, @PathVariable UUID candidateId) {
         requirePolicy("projectExtended", "mutate", "Role cannot delete geometry candidate");
         projectGeometryService.deleteCandidate(projectId, candidateId);
@@ -214,6 +223,7 @@ public class ProjectExtendedController {
 
   @PostMapping("/projects/{projectId}/buildings/{buildingId}/geometry/select")
     @Transactional
+    @PolicyGuard(domain = "projectExtended", action = "mutate", message = "Role cannot select building geometry")
     public OkResponseDto selectBuildingGeometry(
         @PathVariable UUID projectId,
         @PathVariable UUID buildingId,
@@ -299,6 +309,7 @@ Map<String, Object> participants = new LinkedHashMap<>();
     }
 
   @PutMapping("/projects/{projectId}/passport")
+    @PolicyGuard(domain = "projectExtended", action = "mutate", message = "Role cannot update passport")
     public MapResponseDto updatePassport(@PathVariable UUID projectId, @RequestBody(required = false) ProjectPassportUpdateRequestDto payload){
         requirePolicy("projectExtended", "mutate", "Role cannot update passport");
         ProjectPassportInfoDto info = payload == null ? null : payload.info();
@@ -352,6 +363,7 @@ Map<String, Object> participants = new LinkedHashMap<>();
     }
 
     @PutMapping("/projects/{projectId}/participants/{role}")
+    @PolicyGuard(domain = "projectExtended", action = "mutate", message = "Role cannot modify project participants")
     public MapResponseDto upsertParticipant(@PathVariable UUID projectId, @PathVariable String role, @RequestBody(required = false) MapPayloadDto payload){
         Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
         requirePolicy("projectExtended", "mutate", "Role cannot update participants");
@@ -380,6 +392,7 @@ Map<String, Object> participants = new LinkedHashMap<>();
     }
 
     @PostMapping("/projects/{projectId}/documents")
+    @PolicyGuard(domain = "projectExtended", action = "mutate", message = "Role cannot modify project documents")
     public MapResponseDto upsertDoc(@PathVariable UUID projectId, @RequestBody(required = false) MapPayloadDto payload){
         Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data();
         Map<String, Object> doc = asMap(body.get("doc"));
@@ -407,22 +420,23 @@ Map<String, Object> participants = new LinkedHashMap<>();
     }
 
     @DeleteMapping("/project-documents/{documentId}")
+    @PolicyGuard(domain = "projectExtended", action = "mutate", message = "Role cannot modify project documents")
     public MapResponseDto delDoc(@PathVariable UUID documentId){
         requirePolicy("projectExtended", "mutate", "Role cannot delete documents");
         projectDocumentJpaRepository.deleteById(documentId);
         return MapResponseDto.of(Map.of("ok", true));
     }    
-    @DeleteMapping("/projects/{projectId}") public OkResponseDto delProject(@PathVariable UUID projectId){requirePolicy("projectExtended", "deleteProject", "Role cannot delete project");projectJpaRepository.deleteById(projectId);return new OkResponseDto(true);}    
+    @DeleteMapping("/projects/{projectId}") @PolicyGuard(domain = "projectExtended", action = "deleteProject", message = "Role cannot delete project") public OkResponseDto delProject(@PathVariable UUID projectId){requirePolicy("projectExtended", "deleteProject", "Role cannot delete project");projectJpaRepository.deleteById(projectId);return new OkResponseDto(true);}    
   @GetMapping("/projects/{projectId}/full-registry")
     public Map<String, Object> fullRegistry(@PathVariable UUID projectId) {
         return projectFullRegistryService.getFullRegistry(projectId);
     }
     @GetMapping("/versions") public ItemsResponseDto versions(@RequestParam(required=false) String entityType,@RequestParam(required=false) UUID entityId){ return new ItemsResponseDto(versionService.getVersions(entityType, entityId)); }
-    @PostMapping("/versions") public MapResponseDto createVersion(@RequestBody(required = false) MapPayloadDto payload){ Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data(); UUID projectId = Objects.requireNonNull(UUID.fromString(String.valueOf(body.get("projectId")))); UUID applicationId = Objects.requireNonNull(UUID.fromString(String.valueOf(body.get("applicationId")))); return MapResponseDto.of(Map.of("result",versionService.createPendingVersionsForApplication(projectId, applicationId, body.get("createdBy")==null?null:String.valueOf(body.get("createdBy"))))); }
-    @PostMapping("/versions/{versionId}/approve") public OkResponseDto approveVersion(@PathVariable Long versionId){versionService.approveVersion(versionId);return new OkResponseDto(true);}    
-    @PostMapping("/versions/{versionId}/decline") public OkResponseDto declineVersion(@PathVariable Long versionId){versionService.declineVersion(versionId);return new OkResponseDto(true);}    
+    @PostMapping("/versions") @PolicyGuard(domain = "versioning", action = "create", message = "Role cannot create versions") public MapResponseDto createVersion(@RequestBody(required = false) MapPayloadDto payload){ Map<String, Object> body = payload == null || payload.data() == null ? Map.of() : payload.data(); UUID projectId = Objects.requireNonNull(UUID.fromString(String.valueOf(body.get("projectId")))); UUID applicationId = Objects.requireNonNull(UUID.fromString(String.valueOf(body.get("applicationId")))); return MapResponseDto.of(Map.of("result",versionService.createPendingVersionsForApplication(projectId, applicationId, body.get("createdBy")==null?null:String.valueOf(body.get("createdBy"))))); }
+    @PostMapping("/versions/{versionId}/approve") @PolicyGuard(domain = "versioning", action = "approve", message = "Role cannot approve versions") public OkResponseDto approveVersion(@PathVariable Long versionId){versionService.approveVersion(versionId);return new OkResponseDto(true);}    
+    @PostMapping("/versions/{versionId}/decline") @PolicyGuard(domain = "versioning", action = "decline", message = "Role cannot decline versions") public OkResponseDto declineVersion(@PathVariable Long versionId){versionService.declineVersion(versionId);return new OkResponseDto(true);}    
     @GetMapping("/versions/{versionId}/snapshot") public MapResponseDto snapshot(@PathVariable Long versionId){return MapResponseDto.of(versionService.getSnapshot(versionId));}    
-    @PostMapping("/versions/{versionId}/restore") public OkResponseDto restore(@PathVariable Long versionId){versionService.restoreVersion(versionId);return new OkResponseDto(true);}    
+    @PostMapping("/versions/{versionId}/restore") @PolicyGuard(domain = "versioning", action = "restore", message = "Role cannot restore versions") public OkResponseDto restore(@PathVariable Long versionId){versionService.restoreVersion(versionId);return new OkResponseDto(true);}    
 
     private UUID ensureAddressRecordJpa(
             UUID addressId,
@@ -641,7 +655,7 @@ private String buildFullAddress(String regionName, String districtName, String m
         if (authentication == null || !(authentication.getPrincipal() instanceof ActorPrincipal actor)) {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
-        if (!securityPolicyService.allowByPolicy(actor.userRole(), module, action)) {
+        if (!securityPolicyService.allowByPolicy(actor.userRoleId(), module, action)) {
             throw new ApiException(message, "FORBIDDEN", null, 403);
         }
     }

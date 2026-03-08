@@ -12,6 +12,7 @@ import { useProject } from '@context/ProjectContext';
 import { getStepStage } from '@lib/workflow-utils';
 import { Button, Tooltip, useEscapeKey } from '@components/ui/UIKit';
 import { IdentifierBadge } from '@components/ui/IdentifierBadge';
+import { ROLE_IDS, hasRole } from '@lib/roles';
 
 // --- МОДАЛКА ВЫХОДА (ТОЛЬКО ДЛЯ КНОПКИ "НА РАБОЧИЙ СТОЛ") ---
 const ExitConfirmationModal = ({ onCancel, onConfirm }) => {
@@ -67,9 +68,10 @@ export default function Sidebar({
 
   const currentStage = applicationInfo?.currentStage || 1;
   const isProjectCompleted = applicationInfo?.status === 'COMPLETED';
+  const isTechnician = hasRole(userProfile, ROLE_IDS.TECHNICIAN);
 
   const completedList =
-    userProfile?.role === ROLES.TECHNICIAN
+    isTechnician
       ? applicationInfo?.completedSteps || []
       : applicationInfo?.verifiedSteps || [];
 
@@ -85,12 +87,12 @@ export default function Sidebar({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (userProfile?.role !== ROLES.TECHNICIAN) return;
+    if (!isTechnician) return;
     if (!activeStepRef.current) return;
 
     activeStepRef.current.focus({ preventScroll: true });
     activeStepRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [isOpen, currentStep, userProfile?.role]);
+  }, [isOpen, currentStep, isTechnician]);
 
   // --- ЛОГИКА ВЫХОДА (Критическая зона) ---
   const handleDashboardClick = () => {
@@ -267,7 +269,7 @@ export default function Sidebar({
             </div>
             <div className="flex justify-between mt-1">
               <div className="text-[10px] text-slate-600">
-                {userProfile?.role === ROLES.TECHNICIAN ? 'Завершено шагов' : 'Проверено шагов'}
+                {isTechnician ? 'Завершено шагов' : 'Проверено шагов'}
               </div>
               <div className="text-[10px] font-bold text-slate-500">
                 {completedStepsCount} / {totalSteps}

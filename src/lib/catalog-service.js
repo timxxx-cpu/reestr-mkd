@@ -1,12 +1,14 @@
 import { BffClient } from './bff-client';
 import { AuthService } from './auth-service';
+import { ROLE_IDS, getRoleId, getRoleKey } from './roles';
 
 const resolveActor = () => {
   const currentUser = AuthService.getCurrentUser?.() || null;
 
   return {
     userName: currentUser?.name || currentUser?.displayName || currentUser?.email || currentUser?.id || 'unknown',
-    userRole: currentUser?.role || 'technician',
+    userRoleId: getRoleId(currentUser?.roleId ?? currentUser?.role) || ROLE_IDS.TECHNICIAN,
+    userRole: getRoleKey(currentUser?.role ?? currentUser?.roleId) || 'technician',
   };
 };
 
@@ -33,6 +35,7 @@ export const CatalogService = {
       table,
       item,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -44,6 +47,7 @@ export const CatalogService = {
       id,
       isActive,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },

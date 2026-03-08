@@ -14,6 +14,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import uz.reestrmkd.backend.config.AppProperties;
+import uz.reestrmkd.backend.domain.auth.model.UserRole;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -24,7 +25,6 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 @Component
@@ -77,7 +77,7 @@ public class AuthContextFilter extends OncePerRequestFilter {
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                 actor,
                 null,
-                List.of(new SimpleGrantedAuthority("ROLE_" + actor.userRole().toUpperCase(Locale.ROOT)))
+                List.of(new SimpleGrantedAuthority("ROLE_" + actor.userRole().toUpperCase(java.util.Locale.ROOT)))
             );
             SecurityContextHolder.getContext().setAuthentication(authentication);
         }
@@ -101,11 +101,15 @@ public class AuthContextFilter extends OncePerRequestFilter {
 
     private ActorPrincipal toActor(Map<String, Object> payload, String authType) {
         String userId = firstNonBlank(payload, "sub", "userId", "user_id");
-        String userRole = firstNonBlank(payload, "role", "userRole", "user_role");
-        if (userId == null || userRole == null) {
+        Long roleId = firstLong(payload, "roleId", "role_id", "userRoleId", "user_role_id");
+        String roleKey = firstNonBlank(payload, "role", "userRole", "user_role");
+        UserRole role = UserRole.fromId(roleId)
+            .or(() -> UserRole.fromKey(roleKey))
+            .orElse(null);
+        if (userId == null || role == null) {
             return null;
         }
-        return new ActorPrincipal(userId, userRole, authType);
+        return new ActorPrincipal(userId, role.id(), role.key(), authType);
     }
 
     private String firstNonBlank(Map<String, Object> payload, String... keys) {
@@ -116,6 +120,28 @@ public class AuthContextFilter extends OncePerRequestFilter {
                 if (!text.isEmpty()) {
                     return text;
                 }
+            }
+        }
+        return null;
+    }
+
+    private Long firstLong(Map<String, Object> payload, String... keys) {
+        for (String key : keys) {
+            Object value = payload.get(key);
+            if (value == null) {
+                continue;
+            }
+            if (value instanceof Number number) {
+                return number.longValue();
+            }
+            String text = String.valueOf(value).trim();
+            if (text.isEmpty()) {
+                continue;
+            }
+            try {
+                return Long.parseLong(text);
+            } catch (NumberFormatException ignored) {
+                return null;
             }
         }
         return null;
