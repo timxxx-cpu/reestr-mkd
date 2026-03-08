@@ -1,54 +1,44 @@
 package uz.reestrmkd.backend.domain.registry.service;
 
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import uz.reestrmkd.backend.domain.registry.model.FloorEntity;
+import uz.reestrmkd.backend.domain.registry.repository.FloorJpaRepository;
 import uz.reestrmkd.backend.exception.ApiException;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 public class FloorsUpdateService {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final FloorJpaRepository floorJpaRepository;
 
-    public FloorsUpdateService(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    public FloorsUpdateService(FloorJpaRepository floorJpaRepository) {
+        this.floorJpaRepository = floorJpaRepository;
     }
 
+    @Transactional
     public Map<String, Object> updateFloor(UUID floorId, Map<String, Object> updates) {
         Map<String, Object> mapped = mapFloorUpdatesToPayload(updates);
         if (mapped.isEmpty()) {
             throw new ApiException("updates are required", "VALIDATION_ERROR", null, 400);
         }
 
-        int affected = jdbcTemplate.update(
-            "update floors set label=coalesce(?,label), floor_type=coalesce(?,floor_type), height=coalesce(?,height), area_proj=coalesce(?,area_proj), area_fact=coalesce(?,area_fact), is_duplex=coalesce(?,is_duplex), is_technical=coalesce(?,is_technical), is_commercial=coalesce(?,is_commercial), updated_at=now() where id=?",
-            mapped.get("label"),
-            mapped.get("floor_type"),
-            mapped.get("height"),
-            mapped.get("area_proj"),
-            mapped.get("area_fact"),
-            mapped.get("is_duplex"),
-            mapped.get("is_technical"),
-            mapped.get("is_commercial"),
-            floorId
-        );
-        if (affected == 0) {
-            throw new ApiException("Floor not found", "NOT_FOUND", null, 404);
-        }
-
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList("select * from floors where id=?", floorId);
-        return rows.getFirst();
+        FloorEntity entity = findFloorById(floorId);
+        applyUpdates(entity, mapped, Instant.now());
+        return toMap(saveFloor(entity));
     }
 
+    @Transactional
     public Map<String, Object> updateFloorsBatch(List<Map<String, Object>> items, boolean strict) {
         if (items.isEmpty()) {
             return Map.of("ok", true, "updated", 0, "failed", List.of());
@@ -75,45 +65,39 @@ public class FloorsUpdateService {
             toUpdate.add(row);
         }
 
-        if (!toUpdate.isEmpty()) {
-            List<UUID> floorIds = toUpdate.stream().map(r -> (UUID) r.get("id")).toList();
-            String in = String.join(",", Collections.nCopies(floorIds.size(), "?"));
-            List<Map<String, Object>> existing = jdbcTemplate.queryForList("select id from floors where id in (" + in + ")", floorIds.toArray());
-            Set<UUID> existingIds = existing.stream().map(r -> UUID.fromString(String.valueOf(r.get("id")))).collect(Collectors.toSet());
-
-            List<Map<String, Object>> filtered = new ArrayList<>();
-            for (Map<String, Object> row : toUpdate) {
-                UUID id = (UUID) row.get("id");
-                if (!existingIds.contains(id)) {
-                    failed.add(Map.of("index", row.get("index"), "id", id.toString(), "reason", "floor not found"));
-                } else {
-                    filtered.add(row);
-                }
-            }
-
-            if (strict && !failed.isEmpty()) {
-                throw new ApiException("One or more floors cannot be updated", "PARTIAL_UPDATE", Map.of("failed", failed), 409);
-            }
-
-            for (Map<String, Object> row : filtered) {
-                jdbcTemplate.update(
-                    "update floors set label=coalesce(?,label), floor_type=coalesce(?,floor_type), height=coalesce(?,height), area_proj=coalesce(?,area_proj), area_fact=coalesce(?,area_fact), is_duplex=coalesce(?,is_duplex), is_technical=coalesce(?,is_technical), is_commercial=coalesce(?,is_commercial), updated_at=now() where id=?",
-                    row.get("label"),
-                    row.get("floor_type"),
-                    row.get("height"),
-                    row.get("area_proj"),
-                    row.get("area_fact"),
-                    row.get("is_duplex"),
-                    row.get("is_technical"),
-                    row.get("is_commercial"),
-                    row.get("id")
-                );
-            }
-
-            return Map.of("ok", failed.isEmpty(), "updated", filtered.size(), "failed", failed);
+        if (toUpdate.isEmpty()) {
+            return Map.of("ok", failed.isEmpty(), "updated", 0, "failed", failed);
         }
 
-        return Map.of("ok", failed.isEmpty(), "updated", 0, "failed", failed);
+        List<UUID> floorIds = toUpdate.stream().map(r -> (UUID) r.get("id")).toList();
+        Map<UUID, FloorEntity> existingById = findAllFloorsById(floorIds).stream()
+            .collect(Collectors.toMap(FloorEntity::getId, entity -> entity));
+
+        List<Map<String, Object>> filtered = new ArrayList<>();
+        for (Map<String, Object> row : toUpdate) {
+            UUID id = (UUID) row.get("id");
+            if (!existingById.containsKey(id)) {
+                failed.add(Map.of("index", row.get("index"), "id", id.toString(), "reason", "floor not found"));
+            } else {
+                filtered.add(row);
+            }
+        }
+
+        if (strict && !failed.isEmpty()) {
+            throw new ApiException("One or more floors cannot be updated", "PARTIAL_UPDATE", Map.of("failed", failed), 409);
+        }
+
+        Instant now = Instant.now();
+        for (Map<String, Object> row : filtered) {
+            applyUpdates(existingById.get((UUID) row.get("id")), row, now);
+        }
+
+        saveAllFloors(filtered.stream()
+            .map(row -> existingById.get((UUID) row.get("id")))
+            .filter(Objects::nonNull)
+            .toList());
+
+        return Map.of("ok", failed.isEmpty(), "updated", filtered.size(), "failed", failed);
     }
 
     private Map<String, Object> mapFloorUpdatesToPayload(Map<String, Object> updates) {
@@ -161,5 +145,67 @@ public class FloorsUpdateService {
         } catch (IllegalArgumentException ex) {
             return null;
         }
+    }
+
+    private void applyUpdates(FloorEntity entity, Map<String, Object> mapped, Instant updatedAt) {
+        if (mapped.containsKey("label")) entity.setLabel((String) mapped.get("label"));
+        if (mapped.containsKey("floor_type")) entity.setFloorType((String) mapped.get("floor_type"));
+        if (mapped.containsKey("height")) entity.setHeight((BigDecimal) mapped.get("height"));
+        if (mapped.containsKey("area_proj")) entity.setAreaProj((BigDecimal) mapped.get("area_proj"));
+        if (mapped.containsKey("area_fact")) entity.setAreaFact((BigDecimal) mapped.get("area_fact"));
+        if (mapped.containsKey("is_duplex")) entity.setIsDuplex((Boolean) mapped.get("is_duplex"));
+        if (mapped.containsKey("is_technical")) entity.setIsTechnical((Boolean) mapped.get("is_technical"));
+        if (mapped.containsKey("is_commercial")) entity.setIsCommercial((Boolean) mapped.get("is_commercial"));
+        entity.setUpdatedAt(updatedAt);
+    }
+
+    private Map<String, Object> toMap(FloorEntity entity) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", entity.getId());
+        row.put("block_id", entity.getBlockId());
+        row.put("extension_id", entity.getExtensionId());
+        row.put("floor_key", entity.getFloorKey());
+        row.put("label", entity.getLabel());
+        row.put("floor_type", entity.getFloorType());
+        row.put("index", entity.getIndex());
+        row.put("height", entity.getHeight());
+        row.put("area_proj", entity.getAreaProj());
+        row.put("area_fact", entity.getAreaFact());
+        row.put("is_duplex", entity.getIsDuplex());
+        row.put("parent_floor_index", entity.getParentFloorIndex());
+        row.put("basement_id", entity.getBasementId());
+        row.put("is_technical", entity.getIsTechnical());
+        row.put("is_commercial", entity.getIsCommercial());
+        row.put("is_stylobate", entity.getIsStylobate());
+        row.put("is_basement", entity.getIsBasement());
+        row.put("is_attic", entity.getIsAttic());
+        row.put("is_loft", entity.getIsLoft());
+        row.put("is_roof", entity.getIsRoof());
+        row.put("created_at", entity.getCreatedAt());
+        row.put("updated_at", entity.getUpdatedAt());
+        return row;
+    }
+
+    private FloorEntity findFloorById(UUID floorId) {
+        if (floorId == null) {
+            throw new ApiException("floorId is required", "VALIDATION_ERROR", null, 400);
+        }
+        return floorJpaRepository.findById(floorId)
+            .orElseThrow(() -> new ApiException("Floor not found", "NOT_FOUND", null, 404));
+    }
+
+    private List<FloorEntity> findAllFloorsById(List<UUID> floorIds) {
+        return floorJpaRepository.findAllById(new ArrayList<>(floorIds));
+    }
+
+    private FloorEntity saveFloor(FloorEntity entity) {
+        if (entity == null) {
+            throw new ApiException("floor entity is required", "VALIDATION_ERROR", null, 400);
+        }
+        return floorJpaRepository.save(entity);
+    }
+
+    private void saveAllFloors(List<FloorEntity> entities) {
+        floorJpaRepository.saveAll(new ArrayList<>(entities));
     }
 }

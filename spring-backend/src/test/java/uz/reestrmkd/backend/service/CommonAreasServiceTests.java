@@ -5,27 +5,34 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.jdbc.core.JdbcTemplate;
+import uz.reestrmkd.backend.domain.registry.model.CommonAreaEntity;
+import uz.reestrmkd.backend.domain.registry.model.FloorEntity;
+import uz.reestrmkd.backend.domain.registry.repository.CommonAreaJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.FloorJpaRepository;
 import uz.reestrmkd.backend.domain.registry.service.CommonAreasService;
 import uz.reestrmkd.backend.exception.ApiException;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("null")
 class CommonAreasServiceTests {
 
     @Mock
-    private JdbcTemplate jdbcTemplate;
+    private CommonAreaJpaRepository commonAreaJpaRepository;
+
+    @Mock
+    private FloorJpaRepository floorJpaRepository;
 
     @InjectMocks
     private CommonAreasService service;
@@ -42,7 +49,11 @@ class CommonAreasServiceTests {
 
         service.upsert(data);
 
-        verify(jdbcTemplate).update(startsWith("insert into common_areas"), any(), any(), eq("stairs"), any(), any());
+        verify(commonAreaJpaRepository).save(argThat(entity ->
+            "stairs".equals(entity.getType())
+                && entity.getFloorId() != null
+                && entity.getEntranceId() != null
+        ));
     }
 
     @Test
@@ -69,16 +80,47 @@ class CommonAreasServiceTests {
         int count = service.batchUpsert(items);
 
         assertThat(count).isEqualTo(2);
-        verify(jdbcTemplate, times(2)).update(startsWith("insert into common_areas"), any(), any(), any(), any(), any());
+        verify(commonAreaJpaRepository, times(2)).save(any(CommonAreaEntity.class));
     }
 
     @Test
     void shouldListByBlockWhenNoFloorIds() {
         UUID blockId = UUID.randomUUID();
-        when(jdbcTemplate.queryForList(contains("join floors"), eq(blockId))).thenReturn(List.of(Map.of("id", UUID.randomUUID())));
+        UUID floorId = UUID.randomUUID();
+        FloorEntity floor = new FloorEntity();
+        floor.setId(floorId);
+        CommonAreaEntity commonArea = new CommonAreaEntity();
+        commonArea.setId(UUID.randomUUID());
+        commonArea.setFloorId(floorId);
+        commonArea.setType("stairs");
+        commonArea.setCreatedAt(Instant.now());
+
+        when(floorJpaRepository.findByBlockIdOrderByIndexAsc(blockId)).thenReturn(List.of(floor));
+        when(commonAreaJpaRepository.findByFloorIdIn(List.of(floorId))).thenReturn(List.of(commonArea));
 
         List<Map<String, Object>> result = service.list(blockId, null);
 
         assertThat(result).hasSize(1);
+        assertThat(result.getFirst()).containsEntry("floor_id", floorId);
+    }
+
+    @Test
+    void shouldUpdateExistingEntityWhenIdProvided() {
+        UUID id = UUID.randomUUID();
+        CommonAreaEntity existing = new CommonAreaEntity();
+        existing.setId(id);
+        existing.setCreatedAt(Instant.now());
+
+        when(commonAreaJpaRepository.findById(id)).thenReturn(Optional.of(existing));
+
+        service.upsert(Map.of(
+            "id", id.toString(),
+            "floorId", UUID.randomUUID().toString(),
+            "type", "mop",
+            "area", "1",
+            "height", "2"
+        ));
+
+        verify(commonAreaJpaRepository).save(same(existing));
     }
 }

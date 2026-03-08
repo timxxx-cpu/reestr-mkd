@@ -2,13 +2,15 @@ package uz.reestrmkd.backend.domain.integration.service;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import uz.reestrmkd.backend.domain.project.model.ProjectEntity;
-import uz.reestrmkd.backend.domain.project.repository.ProjectJpaRepository;
+import uz.reestrmkd.backend.domain.common.service.FormatUtils;
+import uz.reestrmkd.backend.domain.registry.repository.BuildingJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.UnitJpaRepository;
+import uz.reestrmkd.backend.domain.workflow.model.ApplicationEntity;
+import uz.reestrmkd.backend.domain.workflow.repository.ApplicationJpaRepository;
 import uz.reestrmkd.backend.exception.ApiException;
 
 import java.time.Instant;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -23,29 +25,63 @@ public class IntegrationService {
         "unitsStatus"
     );
 
-    private final ProjectJpaRepository projectJpaRepository;
+    private final ApplicationJpaRepository applicationJpaRepository;
+    private final BuildingJpaRepository buildingJpaRepository;
+    private final UnitJpaRepository unitJpaRepository;
 
-    public IntegrationService(ProjectJpaRepository projectJpaRepository) {
-        this.projectJpaRepository = projectJpaRepository;
+    public IntegrationService(
+        ApplicationJpaRepository applicationJpaRepository,
+        BuildingJpaRepository buildingJpaRepository,
+        UnitJpaRepository unitJpaRepository
+    ) {
+        this.applicationJpaRepository = applicationJpaRepository;
+        this.buildingJpaRepository = buildingJpaRepository;
+        this.unitJpaRepository = unitJpaRepository;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getLatestIntegrationStatus(UUID projectId) {
+        return applicationJpaRepository.findFirstByProjectIdOrderByCreatedAtDesc(projectId)
+            .map(ApplicationEntity::getIntegrationData)
+            .map(LinkedHashMap::new)
+            .orElseGet(LinkedHashMap::new);
     }
 
     @Transactional
-    public void updateIntegrationStatus(@org.springframework.lang.NonNull UUID projectId, String field, String status) {
+    public Map<String, Object> updateLatestIntegrationStatus(UUID projectId, String field, Object status) {
         String normalizedField = normalizeField(field);
-        String normalizedStatus = normalizeStatus(status);
+        ApplicationEntity application = applicationJpaRepository.findFirstByProjectIdOrderByCreatedAtDesc(projectId)
+            .orElseThrow(() -> new ApiException("Application not found", "NOT_FOUND", null, 404));
 
-        ProjectEntity project = projectJpaRepository.findById(projectId)
-            .orElseThrow(() -> new ApiException("Project not found", "NOT_FOUND", null, 404));
+        Map<String, Object> integrationData = application.getIntegrationData() == null
+            ? new LinkedHashMap<>()
+            : new LinkedHashMap<>(application.getIntegrationData());
 
-        Map<String, Object> integrationData = project.getIntegrationData() == null
-            ? new HashMap<>()
-            : new HashMap<>(project.getIntegrationData());
+        integrationData.put(normalizedField, status);
+        application.setIntegrationData(integrationData);
+        application.setUpdatedAt(Instant.now());
+        applicationJpaRepository.save(application);
+        return integrationData;
+    }
 
-        integrationData.put(normalizedField, normalizedStatus);
-        project.setIntegrationData(integrationData);
-        project.setUpdatedAt(Instant.now());
+    @Transactional
+    public String updateBuildingCadastre(UUID buildingId, String cadastreRaw) {
+        String cadastre = FormatUtils.formatBuildingCadastre(cadastreRaw);
+        int updated = buildingJpaRepository.updateCadastreNumber(buildingId, cadastre, Instant.now());
+        if (updated == 0) {
+            throw new ApiException("Building not found", "NOT_FOUND", null, 404);
+        }
+        return cadastre;
+    }
 
-        projectJpaRepository.save(project);
+    @Transactional
+    public String updateUnitCadastre(UUID unitId, String cadastreRaw) {
+        String cadastre = normalizeUnitCadastre(cadastreRaw);
+        int updated = unitJpaRepository.updateCadastreNumber(unitId, cadastre, Instant.now());
+        if (updated == 0) {
+            throw new ApiException("Unit not found", "NOT_FOUND", null, 404);
+        }
+        return cadastre;
     }
 
     private String normalizeField(String value) {
@@ -62,9 +98,9 @@ public class IntegrationService {
         return normalized;
     }
 
-    private String normalizeStatus(String value) {
+    private String normalizeUnitCadastre(String value) {
         if (value == null || value.isBlank()) {
-            throw new ApiException("status is required", "VALIDATION_ERROR", null, 400);
+            return null;
         }
         return value.trim();
     }

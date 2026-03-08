@@ -1,11 +1,13 @@
 package uz.reestrmkd.backend.domain.registry.service;
 
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import uz.reestrmkd.backend.domain.registry.model.EntranceEntity;
+import uz.reestrmkd.backend.domain.registry.repository.EntranceJpaRepository;
 
-import java.util.Collections;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -13,43 +15,48 @@ import java.util.stream.Collectors;
 @Service
 public class EntranceReconcileService {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final EntranceJpaRepository entranceJpaRepository;
 
-    public EntranceReconcileService(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    public EntranceReconcileService(EntranceJpaRepository entranceJpaRepository) {
+        this.entranceJpaRepository = entranceJpaRepository;
     }
 
+    @Transactional
     public EntranceReconcileResult reconcile(UUID blockId, int count) {
         int normalizedCount = Math.max(0, count);
 
-        List<Map<String, Object>> existing = jdbcTemplate.queryForList(
-            "select id, number from entrances where block_id=? order by number",
-            blockId
-        );
+        List<EntranceEntity> existing = entranceJpaRepository.findByBlockIdOrderByNumberAsc(blockId);
         Set<Integer> present = existing.stream()
-            .map(x -> ((Number) x.get("number")).intValue())
+            .map(entrance -> entrance.getNumber() == null ? 0 : entrance.getNumber())
             .collect(Collectors.toSet());
 
         int created = 0;
+        List<EntranceEntity> toCreate = new ArrayList<>();
+        Instant now = Instant.now();
         for (int i = 1; i <= normalizedCount; i++) {
             if (!present.contains(i)) {
-                jdbcTemplate.update(
-                    "insert into entrances(id,block_id,number,created_at,updated_at) values (gen_random_uuid(),?,?,now(),now())",
-                    blockId,
-                    i
-                );
+                EntranceEntity entrance = new EntranceEntity();
+                entrance.setId(UUID.randomUUID());
+                entrance.setBlockId(blockId);
+                entrance.setNumber(i);
+                entrance.setCreatedAt(now);
+                entrance.setUpdatedAt(now);
+                toCreate.add(entrance);
                 created += 1;
             }
         }
 
+        if (!toCreate.isEmpty()) {
+            entranceJpaRepository.saveAll(toCreate);
+        }
+
         List<UUID> deleteIds = existing.stream()
-            .filter(row -> ((Number) row.get("number")).intValue() > normalizedCount)
-            .map(row -> UUID.fromString(String.valueOf(row.get("id"))))
+            .filter(entrance -> entrance.getNumber() != null && entrance.getNumber() > normalizedCount)
+            .map(EntranceEntity::getId)
             .toList();
 
         if (!deleteIds.isEmpty()) {
-            String in = String.join(",", Collections.nCopies(deleteIds.size(), "?"));
-            jdbcTemplate.update("delete from entrances where id in (" + in + ")", deleteIds.toArray());
+            entranceJpaRepository.deleteAllByIdInBatch(deleteIds);
         }
 
         return new EntranceReconcileResult(normalizedCount, created, deleteIds.size());

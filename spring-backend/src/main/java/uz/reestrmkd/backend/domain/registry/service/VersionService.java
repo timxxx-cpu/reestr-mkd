@@ -32,9 +32,11 @@ import uz.reestrmkd.backend.domain.registry.repository.FloorJpaRepository;
 import uz.reestrmkd.backend.domain.registry.repository.ObjectVersionJpaRepository;
 import uz.reestrmkd.backend.domain.registry.repository.RoomJpaRepository;
 import uz.reestrmkd.backend.domain.registry.repository.UnitJpaRepository;
+import uz.reestrmkd.backend.exception.ApiException;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -44,6 +46,7 @@ public class VersionService {
 
     private static final String VERSION_STATUS_PENDING = "PENDING";
     private static final String VERSION_STATUS_CURRENT = "CURRENT";
+    private static final String VERSION_STATUS_DECLINED = "DECLINED";
 
     private final boolean versioningEnabled;
     private final ObjectMapper objectMapper;
@@ -137,6 +140,39 @@ public class VersionService {
         return new CreatePendingVersionsResult(true, createdCount, false);
     }
 
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getVersions(String entityType, UUID entityId) {
+        List<ObjectVersionEntity> versions = entityType != null && entityId != null
+            ? objectVersionJpaRepository.findByEntityTypeAndEntityIdOrderByVersionNumberDesc(entityType, entityId)
+            : objectVersionJpaRepository.findTop100ByOrderByUpdatedAtDesc();
+        return versions.stream()
+            .map(this::toVersionMap)
+            .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getSnapshot(Long versionId) {
+        ObjectVersionEntity version = requireVersion(versionId);
+        Map<String, Object> mapped = new LinkedHashMap<>();
+        mapped.put("snapshot_data", version.getSnapshotData());
+        return mapped;
+    }
+
+    @Transactional
+    public void approveVersion(Long versionId) {
+        updateVersionStatus(versionId, VERSION_STATUS_CURRENT);
+    }
+
+    @Transactional
+    public void declineVersion(Long versionId) {
+        updateVersionStatus(versionId, VERSION_STATUS_DECLINED);
+    }
+
+    @Transactional
+    public void restoreVersion(Long versionId) {
+        updateVersionStatus(versionId, VERSION_STATUS_CURRENT);
+    }
+
     public List<VersionEntitySnapshot> collectProjectVersionEntities(@org.springframework.lang.NonNull UUID projectId) {
         List<VersionEntitySnapshot> entities = new ArrayList<>();
 
@@ -203,6 +239,32 @@ public class VersionService {
         }
 
         return entities;
+    }
+
+    private void updateVersionStatus(Long versionId, String status) {
+        ObjectVersionEntity version = requireVersion(versionId);
+        version.setVersionStatus(status);
+        version.setUpdatedAt(Instant.now());
+        objectVersionJpaRepository.save(version);
+    }
+
+    private ObjectVersionEntity requireVersion(Long versionId) {
+        return objectVersionJpaRepository.findById(versionId)
+            .orElseThrow(() -> new ApiException("Version not found", "NOT_FOUND", null, 404));
+    }
+
+    private Map<String, Object> toVersionMap(ObjectVersionEntity version) {
+        Map<String, Object> mapped = new LinkedHashMap<>();
+        mapped.put("id", version.getId());
+        mapped.put("entity_type", version.getEntityType());
+        mapped.put("entity_id", version.getEntityId());
+        mapped.put("version_number", version.getVersionNumber());
+        mapped.put("version_status", version.getVersionStatus());
+        mapped.put("snapshot_data", version.getSnapshotData());
+        mapped.put("created_by", version.getCreatedBy());
+        mapped.put("application_id", version.getApplicationId());
+        mapped.put("updated_at", version.getUpdatedAt());
+        return mapped;
     }
 
     public record VersionEntitySnapshot(String entityType, UUID entityId, Object snapshotData) {

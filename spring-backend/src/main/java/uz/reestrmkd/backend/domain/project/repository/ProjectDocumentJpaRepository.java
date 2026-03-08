@@ -9,4 +9,5 @@ import java.util.UUID;
 
 public interface ProjectDocumentJpaRepository extends JpaRepository<ProjectDocumentEntity, UUID> {
     List<ProjectDocumentEntity> findByProjectId(UUID projectId);
+    List<ProjectDocumentEntity> findByProjectIdOrderByDocDateDescIdDesc(UUID projectId);
 }

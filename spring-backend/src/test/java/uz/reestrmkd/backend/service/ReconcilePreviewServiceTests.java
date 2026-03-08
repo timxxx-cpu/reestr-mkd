@@ -5,7 +5,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.jdbc.core.JdbcTemplate;
+import uz.reestrmkd.backend.domain.registry.model.CommonAreaEntity;
+import uz.reestrmkd.backend.domain.registry.model.EntranceEntity;
+import uz.reestrmkd.backend.domain.registry.model.EntranceMatrixEntity;
+import uz.reestrmkd.backend.domain.registry.model.FloorEntity;
+import uz.reestrmkd.backend.domain.registry.model.UnitEntity;
+import uz.reestrmkd.backend.domain.registry.repository.CommonAreaJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.EntranceJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.EntranceMatrixJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.FloorJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.UnitJpaRepository;
 import uz.reestrmkd.backend.domain.registry.service.ReconcilePreviewService;
 
 import java.util.List;
@@ -13,15 +22,21 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@SuppressWarnings("null")
 class ReconcilePreviewServiceTests {
 
     @Mock
-    private JdbcTemplate jdbcTemplate;
+    private FloorJpaRepository floorJpaRepository;
+    @Mock
+    private EntranceJpaRepository entranceJpaRepository;
+    @Mock
+    private EntranceMatrixJpaRepository entranceMatrixJpaRepository;
+    @Mock
+    private UnitJpaRepository unitJpaRepository;
+    @Mock
+    private CommonAreaJpaRepository commonAreaJpaRepository;
 
     @InjectMocks
     private ReconcilePreviewService service;
@@ -29,7 +44,7 @@ class ReconcilePreviewServiceTests {
     @Test
     void shouldReturnZeroPreviewWhenNoFloors() {
         UUID blockId = UUID.randomUUID();
-        when(jdbcTemplate.queryForList(eq("select id from floors where block_id=?"), eq(blockId))).thenReturn(List.of());
+        when(floorJpaRepository.findByBlockIdOrderByIndexAsc(blockId)).thenReturn(List.of());
 
         Map<String, Object> result = service.preview(blockId);
 
@@ -47,27 +62,19 @@ class ReconcilePreviewServiceTests {
         UUID floorId = UUID.randomUUID();
         UUID entranceId = UUID.randomUUID();
 
-        when(jdbcTemplate.queryForList(eq("select id from floors where block_id=?"), eq(blockId)))
-            .thenReturn(List.of(Map.of("id", floorId)));
-        when(jdbcTemplate.queryForList(eq("select id, number from entrances where block_id=?"), eq(blockId)))
-            .thenReturn(List.of(Map.of("id", entranceId, "number", 1)));
-        when(jdbcTemplate.queryForList(eq("select floor_id, entrance_number, flats_count, commercial_count, mop_count from entrance_matrix where block_id=?"), eq(blockId)))
-            .thenReturn(List.of(Map.of(
-                "floor_id", floorId,
-                "entrance_number", 1,
-                "flats_count", 1,
-                "commercial_count", 0,
-                "mop_count", 1
-            )));
-        when(jdbcTemplate.queryForList(contains("from units where floor_id in"), any(Object[].class)))
+        when(floorJpaRepository.findByBlockIdOrderByIndexAsc(blockId)).thenReturn(List.of(floor(floorId)));
+        when(entranceJpaRepository.findByBlockIdOrderByNumberAsc(blockId)).thenReturn(List.of(entrance(entranceId, 1)));
+        when(entranceMatrixJpaRepository.findByBlockIdOrderByEntranceNumberAsc(blockId))
+            .thenReturn(List.of(matrix(floorId, 1, 1, 0, 1)));
+        when(unitJpaRepository.findByFloorIdIn(List.of(floorId)))
             .thenReturn(List.of(
-                Map.of("id", UUID.randomUUID(), "floor_id", floorId, "entrance_id", entranceId, "unit_type", "flat", "created_at", "2024-01-01T00:00:00Z"),
-                Map.of("id", UUID.randomUUID(), "floor_id", floorId, "entrance_id", entranceId, "unit_type", "flat", "created_at", "2024-01-02T00:00:00Z")
+                unit(floorId, entranceId, "flat"),
+                unit(floorId, entranceId, "flat")
             ));
-        when(jdbcTemplate.queryForList(contains("from common_areas where floor_id in"), any(Object[].class)))
+        when(commonAreaJpaRepository.findByFloorIdIn(List.of(floorId)))
             .thenReturn(List.of(
-                Map.of("id", UUID.randomUUID(), "floor_id", floorId, "entrance_id", entranceId, "created_at", "2024-01-01T00:00:00Z"),
-                Map.of("id", UUID.randomUUID(), "floor_id", floorId, "entrance_id", entranceId, "created_at", "2024-01-02T00:00:00Z")
+                area(floorId, entranceId),
+                area(floorId, entranceId)
             ));
 
         Map<String, Object> result = service.preview(blockId);
@@ -79,5 +86,45 @@ class ReconcilePreviewServiceTests {
 
         assertThat(units).containsEntry("toRemove", 1).containsEntry("checkedCells", 1);
         assertThat(common).containsEntry("toRemove", 1).containsEntry("checkedCells", 1);
+    }
+
+    private FloorEntity floor(UUID id) {
+        FloorEntity entity = new FloorEntity();
+        entity.setId(id);
+        return entity;
+    }
+
+    private EntranceEntity entrance(UUID id, int number) {
+        EntranceEntity entity = new EntranceEntity();
+        entity.setId(id);
+        entity.setNumber(number);
+        return entity;
+    }
+
+    private EntranceMatrixEntity matrix(UUID floorId, int entranceNumber, int flatsCount, int commercialCount, int mopCount) {
+        EntranceMatrixEntity entity = new EntranceMatrixEntity();
+        entity.setFloorId(floorId);
+        entity.setEntranceNumber(entranceNumber);
+        entity.setFlatsCount(flatsCount);
+        entity.setCommercialCount(commercialCount);
+        entity.setMopCount(mopCount);
+        return entity;
+    }
+
+    private UnitEntity unit(UUID floorId, UUID entranceId, String unitType) {
+        UnitEntity entity = new UnitEntity();
+        entity.setId(UUID.randomUUID());
+        entity.setFloorId(floorId);
+        entity.setEntranceId(entranceId);
+        entity.setUnitType(unitType);
+        return entity;
+    }
+
+    private CommonAreaEntity area(UUID floorId, UUID entranceId) {
+        CommonAreaEntity entity = new CommonAreaEntity();
+        entity.setId(UUID.randomUUID());
+        entity.setFloorId(floorId);
+        entity.setEntranceId(entranceId);
+        return entity;
     }
 }

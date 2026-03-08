@@ -1,19 +1,23 @@
 package uz.reestrmkd.backend.domain.registry.service;
 
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import uz.reestrmkd.backend.domain.registry.model.BuildingEntity;
 import uz.reestrmkd.backend.domain.registry.model.BlockFloorMarkerEntity;
 import uz.reestrmkd.backend.domain.registry.model.BuildingBlockEntity;
+import uz.reestrmkd.backend.domain.registry.model.FloorEntity;
+import uz.reestrmkd.backend.domain.registry.repository.CommonAreaJpaRepository;
 import uz.reestrmkd.backend.domain.registry.repository.BlockFloorMarkerJpaRepository;
 import uz.reestrmkd.backend.domain.registry.repository.BuildingBlockJpaRepository;
 import uz.reestrmkd.backend.domain.registry.repository.BuildingJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.EntranceMatrixJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.FloorJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.UnitJpaRepository;
 import uz.reestrmkd.backend.exception.ApiException;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -27,27 +31,40 @@ import java.util.stream.Collectors;
 @Service
 public class FloorsReconcileService {
 
-    private final JdbcTemplate jdbcTemplate;
     private final BuildingBlockJpaRepository blockRepo;
     private final BuildingJpaRepository buildingRepo;
     private final BlockFloorMarkerJpaRepository markerRepo;
+    private final FloorJpaRepository floorRepo;
+    private final UnitJpaRepository unitRepo;
+    private final CommonAreaJpaRepository commonAreaRepo;
+    private final EntranceMatrixJpaRepository entranceMatrixRepo;
     private final FloorGeneratorService floorGeneratorService;
 
     public FloorsReconcileService(
-        JdbcTemplate jdbcTemplate,
         BuildingBlockJpaRepository blockRepo,
         BuildingJpaRepository buildingRepo,
         BlockFloorMarkerJpaRepository markerRepo,
+        FloorJpaRepository floorRepo,
+        UnitJpaRepository unitRepo,
+        CommonAreaJpaRepository commonAreaRepo,
+        EntranceMatrixJpaRepository entranceMatrixRepo,
         FloorGeneratorService floorGeneratorService
     ) {
-        this.jdbcTemplate = jdbcTemplate;
         this.blockRepo = blockRepo;
         this.buildingRepo = buildingRepo;
         this.markerRepo = markerRepo;
+        this.floorRepo = floorRepo;
+        this.unitRepo = unitRepo;
+        this.commonAreaRepo = commonAreaRepo;
+        this.entranceMatrixRepo = entranceMatrixRepo;
         this.floorGeneratorService = floorGeneratorService;
     }
 
-    public FloorsReconcileResult reconcile(@NonNull UUID blockId) {
+    @Transactional
+    public FloorsReconcileResult reconcile(UUID blockId) {
+        if (blockId == null) {
+            throw new ApiException("blockId is required", "VALIDATION_ERROR", null, 400);
+        }
         BuildingBlockEntity block = blockRepo.findById(blockId)
             .orElseThrow(() -> new ApiException("Block not found", "NOT_FOUND", null, 404));
         BuildingEntity building = buildingRepo.findById(Objects.requireNonNull(block.getBuildingId()))
@@ -55,79 +72,63 @@ public class FloorsReconcileService {
         List<BuildingBlockEntity> allBlocks = blockRepo.findByBuildingId(block.getBuildingId());
         List<BlockFloorMarkerEntity> markers = markerRepo.findByBlockIdIn(List.of(blockId));
 
-        List<Map<String, Object>> existingFloors = jdbcTemplate.queryForList(
-            "select id, index, parent_floor_index, basement_id from floors where block_id=?",
-            blockId
-        );
+        List<FloorEntity> existingFloors = floorRepo.findByBlockIdOrderByIndexAsc(blockId);
         List<Map<String, Object>> generated = floorGeneratorService.generateFloorsModel(block, building, allBlocks, markers);
         Set<String> seenKeys = new HashSet<>();
         List<Map<String, Object>> targetModel = generated.stream().filter(floor -> seenKeys.add(floorConstraintKey(floor))).toList();
 
-        Map<String, Map<String, Object>> existingByKey = existingFloors.stream()
+        Map<String, FloorEntity> existingByKey = existingFloors.stream()
             .collect(Collectors.toMap(this::floorConstraintKey, row -> row, (a, b) -> a));
 
-        List<UUID> usedExistingIds = new ArrayList<>();
-        List<Map<String, Object>> toUpsert = new ArrayList<>();
+        Set<UUID> usedExistingIds = new HashSet<>();
+        List<FloorEntity> toUpsert = new ArrayList<>();
         Instant now = Instant.now();
 
         for (Map<String, Object> floor : targetModel) {
             String cKey = floorConstraintKey(floor);
-            Map<String, Object> existing = existingByKey.get(cKey);
-            UUID id = existing == null ? UUID.randomUUID() : UUID.fromString(String.valueOf(existing.get("id")));
-            if (existing != null) usedExistingIds.add(id);
-            Map<String, Object> floorPayload = new HashMap<>(floor);
-            floorPayload.put("id", id);
-            floorPayload.put("updated_at", now);
-            toUpsert.add(floorPayload);
+            FloorEntity existing = existingByKey.get(cKey);
+            FloorEntity floorEntity = existing == null ? new FloorEntity() : existing;
+            if (existing != null && existing.getId() != null) {
+                usedExistingIds.add(existing.getId());
+            }
+            applyFloorPayload(floorEntity, floor, blockId, now);
+            toUpsert.add(floorEntity);
         }
 
-        List<UUID> toDeleteIds = existingFloors.stream()
-            .map(row -> UUID.fromString(String.valueOf(row.get("id"))))
-            .filter(id -> !usedExistingIds.contains(id))
+        List<FloorEntity> toDelete = existingFloors.stream()
+            .filter(floor -> floor.getId() != null && !usedExistingIds.contains(floor.getId()))
             .toList();
 
-        if (!toDeleteIds.isEmpty()) {
-            Map<UUID, UUID> floorRemap = buildFloorRemap(toDeleteIds, toUpsert);
-            remapFloorReferences(floorRemap);
+        if (!toUpsert.isEmpty()) {
+            floorRepo.saveAll(toUpsert);
         }
 
-        if (!toDeleteIds.isEmpty()) {
-            String in = String.join(",", Collections.nCopies(toDeleteIds.size(), "?"));
-            jdbcTemplate.update("delete from floors where id in (" + in + ")", toDeleteIds.toArray());
-        }
-
-        for (Map<String, Object> floor : toUpsert) {
-            jdbcTemplate.update(
-                "insert into floors(id, block_id, index, floor_key, label, floor_type, height, area_proj, is_technical, is_commercial, is_stylobate, is_basement, is_attic, is_loft, is_roof, parent_floor_index, basement_id, updated_at) " +
-                    "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
-                    "on conflict (id) do update set block_id=excluded.block_id, index=excluded.index, floor_key=excluded.floor_key, label=excluded.label, floor_type=excluded.floor_type, height=excluded.height, area_proj=excluded.area_proj, is_technical=excluded.is_technical, is_commercial=excluded.is_commercial, is_stylobate=excluded.is_stylobate, is_basement=excluded.is_basement, is_attic=excluded.is_attic, is_loft=excluded.is_loft, is_roof=excluded.is_roof, parent_floor_index=excluded.parent_floor_index, basement_id=excluded.basement_id, updated_at=excluded.updated_at",
-                floor.get("id"), floor.get("block_id"), floor.get("index"), floor.get("floor_key"), floor.get("label"), floor.get("floor_type"), floor.get("height"), floor.get("area_proj"),
-                floor.get("is_technical"), floor.get("is_commercial"), floor.get("is_stylobate"), floor.get("is_basement"), floor.get("is_attic"), floor.get("is_loft"), floor.get("is_roof"),
-                floor.get("parent_floor_index"), floor.get("basement_id"), floor.get("updated_at")
+        if (!toDelete.isEmpty()) {
+            Map<UUID, UUID> floorRemap = buildFloorRemap(toDelete, toUpsert);
+            remapFloorReferences(floorRemap, now);
+            floorRepo.deleteAllByIdInBatch(
+                toDelete.stream()
+                    .map(FloorEntity::getId)
+                    .filter(Objects::nonNull)
+                    .toList()
             );
         }
 
-        return new FloorsReconcileResult(toDeleteIds.size(), toUpsert.size());
+        return new FloorsReconcileResult(toDelete.size(), toUpsert.size());
     }
 
-    private Map<UUID, UUID> buildFloorRemap(List<UUID> removedFloorIds, List<Map<String, Object>> toUpsert) {
-        List<Map<String, Object>> removedFloors = jdbcTemplate.queryForList(
-            "select id, index from floors where id in (" + String.join(",", Collections.nCopies(removedFloorIds.size(), "?")) + ")",
-            removedFloorIds.toArray()
-        );
-
-        Map<UUID, Integer> removedIndex = new HashMap<>();
-        for (Map<String, Object> row : removedFloors) {
-            removedIndex.put(UUID.fromString(String.valueOf(row.get("id"))), toInt(row.get("index"), 0));
-        }
-
-        List<Map<String, Object>> targetFloors = toUpsert.stream().toList();
+    private Map<UUID, UUID> buildFloorRemap(List<FloorEntity> removedFloors, List<FloorEntity> targetFloors) {
         Map<UUID, UUID> remap = new HashMap<>();
-        for (UUID oldFloorId : removedFloorIds) {
-            int oldIdx = removedIndex.getOrDefault(oldFloorId, 0);
+        for (FloorEntity removedFloor : removedFloors) {
+            UUID oldFloorId = removedFloor.getId();
+            if (oldFloorId == null) {
+                continue;
+            }
+            int oldIdx = defaultInt(removedFloor.getIndex(), 0);
             UUID candidate = targetFloors.stream()
-                .min(Comparator.comparingInt(row -> Math.abs(toInt(row.get("index"), 0) - oldIdx)))
-                .map(row -> UUID.fromString(String.valueOf(row.get("id"))))
+                .filter(row -> row.getId() != null)
+                .min(Comparator.comparingInt(row -> Math.abs(defaultInt(row.getIndex(), 0) - oldIdx)))
+                .map(FloorEntity::getId)
                 .orElse(null);
             if (candidate != null && !candidate.equals(oldFloorId)) {
                 remap.put(oldFloorId, candidate);
@@ -136,28 +137,114 @@ public class FloorsReconcileService {
         return remap;
     }
 
-    private void remapFloorReferences(Map<UUID, UUID> floorRemap) {
+    private void remapFloorReferences(Map<UUID, UUID> floorRemap, Instant updatedAt) {
         for (Map.Entry<UUID, UUID> entry : floorRemap.entrySet()) {
-            jdbcTemplate.update("update units set floor_id=?, updated_at=now() where floor_id=?", entry.getValue(), entry.getKey());
-            jdbcTemplate.update("update common_areas set floor_id=?, updated_at=now() where floor_id=?", entry.getValue(), entry.getKey());
-            jdbcTemplate.update("update entrance_matrix set floor_id=?, updated_at=now() where floor_id=?", entry.getValue(), entry.getKey());
+            unitRepo.remapFloorId(entry.getKey(), entry.getValue(), updatedAt);
+            commonAreaRepo.remapFloorId(entry.getKey(), entry.getValue(), updatedAt);
+            entranceMatrixRepo.remapFloorId(entry.getKey(), entry.getValue(), updatedAt);
         }
     }
 
+    private void applyFloorPayload(FloorEntity entity, Map<String, Object> floor, UUID blockId, Instant now) {
+        if (entity.getId() == null) {
+            entity.setId(UUID.randomUUID());
+        }
+        if (entity.getCreatedAt() == null) {
+            entity.setCreatedAt(now);
+        }
+        entity.setBlockId(getUuid(floor.get("block_id"), blockId));
+        entity.setIndex(getInteger(floor.get("index")));
+        entity.setFloorKey(getString(floor.get("floor_key")));
+        entity.setLabel(getString(floor.get("label")));
+        entity.setFloorType(getString(floor.get("floor_type")));
+        entity.setHeight(getBigDecimal(floor.get("height")));
+        entity.setAreaProj(getBigDecimal(floor.get("area_proj")));
+        entity.setIsTechnical(getBoolean(floor.get("is_technical"), false));
+        entity.setIsCommercial(getBoolean(floor.get("is_commercial"), false));
+        entity.setIsStylobate(getBoolean(floor.get("is_stylobate"), false));
+        entity.setIsBasement(getBoolean(floor.get("is_basement"), false));
+        entity.setIsAttic(getBoolean(floor.get("is_attic"), false));
+        entity.setIsLoft(getBoolean(floor.get("is_loft"), false));
+        entity.setIsRoof(getBoolean(floor.get("is_roof"), false));
+        entity.setParentFloorIndex(getInteger(floor.get("parent_floor_index")));
+        entity.setBasementId(getUuid(floor.get("basement_id"), null));
+        entity.setUpdatedAt(now);
+    }
+
+    private String floorConstraintKey(FloorEntity floor) {
+        int index = defaultInt(floor.getIndex(), 0);
+        int parent = floor.getParentFloorIndex() == null ? -99999 : defaultInt(floor.getParentFloorIndex(), -99999);
+        String basementId = floor.getBasementId() == null ? "none" : String.valueOf(floor.getBasementId());
+        return index + "|" + parent + "|" + basementId;
+    }
+
     private String floorConstraintKey(Map<String, Object> floor) {
-        int index = toInt(floor.get("index"), 0);
-        int parent = floor.get("parent_floor_index") == null ? -99999 : toInt(floor.get("parent_floor_index"), -99999);
+        int index = getInteger(floor.get("index"), 0);
+        int parent = floor.get("parent_floor_index") == null ? -99999 : getInteger(floor.get("parent_floor_index"), -99999);
         String basementId = floor.get("basement_id") == null ? "none" : String.valueOf(floor.get("basement_id"));
         return index + "|" + parent + "|" + basementId;
     }
 
-    private int toInt(Object value, Integer fallback) {
+    private Integer getInteger(Object value) {
+        return value == null ? null : getInteger(value, null);
+    }
+
+    private Integer getInteger(Object value, Integer fallback) {
         if (value == null) return fallback;
         if (value instanceof Number n) return n.intValue();
         try {
             return Integer.parseInt(String.valueOf(value));
         } catch (Exception ex) {
             return fallback;
+        }
+    }
+
+    private int defaultInt(Integer value, int fallback) {
+        return value == null ? fallback : value;
+    }
+
+    private UUID getUuid(Object value, UUID fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof UUID uuid) {
+            return uuid;
+        }
+        try {
+            return UUID.fromString(String.valueOf(value));
+        } catch (Exception ex) {
+            return fallback;
+        }
+    }
+
+    private String getString(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private Boolean getBoolean(Object value, boolean fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private BigDecimal getBigDecimal(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof BigDecimal bigDecimal) {
+            return bigDecimal;
+        }
+        if (value instanceof Number number) {
+            return BigDecimal.valueOf(number.doubleValue());
+        }
+        try {
+            return new BigDecimal(String.valueOf(value));
+        } catch (Exception ex) {
+            return null;
         }
     }
 

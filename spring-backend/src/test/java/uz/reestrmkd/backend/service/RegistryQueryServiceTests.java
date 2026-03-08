@@ -2,11 +2,15 @@ package uz.reestrmkd.backend.service;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import uz.reestrmkd.backend.domain.registry.model.RegistryBuildingSummaryView;
 import uz.reestrmkd.backend.domain.registry.repository.FloorJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.RegistryBuildingSummaryRepository;
 import uz.reestrmkd.backend.domain.registry.service.RegistryQueryService;
 
 import java.util.List;
@@ -14,7 +18,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -23,7 +28,7 @@ import static org.mockito.Mockito.when;
 class RegistryQueryServiceTests {
 
     @Mock
-    private JdbcTemplate jdbcTemplate;
+    private RegistryBuildingSummaryRepository registryBuildingSummaryRepository;
 
     @Mock
     private FloorJpaRepository floorJpaRepository;
@@ -33,23 +38,36 @@ class RegistryQueryServiceTests {
 
     @Test
     void shouldLoadBuildingSummaryWithSearchFilterAndPagination() {
-        when(jdbcTemplate.queryForList(contains("ilike"), any(Object[].class)))
-            .thenReturn(List.of(Map.of("project_name", "Test")));
+        RegistryBuildingSummaryView row = new RegistryBuildingSummaryView();
+        row.setBuildingId(UUID.randomUUID());
+        row.setProjectName("Test");
+        row.setBuildingCode("UJ000001-ZM01");
+
+        when(registryBuildingSummaryRepository.findSummary(eq("abc"), any(Pageable.class)))
+            .thenReturn(new PageImpl<>(List.of(row)));
 
         List<Map<String, Object>> result = registryQueryService.loadBuildingsSummary("abc", 2, 20);
 
         assertThat(result).hasSize(1);
-        verify(jdbcTemplate).queryForList(contains("order by project_name asc limit ? offset ?"), any(Object[].class));
+        assertThat(result.getFirst()).containsEntry("project_name", "Test");
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(registryBuildingSummaryRepository).findSummary(eq("abc"), captor.capture());
+        assertThat(captor.getValue().getPageNumber()).isEqualTo(1);
+        assertThat(captor.getValue().getPageSize()).isEqualTo(20);
     }
 
     @Test
     void shouldUseSafeDefaultsForPagination() {
-        when(jdbcTemplate.queryForList(anyString(), any(Object[].class)))
-            .thenReturn(List.of());
+        when(registryBuildingSummaryRepository.findSummary(eq(null), any(Pageable.class)))
+            .thenReturn(new PageImpl<>(List.of()));
 
         registryQueryService.loadBuildingsSummary(null, 0, -5);
 
-        verify(jdbcTemplate).queryForList(contains("limit ? offset ?"), any(Object[].class));
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(registryBuildingSummaryRepository).findSummary(eq(null), captor.capture());
+        assertThat(captor.getValue().getPageNumber()).isZero();
+        assertThat(captor.getValue().getPageSize()).isEqualTo(50);
     }
 
     @Test

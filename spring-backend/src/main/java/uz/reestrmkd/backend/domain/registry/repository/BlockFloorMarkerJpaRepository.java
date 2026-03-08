@@ -10,4 +10,5 @@ import java.util.UUID;
 
 public interface BlockFloorMarkerJpaRepository extends JpaRepository<BlockFloorMarkerEntity, UUID> {
     List<BlockFloorMarkerEntity> findByBlockIdIn(Collection<UUID> blockIds);
+    void deleteByBlockId(UUID blockId);
 }

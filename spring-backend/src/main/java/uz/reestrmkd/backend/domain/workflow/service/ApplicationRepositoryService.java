@@ -54,6 +54,11 @@ public class ApplicationRepositoryService {
 
     @Transactional
     public UUID addHistory(UUID applicationId, String action, String prevStatus, String nextStatus, String userName, String comment) {
+        return addHistory(applicationId, action, prevStatus, nextStatus, userName, comment, Instant.now());
+    }
+
+    @Transactional
+    public UUID addHistory(UUID applicationId, String action, String prevStatus, String nextStatus, String userName, String comment, Instant createdAt) {
         ApplicationHistoryEntity e = new ApplicationHistoryEntity();
         e.setId(UUID.randomUUID());
         e.setApplicationId(applicationId);
@@ -62,7 +67,7 @@ public class ApplicationRepositoryService {
         e.setNextStatus(nextStatus);
         e.setUserName(userName);
         e.setComment(comment);
-        e.setCreatedAt(Instant.now());
+        e.setCreatedAt(createdAt == null ? Instant.now() : createdAt);
         historyRepo.save(e);
         return e.getId();
     }
@@ -85,6 +90,31 @@ public class ApplicationRepositoryService {
             step.setIsVerified(false);
         }
         stepRepo.save(step);
+    }
+
+    @Transactional
+    public UUID saveStepBlockStatuses(UUID projectId, String scope, Integer stepIndex, Map<String, Object> blockStatuses) {
+        ApplicationEntity application = applicationRepo.findByProjectIdAndScopeId(projectId, scope)
+            .orElseThrow(() -> new ApiException("Application not found", "NOT_FOUND", null, 404));
+
+        ApplicationStepEntity step = stepRepo.findByApplicationIdAndStepIndex(application.getId(), stepIndex).orElseGet(() -> {
+            ApplicationStepEntity created = new ApplicationStepEntity();
+            created.setId(UUID.randomUUID());
+            created.setApplicationId(application.getId());
+            created.setStepIndex(stepIndex);
+            created.setCreatedAt(Instant.now());
+            return created;
+        });
+
+        if (step.getIsCompleted() == null) {
+            step.setIsCompleted(false);
+        }
+        if (step.getIsVerified() == null) {
+            step.setIsVerified(false);
+        }
+        step.setBlockStatuses(blockStatuses == null ? Map.of() : blockStatuses);
+        step.setUpdatedAt(Instant.now());
+        return stepRepo.save(step).getApplicationId();
     }
 
     @Transactional

@@ -1,12 +1,17 @@
 package uz.reestrmkd.backend.domain.registry.service;
 
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import uz.reestrmkd.backend.domain.registry.model.CommonAreaEntity;
+import uz.reestrmkd.backend.domain.registry.model.FloorEntity;
+import uz.reestrmkd.backend.domain.registry.repository.CommonAreaJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.FloorJpaRepository;
 import uz.reestrmkd.backend.exception.ApiException;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Arrays;
-import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -14,12 +19,15 @@ import java.util.UUID;
 @Service
 public class CommonAreasService {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final CommonAreaJpaRepository commonAreaJpaRepository;
+    private final FloorJpaRepository floorJpaRepository;
 
-    public CommonAreasService(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    public CommonAreasService(CommonAreaJpaRepository commonAreaJpaRepository, FloorJpaRepository floorJpaRepository) {
+        this.commonAreaJpaRepository = commonAreaJpaRepository;
+        this.floorJpaRepository = floorJpaRepository;
     }
 
+    @Transactional
     public void upsert(Map<String, Object> data) {
         UUID floorId = parseRequiredUuid(data.get("floorId"), "floorId");
         UUID entranceId = parseNullableUuid(data.get("entranceId"), "entranceId");
@@ -31,19 +39,27 @@ public class CommonAreasService {
         }
 
         UUID persistedId = parsePersistedUuid(data.get("id"));
-        if (persistedId == null) {
-            jdbcTemplate.update(
-                "insert into common_areas(id,floor_id,entrance_id,type,area,height,updated_at,created_at) values (gen_random_uuid(),?,?,?,?,?,now(),now())",
-                floorId, entranceId, type, area, height
-            );
-        } else {
-            jdbcTemplate.update(
-                "update common_areas set floor_id=?, entrance_id=?, type=?, area=?, height=?, updated_at=now() where id=?",
-                floorId, entranceId, type, area, height, persistedId
-            );
+        Instant now = Instant.now();
+        CommonAreaEntity entity = persistedId == null
+            ? new CommonAreaEntity()
+            : commonAreaJpaRepository.findById(persistedId).orElseGet(CommonAreaEntity::new);
+
+        if (entity.getId() == null) {
+            entity.setId(persistedId != null ? persistedId : UUID.randomUUID());
+            entity.setCreatedAt(now);
         }
+
+        entity.setFloorId(floorId);
+        entity.setEntranceId(entranceId);
+        entity.setType(type);
+        entity.setArea(area);
+        entity.setHeight(height);
+        entity.setUpdatedAt(now);
+
+        commonAreaJpaRepository.save(entity);
     }
 
+    @Transactional
     public int batchUpsert(List<Map<String, Object>> items) {
         for (Map<String, Object> item : items) {
             upsert(item);
@@ -51,33 +67,35 @@ public class CommonAreasService {
         return items.size();
     }
 
+    @Transactional
     public void delete(UUID id) {
-        jdbcTemplate.update("delete from common_areas where id=?", id);
+        if (id == null) {
+            throw new ApiException("id is required", "VALIDATION_ERROR", null, 400);
+        }
+        commonAreaJpaRepository.deleteById(id);
     }
 
+    @Transactional
     public void clear(UUID blockId, String floorIds) {
-        if (floorIds == null || floorIds.isBlank()) {
-            jdbcTemplate.update("delete from common_areas where floor_id in (select id from floors where block_id=?)", blockId);
-            return;
-        }
-        List<UUID> ids = parseFloorIds(floorIds);
+        List<UUID> ids = floorIds == null || floorIds.isBlank()
+            ? floorJpaRepository.findByBlockIdOrderByIndexAsc(blockId).stream().map(FloorEntity::getId).toList()
+            : parseFloorIds(floorIds);
         if (ids.isEmpty()) {
             return;
         }
-        String in = String.join(",", Collections.nCopies(ids.size(), "?"));
-        jdbcTemplate.update("delete from common_areas where floor_id in (" + in + ")", ids.toArray());
+        commonAreaJpaRepository.deleteByFloorIdIn(ids);
     }
 
     public List<Map<String, Object>> list(UUID blockId, String floorIds) {
-        if (floorIds == null || floorIds.isBlank()) {
-            return jdbcTemplate.queryForList("select ca.* from common_areas ca join floors f on f.id=ca.floor_id where f.block_id=?", blockId);
-        }
-        List<UUID> ids = parseFloorIds(floorIds);
+        List<UUID> ids = floorIds == null || floorIds.isBlank()
+            ? floorJpaRepository.findByBlockIdOrderByIndexAsc(blockId).stream().map(FloorEntity::getId).toList()
+            : parseFloorIds(floorIds);
         if (ids.isEmpty()) {
             return List.of();
         }
-        String in = String.join(",", Collections.nCopies(ids.size(), "?"));
-        return jdbcTemplate.queryForList("select * from common_areas where floor_id in (" + in + ")", ids.toArray());
+        return commonAreaJpaRepository.findByFloorIdIn(ids).stream()
+            .map(this::toMap)
+            .toList();
     }
 
     private UUID parsePersistedUuid(Object rawId) {
@@ -145,4 +163,18 @@ public class CommonAreasService {
             throw new ApiException(fieldName + " must be number", "VALIDATION_ERROR", null, 400);
         }
     }
+
+    private Map<String, Object> toMap(CommonAreaEntity entity) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", entity.getId());
+        row.put("floor_id", entity.getFloorId());
+        row.put("entrance_id", entity.getEntranceId());
+        row.put("type", entity.getType());
+        row.put("area", entity.getArea());
+        row.put("height", entity.getHeight());
+        row.put("created_at", entity.getCreatedAt());
+        row.put("updated_at", entity.getUpdatedAt());
+        return row;
+    }
+
 }

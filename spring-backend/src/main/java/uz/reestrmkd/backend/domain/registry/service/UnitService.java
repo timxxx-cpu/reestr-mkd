@@ -1,31 +1,57 @@
 package uz.reestrmkd.backend.domain.registry.service;
 
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import uz.reestrmkd.backend.domain.common.service.UjIdentifierService;
+import uz.reestrmkd.backend.domain.project.model.ProjectEntity;
+import uz.reestrmkd.backend.domain.project.repository.ProjectJpaRepository;
+import uz.reestrmkd.backend.domain.registry.model.BuildingBlockEntity;
+import uz.reestrmkd.backend.domain.registry.model.BuildingEntity;
+import uz.reestrmkd.backend.domain.registry.model.FloorEntity;
 import uz.reestrmkd.backend.domain.registry.model.RoomEntity;
 import uz.reestrmkd.backend.domain.registry.model.UnitEntity;
 import uz.reestrmkd.backend.domain.registry.model.UnitType;
+import uz.reestrmkd.backend.domain.registry.repository.BuildingBlockJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.BuildingJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.FloorJpaRepository;
 import uz.reestrmkd.backend.domain.registry.repository.UnitJpaRepository;
 import uz.reestrmkd.backend.exception.ApiException;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 public class UnitService {
 
-    private final JdbcTemplate jdbcTemplate;
     private final UnitJpaRepository unitJpaRepository;
+    private final FloorJpaRepository floorJpaRepository;
+    private final BuildingBlockJpaRepository buildingBlockJpaRepository;
+    private final BuildingJpaRepository buildingJpaRepository;
+    private final ProjectJpaRepository projectJpaRepository;
     private final UjIdentifierService ujIdentifierService;
 
-    public UnitService(JdbcTemplate jdbcTemplate, UnitJpaRepository unitJpaRepository, UjIdentifierService ujIdentifierService) {
-        this.jdbcTemplate = jdbcTemplate;
+    public UnitService(
+        UnitJpaRepository unitJpaRepository,
+        FloorJpaRepository floorJpaRepository,
+        BuildingBlockJpaRepository buildingBlockJpaRepository,
+        BuildingJpaRepository buildingJpaRepository,
+        ProjectJpaRepository projectJpaRepository,
+        UjIdentifierService ujIdentifierService
+    ) {
         this.unitJpaRepository = unitJpaRepository;
+        this.floorJpaRepository = floorJpaRepository;
+        this.buildingBlockJpaRepository = buildingBlockJpaRepository;
+        this.buildingJpaRepository = buildingJpaRepository;
+        this.projectJpaRepository = projectJpaRepository;
         this.ujIdentifierService = ujIdentifierService;
     }
 
@@ -116,7 +142,7 @@ public class UnitService {
         return unitJpaRepository.save(unit).getId();
     }
 
-  @Transactional
+    @Transactional
     public int batchUpsertUnits(List<Map<String, Object>> items) {
         List<NormalizedUnitPayload> normalizedItems = (items == null ? List.<Map<String, Object>>of() : items).stream()
             .map(this::normalizeUnitPayload)
@@ -126,94 +152,82 @@ public class UnitService {
             return 0;
         }
 
-      validateUnitNumbersUniqueWithinBlock(normalizedItems);
+        UnitBatchContext context = loadBatchContext(normalizedItems);
+        validateUnitNumbersUniqueWithinBlock(normalizedItems, context.blockByFloorId());
 
-        // ИСПРАВЛЕНИЕ: Получаем building_id, building_code и uj_code проекта
-        UUID sampleFloorId = normalizedItems.get(0).floorId();
-        List<Map<String, Object>> bInfo = jdbcTemplate.queryForList(
-            "select bb.building_id, b.building_code, p.uj_code " +
-            "from floors f " +
-            "join building_blocks bb on bb.id=f.block_id " +
-            "join buildings b on b.id=bb.building_id " +
-            "join projects p on p.id=b.project_id " +
-            "where f.id=?", 
-            sampleFloorId
-        );
-        
-        UUID buildingId = bInfo.isEmpty() ? null : (UUID) bInfo.get(0).get("building_id");
-        String buildingCode = bInfo.isEmpty() ? null : (String) bInfo.get(0).get("building_code");
-        String ujCode = bInfo.isEmpty() ? null : (String) bInfo.get(0).get("uj_code");
+        Map<UUID, UnitEntity> existingUnitsById = findUnitsByIds(
+            normalizedItems.stream()
+                .map(NormalizedUnitPayload::id)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList()
+        ).stream().collect(Collectors.toMap(UnitEntity::getId, unit -> unit));
 
-        final List<String> existingCodes = buildingId != null ? jdbcTemplate.queryForList(
-            "select u.unit_code from units u join floors f on f.id=u.floor_id join building_blocks bb on bb.id=f.block_id where bb.building_id=? and u.unit_code is not null",
-            String.class,
-            buildingId
-        ) : List.of();
-
-        Map<String, Integer> nextSeqByPrefix = new HashMap<>();
-        int updated = 0;
+        Map<String, Integer> nextSequenceByPrefix = new HashMap<>();
+        Instant now = Instant.now();
+        List<UnitEntity> unitsToSave = new ArrayList<>();
 
         for (NormalizedUnitPayload unit : normalizedItems) {
             try {
+                FloorEntity floor = context.floorById().get(unit.floorId());
+                BuildingBlockEntity block = context.blockById().get(floor.getBlockId());
+                BuildingEntity building = context.buildingById().get(block.getBuildingId());
+                ProjectEntity project = context.projectById().get(building.getProjectId());
+
+                UnitEntity entity = existingUnitsById.get(unit.id());
+                if (entity == null) {
+                    entity = new UnitEntity();
+                    entity.setId(unit.id() != null ? unit.id() : UUID.randomUUID());
+                    entity.setCreatedAt(now);
+                }
+
                 String finalUnitCode = unit.unitCode();
-                List<Map<String, Object>> existing = jdbcTemplate.queryForList("select id, unit_code, unit_type from units where id = ?", unit.id());
-
-                // Если код не передан, но юнит существует и тип не изменился — сохраняем старый код
-                if (!existing.isEmpty() && finalUnitCode == null) {
-                    String existingType = (String) existing.get(0).get("unit_type");
-                    if (unit.unitType().equals(existingType)) {
-                        finalUnitCode = (String) existing.get(0).get("unit_code");
-                    }
+                if (finalUnitCode == null && unit.unitType().equals(entity.getUnitType())) {
+                    finalUnitCode = entity.getUnitCode();
                 }
 
-                // ИСПРАВЛЕНИЕ: Формируем полный префикс по формату UJ000000-ZD00-EL
-              if (finalUnitCode == null) {
+                if (finalUnitCode == null) {
                     String basePrefix = ujIdentifierService.getUnitPrefix(unit.unitType());
-                    
-                    String fullPrefix;
-                    if (buildingCode != null && !buildingCode.isBlank()) {
-                        // Если код здания уже содержит код ЖК (например, UJ683390-ZM01), мы не дублируем ujCode
-                        if (ujCode != null && buildingCode.startsWith(ujCode)) {
-                            fullPrefix = buildingCode + "-" + basePrefix;
-                        } else {
-                            // Иначе склеиваем: ЖК + Здание + Юнит
-                            fullPrefix = (ujCode != null && !ujCode.isBlank() ? ujCode + "-" : "") + buildingCode + "-" + basePrefix;
-                        }
-                    } else {
-                        // Если здания нет (аномалия), клеим ЖК + Юнит
-                        fullPrefix = (ujCode != null && !ujCode.isBlank() ? ujCode + "-" : "") + basePrefix;
-                    }
-                    
-                    int seq = nextSeqByPrefix.computeIfAbsent(fullPrefix, p -> ujIdentifierService.getNextSequenceNumber(existingCodes, p));
-                    finalUnitCode = ujIdentifierService.generateUnitCode(fullPrefix, seq);
-                    nextSeqByPrefix.put(fullPrefix, seq + 1);
+                    String fullPrefix = buildFullUnitPrefix(project.getUjCode(), building.getBuildingCode(), basePrefix);
+                    String sequenceKey = building.getId() + "::" + fullPrefix;
+                    int nextSequence = nextSequenceByPrefix.computeIfAbsent(
+                        sequenceKey,
+                        key -> ujIdentifierService.getNextSequenceNumber(
+                            context.existingUnitCodesByBuildingId().getOrDefault(building.getId(), List.of()),
+                            fullPrefix
+                        )
+                    );
+                    finalUnitCode = ujIdentifierService.generateUnitCode(fullPrefix, nextSequence);
+                    nextSequenceByPrefix.put(sequenceKey, nextSequence + 1);
                 }
 
-                if (existing.isEmpty()) {
-                    jdbcTemplate.update(
-                        "insert into units(id,floor_id,entrance_id,number,unit_type,total_area,living_area,useful_area,rooms_count,status,cadastre_number,address_id,has_mezzanine,mezzanine_type,unit_code,created_at,updated_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,now(),now())",
-                        unit.id(), unit.floorId(), unit.entranceId(), unit.number(), unit.unitType(), unit.totalArea(), unit.livingArea(), unit.usefulArea(), unit.rooms(), 
-                        unit.status() != null ? unit.status() : "free", 
-                        unit.cadastreNumber(), unit.addressId(), unit.hasMezzanine(), unit.mezzanineType(), finalUnitCode
-                    );
-                } else {
-                    jdbcTemplate.update(
-                        "update units set floor_id=?, entrance_id=?, number=?, unit_type=?, total_area=?, living_area=?, useful_area=?, rooms_count=?, status=?, cadastre_number=?, address_id=?, has_mezzanine=?, mezzanine_type=?, unit_code=?, updated_at=now() where id=?",
-                        unit.floorId(), unit.entranceId(), unit.number(), unit.unitType(), unit.totalArea(), unit.livingArea(), unit.usefulArea(), unit.rooms(), 
-                        unit.status() != null ? unit.status() : "free", 
-                        unit.cadastreNumber(), unit.addressId(), unit.hasMezzanine(), unit.mezzanineType(), finalUnitCode, unit.id()
-                    );
-                }
-                updated++;
+                entity.setFloorId(unit.floorId());
+                entity.setEntranceId(unit.entranceId());
+                entity.setNumber(unit.number());
+                entity.setUnitType(unit.unitType());
+                entity.setTotalArea(unit.totalArea());
+                entity.setLivingArea(unit.livingArea());
+                entity.setUsefulArea(unit.usefulArea());
+                entity.setRoomsCount(unit.rooms());
+                entity.setStatus(unit.status() != null ? unit.status() : "free");
+                entity.setCadastreNumber(unit.cadastreNumber());
+                entity.setAddressId(unit.addressId());
+                entity.setHasMezzanine(unit.hasMezzanine() == null ? Boolean.FALSE : unit.hasMezzanine());
+                entity.setMezzanineType(unit.mezzanineType());
+                entity.setUnitCode(finalUnitCode);
+                entity.setUpdatedAt(now);
+                unitsToSave.add(entity);
             } catch (Exception e) {
                 e.printStackTrace();
                 throw new ApiException("Batch update failed for unit " + unit.number() + ": " + e.getMessage(), "DB_ERROR", e.getMessage(), 400);
             }
         }
 
-        return updated;
+        unitJpaRepository.saveAll(unitsToSave);
+        return unitsToSave.size();
     }
-   @SuppressWarnings("unchecked")
+
+    @SuppressWarnings("unchecked")
     private List<Map<String, Object>> extractRoomsPayload(Map<String, Object> data) {
         Object explication = data.get("explication");
         if (explication instanceof List<?> list) {
@@ -244,16 +258,16 @@ public class UnitService {
             parseOptionalUuid(entranceId),
             number,
             unitType.value(),
-            firstPresent(source, "totalArea", "area"),
-            source.get("livingArea"),
-            source.get("usefulArea"),
-            source.get("rooms"),
-            source.containsKey("isSold") ? (Boolean.TRUE.equals(source.get("isSold")) ? "sold" : "free") : source.get("status"),
-            source.get("cadastreNumber"),
-            source.get("addressId"),
+            parseDecimal(firstPresent(source, "totalArea", "area")),
+            parseDecimal(source.get("livingArea")),
+            parseDecimal(source.get("usefulArea")),
+            parseInteger(source.get("rooms")),
+            source.containsKey("isSold") ? (Boolean.TRUE.equals(source.get("isSold")) ? "sold" : "free") : asNullableString(source.get("status")),
+            asNullableString(source.get("cadastreNumber")),
+            parseOptionalUuid(source.get("addressId")),
             source.containsKey("hasMezzanine") ? parseBooleanOrDefaultFalse(source.get("hasMezzanine")) : Boolean.FALSE,
             source.containsKey("mezzanineType") ? asNullableString(source.get("mezzanineType")) : null,
-            source.containsKey("unitCode") ? (String) source.get("unitCode") : null
+            source.containsKey("unitCode") ? asNullableString(source.get("unitCode")) : null
         );
     }
 
@@ -274,31 +288,12 @@ public class UnitService {
         return number;
     }
 
-    private void validateUnitNumbersUniqueWithinBlock(List<NormalizedUnitPayload> items) {
-        List<UUID> floorIds = items.stream().map(NormalizedUnitPayload::floorId).distinct().toList();
-        String floorIn = String.join(",", Collections.nCopies(floorIds.size(), "?"));
-        
-        // Получаем block_id для каждого этажа (без привязки к зданию)
-        List<Map<String, Object>> floorRows = jdbcTemplate.queryForList(
-            "select f.id as floor_id, bb.id as block_id from floors f join building_blocks bb on bb.id=f.block_id where f.id in (" + floorIn + ")",
-            floorIds.toArray()
-        );
-
-        Map<UUID, UUID> blockByFloor = floorRows.stream().collect(Collectors.toMap(
-            row -> UUID.fromString(String.valueOf(row.get("floor_id"))),
-            row -> UUID.fromString(String.valueOf(row.get("block_id")))
-        ));
-
-        if (blockByFloor.size() != floorIds.size()) {
-            throw new ApiException("Some floorId values are invalid", "VALIDATION_ERROR", null, 400);
-        }
-
-        // Проверяем дубликаты внутри присланного списка (ограничиваем по blockId)
+    private void validateUnitNumbersUniqueWithinBlock(List<NormalizedUnitPayload> items, Map<UUID, UUID> blockByFloor) {
         Map<String, UUID> seen = new HashMap<>();
         for (NormalizedUnitPayload item : items) {
             UUID blockId = blockByFloor.get(item.floorId());
-            String normalizedNum = item.number().trim().toLowerCase();
-            String key = blockId + "::" + normalizedNum;
+            String normalizedNumber = item.number().trim().toLowerCase();
+            String key = blockId + "::" + normalizedNumber;
             if (seen.containsKey(key)) {
                 UUID seenId = seen.get(key);
                 if (item.id() == null || !item.id().equals(seenId)) {
@@ -309,47 +304,85 @@ public class UnitService {
             }
         }
 
-        // Проверяем дубликаты в базе данных (ограничиваем по blockId)
         Set<UUID> blockIds = new HashSet<>(blockByFloor.values());
-        Set<String> numbers = items.stream().map(item -> item.number().trim().toLowerCase()).collect(Collectors.toSet());
-        String blockIn = String.join(",", Collections.nCopies(blockIds.size(), "?"));
-        String numberIn = String.join(",", Collections.nCopies(numbers.size(), "?"));
+        Set<String> numbers = items.stream()
+            .map(item -> item.number().trim().toLowerCase())
+            .collect(Collectors.toSet());
 
-        List<Object> args = new ArrayList<>();
-        args.addAll(blockIds);
-        args.addAll(numbers);
-        List<Map<String, Object>> existingRows = jdbcTemplate.queryForList(
-            "select u.id, lower(trim(u.number)) as unit_num, bb.id as block_id from units u join floors f on f.id=u.floor_id join building_blocks bb on bb.id=f.block_id where bb.id in (" + blockIn + ") and lower(trim(u.number)) in (" + numberIn + ")",
-            args.toArray()
-        );
-
+        List<UnitJpaRepository.UnitNumberConflictRow> existingRows = unitJpaRepository.findUnitNumberConflicts(blockIds, numbers);
         Set<UUID> payloadIds = items.stream()
             .map(NormalizedUnitPayload::id)
             .filter(Objects::nonNull)
             .collect(Collectors.toSet());
 
-        for (Map<String, Object> row : existingRows) {
-            UUID existingId = UUID.fromString(String.valueOf(row.get("id")));
-            if (payloadIds.contains(existingId)) {
-                // This unit will be updated in the same batch, so its current DB number
-                // must not block renumbering/permutation inside the payload.
+        for (UnitJpaRepository.UnitNumberConflictRow row : existingRows) {
+            if (payloadIds.contains(row.getId())) {
                 continue;
             }
 
-            UUID existingBlockId = UUID.fromString(String.valueOf(row.get("block_id")));
-            String existingNumber = String.valueOf(row.get("unit_num"));
-
             boolean conflictsByNumber = items.stream().anyMatch(item -> {
                 UUID itemBlockId = blockByFloor.get(item.floorId());
-                return existingBlockId.equals(itemBlockId)
-                    && item.number().trim().equalsIgnoreCase(existingNumber);
+                return row.getBlockId().equals(itemBlockId)
+                    && item.number().trim().equalsIgnoreCase(row.getNormalizedNumber());
             });
 
             if (conflictsByNumber) {
-                throw new ApiException("Unit num already exists in block: " + existingNumber, "VALIDATION_ERROR", null, 400);
+                throw new ApiException("Unit num already exists in block: " + row.getNormalizedNumber(), "VALIDATION_ERROR", null, 400);
             }
         }
     }
+
+    private UnitBatchContext loadBatchContext(List<NormalizedUnitPayload> items) {
+        List<UUID> floorIds = items.stream().map(NormalizedUnitPayload::floorId).distinct().toList();
+        Map<UUID, FloorEntity> floorById = findFloorsByIds(floorIds).stream()
+            .collect(Collectors.toMap(FloorEntity::getId, floor -> floor));
+        if (floorById.size() != floorIds.size()) {
+            throw new ApiException("Some floorId values are invalid", "VALIDATION_ERROR", null, 400);
+        }
+
+        List<UUID> blockIds = floorById.values().stream()
+            .map(FloorEntity::getBlockId)
+            .distinct()
+            .toList();
+        Map<UUID, BuildingBlockEntity> blockById = findBlocksByIds(blockIds).stream()
+            .collect(Collectors.toMap(BuildingBlockEntity::getId, block -> block));
+        if (blockById.size() != blockIds.size()) {
+            throw new ApiException("Some block values are invalid", "VALIDATION_ERROR", null, 400);
+        }
+
+        List<UUID> buildingIds = blockById.values().stream()
+            .map(BuildingBlockEntity::getBuildingId)
+            .distinct()
+            .toList();
+        Map<UUID, BuildingEntity> buildingById = findBuildingsByIds(buildingIds).stream()
+            .collect(Collectors.toMap(BuildingEntity::getId, building -> building));
+        if (buildingById.size() != buildingIds.size()) {
+            throw new ApiException("Some building values are invalid", "VALIDATION_ERROR", null, 400);
+        }
+
+        List<UUID> projectIds = buildingById.values().stream()
+            .map(BuildingEntity::getProjectId)
+            .distinct()
+            .toList();
+        Map<UUID, ProjectEntity> projectById = findProjectsByIds(projectIds).stream()
+            .collect(Collectors.toMap(ProjectEntity::getId, project -> project));
+        if (projectById.size() != projectIds.size()) {
+            throw new ApiException("Some project values are invalid", "VALIDATION_ERROR", null, 400);
+        }
+
+        Map<UUID, UUID> blockByFloorId = floorById.values().stream()
+            .collect(Collectors.toMap(FloorEntity::getId, FloorEntity::getBlockId));
+
+        Map<UUID, List<String>> existingUnitCodesByBuildingId = unitJpaRepository.findUnitCodesByBuildingIds(buildingIds).stream()
+            .filter(row -> row.getUnitCode() != null && !row.getUnitCode().isBlank())
+            .collect(Collectors.groupingBy(
+                UnitJpaRepository.BuildingUnitCodeRow::getBuildingId,
+                Collectors.mapping(UnitJpaRepository.BuildingUnitCodeRow::getUnitCode, Collectors.toList())
+            ));
+
+        return new UnitBatchContext(floorById, blockById, buildingById, projectById, blockByFloorId, existingUnitCodesByBuildingId);
+    }
+
     private Object firstPresent(Map<String, Object> source, String... keys) {
         for (String key : keys) {
             if (source.containsKey(key)) return source.get(key);
@@ -417,22 +450,66 @@ public class UnitService {
         return stringValue.isBlank() ? null : stringValue;
     }
 
+    private String buildFullUnitPrefix(String ujCode, String buildingCode, String unitPrefix) {
+        if (!isBlank(buildingCode)) {
+            if (!isBlank(ujCode) && buildingCode.startsWith(ujCode)) {
+                return buildingCode + "-" + unitPrefix;
+            }
+            return (isBlank(ujCode) ? "" : ujCode + "-") + buildingCode + "-" + unitPrefix;
+        }
+        return (isBlank(ujCode) ? "" : ujCode + "-") + unitPrefix;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private List<UnitEntity> findUnitsByIds(List<UUID> unitIds) {
+        return unitJpaRepository.findAllById(new ArrayList<>(unitIds));
+    }
+
+    private List<FloorEntity> findFloorsByIds(List<UUID> floorIds) {
+        return floorJpaRepository.findAllById(new ArrayList<>(floorIds));
+    }
+
+    private List<BuildingBlockEntity> findBlocksByIds(List<UUID> blockIds) {
+        return buildingBlockJpaRepository.findAllById(new ArrayList<>(blockIds));
+    }
+
+    private List<BuildingEntity> findBuildingsByIds(List<UUID> buildingIds) {
+        return buildingJpaRepository.findAllById(new ArrayList<>(buildingIds));
+    }
+
+    private List<ProjectEntity> findProjectsByIds(List<UUID> projectIds) {
+        return projectJpaRepository.findAllById(new ArrayList<>(projectIds));
+    }
+
     private record NormalizedUnitPayload(
         UUID id,
         UUID floorId,
         UUID entranceId,
         String number,
         String unitType,
-        Object totalArea,
-        Object livingArea,
-        Object usefulArea,
-        Object rooms,
-        Object status,
-        Object cadastreNumber,
-        Object addressId,
+        BigDecimal totalArea,
+        BigDecimal livingArea,
+        BigDecimal usefulArea,
+        Integer rooms,
+        String status,
+        String cadastreNumber,
+        UUID addressId,
         Boolean hasMezzanine,
         String mezzanineType,
         String unitCode
+    ) {
+    }
+
+    private record UnitBatchContext(
+        Map<UUID, FloorEntity> floorById,
+        Map<UUID, BuildingBlockEntity> blockById,
+        Map<UUID, BuildingEntity> buildingById,
+        Map<UUID, ProjectEntity> projectById,
+        Map<UUID, UUID> blockByFloorId,
+        Map<UUID, List<String>> existingUnitCodesByBuildingId
     ) {
     }
 }

@@ -1,11 +1,15 @@
 package uz.reestrmkd.backend.domain.registry.service;
 
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import uz.reestrmkd.backend.domain.registry.model.EntranceMatrixEntity;
+import uz.reestrmkd.backend.domain.registry.repository.EntranceMatrixJpaRepository;
 import uz.reestrmkd.backend.exception.ApiException;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -13,12 +17,13 @@ import java.util.UUID;
 @Service
 public class EntranceMatrixService {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final EntranceMatrixJpaRepository entranceMatrixJpaRepository;
 
-    public EntranceMatrixService(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    public EntranceMatrixService(EntranceMatrixJpaRepository entranceMatrixJpaRepository) {
+        this.entranceMatrixJpaRepository = entranceMatrixJpaRepository;
     }
 
+    @Transactional
     public Map<String, Object> upsertCell(UUID blockId, Map<String, Object> body) {
         UUID floorId = parseUuid(body.get("floorId"));
         Integer entranceNumber = toNullableInt(body.get("entranceNumber"));
@@ -27,33 +32,36 @@ public class EntranceMatrixService {
         }
 
         MatrixValues values = validateValues(asMap(body.get("values")));
+        Instant now = Instant.now();
+        EntranceMatrixEntity entity = entranceMatrixJpaRepository
+            .findByBlockIdAndFloorIdAndEntranceNumber(blockId, floorId, entranceNumber)
+            .orElseGet(EntranceMatrixEntity::new);
 
-        jdbcTemplate.update(
-            "insert into entrance_matrix(id,block_id,floor_id,entrance_number,flats_count,commercial_count,mop_count,updated_at) values (gen_random_uuid(),?,?,?,?,?,?,now()) on conflict (block_id,floor_id,entrance_number) do update set flats_count=excluded.flats_count, commercial_count=excluded.commercial_count, mop_count=excluded.mop_count, updated_at=now()",
-            blockId,
-            floorId,
-            entranceNumber,
-            values.flatsCount,
-            values.commercialCount,
-            values.mopCount
-        );
+        if (entity.getId() == null) {
+            entity.setId(UUID.randomUUID());
+            entity.setCreatedAt(now);
+            entity.setBlockId(blockId);
+            entity.setFloorId(floorId);
+            entity.setEntranceNumber(entranceNumber);
+        }
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-            "select * from entrance_matrix where block_id=? and floor_id=? and entrance_number=? limit 1",
-            blockId,
-            floorId,
-            entranceNumber
-        );
-        return rows.isEmpty() ? Map.of("ok", true) : rows.getFirst();
+        entity.setFlatsCount(values.flatsCount);
+        entity.setCommercialCount(values.commercialCount);
+        entity.setMopCount(values.mopCount);
+        entity.setUpdatedAt(now);
+
+        return toMap(entranceMatrixJpaRepository.save(entity));
     }
 
+    @Transactional
     public Map<String, Object> upsertBatch(UUID blockId, List<Map<String, Object>> cells) {
         if (cells == null || cells.isEmpty()) {
             return Map.of("ok", true, "updated", 0, "failed", List.of());
         }
 
         List<Map<String, Object>> failed = new ArrayList<>();
-        List<Map<String, Object>> valid = new ArrayList<>();
+        List<EntranceMatrixEntity> valid = new ArrayList<>();
+        Instant now = Instant.now();
 
         for (int index = 0; index < cells.size(); index++) {
             Map<String, Object> cell = cells.get(index);
@@ -65,13 +73,21 @@ public class EntranceMatrixService {
             }
             try {
                 MatrixValues validated = validateValues(asMap(cell.get("values")));
-                Map<String, Object> validRow = new HashMap<>();
-                validRow.put("floorId", floorId);
-                validRow.put("entranceNumber", entranceNumber);
-                validRow.put("flatsCount", validated.flatsCount);
-                validRow.put("commercialCount", validated.commercialCount);
-                validRow.put("mopCount", validated.mopCount);
-                valid.add(validRow);
+                EntranceMatrixEntity entity = entranceMatrixJpaRepository
+                    .findByBlockIdAndFloorIdAndEntranceNumber(blockId, floorId, entranceNumber)
+                    .orElseGet(EntranceMatrixEntity::new);
+                if (entity.getId() == null) {
+                    entity.setId(UUID.randomUUID());
+                    entity.setCreatedAt(now);
+                    entity.setBlockId(blockId);
+                    entity.setFloorId(floorId);
+                    entity.setEntranceNumber(entranceNumber);
+                }
+                entity.setFlatsCount(validated.flatsCount);
+                entity.setCommercialCount(validated.commercialCount);
+                entity.setMopCount(validated.mopCount);
+                entity.setUpdatedAt(now);
+                valid.add(entity);
             } catch (ApiException ex) {
                 Map<String, Object> failRow = new HashMap<>();
                 failRow.put("index", index);
@@ -82,16 +98,8 @@ public class EntranceMatrixService {
             }
         }
 
-        for (Map<String, Object> row : valid) {
-            jdbcTemplate.update(
-                "insert into entrance_matrix(id,block_id,floor_id,entrance_number,flats_count,commercial_count,mop_count,updated_at) values (gen_random_uuid(),?,?,?,?,?,?,now()) on conflict (block_id,floor_id,entrance_number) do update set flats_count=excluded.flats_count, commercial_count=excluded.commercial_count, mop_count=excluded.mop_count, updated_at=now()",
-                blockId,
-                row.get("floorId"),
-                row.get("entranceNumber"),
-                row.get("flatsCount"),
-                row.get("commercialCount"),
-                row.get("mopCount")
-            );
+        if (!valid.isEmpty()) {
+            entranceMatrixJpaRepository.saveAll(valid);
         }
 
         return Map.of("ok", true, "updated", valid.size(), "failed", failed);
@@ -144,6 +152,20 @@ public class EntranceMatrixService {
             return (Map<String, Object>) map;
         }
         return Map.of();
+    }
+
+    private Map<String, Object> toMap(EntranceMatrixEntity entity) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", entity.getId());
+        row.put("block_id", entity.getBlockId());
+        row.put("floor_id", entity.getFloorId());
+        row.put("entrance_number", entity.getEntranceNumber());
+        row.put("flats_count", entity.getFlatsCount());
+        row.put("commercial_count", entity.getCommercialCount());
+        row.put("mop_count", entity.getMopCount());
+        row.put("created_at", entity.getCreatedAt());
+        row.put("updated_at", entity.getUpdatedAt());
+        return row;
     }
 
     private record MatrixValues(Integer flatsCount, Integer commercialCount, Integer mopCount) {

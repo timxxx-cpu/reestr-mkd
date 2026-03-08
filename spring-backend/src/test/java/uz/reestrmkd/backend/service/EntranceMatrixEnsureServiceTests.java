@@ -3,45 +3,55 @@ package uz.reestrmkd.backend.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.jdbc.core.JdbcTemplate;
+import uz.reestrmkd.backend.domain.registry.model.EntranceEntity;
+import uz.reestrmkd.backend.domain.registry.model.EntranceMatrixEntity;
+import uz.reestrmkd.backend.domain.registry.model.FloorEntity;
+import uz.reestrmkd.backend.domain.registry.repository.EntranceJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.EntranceMatrixJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.FloorJpaRepository;
 import uz.reestrmkd.backend.domain.registry.service.EntranceMatrixEnsureService;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("null")
 class EntranceMatrixEnsureServiceTests {
 
     @Mock
-    private JdbcTemplate jdbcTemplate;
+    private FloorJpaRepository floorJpaRepository;
+    @Mock
+    private EntranceJpaRepository entranceJpaRepository;
+    @Mock
+    private EntranceMatrixJpaRepository entranceMatrixJpaRepository;
 
     private EntranceMatrixEnsureService service;
 
     @BeforeEach
     void setUp() {
-        service = new EntranceMatrixEnsureService(jdbcTemplate);
+        service = new EntranceMatrixEnsureService(floorJpaRepository, entranceJpaRepository, entranceMatrixJpaRepository);
     }
 
     @Test
     void shouldDeleteMatrixWhenNoFloorsOrEntrances() {
         UUID blockId = UUID.randomUUID();
 
-        when(jdbcTemplate.queryForList(eq("select id from floors where block_id=?"), eq(blockId)))
-            .thenReturn(List.of());
-        when(jdbcTemplate.queryForList(eq("select number from entrances where block_id=?"), eq(blockId)))
-            .thenReturn(List.of(Map.of("number", 1)));
+        when(floorJpaRepository.findByBlockIdOrderByIndexAsc(blockId)).thenReturn(List.of());
+        when(entranceJpaRepository.findByBlockIdOrderByNumberAsc(blockId))
+            .thenReturn(List.of(entrance(1)));
 
         service.ensureForBlock(blockId);
 
-        verify(jdbcTemplate).update("delete from entrance_matrix where block_id=?", blockId);
-        verify(jdbcTemplate, never()).queryForList(startsWith("select id, floor_id"), any(Object[].class));
+        verify(entranceMatrixJpaRepository).deleteByBlockId(blockId);
+        verify(entranceMatrixJpaRepository, never()).findByBlockIdOrderByEntranceNumberAsc(blockId);
     }
 
     @Test
@@ -51,19 +61,52 @@ class EntranceMatrixEnsureServiceTests {
         UUID staleFloorId = UUID.randomUUID();
         UUID staleId = UUID.randomUUID();
 
-        when(jdbcTemplate.queryForList(eq("select id from floors where block_id=?"), eq(blockId)))
-            .thenReturn(List.of(Map.of("id", floorId)));
-        when(jdbcTemplate.queryForList(eq("select number from entrances where block_id=?"), eq(blockId)))
-            .thenReturn(List.of(Map.of("number", 1), Map.of("number", 2)));
-        when(jdbcTemplate.queryForList(eq("select id, floor_id, entrance_number from entrance_matrix where block_id=?"), eq(blockId)))
+        when(floorJpaRepository.findByBlockIdOrderByIndexAsc(blockId)).thenReturn(List.of(floor(floorId)));
+        when(entranceJpaRepository.findByBlockIdOrderByNumberAsc(blockId))
+            .thenReturn(List.of(entrance(1), entrance(2)));
+        when(entranceMatrixJpaRepository.findByBlockIdOrderByEntranceNumberAsc(blockId))
             .thenReturn(List.of(
-                Map.of("id", staleId, "floor_id", staleFloorId, "entrance_number", 1),
-                Map.of("id", UUID.randomUUID(), "floor_id", floorId, "entrance_number", 1)
+                matrix(staleId, blockId, staleFloorId, 1),
+                matrix(UUID.randomUUID(), blockId, floorId, 1)
             ));
 
         service.ensureForBlock(blockId);
 
-        verify(jdbcTemplate).update(eq("delete from entrance_matrix where id in (?)"), any(Object[].class));
-        verify(jdbcTemplate).update(startsWith("insert into entrance_matrix"), eq(blockId), eq(floorId), eq(2));
+        verify(entranceMatrixJpaRepository).deleteAllByIdInBatch(List.of(staleId));
+
+        ArgumentCaptor<List<EntranceMatrixEntity>> captor = listCaptor();
+        verify(entranceMatrixJpaRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
+        EntranceMatrixEntity created = captor.getValue().getFirst();
+        assertThat(created.getBlockId()).isEqualTo(blockId);
+        assertThat(created.getFloorId()).isEqualTo(floorId);
+        assertThat(created.getEntranceNumber()).isEqualTo(2);
+    }
+
+    private FloorEntity floor(UUID id) {
+        FloorEntity entity = new FloorEntity();
+        entity.setId(id);
+        return entity;
+    }
+
+    private EntranceEntity entrance(int number) {
+        EntranceEntity entity = new EntranceEntity();
+        entity.setId(UUID.randomUUID());
+        entity.setNumber(number);
+        return entity;
+    }
+
+    private EntranceMatrixEntity matrix(UUID id, UUID blockId, UUID floorId, int entranceNumber) {
+        EntranceMatrixEntity entity = new EntranceMatrixEntity();
+        entity.setId(id);
+        entity.setBlockId(blockId);
+        entity.setFloorId(floorId);
+        entity.setEntranceNumber(entranceNumber);
+        return entity;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private ArgumentCaptor<List<EntranceMatrixEntity>> listCaptor() {
+        return ArgumentCaptor.forClass((Class) List.class);
     }
 }

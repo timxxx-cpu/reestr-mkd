@@ -2,20 +2,25 @@ package uz.reestrmkd.backend.service;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.jdbc.core.JdbcTemplate;
+import uz.reestrmkd.backend.domain.registry.model.EntranceEntity;
+import uz.reestrmkd.backend.domain.registry.model.EntranceMatrixEntity;
+import uz.reestrmkd.backend.domain.registry.model.FloorEntity;
+import uz.reestrmkd.backend.domain.registry.model.UnitEntity;
+import uz.reestrmkd.backend.domain.registry.repository.EntranceJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.EntranceMatrixJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.FloorJpaRepository;
+import uz.reestrmkd.backend.domain.registry.repository.UnitJpaRepository;
 import uz.reestrmkd.backend.domain.registry.service.UnitsReconcileService;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -24,7 +29,13 @@ import static org.mockito.Mockito.when;
 class UnitsReconcileServiceTests {
 
     @Mock
-    private JdbcTemplate jdbcTemplate;
+    private FloorJpaRepository floorJpaRepository;
+    @Mock
+    private EntranceJpaRepository entranceJpaRepository;
+    @Mock
+    private EntranceMatrixJpaRepository entranceMatrixJpaRepository;
+    @Mock
+    private UnitJpaRepository unitJpaRepository;
 
     @InjectMocks
     private UnitsReconcileService service;
@@ -32,7 +43,7 @@ class UnitsReconcileServiceTests {
     @Test
     void shouldReturnZeroWhenNoFloors() {
         UUID blockId = UUID.randomUUID();
-        when(jdbcTemplate.queryForList(eq("select id from floors where block_id=?"), eq(blockId))).thenReturn(List.of());
+        when(floorJpaRepository.findByBlockIdOrderByIndexAsc(blockId)).thenReturn(List.of());
 
         UnitsReconcileService.UnitsReconcileResult result = service.reconcile(blockId);
 
@@ -48,32 +59,12 @@ class UnitsReconcileServiceTests {
         UUID entranceId = UUID.randomUUID();
         UUID toDelete = UUID.randomUUID();
 
-        when(jdbcTemplate.queryForList(eq("select id from floors where block_id=?"), eq(blockId)))
-            .thenReturn(List.of(Map.of("id", floorId)));
-        when(jdbcTemplate.queryForList(eq("select id, number from entrances where block_id=?"), eq(blockId)))
-            .thenReturn(List.of(Map.of("id", entranceId, "number", 1)));
-        when(jdbcTemplate.queryForList(eq("select floor_id, entrance_number, flats_count, commercial_count from entrance_matrix where block_id=?"), eq(blockId)))
-            .thenReturn(List.of(Map.of(
-                "floor_id", floorId,
-                "entrance_number", 1,
-                "flats_count", 2,
-                "commercial_count", 0
-            )));
-        Map<String, Object> unitRow = new java.util.HashMap<>();
-        unitRow.put("id", toDelete);
-        unitRow.put("floor_id", floorId);
-        unitRow.put("entrance_id", entranceId);
-        unitRow.put("unit_type", "office");
-        unitRow.put("cadastre_number", "");
-        unitRow.put("total_area", null);
-        unitRow.put("useful_area", null);
-        unitRow.put("living_area", null);
-        unitRow.put("created_at", Instant.now().toString());
-
-        when(jdbcTemplate.queryForList(contains("from units where floor_id in"), any(Object[].class)))
-            .thenReturn(List.of(unitRow));
-        when(jdbcTemplate.update(startsWith("insert into units"), any(), any(), any(), any())).thenReturn(1);
-        when(jdbcTemplate.update(startsWith("delete from units where id in"), any(Object[].class))).thenReturn(1);
+        when(floorJpaRepository.findByBlockIdOrderByIndexAsc(blockId)).thenReturn(List.of(floor(floorId)));
+        when(entranceJpaRepository.findByBlockIdOrderByNumberAsc(blockId)).thenReturn(List.of(entrance(entranceId, 1)));
+        when(entranceMatrixJpaRepository.findByBlockIdOrderByEntranceNumberAsc(blockId))
+            .thenReturn(List.of(matrix(floorId, 1, 2, 0)));
+        when(unitJpaRepository.findByFloorIdIn(List.of(floorId)))
+            .thenReturn(List.of(existingCommercial(toDelete, floorId, entranceId)));
 
         UnitsReconcileService.UnitsReconcileResult result = service.reconcile(blockId);
 
@@ -81,7 +72,54 @@ class UnitsReconcileServiceTests {
         assertThat(result.removed()).isEqualTo(1);
         assertThat(result.checkedCells()).isEqualTo(1);
 
-        verify(jdbcTemplate, times(2)).update(startsWith("insert into units"), eq(floorId), eq(entranceId), eq("flat"), eq("free"));
-        verify(jdbcTemplate).update(startsWith("delete from units where id in"), any(Object[].class));
+        verify(unitJpaRepository).deleteAllByIdInBatch(List.of(toDelete));
+
+        ArgumentCaptor<List<UnitEntity>> captor = listCaptor();
+        verify(unitJpaRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).hasSize(2);
+        assertThat(captor.getValue()).allSatisfy(unit -> {
+            assertThat(unit.getFloorId()).isEqualTo(floorId);
+            assertThat(unit.getEntranceId()).isEqualTo(entranceId);
+            assertThat(unit.getUnitType()).isEqualTo("flat");
+            assertThat(unit.getStatus()).isEqualTo("free");
+            assertThat(unit.getHasMezzanine()).isFalse();
+        });
+    }
+
+    private FloorEntity floor(UUID id) {
+        FloorEntity entity = new FloorEntity();
+        entity.setId(id);
+        return entity;
+    }
+
+    private EntranceEntity entrance(UUID id, int number) {
+        EntranceEntity entity = new EntranceEntity();
+        entity.setId(id);
+        entity.setNumber(number);
+        return entity;
+    }
+
+    private EntranceMatrixEntity matrix(UUID floorId, int entranceNumber, int flatsCount, int commercialCount) {
+        EntranceMatrixEntity entity = new EntranceMatrixEntity();
+        entity.setFloorId(floorId);
+        entity.setEntranceNumber(entranceNumber);
+        entity.setFlatsCount(flatsCount);
+        entity.setCommercialCount(commercialCount);
+        return entity;
+    }
+
+    private UnitEntity existingCommercial(UUID id, UUID floorId, UUID entranceId) {
+        UnitEntity entity = new UnitEntity();
+        entity.setId(id);
+        entity.setFloorId(floorId);
+        entity.setEntranceId(entranceId);
+        entity.setUnitType("office");
+        entity.setCreatedAt(Instant.now());
+        return entity;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private ArgumentCaptor<List<UnitEntity>> listCaptor() {
+        return ArgumentCaptor.forClass((Class) List.class);
     }
 }

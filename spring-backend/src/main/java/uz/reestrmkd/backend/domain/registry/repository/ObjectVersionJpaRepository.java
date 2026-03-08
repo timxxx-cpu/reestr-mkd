@@ -9,4 +9,5 @@ import java.util.UUID;
 
 public interface ObjectVersionJpaRepository extends JpaRepository<ObjectVersionEntity, Long> {
     List<ObjectVersionEntity> findByEntityTypeAndEntityIdOrderByVersionNumberDesc(String entityType, UUID entityId);
+    List<ObjectVersionEntity> findTop100ByOrderByUpdatedAtDesc();
 }

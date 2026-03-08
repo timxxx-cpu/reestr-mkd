@@ -5,17 +5,23 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.jdbc.core.JdbcTemplate;
+import uz.reestrmkd.backend.domain.registry.model.FloorEntity;
+import uz.reestrmkd.backend.domain.registry.repository.FloorJpaRepository;
 import uz.reestrmkd.backend.domain.registry.service.FloorsUpdateService;
 import uz.reestrmkd.backend.exception.ApiException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.StreamSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyIterable;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -24,7 +30,7 @@ import static org.mockito.Mockito.when;
 class FloorsUpdateServiceTests {
 
     @Mock
-    private JdbcTemplate jdbcTemplate;
+    private FloorJpaRepository floorJpaRepository;
 
     @InjectMocks
     private FloorsUpdateService service;
@@ -32,14 +38,15 @@ class FloorsUpdateServiceTests {
     @Test
     void shouldUpdateSingleFloorAndReturnRow() {
         UUID floorId = UUID.randomUUID();
-        when(jdbcTemplate.update(startsWith("update floors set"), any(), any(), any(), any(), any(), any(), any(), any(), eq(floorId)))
-            .thenReturn(1);
-        when(jdbcTemplate.queryForList(eq("select * from floors where id=?"), eq(floorId)))
-            .thenReturn(List.of(Map.of("id", floorId, "label", "L")));
+        FloorEntity entity = new FloorEntity();
+        entity.setId(floorId);
+        when(floorJpaRepository.findById(floorId)).thenReturn(Optional.of(entity));
+        when(floorJpaRepository.save(any(FloorEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         Map<String, Object> result = service.updateFloor(floorId, Map.of("label", "L"));
 
         assertThat(result).containsEntry("id", floorId);
+        assertThat(result).containsEntry("label", "L");
     }
 
     @Test
@@ -58,8 +65,13 @@ class FloorsUpdateServiceTests {
             Map.of("updates", Map.of("label", "Z"))
         );
 
-        when(jdbcTemplate.queryForList(contains("select id from floors where id in"), any(Object[].class)))
-            .thenReturn(List.of(Map.of("id", floorId)));
+        FloorEntity entity = new FloorEntity();
+        entity.setId(floorId);
+        when(floorJpaRepository.findAllById(anyIterable())).thenAnswer(invocation -> {
+            List<UUID> ids = new ArrayList<>();
+            invocation.<Iterable<UUID>>getArgument(0).forEach(ids::add);
+            return ids.contains(floorId) ? List.of(entity) : List.of();
+        });
 
         Map<String, Object> result = service.updateFloorsBatch(items, false);
 
@@ -67,6 +79,19 @@ class FloorsUpdateServiceTests {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> failed = (List<Map<String, Object>>) result.get("failed");
         assertThat(failed).hasSize(2);
-        verify(jdbcTemplate).update(startsWith("update floors set"), any(), any(), any(), any(), any(), any(), any(), any(), eq(floorId));
+        verify(floorJpaRepository).saveAll(argThat(iterable -> {
+            List<FloorEntity> saved = StreamSupport.stream(iterable.spliterator(), false).toList();
+            return saved.size() == 1 && floorId.equals(saved.getFirst().getId());
+        }));
+    }
+
+    @Test
+    void shouldFailSingleUpdateWhenFloorMissing() {
+        UUID floorId = UUID.randomUUID();
+        when(floorJpaRepository.findById(floorId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.updateFloor(floorId, Map.of("label", "L")))
+            .isInstanceOf(ApiException.class)
+            .hasMessageContaining("Floor not found");
     }
 }

@@ -2,19 +2,18 @@ package uz.reestrmkd.backend.service;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.jdbc.core.JdbcTemplate;
+import uz.reestrmkd.backend.domain.registry.model.EntranceEntity;
+import uz.reestrmkd.backend.domain.registry.repository.EntranceJpaRepository;
 import uz.reestrmkd.backend.domain.registry.service.EntranceReconcileService;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -23,7 +22,7 @@ import static org.mockito.Mockito.when;
 class EntranceReconcileServiceTests {
 
     @Mock
-    private JdbcTemplate jdbcTemplate;
+    private EntranceJpaRepository entranceJpaRepository;
 
     @InjectMocks
     private EntranceReconcileService service;
@@ -31,15 +30,18 @@ class EntranceReconcileServiceTests {
     @Test
     void shouldCreateMissingEntrances() {
         UUID blockId = UUID.randomUUID();
-        when(jdbcTemplate.queryForList(contains("from entrances"), eq(blockId)))
-            .thenReturn(List.of(Map.of("id", UUID.randomUUID(), "number", 1)));
+        when(entranceJpaRepository.findByBlockIdOrderByNumberAsc(blockId))
+            .thenReturn(List.of(entrance(UUID.randomUUID(), blockId, 1)));
 
         EntranceReconcileService.EntranceReconcileResult result = service.reconcile(blockId, 3);
 
         assertThat(result.count()).isEqualTo(3);
         assertThat(result.created()).isEqualTo(2);
         assertThat(result.deleted()).isZero();
-        verify(jdbcTemplate, times(2)).update(startsWith("insert into entrances"), eq(blockId), anyInt());
+
+        ArgumentCaptor<List<EntranceEntity>> captor = listCaptor();
+        verify(entranceJpaRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).extracting(EntranceEntity::getNumber).containsExactly(2, 3);
     }
 
     @Test
@@ -49,11 +51,11 @@ class EntranceReconcileServiceTests {
         UUID e2 = UUID.randomUUID();
         UUID e3 = UUID.randomUUID();
 
-        when(jdbcTemplate.queryForList(contains("from entrances"), eq(blockId)))
+        when(entranceJpaRepository.findByBlockIdOrderByNumberAsc(blockId))
             .thenReturn(List.of(
-                Map.of("id", e1, "number", 1),
-                Map.of("id", e2, "number", 2),
-                Map.of("id", e3, "number", 3)
+                entrance(e1, blockId, 1),
+                entrance(e2, blockId, 2),
+                entrance(e3, blockId, 3)
             ));
 
         EntranceReconcileService.EntranceReconcileResult result = service.reconcile(blockId, 1);
@@ -61,6 +63,19 @@ class EntranceReconcileServiceTests {
         assertThat(result.count()).isEqualTo(1);
         assertThat(result.created()).isZero();
         assertThat(result.deleted()).isEqualTo(2);
-        verify(jdbcTemplate).update(startsWith("delete from entrances where id in"), any(Object[].class));
+        verify(entranceJpaRepository).deleteAllByIdInBatch(List.of(e2, e3));
+    }
+
+    private EntranceEntity entrance(UUID id, UUID blockId, int number) {
+        EntranceEntity entity = new EntranceEntity();
+        entity.setId(id);
+        entity.setBlockId(blockId);
+        entity.setNumber(number);
+        return entity;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private ArgumentCaptor<List<EntranceEntity>> listCaptor() {
+        return ArgumentCaptor.forClass((Class) List.class);
     }
 }
