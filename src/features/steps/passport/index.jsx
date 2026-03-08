@@ -1,4 +1,3 @@
-import React from 'react';
-import PassportEditor from './PassportEditor';
+import { createLazyStep } from '@/features/steps/shared/step-entry-factories';
 
-export const PassportStep = () => <PassportEditor />;
+export const PassportStep = createLazyStep(() => import('./PassportEditor'));

@@ -26,6 +26,7 @@ export const createRegistryDomainApi = ({
       buildingData,
       blocksData,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -39,6 +40,7 @@ export const createRegistryDomainApi = ({
       buildingData,
       blocksData,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -50,6 +52,7 @@ export const createRegistryDomainApi = ({
     return BffClient.deleteBuilding({
       buildingId,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -67,6 +70,7 @@ export const createRegistryDomainApi = ({
       blockId,
       extensionData,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
       idempotencyKey: createIdempotencyKey('extensions-create', [blockId]),
     });
@@ -80,6 +84,7 @@ export const createRegistryDomainApi = ({
       extensionId,
       extensionData,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
       idempotencyKey: createIdempotencyKey('extensions-update', [extensionId]),
     });
@@ -92,6 +97,7 @@ export const createRegistryDomainApi = ({
     return BffClient.deleteBlockExtension({
       extensionId,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
       idempotencyKey: createIdempotencyKey('extensions-delete', [extensionId]),
     });
@@ -111,6 +117,7 @@ export const createRegistryDomainApi = ({
       floorId,
       updates,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -123,6 +130,7 @@ export const createRegistryDomainApi = ({
     return BffClient.updateFloorsBatch({
       items: Array.isArray(items) ? items : [],
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -137,6 +145,7 @@ export const createRegistryDomainApi = ({
       floorsTo,
       defaultType,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
       idempotencyKey: createIdempotencyKey('reconcile-floors', [blockId]),
     });
@@ -188,6 +197,7 @@ export const createRegistryDomainApi = ({
       entranceNumber,
       values: normalizedValues,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -218,6 +228,7 @@ export const createRegistryDomainApi = ({
       blockId,
       cells: normalizedCells,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -230,6 +241,7 @@ export const createRegistryDomainApi = ({
       blockId,
       count,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
       idempotencyKey: createIdempotencyKey('reconcile-entrances', [blockId]),
     });
@@ -294,6 +306,7 @@ export const createRegistryDomainApi = ({
     return BffClient.upsertUnit({
       unitData: normalizedUnitData,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -311,6 +324,7 @@ export const createRegistryDomainApi = ({
     return BffClient.batchUpsertUnits({
       unitsList: normalizedUnits,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
       idempotencyKey: createIdempotencyKey('batch-upsert-units', [normalizedUnits.length]),
     });
@@ -331,6 +345,7 @@ export const createRegistryDomainApi = ({
     return BffClient.upsertCommonArea({
       data,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -342,6 +357,7 @@ export const createRegistryDomainApi = ({
     return BffClient.deleteCommonArea({
       id,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -355,6 +371,7 @@ export const createRegistryDomainApi = ({
       blockId,
       floorIds: extraFloorIds,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -366,6 +383,7 @@ export const createRegistryDomainApi = ({
     return BffClient.reconcileUnitsForBlock({
       blockId,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
       idempotencyKey: createIdempotencyKey('reconcile-units', [blockId]),
     });
@@ -378,6 +396,7 @@ export const createRegistryDomainApi = ({
     return BffClient.reconcileCommonAreasForBlock({
       blockId,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
       idempotencyKey: createIdempotencyKey('reconcile-mops', [blockId]),
     });
@@ -402,6 +421,7 @@ export const createRegistryDomainApi = ({
       level,
       isEnabled,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -419,6 +439,7 @@ export const createRegistryDomainApi = ({
       floorId,
       targetCount,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
       idempotencyKey: createIdempotencyKey('sync-parking', [floorId]),
     });

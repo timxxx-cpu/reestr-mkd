@@ -1,4 +1,7 @@
-import React from 'react';
-import ParkingConfigurator from './ParkingConfigurator';
+import { createLazyStep } from '@/features/steps/shared/step-entry-factories';
 
-export const ParkingConfigStep = () => <ParkingConfigurator buildingId={null} />;
+export const ParkingConfigStep = createLazyStep(() =>
+  import('./ParkingConfigurator').then(module => ({
+    default: () => <module.default buildingId={null} />,
+  }))
+);

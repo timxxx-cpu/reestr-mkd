@@ -1,16 +1,24 @@
 import {
   APP_STATUS,
-  ROLES,
   WORKFLOW_STAGES,
   STEPS_CONFIG,
   WORKFLOW_SUBSTATUS,
   SUBSTATUS_TO_STATUS,
 } from './constants.js';
+import {
+  canAssignTechnicianByRole,
+  canDeclineFromDashboardByRole,
+  canEditWorkflowByRole,
+  canRequestDeclineByRole,
+  canReviewDeclineRequestByRole,
+  canTakeInboxByRole,
+  getDeclineSubstatusByRole,
+} from './role-policy.js';
+import { getRoleKey } from './roles.js';
 import { getStepStage } from './workflow-utils.js';
 
 const INTEGRATION_START_IDX = 12;
 
-// --- WORKFLOW ACTIONS ---
 export const WORKFLOW_ACTIONS = {
   COMPLETE_STEP: 'COMPLETE_STEP',
   ROLLBACK_STEP: 'ROLLBACK_STEP',
@@ -22,82 +30,19 @@ export const WORKFLOW_ACTIONS = {
   RESTORE: 'RESTORE',
 };
 
-// --- ROLE & STATUS CHECKS ---
+export const canEditByRoleAndStatus = (role, substatus) => canEditWorkflowByRole(role, substatus);
 
-/**
- * Определяет, может ли пользователь редактировать данные
- * в зависимости от роли и подстатуса workflow.
- */
-export const canEditByRoleAndStatus = (role, substatus) => {
-  if (role === ROLES.ADMIN) return true;
-  
-  // ИСПРАВЛЕНИЕ: Снимаем Read-Only для обеих проверяющих ролей
-  if (role === ROLES.CONTROLLER || role === ROLES.BRANCH_MANAGER) {
-    return substatus === WORKFLOW_SUBSTATUS.REVIEW;
-  }
+export const canRequestDecline = (role, substatus) => canRequestDeclineByRole(role, substatus);
 
-  if (role === ROLES.TECHNICIAN) {
-    return [
-      WORKFLOW_SUBSTATUS.DRAFT,
-      WORKFLOW_SUBSTATUS.REVISION,
-      WORKFLOW_SUBSTATUS.RETURNED_BY_MANAGER,
-      WORKFLOW_SUBSTATUS.INTEGRATION,
-    ].includes(substatus);
-  }
+export const canTakeInboxApplication = role => canTakeInboxByRole(role);
 
-  return false;
-};
+export const canDeclineFromDashboard = (role, status, substatus) =>
+  canDeclineFromDashboardByRole(role, status, substatus);
 
-/**
- * Определяет, может ли пользователь запросить отказ заявления.
- * Только техник может запросить отказ, и только из рабочих подстатусов.
- */
-export const canRequestDecline = (role, substatus) => {
-  if (role !== ROLES.TECHNICIAN) return false;
-  return [
-    WORKFLOW_SUBSTATUS.DRAFT,
-    WORKFLOW_SUBSTATUS.REVISION,
-    WORKFLOW_SUBSTATUS.RETURNED_BY_MANAGER,
-    WORKFLOW_SUBSTATUS.INTEGRATION,
-  ].includes(substatus);
-};
+export const canAssignTechnician = role => canAssignTechnicianByRole(role);
 
-/**
- * Определяет, может ли пользователь принять входящую заявку.
- */
-export const canTakeInboxApplication = role => {
-  return role === ROLES.ADMIN || role === ROLES.BRANCH_MANAGER || role === ROLES.CONTROLLER;
-};
-
-/**
- * Определяет, может ли пользователь отказать заявление с рабочего стола.
- */
-export const canDeclineFromDashboard = (role, status, substatus) => {
-  if (status === APP_STATUS.COMPLETED || status === APP_STATUS.DECLINED) return false;
-
-  if (role === ROLES.ADMIN) return true;
-  if (role === ROLES.BRANCH_MANAGER) return true;
-  if (role === ROLES.CONTROLLER && substatus === WORKFLOW_SUBSTATUS.REVIEW) return true;
-
-  return false;
-};
-
-/**
- * Определяет, может ли пользователь назначать техника-исполнителя.
- */
-export const canAssignTechnician = role => {
-  return role === ROLES.ADMIN || role === ROLES.BRANCH_MANAGER;
-};
-
-/**
- * Определяет, может ли пользователь рассматривать запрос на отказ.
- */
-export const canReviewDeclineRequest = (role, substatus) => {
-  if (substatus !== WORKFLOW_SUBSTATUS.PENDING_DECLINE) return false;
-  return role === ROLES.ADMIN || role === ROLES.BRANCH_MANAGER;
-};
-
-// --- COMPLETION TRANSITION ---
+export const canReviewDeclineRequest = (role, substatus) =>
+  canReviewDeclineRequestByRole(role, substatus);
 
 export const getCompletionTransition = (currentAppInfo, currentIndex) => {
   const nextStepIndex = currentIndex + 1;
@@ -122,7 +67,6 @@ export const getCompletionTransition = (currentAppInfo, currentIndex) => {
     nextSubstatus = WORKFLOW_SUBSTATUS.INTEGRATION;
   } else {
     nextStatus = APP_STATUS.IN_PROGRESS;
-    // Подстатус остается DRAFT (или INTEGRATION если уже в интеграции)
     if (nextSubstatus !== WORKFLOW_SUBSTATUS.INTEGRATION) {
       nextSubstatus = WORKFLOW_SUBSTATUS.DRAFT;
     }
@@ -140,8 +84,6 @@ export const getCompletionTransition = (currentAppInfo, currentIndex) => {
     stage: currentStageNum,
   };
 };
-
-// --- ROLLBACK TRANSITION ---
 
 export const getRollbackTransition = currentAppInfo => {
   const currentIndex = currentAppInfo.currentStepIndex || 0;
@@ -167,8 +109,6 @@ export const getRollbackTransition = currentAppInfo => {
     nextStage: getStepStage(prevIndex),
   };
 };
-
-// --- REVIEW TRANSITION (APPROVE / REJECT) ---
 
 export const getReviewTransition = (currentAppInfo, action) => {
   const isApprove = action === 'APPROVE';
@@ -205,25 +145,15 @@ export const getReviewTransition = (currentAppInfo, action) => {
   };
 };
 
-// --- DECLINE TRANSITION (Отказ заявления) ---
-
 export const getDeclineTransition = (currentAppInfo, declinedByRole) => {
-  const substatusMap = {
-    [ROLES.CONTROLLER]: WORKFLOW_SUBSTATUS.DECLINED_BY_CONTROLLER,
-    [ROLES.BRANCH_MANAGER]: WORKFLOW_SUBSTATUS.DECLINED_BY_MANAGER,
-    [ROLES.ADMIN]: WORKFLOW_SUBSTATUS.DECLINED_BY_ADMIN,
-  };
-
   return {
     action: WORKFLOW_ACTIONS.DECLINE,
     nextStatus: APP_STATUS.DECLINED,
-    nextSubstatus: substatusMap[declinedByRole] || WORKFLOW_SUBSTATUS.DECLINED_BY_ADMIN,
+    nextSubstatus: getDeclineSubstatusByRole(getRoleKey(declinedByRole)),
     prevStatus: currentAppInfo.status,
     prevSubstatus: currentAppInfo.workflowSubstatus,
   };
 };
-
-// --- REQUEST DECLINE TRANSITION (Техник запрашивает отказ) ---
 
 export const getRequestDeclineTransition = currentAppInfo => ({
   action: WORKFLOW_ACTIONS.REQUEST_DECLINE,
@@ -234,8 +164,6 @@ export const getRequestDeclineTransition = currentAppInfo => ({
   prevSubstatus: currentAppInfo.workflowSubstatus,
 });
 
-// --- RETURN FROM DECLINE TRANSITION (Начальник возвращает на доработку) ---
-
 export const getReturnFromDeclineTransition = currentAppInfo => ({
   action: WORKFLOW_ACTIONS.RETURN_FROM_DECLINE,
   nextStatus: APP_STATUS.IN_PROGRESS,
@@ -244,8 +172,6 @@ export const getReturnFromDeclineTransition = currentAppInfo => ({
   nextStage: currentAppInfo.currentStage,
   prevSubstatus: currentAppInfo.workflowSubstatus,
 });
-
-// --- RESTORE TRANSITION (Восстановление из отказа, только админ) ---
 
 export const getRestoreTransition = currentAppInfo => ({
   action: WORKFLOW_ACTIONS.RESTORE,

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useToast } from './ToastContext';
 import { ApiService } from '../lib/api-service';
-import { AuthService } from '../lib/auth-service';
+import { getActorFromProfile } from '../lib/actor';
 import { useProjectData } from '../hooks/useProjectData';
 import { Skeleton } from '../components/ui/Skeleton';
 import { HEAVY_MODEL_KEYS } from '../lib/model-keys';
@@ -9,7 +9,7 @@ import { useProjectDataLayer } from './project/useProjectDataLayer';
 import { useProjectSyncLayer } from './project/useProjectSyncLayer';
 import { useProjectWorkflowLayer } from './project/useProjectWorkflowLayer';
 import { evaluateBuildingFillStatusForStep, BLOCK_FILL_STATUS } from '../lib/step-validators';
-import { ROLE_IDS, hasAnyRole, getRoleId, getRoleKey } from '../lib/roles';
+import { ROLE_IDS, hasAnyRole } from '../lib/roles';
 
 const ProjectContext = createContext(null);
 
@@ -51,13 +51,15 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
     userProfile,
   });
 
+  const actor = useMemo(() => getActorFromProfile(userProfile), [userProfile]);
+
   useEffect(() => {
     let mounted = true;
     let heartbeatId = null;
     let acquiredApplicationId = null;
 
     // Используем уже вычисленный isViewMode
-    if (!dbScope || !projectId || !userProfile?.name || isViewMode) return undefined;
+    if (!dbScope || !projectId || !actor.userName || isViewMode) return undefined;
 
    const shouldLock = hasAnyRole(userProfile, [
     ROLE_IDS.TECHNICIAN,
@@ -72,9 +74,9 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         const res = await ApiService.acquireApplicationLock({
           scope: dbScope,
           projectId,
-          userName: userProfile.name,
-          userRoleId: userProfile.roleId,
-          userRole: userProfile.role,
+          userName: actor.userName,
+          userRoleId: actor.userRoleId,
+          userRole: actor.userRole,
         });
 
         if (!mounted) return;
@@ -92,9 +94,9 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
         heartbeatId = window.setInterval(() => {
           ApiService.refreshApplicationLock({
             applicationId: acquiredApplicationId,
-            userName: userProfile.name,
-            userRoleId: userProfile.roleId,
-            userRole: userProfile.role,
+            userName: actor.userName,
+            userRoleId: actor.userRoleId,
+            userRole: actor.userRole,
           }).catch(() => {});
         }, 60000);
       } catch (e) {
@@ -113,22 +115,16 @@ export const ProjectProvider = ({ children, projectId, user, customScope, userPr
       if (acquiredApplicationId) {
         ApiService.releaseApplicationLock({
           applicationId: acquiredApplicationId,
-          userName: userProfile?.name,
-          userRoleId: userProfile?.roleId,
-          userRole: userProfile?.role,
+          userName: actor.userName,
+          userRoleId: actor.userRoleId,
+          userRole: actor.userRole,
         }).catch(() => {});
       }
     };
-  }, [dbScope, projectId, userProfile, toast, isViewMode]);
+  }, [dbScope, projectId, userProfile, actor, toast, isViewMode]);
 
   // Добавляем isViewMode в условие ReadOnly
   const effectiveReadOnly = isReadOnly || Boolean(lockDeniedMessage) || isViewMode;
-  const currentUser = AuthService.getCurrentUser?.() || null;
-  const actor = useMemo(() => ({
-    userName: userProfile?.name || currentUser?.displayName || currentUser?.email || 'unknown',
-    userRoleId: getRoleId(userProfile?.roleId ?? userProfile?.role ?? currentUser?.roleId ?? currentUser?.role) || ROLE_IDS.TECHNICIAN,
-    userRole: getRoleKey(userProfile?.role ?? userProfile?.roleId ?? currentUser?.role ?? currentUser?.roleId) || 'technician',
-  }), [userProfile, currentUser]);
 
   const { saveData, saveProjectImmediate } = useProjectSyncLayer({
     dbScope,

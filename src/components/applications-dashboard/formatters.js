@@ -1,5 +1,5 @@
-import { ROLES } from '@lib/constants';
 import { DASHBOARD_DEFAULTS } from './config';
+import { getDefaultTaskFilterForRole as resolveDefaultTaskFilterForRole } from '@lib/role-policy';
 
 export const formatDate = dateStr => {
   if (!dateStr) return '—';
@@ -11,7 +11,5 @@ export const formatDate = dateStr => {
 };
 
 export const getDefaultTaskFilterForRole = role => {
-  if (role === ROLES.CONTROLLER) return 'review';
-  if (role === ROLES.BRANCH_MANAGER) return 'pending_decline';
-  return DASHBOARD_DEFAULTS.TASK_FILTER;
+  return resolveDefaultTaskFilterForRole(role) || DASHBOARD_DEFAULTS.TASK_FILTER;
 };

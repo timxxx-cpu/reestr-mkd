@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { ApiService } from '../../lib/api-service';
+import { getActorFromProfile } from '../../lib/actor';
 import { STEPS_CONFIG } from '../../lib/constants';
 
 const ensureWorkflowResponse = (response, actionLabel) => {
@@ -10,14 +11,13 @@ const ensureWorkflowResponse = (response, actionLabel) => {
 };
 
 export const useProjectWorkflowLayer = ({
-  dbScope,
-  projectId,
-  setProjectMeta,
   mergedState,
   userProfile,
   refetch,
   saveProjectImmediate,
 }) => {
+  const actor = getActorFromProfile(userProfile);
+
   const getRequiredApplicationId = useCallback(() => {
     const applicationId = mergedState?.applicationInfo?.id || null;
     if (!applicationId) {
@@ -35,28 +35,29 @@ export const useProjectWorkflowLayer = ({
         await saveProjectImmediate({ shouldRefetch: false });
       }
 
-      let historyComment = `Шаг "${STEPS_CONFIG[currentIndex]?.title}" выполнен.`;
+      let historyComment = `РЁР°Рі "${STEPS_CONFIG[currentIndex]?.title}" РІС‹РїРѕР»РЅРµРЅ.`;
       if (currentIndex >= STEPS_CONFIG.length - 1) {
-        historyComment = 'Проект полностью завершен.';
+        historyComment = 'РџСЂРѕРµРєС‚ РїРѕР»РЅРѕСЃС‚СЊСЋ Р·Р°РІРµСЂС€РµРЅ.';
       }
 
       const applicationId = getRequiredApplicationId();
-      const bffResponse = ensureWorkflowResponse(
+      const response = ensureWorkflowResponse(
         await ApiService.completeWorkflowStepViaBff({
           applicationId,
           stepIndex: currentIndex,
           comment: historyComment,
-          userName: userProfile?.name,
-          userRole: userProfile?.role,
-          idempotencyKey: `complete-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
+          userName: actor.userName,
+          userRoleId: actor.userRoleId,
+          userRole: actor.userRole,
+          idempotencyKey: `complete-${applicationId}-${Date.now()}`,
         }),
         'complete-step'
       );
 
       await refetch();
-      return bffResponse.currentStep;
+      return response.currentStep;
     },
-    [saveProjectImmediate, userProfile, refetch, getRequiredApplicationId]
+    [actor, saveProjectImmediate, refetch, getRequiredApplicationId]
   );
 
   const rollbackTask = useCallback(async () => {
@@ -65,40 +66,42 @@ export const useProjectWorkflowLayer = ({
     if (currentStepIndex <= 0) return 0;
 
     const applicationId = getRequiredApplicationId();
-    const bffResponse = ensureWorkflowResponse(
+    const response = ensureWorkflowResponse(
       await ApiService.rollbackWorkflowStepViaBff({
         applicationId,
-        reason: `Возврат с шага "${STEPS_CONFIG[currentStepIndex]?.title}".`,
-        userName: userProfile?.name,
-        userRole: userProfile?.role,
-        idempotencyKey: `rollback-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
+        reason: `Р’РѕР·РІСЂР°С‚ СЃ С€Р°РіР° "${STEPS_CONFIG[currentStepIndex]?.title}".`,
+        userName: actor.userName,
+        userRoleId: actor.userRoleId,
+        userRole: actor.userRole,
+        idempotencyKey: `rollback-${applicationId}-${Date.now()}`,
       }),
       'rollback-step'
     );
 
     await refetch();
-    return bffResponse.currentStep;
-  }, [saveProjectImmediate, userProfile, refetch, getRequiredApplicationId, currentStepIndex]);
+    return response.currentStep;
+  }, [actor, saveProjectImmediate, refetch, getRequiredApplicationId, currentStepIndex]);
 
   const reviewStage = useCallback(
     async (action, comment = '') => {
       const applicationId = getRequiredApplicationId();
-      const bffResponse = ensureWorkflowResponse(
+      const response = ensureWorkflowResponse(
         await ApiService.reviewWorkflowStageViaBff({
           applicationId,
           action,
           comment,
-          userName: userProfile?.name,
-          userRole: userProfile?.role,
-          idempotencyKey: `review-${action}-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
+          userName: actor.userName,
+          userRoleId: actor.userRoleId,
+          userRole: actor.userRole,
+          idempotencyKey: `review-${action}-${applicationId}-${Date.now()}`,
         }),
         action === 'APPROVE' ? 'review-approve' : 'review-reject'
       );
 
       await refetch();
-      return bffResponse.currentStep;
+      return response.currentStep;
     },
-    [userProfile, refetch, getRequiredApplicationId]
+    [actor, refetch, getRequiredApplicationId]
   );
 
   const requestDecline = useCallback(
@@ -111,16 +114,17 @@ export const useProjectWorkflowLayer = ({
           applicationId,
           reason,
           stepIndex: currentStepIndex,
-          userName: userProfile?.name,
-          userRole: userProfile?.role,
-          idempotencyKey: `req-decline-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
+          userName: actor.userName,
+          userRoleId: actor.userRoleId,
+          userRole: actor.userRole,
+          idempotencyKey: `req-decline-${applicationId}-${Date.now()}`,
         }),
         'request-decline'
       );
 
       await refetch();
     },
-    [saveProjectImmediate, userProfile, refetch, getRequiredApplicationId, currentStepIndex]
+    [actor, saveProjectImmediate, refetch, getRequiredApplicationId, currentStepIndex]
   );
 
   const confirmDecline = useCallback(
@@ -129,17 +133,18 @@ export const useProjectWorkflowLayer = ({
       ensureWorkflowResponse(
         await ApiService.declineApplicationViaBff({
           applicationId,
-          reason: comment || 'Заявление отклонено.',
-          userName: userProfile?.name,
-          userRole: userProfile?.role,
-          idempotencyKey: `decline-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
+          reason: comment || 'Р—Р°СЏРІР»РµРЅРёРµ РѕС‚РєР»РѕРЅРµРЅРѕ.',
+          userName: actor.userName,
+          userRoleId: actor.userRoleId,
+          userRole: actor.userRole,
+          idempotencyKey: `decline-${applicationId}-${Date.now()}`,
         }),
         'decline'
       );
 
       await refetch();
     },
-    [userProfile, refetch, getRequiredApplicationId]
+    [actor, refetch, getRequiredApplicationId]
   );
 
   const returnFromDecline = useCallback(
@@ -149,16 +154,17 @@ export const useProjectWorkflowLayer = ({
         await ApiService.returnFromDeclineViaBff({
           applicationId,
           comment,
-          userName: userProfile?.name,
-          userRole: userProfile?.role,
-          idempotencyKey: `return-decline-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
+          userName: actor.userName,
+          userRoleId: actor.userRoleId,
+          userRole: actor.userRole,
+          idempotencyKey: `return-decline-${applicationId}-${Date.now()}`,
         }),
         'return-from-decline'
       );
 
       await refetch();
     },
-    [userProfile, refetch, getRequiredApplicationId]
+    [actor, refetch, getRequiredApplicationId]
   );
 
   const restoreFromDecline = useCallback(
@@ -168,16 +174,17 @@ export const useProjectWorkflowLayer = ({
         await ApiService.restoreApplicationViaBff({
           applicationId,
           comment,
-          userName: userProfile?.name,
-          userRole: userProfile?.role,
-          idempotencyKey: `restore-${applicationId}-${Date.now()}` // <-- ДОБАВЛЕНО
+          userName: actor.userName,
+          userRoleId: actor.userRoleId,
+          userRole: actor.userRole,
+          idempotencyKey: `restore-${applicationId}-${Date.now()}`,
         }),
         'restore'
       );
 
       await refetch();
     },
-    [userProfile, refetch, getRequiredApplicationId]
+    [actor, refetch, getRequiredApplicationId]
   );
 
   return {

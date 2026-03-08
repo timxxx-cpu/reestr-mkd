@@ -16,7 +16,15 @@ import { Card, SectionTitle, Label, Input, useReadOnly } from '@components/ui/UI
 import BlockCadEditorModal from '@components/cad/BlockCadEditorModal';
 import { useProject } from '@context/ProjectContext';
 import { ApiService } from '@lib/api-service';
-import { GeometryPickerMap, BASEMAP_OPTIONS } from '@components/maps/GeometryPickerMap';
+import { BASEMAP_OPTIONS } from '@components/maps/map-basemaps';
+
+const GeometryPickerMap = React.lazy(() => import('@components/maps/GeometryPickerMap'));
+
+const GeometryPickerMapFallback = () => (
+  <div className="flex h-full min-h-[320px] items-center justify-center bg-slate-100">
+    <Loader2 className="animate-spin text-slate-400" size={24} />
+  </div>
+);
 
 // Внутренний компонент полноэкранной карты для выбора контура блока
 const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
@@ -212,7 +220,8 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
 
           {/* MAP */}
           <div className="flex-1 bg-slate-100 relative">
-            <GeometryPickerMap
+            <React.Suspense fallback={<GeometryPickerMapFallback />}>
+              <GeometryPickerMap
               candidates={candidates}
               selectedId={selectedCandidateId}
               activeId={activeCandidateId}
@@ -222,8 +231,9 @@ const BlockMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
               onSelect={setActiveCandidateId}
               basemap={basemap}
               height="100%"
-              onDraftPointAdd={() => {}}
-            />
+                onDraftPointAdd={() => {}}
+              />
+            </React.Suspense>
           </div>
 
           <div className="p-2 bg-white border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-center gap-4 shrink-0">

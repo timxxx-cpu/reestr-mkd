@@ -8,18 +8,14 @@ import { useDirectIntegration } from '@hooks/api/useDirectIntegration';
 import { useProject } from '@context/ProjectContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiService } from '@lib/api-service';
-import { AuthService } from '@lib/auth-service';
+import { getCurrentActor } from '@lib/actor';
 import ParkingEditModal from '@/features/steps/shared/ParkingEditModal';
 import { useToast } from '@context/ToastContext';
 
 const ParkingRegistry = ({ projectId, buildingId, onBack }) => {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const currentUser = AuthService.getCurrentUser?.() || null;
-  const actor = {
-    userName: currentUser?.displayName || currentUser?.email || 'unknown',
-    userRole: currentUser?.role || 'technician',
-  };
+  const actor = getCurrentActor();
   const { complexInfo, saveProjectImmediate, setHasUnsavedChanges } = useProject();
   const { fullRegistry, loadingRegistry } = useDirectIntegration(projectId);
   const isReadOnly = useReadOnly(); // Получаем статус режима чтения для скрытия кнопок

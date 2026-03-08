@@ -1,4 +1,4 @@
-import { ROLE_IDS } from '../roles';
+import { ROLE_IDS, ROLE_KEYS } from '../roles';
 
 export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveActor, createIdempotencyKey }) => ({
   getIntegrationStatus: async projectId => {
@@ -48,7 +48,7 @@ export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveA
     });
   },
 
- declineApplication: async ({ applicationId, userName, reason, userRole = 'branch_manager', userRoleId = ROLE_IDS.BRANCH_MANAGER, nextSubstatus, prevStatus }) => {
+ declineApplication: async ({ applicationId, userName, reason, userRole = ROLE_KEYS.BRANCH_MANAGER, userRoleId = ROLE_IDS.BRANCH_MANAGER, nextSubstatus, prevStatus }) => {
     requireBffEnabled('workflow.declineApplication');
 
     return BffClient.declineApplication({
@@ -62,7 +62,7 @@ export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveA
     });
   },
 
-  requestDecline: async ({ applicationId, reason, stepIndex, requestedBy, userRole = 'technician', userRoleId = ROLE_IDS.TECHNICIAN }) => {
+  requestDecline: async ({ applicationId, reason, stepIndex, requestedBy, userRole = ROLE_KEYS.TECHNICIAN, userRoleId = ROLE_IDS.TECHNICIAN }) => {
     requireBffEnabled('workflow.requestDecline');
 
     return BffClient.requestDecline({
@@ -76,7 +76,7 @@ export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveA
     });
   },
 
-  returnFromDecline: async ({ applicationId, userName, userRole = 'branch_manager', userRoleId = ROLE_IDS.BRANCH_MANAGER, comment }) => {
+  returnFromDecline: async ({ applicationId, userName, userRole = ROLE_KEYS.BRANCH_MANAGER, userRoleId = ROLE_IDS.BRANCH_MANAGER, comment }) => {
     requireBffEnabled('workflow.returnFromDecline');
 
     return BffClient.returnFromDecline({
@@ -89,7 +89,7 @@ export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveA
     });
   },
 
- assignTechnician: async ({ applicationId, assigneeUserId, userName = 'system', userRole = 'branch_manager', userRoleId = ROLE_IDS.BRANCH_MANAGER, reason = null }) => {
+ assignTechnician: async ({ applicationId, assigneeUserId, userName = 'system', userRole = ROLE_KEYS.BRANCH_MANAGER, userRoleId = ROLE_IDS.BRANCH_MANAGER, reason = null }) => {
     requireBffEnabled('workflow.assignTechnician');
 
     return BffClient.assignTechnician({
@@ -103,7 +103,7 @@ export const createWorkflowDomainApi = ({ BffClient, requireBffEnabled, resolveA
     });
   },
 
-  restoreApplication: async ({ applicationId, userName, userRole = 'admin', userRoleId = ROLE_IDS.ADMIN, comment }) => {
+  restoreApplication: async ({ applicationId, userName, userRole = ROLE_KEYS.ADMIN, userRoleId = ROLE_IDS.ADMIN, comment }) => {
     requireBffEnabled('workflow.restoreApplication');
 
     return BffClient.restoreApplication({

@@ -1,16 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiService } from '../../lib/api-service';
-import { AuthService } from '../../lib/auth-service';
+import { getCurrentActor } from '../../lib/actor';
 import { useToast } from '../../context/ToastContext';
 
 export function useDirectFloors(blockId) {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const currentUser = AuthService.getCurrentUser?.() || null;
-  const actor = {
-    userName: currentUser?.displayName || currentUser?.email || 'unknown',
-    userRole: currentUser?.role || 'technician',
-  };
+  const actor = getCurrentActor();
   const queryKey = ['direct-floors', blockId];
 
   // --- READ ---

@@ -1,7 +1,7 @@
 import React, { useContext, useState } from 'react';
 import { Users, X, Settings } from 'lucide-react';
-import { ROLES } from '@lib/constants';
 import { PersonaContext } from '@context/PersonaContext';
+import { getRoleAccentClass, getRoleShortLabel } from '@lib/roles';
 
 export const DevRoleSwitcher = ({ disabled }) => {
   const { activePersona, setActivePersona, availablePersonas } = useContext(PersonaContext);
@@ -14,7 +14,6 @@ export const DevRoleSwitcher = ({ disabled }) => {
   if (!activePersona) return null;
 
   return (
-    // Заменили top-20 на bottom-6
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none">
       {!disabled && (
         <div
@@ -40,19 +39,9 @@ export const DevRoleSwitcher = ({ disabled }) => {
             <div className="grid grid-cols-3 gap-1">
               {roleVariants.map(user => {
                 const isActive = activePersona.id === user.id;
-                let roleLabel = 'Тех';
-                let roleColor = 'text-blue-400 bg-blue-400/10 border-blue-400/20';
-
-                if (user.role === ROLES.ADMIN) {
-                  roleLabel = 'Адм';
-                  roleColor = 'text-purple-400 bg-purple-400/10 border-purple-400/20';
-                } else if (user.role === ROLES.CONTROLLER) {
-                  roleLabel = 'Бриг';
-                  roleColor = 'text-orange-400 bg-orange-400/10 border-orange-400/20';
-                } else if (user.role === ROLES.BRANCH_MANAGER) {
-                  roleLabel = 'Нач';
-                  roleColor = 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20';
-                }
+                const roleLabel = getRoleShortLabel(user) || 'Роль';
+                const roleColor =
+                  getRoleAccentClass(user) || 'text-slate-300 bg-slate-700/30 border-slate-600/30';
 
                 return (
                   <button

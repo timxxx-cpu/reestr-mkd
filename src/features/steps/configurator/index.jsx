@@ -4,9 +4,6 @@ import { useProject } from '@context/ProjectContext';
 import { useBuildingType } from '@hooks/useBuildingType';
 
 import ConfigHeader from './ConfigHeader';
-import StandardView from './views/StandardView';
-import ParkingView from './views/ParkingView';
-import InfrastructureView from './views/InfrastructureView';
 
 import {
   BLOCK_FILL_STATUS,
@@ -18,6 +15,16 @@ import {
 import { STEPS_CONFIG } from '@lib/constants'; 
 import { Modal, Button, BlockingLoader } from '@components/ui/UIKit';
 import { AlertTriangle } from 'lucide-react';
+
+const StandardView = React.lazy(() => import('./views/StandardView'));
+const ParkingView = React.lazy(() => import('./views/ParkingView'));
+const InfrastructureView = React.lazy(() => import('./views/InfrastructureView'));
+
+const ConfiguratorViewFallback = () => (
+  <div className="flex min-h-[400px] items-center justify-center rounded-3xl border border-slate-200 bg-white">
+    <span className="text-sm font-semibold text-slate-400">Загрузка раздела...</span>
+  </div>
+);
 
 const getStepId = (mode) => {
   if (mode === 'nonres') return 'registry_nonres';
@@ -170,13 +177,15 @@ export default function BuildingConfiguratorIndex({ buildingId, mode = 'all', on
         saveLabel={isSavingStatus ? 'Сохраняем…' : 'Сохранить'}
       />
 
-      {isParking ? (
-        <ParkingView building={building} typeInfo={typeInfo} />
-      ) : isInfrastructure ? (
-        <InfrastructureView building={building} />
-      ) : (
-        <StandardView building={building} mode={mode} />
-      )}
+      <React.Suspense fallback={<ConfiguratorViewFallback />}>
+        {isParking ? (
+          <ParkingView building={building} typeInfo={typeInfo} />
+        ) : isInfrastructure ? (
+          <InfrastructureView building={building} />
+        ) : (
+          <StandardView building={building} mode={mode} />
+        )}
+      </React.Suspense>
 
       <Modal
   isOpen={showWarningModal}

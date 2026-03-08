@@ -1,3 +1,5 @@
+import { ROLE_IDS, ROLE_KEYS } from '../roles';
+
 export const createProjectDomainApi = ({
   BffClient,
   requireBffEnabled,
@@ -13,6 +15,7 @@ export const createProjectDomainApi = ({
 
     const resolvedActor = resolveActor({
       userName: user?.name,
+      userRoleId: user?.roleId,
       userRole: user?.role,
     });
 
@@ -20,6 +23,7 @@ export const createProjectDomainApi = ({
       scope,
       appData,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
       idempotencyKey: createIdempotencyKey('project-init-from-application', [scope, appData?.externalId || appData?.id || appData?.cadastre]),
     });
@@ -36,6 +40,7 @@ export const createProjectDomainApi = ({
       scope,
       projectId,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -173,6 +178,7 @@ deleteProjectGeometryCandidate: async (projectId, candidateId, actor = {}) => {
       projectId,
       candidateId,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -185,6 +191,7 @@ deleteProjectGeometryCandidate: async (projectId, candidateId, actor = {}) => {
       buildingId,
       candidateId,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -195,6 +202,7 @@ deleteProjectGeometryCandidate: async (projectId, candidateId, actor = {}) => {
       projectId,
       candidates,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -206,6 +214,7 @@ deleteProjectGeometryCandidate: async (projectId, candidateId, actor = {}) => {
       projectId,
       candidateId,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -215,6 +224,7 @@ deleteProjectGeometryCandidate: async (projectId, candidateId, actor = {}) => {
     return BffClient.unselectProjectLandPlot({
       projectId,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -303,7 +313,11 @@ getProjectDetails: async projectId => {
       submissionDate: new Date(),
     };
 
-    const user = { name: 'System', role: 'admin' };
+    const user = {
+      name: 'System',
+      roleId: ROLE_IDS.ADMIN,
+      role: ROLE_KEYS.ADMIN,
+    };
     return createProjectDomainApi({
       BffClient,
       requireBffEnabled,
@@ -325,6 +339,7 @@ getProjectDetails: async projectId => {
       info,
       cadastreData,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -338,6 +353,7 @@ getProjectDetails: async projectId => {
       role,
       data,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -350,6 +366,7 @@ getProjectDetails: async projectId => {
       projectId,
       doc,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -362,6 +379,7 @@ getProjectDetails: async projectId => {
     return BffClient.deleteProjectDocument({
       documentId: id,
       userName: resolvedActor.userName,
+      userRoleId: resolvedActor.userRoleId,
       userRole: resolvedActor.userRole,
     });
   },
@@ -391,6 +409,7 @@ getProjectDetails: async projectId => {
         complexInfo: generalData.complexInfo || null,
         applicationInfo: generalData.applicationInfo || null,
         userName: resolvedActor.userName,
+        userRoleId: resolvedActor.userRoleId,
         userRole: resolvedActor.userRole,
       });
 
@@ -402,6 +421,7 @@ getProjectDetails: async projectId => {
         projectId,
         buildingDetails: generalData.buildingDetails,
         userName: resolvedActor.userName,
+        userRoleId: resolvedActor.userRoleId,
         userRole: resolvedActor.userRole,
       });
     }
@@ -413,6 +433,7 @@ getProjectDetails: async projectId => {
         stepIndex: generalData.stepIndex,
         statuses: generalData.stepBlockStatuses,
         userName: resolvedActor.userName,
+        userRoleId: resolvedActor.userRoleId,
         userRole: resolvedActor.userRole,
       });
     }

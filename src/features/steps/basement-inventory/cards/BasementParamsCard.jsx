@@ -5,7 +5,15 @@ import { Card, SectionTitle, Label } from '@components/ui/UIKit';
 import BlockCadEditorModal from '@components/cad/BlockCadEditorModal';
 import { useProject } from '@context/ProjectContext';
 import { ApiService } from '@lib/api-service';
-import { GeometryPickerMap, BASEMAP_OPTIONS } from '@components/maps/GeometryPickerMap';
+import { BASEMAP_OPTIONS } from '@components/maps/map-basemaps';
+
+const GeometryPickerMap = React.lazy(() => import('@components/maps/GeometryPickerMap'));
+
+const GeometryPickerMapFallback = () => (
+  <div className="flex h-full min-h-[320px] items-center justify-center bg-slate-100">
+    <Loader2 className="animate-spin text-slate-400" size={24} />
+  </div>
+);
 
 // Внутренний компонент полноэкранной карты для выбора контура подвала
 const BasementMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) => {
@@ -149,7 +157,20 @@ const BasementMapPickerModal = ({ isOpen, onClose, onSave, buildingGeometry }) =
           )}
 
           <div className="flex-1 bg-slate-100 relative">
-            <GeometryPickerMap candidates={candidates} selectedId={selectedCandidateId} activeId={activeCandidateId} savedGeometry={buildingGeometry} fitToSavedOnOpen fitScopeKey={`basement-map-${isOpen}`} onSelect={setActiveCandidateId} basemap={basemap} height="100%" onDraftPointAdd={() => {}} />
+            <React.Suspense fallback={<GeometryPickerMapFallback />}>
+              <GeometryPickerMap
+                candidates={candidates}
+                selectedId={selectedCandidateId}
+                activeId={activeCandidateId}
+                savedGeometry={buildingGeometry}
+                fitToSavedOnOpen
+                fitScopeKey={`basement-map-${isOpen}`}
+                onSelect={setActiveCandidateId}
+                basemap={basemap}
+                height="100%"
+                onDraftPointAdd={() => {}}
+              />
+            </React.Suspense>
           </div>
         </div>
       </div>

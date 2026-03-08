@@ -29,10 +29,13 @@ import { getStageColor } from '@lib/utils';
 import { BuildingModalSchema } from '@lib/schemas';
 import { useValidation } from '@hooks/useValidation';
 import { useCatalog } from '@hooks/useCatalogs';
+import { getActorFromProfile } from '@lib/actor';
 import { ApiService } from '@lib/api-service';
-import { GeometryPickerMap, BASEMAP_OPTIONS } from '@components/maps/GeometryPickerMap';
+import { BASEMAP_OPTIONS } from '@components/maps/map-basemaps';
 import BuildingCadEditorModal from '@components/cad/BuildingCadEditorModal';
 import { useDirectProjectInfo } from '@hooks/api/useDirectProjectInfo';
+
+const GeometryPickerMap = React.lazy(() => import('@components/maps/GeometryPickerMap'));
 
 const TYPE_NAMES = {
   residential: 'Обычный многоквартирный дом',
@@ -52,6 +55,12 @@ const PARKING_CONSTRUCTION_FALLBACK = [
   { code: 'light', label: 'Из легких конструкций' },
   { code: 'open', label: 'Открытый' },
 ];
+
+const GeometryPickerMapFallback = ({ className = 'h-full min-h-[320px]' }) => (
+  <div className={`flex items-center justify-center bg-slate-100 ${className}`}>
+    <Loader2 className="animate-spin text-slate-400" size={24} />
+  </div>
+);
 
 const generateBlocksPayload = params => {
   const blocks = [];
@@ -243,6 +252,7 @@ const BuildingModal = ({
   userProfile,
 }) => {
   const isReadOnly = useReadOnly();
+  const actor = getActorFromProfile(userProfile);
   const [activeCandidateId, setActiveCandidateId] = useState(null);
   const [basemap, setBasemap] = useState('osm');
   const [isDrawingGeometry, setIsDrawingGeometry] = useState(false);
@@ -323,10 +333,7 @@ const BuildingModal = ({
     if (!candidateId) return;
 
     if (modal.editingId && projectId) {
-      await ApiService.selectBuildingGeometry(projectId, modal.editingId, candidateId, {
-        userName: userProfile?.name,
-        userRole: userProfile?.role,
-      });
+      await ApiService.selectBuildingGeometry(projectId, modal.editingId, candidateId, actor);
     }
 
     setModal(m => ({ ...m, geometryCandidateId: candidateId }));
@@ -737,7 +744,8 @@ const BuildingModal = ({
 
             {/* MAP */}
               <div className="flex-1 bg-slate-100 relative">
-                <GeometryPickerMap
+                <React.Suspense fallback={<GeometryPickerMapFallback />}>
+                  <GeometryPickerMap
                   ref={mapComponentRef}
                   candidates={geometryCandidates}
                   selectedId={modal.geometryCandidateId}
@@ -756,8 +764,9 @@ const BuildingModal = ({
                   isDrawing={isDrawingGeometry}
                   draftPoints={draftPolygonPoints}
                   onDraftPointAdd={point => setDraftPolygonPoints(prev => [...prev, point])}
-                  height="100%"
-                />
+                    height="100%"
+                  />
+                </React.Suspense>
               </div>
               
               <div className="p-2 bg-white border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-center gap-4 shrink-0">
@@ -870,6 +879,7 @@ const getResidentialName = (resBlocks, nonResBlocks) => {
 
 const CompositionEditor = () => {
   const { projectId, complexInfo,userProfile } = useProject();
+  const actor = getActorFromProfile(userProfile);
   const { landPlot } = useDirectProjectInfo(projectId);
   const isReadOnly = useReadOnly();
   const projectUjCode = complexInfo?.ujCode;
@@ -1093,7 +1103,7 @@ const CompositionEditor = () => {
         id: modal.editingId,
         data: buildingData,
         blocksData: modal.blocksData,
-        actor: { userName: userProfile?.name, userRole: userProfile?.role },
+        actor,
       });
     } else {
       for (let i = 0; i < modal.quantity; i++) {
@@ -1103,7 +1113,7 @@ const CompositionEditor = () => {
         await createBuilding({
           buildingData: { ...buildingData, label },
           blocksData: blocks,
-          actor: { userName: userProfile?.name, userRole: userProfile?.role },
+          actor,
         });
       }
     }
@@ -1118,7 +1128,7 @@ const CompositionEditor = () => {
     if (deleteTargetId) {
       await deleteBuilding({
         id: deleteTargetId,
-        actor: { userName: userProfile?.name, userRole: userProfile?.role },
+        actor,
       });
       setDeleteTargetId(null);
     }

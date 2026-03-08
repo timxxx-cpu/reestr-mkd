@@ -5,6 +5,7 @@ import { Tent, Warehouse, Store, Car } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { useToast } from '@context/ToastContext';
 import { Card, SectionTitle, Label, useReadOnly } from '@components/ui/UIKit';
+import { getActorFromProfile } from '@lib/actor';
 import { BuildingConfigSchema } from '@lib/schemas';
 import { useValidation } from '@hooks/useValidation';
 import { ApiService } from '@lib/api-service';
@@ -26,6 +27,7 @@ export default function ParkingView({ building, typeInfo }) {
   const { buildingDetails, setBuildingDetails, composition, setComposition, userProfile } = useProject();
   const toast = useToast();
   const isReadOnly = useReadOnly();
+  const actor = getActorFromProfile(userProfile);
 
   const { isGroundOpen, isGroundLight, _isCapitalStructure, isUnderground } = typeInfo;
 
@@ -152,7 +154,6 @@ export default function ParkingView({ building, typeInfo }) {
       toast.warning('Функционал пристроек отключен feature-flag конфигурацией.');
       return;
     }
-    const actor = { userName: userProfile?.name, userRole: userProfile?.role };
     try {
       const created = await ApiService.createBlockExtension(blockId, extensionData, actor);
       const mapped = {
@@ -196,7 +197,6 @@ export default function ParkingView({ building, typeInfo }) {
       toast.warning('Функционал пристроек отключен feature-flag конфигурацией.');
       return;
     }
-    const actor = { userName: userProfile?.name, userRole: userProfile?.role };
     try {
       const updated = await ApiService.updateBlockExtension(extensionId, extensionData, actor);
       updateBlockExtensionsInComposition(prev =>
@@ -233,7 +233,6 @@ export default function ParkingView({ building, typeInfo }) {
       toast.warning('Функционал пристроек отключен feature-flag конфигурацией.');
       return;
     }
-    const actor = { userName: userProfile?.name, userRole: userProfile?.role };
     try {
       await ApiService.deleteBlockExtension(extensionId, actor);
       updateBlockExtensionsInComposition(prev => prev.filter(item => item.id !== extensionId));

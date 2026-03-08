@@ -1,5 +1,6 @@
 import { AuthService } from './auth-service';
 import { trackOperationSource } from './operation-source-tracker';
+import { getCurrentActor } from './actor';
 import { getRoleId, getRoleKey } from './roles';
 const isBffEnabled = () => {
   const raw = import.meta.env.VITE_BFF_ENABLED;
@@ -64,10 +65,10 @@ async function request(path, options = {}) {
     ...getAuthHeaders(),
   };
 
-  const currentUser = AuthService.getCurrentUser?.() || null;
-  const resolvedUserId = userId || currentUser?.id || userName;
-  const resolvedUserRoleId = getRoleId(userRoleId ?? currentUser?.roleId ?? userRole);
-  const resolvedUserRole = getRoleKey(userRole ?? currentUser?.role ?? resolvedUserRoleId);
+  const currentActor = getCurrentActor();
+  const resolvedUserId = userId || AuthService.getCurrentUser?.()?.id || userName;
+  const resolvedUserRoleId = getRoleId(userRoleId ?? currentActor.userRoleId ?? userRole);
+  const resolvedUserRole = getRoleKey(userRole ?? currentActor.userRole ?? resolvedUserRoleId);
 
   if (resolvedUserId) headers['x-user-id'] = encodeURIComponent(String(resolvedUserId));
   if (resolvedUserRoleId) headers['x-user-role-id'] = String(resolvedUserRoleId);
@@ -194,34 +195,38 @@ async function request(path, options = {}) {
   getProjectContextRegistryDetails: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/context-registry-details`),
 
-  validateProjectStep: ({ projectId, scope, stepId, userName, userRole }) =>
+  validateProjectStep: ({ projectId, scope, stepId, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/validation/step`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { scope, stepId },
     }),
 
-  saveProjectContextMeta: ({ scope, projectId, complexInfo, applicationInfo, userName, userRole }) =>
+  saveProjectContextMeta: ({ scope, projectId, complexInfo, applicationInfo, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/context-meta/save`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { scope, complexInfo, applicationInfo },
     }),
 
-  saveStepBlockStatuses: ({ scope, projectId, stepIndex, statuses, userName, userRole }) =>
+  saveStepBlockStatuses: ({ scope, projectId, stepIndex, statuses, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/step-block-statuses/save`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { scope, stepIndex, statuses },
     }),
 
-  saveProjectBuildingDetails: ({ projectId, buildingDetails, userName, userRole }) =>
+  saveProjectBuildingDetails: ({ projectId, buildingDetails, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/context-building-details/save`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { buildingDetails },
     }),
@@ -231,79 +236,89 @@ async function request(path, options = {}) {
   getProjectGeometryCandidates: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/geometry-candidates`),
 
-  importProjectGeometryCandidates: ({ projectId, candidates, userName, userRole }) =>
+  importProjectGeometryCandidates: ({ projectId, candidates, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/geometry-candidates/import`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { candidates },
     }),
-deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole }) =>
+deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/geometry-candidates/${candidateId}`, {
       method: 'DELETE',
       userName,
+      userRoleId,
       userRole,
     }),
 
-  selectBuildingGeometry: ({ projectId, buildingId, candidateId, userName, userRole }) =>
+  selectBuildingGeometry: ({ projectId, buildingId, candidateId, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/buildings/${buildingId}/geometry/select`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { candidateId },
     }),
-  selectProjectLandPlot: ({ projectId, candidateId, userName, userRole }) =>
+  selectProjectLandPlot: ({ projectId, candidateId, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/land-plot/select`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { candidateId },
     }),
-  unselectProjectLandPlot: ({ projectId, userName, userRole }) =>
+  unselectProjectLandPlot: ({ projectId, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/land-plot/unselect`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
     }),
 
   getProjectPassport: ({ projectId }) =>
     request(`/api/v1/projects/${projectId}/passport`),
 
-  updateProjectPassport: ({ projectId, info, cadastreData, userName, userRole }) =>
+  updateProjectPassport: ({ projectId, info, cadastreData, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/passport`, {
       method: 'PUT',
       userName,
+      userRoleId,
       userRole,
       body: { info, cadastreData },
     }),
 
-  upsertProjectParticipant: ({ projectId, role, data, userName, userRole }) =>
+  upsertProjectParticipant: ({ projectId, role, data, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/participants/${encodeURIComponent(role)}`, {
       method: 'PUT',
       userName,
+      userRoleId,
       userRole,
       body: { data },
     }),
 
-  upsertProjectDocument: ({ projectId, doc, userName, userRole }) =>
+  upsertProjectDocument: ({ projectId, doc, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/documents`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { doc },
     }),
 
-  deleteProjectDocument: ({ documentId, userName, userRole }) =>
+  deleteProjectDocument: ({ documentId, userName, userRole, userRoleId }) =>
     request(`/api/v1/project-documents/${documentId}`, {
       method: 'DELETE',
       userName,
+      userRoleId,
       userRole,
     }),
 
-  deleteProject: ({ scope, projectId, userName, userRole }) =>
+  deleteProject: ({ scope, projectId, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}?scope=${encodeURIComponent(scope || '')}`, {
       method: 'DELETE',
       userName,
+      userRoleId,
       userRole,
     }),
 
@@ -313,10 +328,11 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
   getBasementsByBuildingIds: ({ buildingIds }) =>
     request(`/api/v1/basements?buildingIds=${encodeURIComponent(buildingIds.join(','))}`),
 
-  toggleBasementLevel: ({ basementId, level, isEnabled, userName, userRole }) =>
+  toggleBasementLevel: ({ basementId, level, isEnabled, userName, userRole, userRoleId }) =>
     request(`/api/v1/basements/${basementId}/parking-levels/${level}`, {
       method: 'PUT',
       userName,
+      userRoleId,
       userRole,
       body: { isEnabled },
     }),
@@ -324,26 +340,29 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
   getVersions: ({ entityType, entityId }) =>
     request(`/api/v1/versions?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`),
 
-  createVersion: ({ entityType, entityId, snapshotData, createdBy, applicationId, userName, userRole }) =>
+  createVersion: ({ entityType, entityId, snapshotData, createdBy, applicationId, userName, userRole, userRoleId }) =>
     request('/api/v1/versions', {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { entityType, entityId, snapshotData, createdBy, applicationId },
     }),
 
-  approveVersion: ({ versionId, approvedBy, userName, userRole }) =>
+  approveVersion: ({ versionId, approvedBy, userName, userRole, userRoleId }) =>
     request(`/api/v1/versions/${versionId}/approve`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { approvedBy },
     }),
 
-  declineVersion: ({ versionId, reason, declinedBy, userName, userRole }) =>
+  declineVersion: ({ versionId, reason, declinedBy, userName, userRole, userRoleId }) =>
     request(`/api/v1/versions/${versionId}/decline`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { reason, declinedBy },
     }),
@@ -351,19 +370,21 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
   getVersionSnapshot: ({ versionId }) =>
     request(`/api/v1/versions/${versionId}/snapshot`),
 
-  restoreVersion: ({ versionId, userName, userRole }) =>
+  restoreVersion: ({ versionId, userName, userRole, userRoleId }) =>
     request(`/api/v1/versions/${versionId}/restore`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: {},
     }),
 
 
-  createProjectFromApplication: ({ scope, appData, userName, userRole, idempotencyKey }) =>
+  createProjectFromApplication: ({ scope, appData, userName, userRole, userRoleId, idempotencyKey }) =>
     request('/api/v1/projects/from-application', {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { scope, appData },
@@ -404,63 +425,70 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
       body: { cadastre },
     }),
 
-  syncParkingPlaces: ({ floorId, targetCount, userName, userRole, idempotencyKey }) =>
+  syncParkingPlaces: ({ floorId, targetCount, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/floors/${floorId}/parking-places/sync`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { targetCount },
     }),
 
-  createBuilding: ({ projectId, buildingData, blocksData, userName, userRole }) =>
+  createBuilding: ({ projectId, buildingData, blocksData, userName, userRole, userRoleId }) =>
     request(`/api/v1/projects/${projectId}/buildings`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { buildingData, blocksData },
     }),
 
-  updateBuilding: ({ buildingId, buildingData, blocksData, userName, userRole }) =>
+  updateBuilding: ({ buildingId, buildingData, blocksData, userName, userRole, userRoleId }) =>
     request(`/api/v1/buildings/${buildingId}`, {
       method: 'PUT',
       userName,
+      userRoleId,
       userRole,
       body: { buildingData, blocksData },
     }),
 
-  deleteBuilding: ({ buildingId, userName, userRole }) =>
+  deleteBuilding: ({ buildingId, userName, userRole, userRoleId }) =>
     request(`/api/v1/buildings/${buildingId}`, {
       method: 'DELETE',
       userName,
+      userRoleId,
       userRole,
     }),
 
   getBlockExtensions: ({ blockId }) =>
     request(`/api/v1/blocks/${blockId}/extensions`),
 
-  createBlockExtension: ({ blockId, extensionData, userName, userRole, idempotencyKey }) =>
+  createBlockExtension: ({ blockId, extensionData, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/blocks/${blockId}/extensions`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { extensionData },
     }),
 
-  updateBlockExtension: ({ extensionId, extensionData, userName, userRole, idempotencyKey }) =>
+  updateBlockExtension: ({ extensionId, extensionData, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/extensions/${extensionId}`, {
       method: 'PUT',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { extensionData },
     }),
 
-  deleteBlockExtension: ({ extensionId, userName, userRole, idempotencyKey }) =>
+  deleteBlockExtension: ({ extensionId, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/extensions/${extensionId}`, {
       method: 'DELETE',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
     }),
@@ -483,36 +511,40 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
   getCommonAreas: ({ blockId, floorIds = [] }) =>
     request(`/api/v1/blocks/${blockId}/common-areas${floorIds.length ? `?floorIds=${encodeURIComponent(floorIds.join(','))}` : ''}`),
 
-  upsertUnit: ({ unitData, userName, userRole }) =>
+  upsertUnit: ({ unitData, userName, userRole, userRoleId }) =>
     request('/api/v1/units/upsert', {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { data: unitData },
     }),
 
-  batchUpsertUnits: ({ unitsList, userName, userRole, idempotencyKey }) =>
+  batchUpsertUnits: ({ unitsList, userName, userRole, userRoleId, idempotencyKey }) =>
     request('/api/v1/units/batch-upsert', {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { unitsList },
     }),
 
-  reconcileUnitsForBlock: ({ blockId, userName, userRole, idempotencyKey }) =>
+  reconcileUnitsForBlock: ({ blockId, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/blocks/${blockId}/units/reconcile`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: {},
     }),
 
-  reconcileCommonAreasForBlock: ({ blockId, userName, userRole, idempotencyKey }) =>
+  reconcileCommonAreasForBlock: ({ blockId, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/blocks/${blockId}/common-areas/reconcile`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: {},
@@ -524,75 +556,84 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
       body: {},
     }),
 
-  upsertCommonArea: ({ data, userName, userRole }) =>
+  upsertCommonArea: ({ data, userName, userRole, userRoleId }) =>
     request('/api/v1/common-areas/upsert', {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { data },
     }),
 
-  deleteCommonArea: ({ id, userName, userRole }) =>
+  deleteCommonArea: ({ id, userName, userRole, userRoleId }) =>
     request(`/api/v1/common-areas/${id}`, {
       method: 'DELETE',
       userName,
+      userRoleId,
       userRole,
     }),
 
-  clearCommonAreas: ({ blockId, floorIds = [], userName, userRole }) =>
+  clearCommonAreas: ({ blockId, floorIds = [], userName, userRole, userRoleId }) =>
     request(`/api/v1/blocks/${blockId}/common-areas/clear`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       body: { floorIds: floorIds.join(',') },
     }),
 
-  updateFloor: ({ floorId, updates, userName, userRole }) =>
+  updateFloor: ({ floorId, updates, userName, userRole, userRoleId }) =>
     request(`/api/v1/floors/${floorId}`, {
       method: 'PUT',
       userName,
+      userRoleId,
       userRole,
       body: { updates },
     }),
 
 
-  updateFloorsBatch: ({ items, userName, userRole }) =>
+  updateFloorsBatch: ({ items, userName, userRole, userRoleId }) =>
     request('/api/v1/floors/batch', {
       method: 'PUT',
       userName,
+      userRoleId,
       userRole,
       body: { items },
     }),
 
-  reconcileFloors: ({ blockId, floorsFrom, floorsTo, defaultType, userName, userRole, idempotencyKey }) =>
+  reconcileFloors: ({ blockId, floorsFrom, floorsTo, defaultType, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/blocks/${blockId}/floors/reconcile`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { floorsFrom, floorsTo, defaultType },
     }),
 
-  upsertMatrixCell: ({ blockId, floorId, entranceNumber, values, userName, userRole }) =>
+  upsertMatrixCell: ({ blockId, floorId, entranceNumber, values, userName, userRole, userRoleId }) =>
     request(`/api/v1/blocks/${blockId}/entrance-matrix/cell`, {
       method: 'PUT',
       userName,
+      userRoleId,
       userRole,
       body: { data: { floorId, entranceNumber, values } },
     }),
 
-  batchUpsertMatrixCells: ({ blockId, cells, userName, userRole }) =>
+  batchUpsertMatrixCells: ({ blockId, cells, userName, userRole, userRoleId }) =>
     request(`/api/v1/blocks/${blockId}/entrance-matrix/batch`, {
       method: 'PUT',
       userName,
+      userRoleId,
       userRole,
       body: { cells },
     }),
 
-  reconcileEntrances: ({ blockId, count, userName, userRole, idempotencyKey }) =>
+  reconcileEntrances: ({ blockId, count, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/blocks/${blockId}/entrances/reconcile`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { count },
@@ -628,37 +669,41 @@ deleteProjectGeometryCandidate: ({ projectId, candidateId, userName, userRole })
       body: {},
     }),
 
-  completeStep: ({ applicationId, stepIndex, comment, userName, userRole, idempotencyKey }) =>
+  completeStep: ({ applicationId, stepIndex, comment, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/applications/${applicationId}/workflow/complete-step`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { stepIndex, comment },
     }),
 
-  rollbackStep: ({ applicationId, reason, userName, userRole, idempotencyKey }) =>
+  rollbackStep: ({ applicationId, reason, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/applications/${applicationId}/workflow/rollback-step`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { reason },
     }),
 
-  reviewApprove: ({ applicationId, comment, userName, userRole, idempotencyKey }) =>
+  reviewApprove: ({ applicationId, comment, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/applications/${applicationId}/workflow/review-approve`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { comment },
     }),
 
-  reviewReject: ({ applicationId, reason, userName, userRole, idempotencyKey }) =>
+  reviewReject: ({ applicationId, reason, userName, userRole, userRoleId, idempotencyKey }) =>
     request(`/api/v1/applications/${applicationId}/workflow/review-reject`, {
       method: 'POST',
       userName,
+      userRoleId,
       userRole,
       idempotencyKey,
       body: { reason },

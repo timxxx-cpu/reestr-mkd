@@ -1,4 +1,3 @@
-import React from 'react';
-import CompositionEditor from './CompositionEditor';
+import { createLazyStep } from '@/features/steps/shared/step-entry-factories';
 
-export const CompositionStep = () => <CompositionEditor />;
+export const CompositionStep = createLazyStep(() => import('./CompositionEditor'));

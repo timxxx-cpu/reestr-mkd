@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useEffect, useState } from 'react';
 import MapGL, { Layer, Source, NavigationControl } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
 import { X, ArrowLeft, MapPinned, RotateCcw, Play, Pause } from 'lucide-react';
-import { BASEMAP_OPTIONS } from './GeometryPickerMap';
+import { BASEMAP_OPTIONS } from './map-basemaps';
 
 const OSM_STYLE = {
   version: 8,

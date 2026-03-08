@@ -1,17 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 
 import { AuthService } from '@lib/auth-service';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ToastProvider } from '@context/ToastContext';
-import CatalogsAdminPanel from '@components/admin/CatalogsAdminPanel';
 import { PersonaContext } from '@context/PersonaContext';
 import LoginScreen from '@components/app/LoginScreen';
-import ProjectEditorRoute from '@components/app/ProjectEditorRoute';
-import MainLayout from '@components/app/MainLayout';
-import ProjectProviderWrapper from '@components/app/ProjectProviderWrapper';
+const CatalogsAdminPanel = lazy(() => import('@components/admin/CatalogsAdminPanel'));
+const ProjectEditorRoute = lazy(() => import('@components/app/ProjectEditorRoute'));
+const MainLayout = lazy(() => import('@components/app/MainLayout'));
+const ProjectProviderWrapper = lazy(() => import('@components/app/ProjectProviderWrapper'));
 
 const DB_SCOPE = 'shared_dev_env';
+
+const RouteLoader = () => (
+  <div className="flex items-center justify-center h-screen bg-slate-50">
+    <Loader2 className="animate-spin text-slate-400" />
+  </div>
+);
 
 
 export default function App() {
@@ -66,23 +72,25 @@ export default function App() {
   return (
     <PersonaContext.Provider value={{ activePersona, setActivePersona, availablePersonas }}>
       <ToastProvider>
-        <Routes>
-          <Route path="/" element={<MainLayout activePersona={activePersona} dbScope={DB_SCOPE} />} />
-          <Route path="/admin/catalogs" element={<CatalogsAdminPanel />} />
-          <Route
-            path="/project/:projectId"
-            element={
-              <ProjectProviderWrapper
-                firebaseUser={firebaseUser}
-                dbScope={DB_SCOPE}
-                activePersona={activePersona}
-              >
-                <ProjectEditorRoute user={activePersona} />
-              </ProjectProviderWrapper>
-            }
-          />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <Suspense fallback={<RouteLoader />}>
+          <Routes>
+            <Route path="/" element={<MainLayout activePersona={activePersona} dbScope={DB_SCOPE} />} />
+            <Route path="/admin/catalogs" element={<CatalogsAdminPanel />} />
+            <Route
+              path="/project/:projectId"
+              element={
+                <ProjectProviderWrapper
+                  firebaseUser={firebaseUser}
+                  dbScope={DB_SCOPE}
+                  activePersona={activePersona}
+                >
+                  <ProjectEditorRoute user={activePersona} />
+                </ProjectProviderWrapper>
+              }
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
       </ToastProvider>
     </PersonaContext.Provider>
   );

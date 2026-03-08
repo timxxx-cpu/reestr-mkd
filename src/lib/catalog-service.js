@@ -1,16 +1,5 @@
 import { BffClient } from './bff-client';
-import { AuthService } from './auth-service';
-import { ROLE_IDS, getRoleId, getRoleKey } from './roles';
-
-const resolveActor = () => {
-  const currentUser = AuthService.getCurrentUser?.() || null;
-
-  return {
-    userName: currentUser?.name || currentUser?.displayName || currentUser?.email || currentUser?.id || 'unknown',
-    userRoleId: getRoleId(currentUser?.roleId ?? currentUser?.role) || ROLE_IDS.TECHNICIAN,
-    userRole: getRoleKey(currentUser?.role ?? currentUser?.roleId) || 'technician',
-  };
-};
+import { getCurrentActor } from './actor';
 
 export const CATALOG_TABLES = [
   'dict_project_statuses',
@@ -30,7 +19,7 @@ export const CatalogService = {
   },
 
   async upsertCatalogItem(table, item) {
-    const resolvedActor = resolveActor();
+    const resolvedActor = getCurrentActor();
     return BffClient.upsertCatalogItem({
       table,
       item,
@@ -41,7 +30,7 @@ export const CatalogService = {
   },
 
   async setCatalogItemActive(table, id, isActive) {
-    const resolvedActor = resolveActor();
+    const resolvedActor = getCurrentActor();
     return BffClient.setCatalogItemActive({
       table,
       id,

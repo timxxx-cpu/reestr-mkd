@@ -22,7 +22,7 @@ import ConfigHeader from '@/features/steps/configurator/ConfigHeader';
 import { useCatalog } from '@hooks/useCatalogs';
 import { MopItemSchema } from '@lib/schemas';
 import { ApiService } from '@lib/api-service';
-import { AuthService } from '@lib/auth-service';
+import { getCurrentActor } from '@lib/actor';
 import { formatBlockSwitcherLabel } from '@lib/building-details';
 import { useToast } from '@context/ToastContext';
 import {
@@ -78,11 +78,7 @@ const isLinkedStylobateFloor = floor => {
 
 export default function MopEditor({ buildingId, onBack }) {
   const toast = useToast();
-  const currentUser = AuthService.getCurrentUser?.() || null;
-  const actor = {
-    userName: currentUser?.displayName || currentUser?.email || 'unknown',
-    userRole: currentUser?.role || 'technician',
-  };
+  const actor = getCurrentActor();
   const queryClient = useQueryClient();
   const { 
       projectId, 

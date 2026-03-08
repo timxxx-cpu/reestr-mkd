@@ -5,6 +5,7 @@ import { ImageIcon, LayoutGrid } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { useToast } from '@context/ToastContext';
 import { useReadOnly } from '@components/ui/UIKit';
+import { getActorFromProfile } from '@lib/actor';
 import { Validators } from '@lib/validators';
 import { BuildingConfigSchema } from '@lib/schemas';
 import { getBlocksList } from '@lib/utils';
@@ -50,6 +51,7 @@ export default function StandardView({ building, mode }) {
   const { buildingDetails, setBuildingDetails, setComposition, userProfile, saveProjectImmediate } = useProject();
   const toast = useToast();
   const isReadOnly = useReadOnly();
+  const actor = getActorFromProfile(userProfile);
 
   const persistBlockGeometry = async geometry => {
   if (!detailsKey || isReadOnly) return;
@@ -266,8 +268,6 @@ export default function StandardView({ building, mode }) {
       return;
     }
     if (!currentBlock?.id) return;
-    const actor = { userName: userProfile?.name, userRole: userProfile?.role };
-
     try {
       const created = await ApiService.createBlockExtension(currentBlock.id, extensionData, actor);
       const mapped = {
@@ -312,7 +312,6 @@ export default function StandardView({ building, mode }) {
       toast.warning('Функционал пристроек отключен feature-flag конфигурацией.');
       return;
     }
-    const actor = { userName: userProfile?.name, userRole: userProfile?.role };
     try {
       const updated = await ApiService.updateBlockExtension(extensionId, extensionData, actor);
       updateBlockExtensionsInComposition(prev =>
@@ -349,7 +348,6 @@ export default function StandardView({ building, mode }) {
       toast.warning('Функционал пристроек отключен feature-flag конфигурацией.');
       return;
     }
-    const actor = { userName: userProfile?.name, userRole: userProfile?.role };
     try {
       await ApiService.deleteBlockExtension(extensionId, actor);
       updateBlockExtensionsInComposition(prev => prev.filter(item => item.id !== extensionId));

@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useEffect, useImperativeHandle } from 'react';
 import Map, { Layer, Source } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
 import { geometry3857To4326 } from '@lib/geometry-utils';
+import { getBasemapStyle } from './map-basemaps';
 
 const BASEMAPS = {
   osm: {
@@ -350,7 +351,7 @@ const GeometryPickerMapBase = ({
         ref={mapRef}
         mapLib={maplibregl}
         initialViewState={initialView}
-        mapStyle={BASEMAPS[basemap]?.style || BASEMAPS.osm.style}
+        mapStyle={getBasemapStyle(basemap)}
         style={{ width: '100%', height: '100%' }}
         interactiveLayerIds={isDrawing ? [] : ['candidates-fill']}
         onClick={evt => {
@@ -448,5 +449,4 @@ const GeometryPickerMapBase = ({
 
 // 2. Экспортируем обернутый компонент. Теперь TypeScript 100% счастлив!
 export const GeometryPickerMap = React.forwardRef(GeometryPickerMapBase);
-
-export const BASEMAP_OPTIONS = Object.values(BASEMAPS).map(item => ({ value: item.id, label: item.label }));
+export default GeometryPickerMap;

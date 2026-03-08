@@ -5,21 +5,74 @@ import { resolve } from 'path'
 import { fileURLToPath } from 'url'
 import packageJson from './package.json'
 
-// Безопасная функция получения 
 const getVersionInfo = () => {
   try {
-    // Пытаемся получить хеш из Git
-    const hash = execSync('git rev-parse --short HEAD').toString().trim();
-    return hash;
+    const hash = execSync('git rev-parse --short HEAD').toString().trim()
+    return hash
   } catch (e) {
-    // Если ошибка (нет git, нет репозитория) — возвращаем заглушку
-    return 'dev';
+    return 'dev'
   }
 }
 
-// Получаем дату сборки
 const getBuildDate = () => {
-    return new Date().toLocaleString('ru-RU');
+  return new Date().toLocaleString('ru-RU')
+}
+
+const getManualChunkName = id => {
+  if (!id.includes('node_modules')) return undefined
+
+  if (
+    id.includes('\\react\\') ||
+    id.includes('/react/') ||
+    id.includes('\\react-dom\\') ||
+    id.includes('/react-dom/') ||
+    id.includes('\\react-router-dom\\') ||
+    id.includes('/react-router-dom/')
+  ) {
+    return 'vendor-react'
+  }
+
+  if (
+    id.includes('\\lucide-react\\') ||
+    id.includes('/lucide-react/') ||
+    id.includes('\\recharts\\') ||
+    id.includes('/recharts/')
+  ) {
+    return 'vendor-ui'
+  }
+
+  if (
+    id.includes('\\@tanstack\\react-query\\') ||
+    id.includes('/@tanstack/react-query/') ||
+    id.includes('\\@tanstack\\react-virtual\\') ||
+    id.includes('/@tanstack/react-virtual/')
+  ) {
+    return 'vendor-data'
+  }
+
+  if (id.includes('\\zod\\') || id.includes('/zod/')) {
+    return 'vendor-utils'
+  }
+
+  if (
+    id.includes('\\maplibre-gl\\') ||
+    id.includes('/maplibre-gl/') ||
+    id.includes('\\react-map-gl\\') ||
+    id.includes('/react-map-gl/')
+  ) {
+    return 'vendor-map'
+  }
+
+  if (
+    id.includes('\\shpjs\\') ||
+    id.includes('/shpjs/') ||
+    id.includes('\\proj4\\') ||
+    id.includes('/proj4/')
+  ) {
+    return 'vendor-shapefile'
+  }
+
+  return undefined
 }
 
 const commitHash = getVersionInfo();
@@ -28,8 +81,6 @@ const rootDir = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig(({ mode }) => ({
   plugins: [react()],
-  
-  // Path aliases для удобных импортов
   resolve: {
     alias: {
       '@': resolve(rootDir, './src'),
@@ -39,35 +90,20 @@ export default defineConfig(({ mode }) => ({
       '@context': resolve(rootDir, './src/context'),
     }
   },
-  
   define: {
-    // ВАЖНО: JSON.stringify обязателен, иначе Vite вставит сырой текст и сломает JS
     __APP_VERSION__: JSON.stringify(packageJson.version),
     __COMMIT_HASH__: JSON.stringify(commitHash),
     __BUILD_DATE__: JSON.stringify(buildDate),
   },
-  
-  // Code splitting для оптимизации загрузки
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          // React ecosystem
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          // UI библиотеки
-          'vendor-ui': ['lucide-react', 'recharts'],
-          // Data management
-          'vendor-data': ['@tanstack/react-query', '@tanstack/react-virtual'],
-          // Validation
-          'vendor-utils': ['zod']
-        }
+        manualChunks: getManualChunkName
       }
     },
-    // Увеличиваем лимит для предупреждений (у нас много компонентов)
-    chunkSizeWarningLimit: 600
+    // The map stack is intentionally isolated and lazy-loaded, so a slightly higher threshold avoids noisy warnings.
+    chunkSizeWarningLimit: 850
   },
-  
-  // Удаление console.log в production
   esbuild: {
     drop: mode === 'production' ? ['console', 'debugger'] : []
   }

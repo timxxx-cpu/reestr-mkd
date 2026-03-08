@@ -12,7 +12,8 @@ import {
   UserCheck,
   Trash2,
 } from 'lucide-react';
-import { ROLES, WORKFLOW_SUBSTATUS, STEPS_CONFIG } from '@lib/constants';
+import { WORKFLOW_SUBSTATUS, STEPS_CONFIG } from '@lib/constants';
+import { ROLE_IDS } from '@lib/roles';
 import { Tooltip } from '@components/ui/UIKit';
 import { IdentifierBadge } from '@components/ui/IdentifierBadge';
 import VisualProgress from './VisualProgress';
@@ -158,7 +159,7 @@ export default function ProjectRow({
           <div className="flex items-center gap-2 pl-1">
             {app.assigneeName ? (
               <>
-                <UserAvatar name={app.assigneeName} role={ROLES.TECHNICIAN} />
+                <UserAvatar name={app.assigneeName} role={ROLE_IDS.TECHNICIAN} />
                 <div className="flex flex-col">
                   <span className="text-[9px] text-slate-400 uppercase tracking-wide leading-none mb-0.5">Исп.</span>
                   <span className="text-[10px] font-bold text-slate-700 leading-none">{app.assigneeName}</span>

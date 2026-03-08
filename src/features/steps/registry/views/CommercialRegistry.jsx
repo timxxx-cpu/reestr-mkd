@@ -33,7 +33,7 @@ import { useProject } from '@context/ProjectContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CatalogService } from '@lib/catalog-service';
 import { ApiService } from '@lib/api-service';
-import { AuthService } from '@lib/auth-service';
+import { getCurrentActor } from '@lib/actor';
 import { useToast } from '@context/ToastContext';
 import ConfigHeader from '@/features/steps/configurator/ConfigHeader';
 import BuildingSelector from '@/features/steps/shared/BuildingSelector';
@@ -412,11 +412,7 @@ const ExplicationPanel = ({
 // --- MAIN COMPONENT ---
 
 const CommercialRegistry = ({ projectId, buildingId, onBack }) => {
-  const currentUser = AuthService.getCurrentUser?.() || null;
-  const actor = {
-    userName: currentUser?.displayName || currentUser?.email || 'unknown',
-    userRole: currentUser?.role || 'technician',
-  };
+  const actor = getCurrentActor();
 
   const queryClient = useQueryClient();
   const toast = useToast();

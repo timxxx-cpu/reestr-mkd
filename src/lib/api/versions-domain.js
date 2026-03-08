@@ -10,6 +10,7 @@ export const createVersionsDomainApi = ({ BffClient, requireBffEnabled, resolveA
       applicationId,
       createdBy,
       userName: actor.userName,
+      userRoleId: actor.userRoleId,
       userRole: actor.userRole,
     });
   },
@@ -22,6 +23,7 @@ export const createVersionsDomainApi = ({ BffClient, requireBffEnabled, resolveA
       versionId,
       approvedBy,
       userName: actor.userName,
+      userRoleId: actor.userRoleId,
       userRole: actor.userRole,
     });
   },
@@ -35,6 +37,7 @@ export const createVersionsDomainApi = ({ BffClient, requireBffEnabled, resolveA
       reason,
       declinedBy,
       userName: actor.userName,
+      userRoleId: actor.userRoleId,
       userRole: actor.userRole,
     });
   },
@@ -51,6 +54,7 @@ export const createVersionsDomainApi = ({ BffClient, requireBffEnabled, resolveA
     return BffClient.restoreVersion({
       versionId,
       userName: actor.userName,
+      userRoleId: actor.userRoleId,
       userRole: actor.userRole,
     });
   },

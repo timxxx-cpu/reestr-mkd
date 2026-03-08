@@ -25,7 +25,7 @@ import { useDirectUnits } from '@hooks/api/useDirectUnits';
 import { useBuildingType } from '@hooks/useBuildingType';
 import { Card, useReadOnly, Modal, Button, Label, Select, BlockingLoader, DebouncedInput } from '@components/ui/UIKit';
 import { ApiService } from '@lib/api-service';
-import { AuthService } from '@lib/auth-service';
+import { getCurrentActor } from '@lib/actor';
 import ConfigHeader from '@/features/steps/configurator/ConfigHeader';
 import { formatBlockSwitcherLabel } from '@lib/building-details';
 import { OUTSIDE_ENTRANCE_KEY, useMatrixData } from '@hooks/useMatrixData';
@@ -135,11 +135,7 @@ export default function FlatMatrixEditor({ buildingId, onBack }) {
   const { projectId, buildingDetails, saveStepBuildingStatuses, saveProjectImmediate, setHasUnsavedChanges } = useProject();
   const isReadOnly = useReadOnly();
   const toast = useToast();
-  const currentUser = AuthService.getCurrentUser?.() || null;
-  const actor = {
-    userName: currentUser?.displayName || currentUser?.email || 'unknown',
-    userRole: currentUser?.role || 'technician',
-  };
+  const actor = getCurrentActor();
 
   const { buildings } = useDirectBuildings(projectId);
   const building = useMemo(() => buildings.find(b => b.id === buildingId), [buildings, buildingId]);

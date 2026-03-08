@@ -5,6 +5,7 @@ import { Box, ArrowUp, Footprints } from 'lucide-react';
 import { useProject } from '@context/ProjectContext';
 import { useToast } from '@context/ToastContext';
 import { Card, SectionTitle, Label, Input, useReadOnly } from '@components/ui/UIKit';
+import { getActorFromProfile } from '@lib/actor';
 import { BuildingConfigSchema } from '@lib/schemas';
 import { useValidation } from '@hooks/useValidation';
 import { ApiService } from '@lib/api-service';
@@ -25,6 +26,7 @@ export default function InfrastructureView({ building }) {
   const { buildingDetails, setBuildingDetails, setComposition, userProfile } = useProject();
   const toast = useToast();
   const isReadOnly = useReadOnly();
+  const actor = getActorFromProfile(userProfile);
 
   const blockId = building.blocks?.[0]?.id || 'main';
   const detailsKey = `${building.id}_${blockId}`;
@@ -116,7 +118,6 @@ export default function InfrastructureView({ building }) {
       toast.warning('Функционал пристроек отключен feature-flag конфигурацией.');
       return;
     }
-    const actor = { userName: userProfile?.name, userRole: userProfile?.role };
     try {
       const created = await ApiService.createBlockExtension(blockId, extensionData, actor);
       const mapped = {
@@ -160,7 +161,6 @@ export default function InfrastructureView({ building }) {
       toast.warning('Функционал пристроек отключен feature-flag конфигурацией.');
       return;
     }
-    const actor = { userName: userProfile?.name, userRole: userProfile?.role };
     try {
       const updated = await ApiService.updateBlockExtension(extensionId, extensionData, actor);
       updateBlockExtensionsInComposition(prev =>
@@ -197,7 +197,6 @@ export default function InfrastructureView({ building }) {
       toast.warning('Функционал пристроек отключен feature-flag конфигурацией.');
       return;
     }
-    const actor = { userName: userProfile?.name, userRole: userProfile?.role };
     try {
       await ApiService.deleteBlockExtension(extensionId, actor);
       updateBlockExtensionsInComposition(prev => prev.filter(item => item.id !== extensionId));

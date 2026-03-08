@@ -1,23 +1,5 @@
 import { BffClient } from '@lib/bff-client';
-import { AuthService } from '@lib/auth-service';
-import { ROLE_IDS, getRoleId, getRoleKey } from '@lib/roles';
-
-export const resolveActor = (actor = {}) => {
-  const currentUser = AuthService.getCurrentUser?.() || null;
-
-  return {
-    userName:
-      actor.userName ||
-      currentUser?.name ||
-      currentUser?.displayName ||
-      currentUser?.email ||
-      currentUser?.id ||
-      'unknown',
-    userRoleId: getRoleId(actor.userRoleId ?? actor.userRole ?? currentUser?.roleId ?? currentUser?.role) || ROLE_IDS.TECHNICIAN,
-    userRole:
-      getRoleKey(actor.userRole ?? actor.userRoleId ?? currentUser?.role ?? currentUser?.roleId) || 'technician',
-  };
-};
+export { resolveActor } from '@lib/actor';
 
 export const requireBffEnabled = operation => {
   if (!BffClient.isEnabled()) {

@@ -26,7 +26,7 @@ import { Card, DebouncedInput, Input, Label, Select, useReadOnly, Button, Modal,
 import { useToast } from '@context/ToastContext';
 import { CatalogService } from '@lib/catalog-service';
 import { ApiService } from '@lib/api-service';
-import { AuthService } from '@lib/auth-service';
+import { getCurrentActor } from '@lib/actor';
 import { formatBlockSwitcherLabel } from '@lib/building-details';
 import { useProject } from '@context/ProjectContext';
 import BuildingSelector from '@/features/steps/shared/BuildingSelector';
@@ -614,11 +614,7 @@ const ExplicationPanel = ({
 // --- MAIN COMPONENT ---
 
 const ApartmentsRegistry = ({ projectId, buildingId, onBack }) => {
-  const currentUser = AuthService.getCurrentUser?.() || null;
-  const actor = {
-    userName: currentUser?.displayName || currentUser?.email || 'unknown',
-    userRole: currentUser?.role || 'technician',
-  };
+  const actor = getCurrentActor();
 
   const queryClient = useQueryClient();
   const toast = useToast();

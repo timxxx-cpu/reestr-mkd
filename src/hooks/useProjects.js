@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiService } from '../lib/api-service';
+import { ROLE_IDS, ROLE_KEYS } from '../lib/roles';
 
 export function useProjects(scope) {
   const queryClient = useQueryClient();
@@ -29,7 +30,11 @@ export function useProjects(scope) {
         submissionDate: new Date(),
       };
       // Передаем также объект пользователя (для поля assignee_name)
-      const user = params.user || { name: 'Admin', role: 'admin' };
+      const user = params.user || {
+        name: 'Admin',
+        roleId: ROLE_IDS.ADMIN,
+        role: ROLE_KEYS.ADMIN,
+      };
 
       return ApiService.createProjectFromApplication(scope, appData, user);
     },

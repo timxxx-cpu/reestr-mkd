@@ -1,4 +1,4 @@
-import { ROLES } from '../../lib/constants.js';
+import { getDeclineSubstatusByRole as resolveDeclineSubstatusByRole } from '../../lib/role-policy.js';
 
 export const DASHBOARD_DECLINE_SUBSTATUS = {
   ADMIN: 'DECLINED_BY_ADMIN',
@@ -7,7 +7,8 @@ export const DASHBOARD_DECLINE_SUBSTATUS = {
 };
 
 export const getDeclineSubstatusByRole = role => {
-  if (role === ROLES.BRANCH_MANAGER) return DASHBOARD_DECLINE_SUBSTATUS.BRANCH_MANAGER;
-  if (role === ROLES.CONTROLLER) return DASHBOARD_DECLINE_SUBSTATUS.CONTROLLER;
+  const substatus = resolveDeclineSubstatusByRole(role);
+  if (substatus === 'DECLINED_BY_MANAGER') return DASHBOARD_DECLINE_SUBSTATUS.BRANCH_MANAGER;
+  if (substatus === 'DECLINED_BY_CONTROLLER') return DASHBOARD_DECLINE_SUBSTATUS.CONTROLLER;
   return DASHBOARD_DECLINE_SUBSTATUS.ADMIN;
 };

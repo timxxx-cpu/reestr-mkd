@@ -3,7 +3,7 @@ import { Home, Briefcase, Car, Loader2 } from 'lucide-react';
 import { useToast } from '@context/ToastContext';
 import { TabButton } from '@components/ui/UIKit';
 import { ApiService } from '@lib/api-service';
-import { AuthService } from '@lib/auth-service';
+import { getCurrentActor } from '@lib/actor';
 import { useProject } from '@context/ProjectContext';
 
 // Импорт видов
@@ -20,11 +20,7 @@ const MODES = {
 const UnitRegistry = ({ mode = 'apartments' }) => {
   const { projectId } = useProject();
   const toast = useToast();
-  const currentUser = AuthService.getCurrentUser?.() || null;
-  const actor = {
-    userName: currentUser?.displayName || currentUser?.email || 'unknown',
-    userRole: currentUser?.role || 'technician',
-  };
+  const actor = getCurrentActor();
   const [activeTab, setActiveTab] = useState(mode);
   const [isSaving, setIsSaving] = useState(false);
   const isLockedMode = Boolean(MODES[mode]);

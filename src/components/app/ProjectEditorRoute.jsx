@@ -1,19 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Loader2, LogOut, Eye, History } from 'lucide-react';
+import { Loader2, Eye, History } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useToast } from '@context/ToastContext';
 import { useProject } from '@context/ProjectContext';
-import { STEPS_CONFIG, ROLES, WORKFLOW_STAGES } from '@lib/constants';
+import { STEPS_CONFIG } from '@lib/constants';
 import { hasRole, ROLE_IDS } from '@lib/roles';
-
-import Sidebar from '@components/Sidebar';
-import StepIndicator from '@components/StepIndicator';
-import Breadcrumbs from '@components/ui/Breadcrumbs';
 import { ReadOnlyProvider } from '@components/ui/UIKit';
-import WorkflowBar from '@components/WorkflowBar';
-import HistoryModal from '@components/HistoryModal';
 import { renderWorkflowStepContent } from '@/features/workflow/step-registry';
+
+const Sidebar = React.lazy(() => import('@components/Sidebar'));
+const StepIndicator = React.lazy(() => import('@components/StepIndicator'));
+const WorkflowBar = React.lazy(() => import('@components/WorkflowBar'));
+const HistoryModal = React.lazy(() => import('@components/HistoryModal'));
+
+const RouteChromeFallback = ({ className = 'h-16' }) => (
+  <div className={`flex items-center justify-center bg-slate-900/5 ${className}`}>
+    <Loader2 className="animate-spin text-slate-400" size={20} />
+  </div>
+);
 
 export default function ProjectEditorRoute({ user }) {
   const navigate = useNavigate();
@@ -97,25 +102,29 @@ export default function ProjectEditorRoute({ user }) {
   return (
     <ReadOnlyProvider value={effectiveReadOnly}>
       <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
-        <Sidebar
-          currentStep={currentStep}
-          onStepChange={onStepChange}
-          isOpen={sidebarOpen}
-          onToggle={() => setSidebarOpen(!sidebarOpen)}
-          onBackToDashboard={handleBackToDashboard}
-          maxAllowedStep={maxAllowedStep}
-        />
+        <React.Suspense fallback={<RouteChromeFallback className="w-20 h-full" />}>
+          <Sidebar
+            currentStep={currentStep}
+            onStepChange={onStepChange}
+            isOpen={sidebarOpen}
+            onToggle={() => setSidebarOpen(!sidebarOpen)}
+            onBackToDashboard={handleBackToDashboard}
+            maxAllowedStep={maxAllowedStep}
+          />
+        </React.Suspense>
         <main
           className={`flex-1 flex flex-col h-full relative transition-all duration-300 overflow-x-hidden ${sidebarOpen ? 'ml-72' : 'ml-20'}`}
         >
           {!isViewMode && (
-            <WorkflowBar
-              user={user}
-              currentStep={currentStep}
-              setCurrentStep={setCurrentStep}
-              onExit={handleBackToDashboard}
-              onOpenHistory={() => setHistoryOpen(true)}
-            />
+            <React.Suspense fallback={<RouteChromeFallback />}>
+              <WorkflowBar
+                user={user}
+                currentStep={currentStep}
+                setCurrentStep={setCurrentStep}
+                onExit={handleBackToDashboard}
+                onOpenHistory={() => setHistoryOpen(true)}
+              />
+            </React.Suspense>
           )}
 
           {isViewMode && (
@@ -147,14 +156,20 @@ export default function ProjectEditorRoute({ user }) {
           </div>
 
           {historyOpen && (
-            <HistoryModal
-              history={applicationInfo?.history || []}
-              onClose={() => setHistoryOpen(false)}
-            />
+            <React.Suspense fallback={null}>
+              <HistoryModal
+                history={applicationInfo?.history || []}
+                onClose={() => setHistoryOpen(false)}
+              />
+            </React.Suspense>
           )}
 
           <div className="flex-1 overflow-y-auto pb-6 scroll-smooth custom-scrollbar">
-            {!editingBuildingId && <StepIndicator currentStep={currentStep} />}
+            {!editingBuildingId && (
+              <React.Suspense fallback={<RouteChromeFallback className="h-14 bg-white" />}>
+                <StepIndicator currentStep={currentStep} />
+              </React.Suspense>
+            )}
             <React.Suspense fallback={<Loader2 className="animate-spin text-blue-600" />}>
               {renderStepContent()}
             </React.Suspense>

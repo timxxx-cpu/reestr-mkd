@@ -1,4 +1,3 @@
-import React from 'react';
-import IntegrationBuildings from './IntegrationBuildings';
+import { createLazyStep } from '@/features/steps/shared/step-entry-factories';
 
-export const IntegrationBuildingsStep = () => <IntegrationBuildings />;
+export const IntegrationBuildingsStep = createLazyStep(() => import('./IntegrationBuildings'));

@@ -26,11 +26,18 @@ import { Card, SectionTitle, Label, Input, Select, Button, useReadOnly } from '@
 import { FullIdentifierCompact } from '@components/ui/IdentifierBadge';
 import { useCatalog } from '@hooks/useCatalogs';
 import { createVirtualComplexCadastre, formatComplexCadastre } from '@lib/cadastre';
-import shp from 'shpjs';
 import { ApiService } from '@lib/api-service';
-import { GeometryPickerMap, BASEMAP_OPTIONS } from '@components/maps/GeometryPickerMap';
+import { BASEMAP_OPTIONS } from '@components/maps/map-basemaps';
 import { normalizeShpFeatures } from '@lib/geometry-utils';
 import { useQueryClient } from '@tanstack/react-query';
+
+const GeometryPickerMap = React.lazy(() => import('@components/maps/GeometryPickerMap'));
+
+const GeometryPickerMapFallback = () => (
+  <div className="flex h-full min-h-[300px] items-center justify-center bg-slate-100">
+    <Loader2 className="animate-spin text-slate-400" size={24} />
+  </div>
+);
 
 const STATUS_CONFIG = {
   Проектный: { color: 'bg-purple-500', text: 'Проектирование', icon: FileText },
@@ -211,6 +218,7 @@ const PassportEditor = () => {
     setIsImportingGeometry(true);
     try {
       const arrayBuffer = await file.arrayBuffer();
+      const { default: shp } = await import('shpjs');
       const geojson = await shp(arrayBuffer);
       const candidates = normalizeShpFeatures(geojson);
       if (!candidates.length) throw new Error('В SHP ZIP не найдено Polygon/MultiPolygon геометрий');
@@ -860,7 +868,8 @@ const PassportEditor = () => {
 
               {/* MAP */}
               <div className="flex-1 rounded-lg overflow-hidden border border-slate-200 shadow-inner bg-slate-100 relative min-h-[300px]">
-                <GeometryPickerMap
+                <React.Suspense fallback={<GeometryPickerMapFallback />}>
+                  <GeometryPickerMap
                   candidates={geometryCandidates}
                   selectedId={selectedLandPlotCandidateId}
                   activeId={activeCandidateId}
@@ -872,8 +881,9 @@ const PassportEditor = () => {
                   isDrawing={isDrawingGeometry}
                   draftPoints={draftPolygonPoints}
                   onDraftPointAdd={handleAddDraftPoint}
-                  height={400}
-                />
+                    height={400}
+                  />
+                </React.Suspense>
               </div>
               
               <div className="text-[10px] text-slate-400 text-center flex items-center justify-center gap-4">
